@@ -232,7 +232,7 @@ component({
 .cover-mark.at-length { bottom: var(--pad-frame-compact); right: var(--pad-frame-compact); }
 /* One alone: its well as wide as what holds it. */
 /* The wells (a track, or one well across the width) and the light box they open, one piece; the closed light box takes no room. */
-.game-media { display: grid; min-width: 0; }
+.game-media { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* The strip: small wells side by side, scrolling sideways when they don't fit, the one shown lit along its foot. */
 .media-strip { display: flex; gap: var(--gap-control-row); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .media-strip::-webkit-scrollbar { display: none; }

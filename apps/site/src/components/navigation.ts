@@ -833,6 +833,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     row.addEventListener("scroll", function () { if (isFadeQueued) return; isFadeQueued = true; requestAnimationFrame(function () { isFadeQueued = false; fades(); }); }, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     ends();
+    // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
+    requestAnimationFrame(function () { requestAnimationFrame(function () { row.classList.add("fades-ease"); }); });
   });
 })();
 `;

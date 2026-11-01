@@ -207,7 +207,7 @@ component({
 /* Sound: pointed at or worked from the keys, a short groove slides open beside it inside the bar, filled to the level. */
 .video-sound { display: flex; align-items: center; }
 .video-level { position: relative; display: grid; width: 0; overflow: hidden; transition: width var(--motion-arrive) var(--ease-glide); }
-.video-sound:is(:hover, :has(:focus-visible)) > .video-level, .video-player.is-sound-open .video-level, .video-level:has([data-is-dragged]) { width: 64px; overflow: visible; }
+.video-sound:hover > .video-level, .video-sound:has(:focus-visible) > .video-level, .video-player.is-sound-open .video-level, .video-level:has([data-is-dragged]) { width: 64px; overflow: visible; }
 .video-sound [data-video-sound]:not([data-sound-at="off"]) svg[data-shown-at="off"], .video-sound [data-video-sound]:not([data-sound-at="low"]) svg[data-shown-at="low"], .video-sound [data-video-sound]:not([data-sound-at="high"]) svg[data-shown-at="high"] { display: none; }
 /* Narrow (a phone's width): its time says only where it's at, and Sound only mutes, its groove never opening, so everything fits on one
    line and the timeline keeps what's left. A touch screen's own buttons set the sound, so there it only mutes too. */

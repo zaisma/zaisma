@@ -201,8 +201,9 @@ html, body { overscroll-behavior: none; }
 html { -webkit-tap-highlight-color: transparent; }
 .is-scrollable-sideways { overscroll-behavior-x: contain; }
 /* Each fade's edges ease in and out, all four named on both, so a box that scrolls both ways (a table) eases every edge whichever rule
-   wins. */
-[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
+   wins; from the frame after the page starts (fades-ease, SCROLL_FADE_SCRIPT), so a fade there at the start is there at once. */
+[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+[data-fades-sideways].fades-ease { transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%);

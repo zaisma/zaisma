@@ -275,12 +275,15 @@ component({
 .tag.glass:not([data-glass]) { clip-path: none; --glass-clip: var(--cut-shape, none); }
 .tag.glass.is-new { color: var(--tag-new-ink); }
 /* Removable: a link, its words then a close mark, a little taller so it's easy to press; pointed at, its words and mark light up. */
-.tag.is-removable { height: 26px; gap: 4px; padding-inline: 9px 8px; text-decoration: none; cursor: pointer; }
+/* A removable tag is a link round the tag, so its reach for a finger isn't cut away with the tag's own corners. */
+.tag-remove { display: inline-flex; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.tag.is-removable { height: 26px; gap: 4px; padding-inline: 9px 8px; }
 .tag.is-removable > .ico { width: 12px; height: 12px; stroke-width: 2; }
-.tag.is-removable:hover { color: var(--ink); }
-.tag.is-removable:focus-visible { outline: none; box-shadow: var(--tag-carve), inset 0 0 0 2px var(--focus); }
+.tag-remove:hover > .tag.is-removable { color: var(--ink); }
+.tag-remove:focus-visible { outline: none; }
+.tag-remove:focus-visible > .tag.is-removable { box-shadow: var(--tag-carve), inset 0 0 0 2px var(--focus); }
 /* On a touch screen its remove press reaches past its own box to a touch target's height, unseen, as a small button's does. */
-@media (pointer: coarse) { .tag.is-removable { position: relative; } .tag.is-removable::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); } }
+@media (pointer: coarse) { .tag-remove { position: relative; } .tag-remove::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); } }
 .tags-in-use { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 `,
   render: (words: string | number, tone: TagTone, options?: { icon?: IconName }) => tag(words, tone, options),
@@ -790,7 +793,7 @@ export type StateKind = "empty" | "problem" | "done";
 
 export interface StateNoteOptions {
   stateKind: StateKind;
-  /** Left out, the note is its text alone: one line, like a shelf's. */
+  /** Left out, the note is its text alone: one line, like a shelf's. "" keeps an empty title for a page script to write (the buy sheet's problem). */
   title?: string;
   text: string;
   /** An id for the text, for a page script that writes it as things change (who's in a room); while it's empty, it's hidden. */
@@ -808,7 +811,7 @@ export function stateNote(options: StateNoteOptions & { stateKind: "empty" }): E
 export function stateNote(options: StateNoteOptions): Raw;
 export function stateNote(options: StateNoteOptions): Raw {
   const mark = options.stateKind === "problem" ? icon("warning") : options.stateKind === "done" ? icon("check") : "";
-  const note = html`<div class="state-note${options.stateKind === "empty" ? "" : ` ${options.stateKind}`}${options.action ? " has-action" : ""}">${mark}<div class="state-words words-margin">${options.title ? html`<p class="state-title">${options.title}</p>` : ""}<p class="state-text"${options.textId ? html` id="${options.textId}"` : ""}${options.text ? "" : raw(" hidden")}>${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
+  const note = html`<div class="state-note${options.stateKind === "empty" ? "" : ` ${options.stateKind}`}${options.action ? " has-action" : ""}">${mark}<div class="state-words words-margin">${options.title !== undefined ? html`<p class="state-title">${options.title}</p>` : ""}<p class="state-text"${options.textId ? html` id="${options.textId}"` : ""}${options.text ? "" : raw(" hidden")}>${options.text}</p></div>${options.action ? html`<div class="state-action">${options.action}</div>` : ""}</div>`;
   return options.stateKind === "empty" ? new EmptyNoteMarkup(note.html) : note;
 }
 

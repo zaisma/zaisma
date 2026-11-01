@@ -175,8 +175,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
     var distances = function (r) { return { left: r.left - box.left, right: box.right - r.right, top: r.top - box.top, bottom: box.bottom - r.bottom }; };
     // A floating pane the gallery shows open in place (a select's list over its field, a wheel field's wheels) is laid over the pane, not
-    // set in it: it's measured as a pane of its own.
-    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place") && !el.closest(".rail") && !framedIn(el, pane) && isShown(el); });
+    // set in it: it's measured as a pane of its own. So is a chart's tip, floating over the point it's about.
+    var framed = Array.prototype.filter.call(pane.querySelectorAll(FRAMED), function (el) { return el !== pane && !el.matches(".floating-pane.in-place, .chart-tip") && !el.closest(".rail") && !framedIn(el, pane) && isShown(el); });
     // Nothing with an edge runs past its pane's edge. Inside what scrolls with its rail showing, the rail's room is past the end edge.
     framed.forEach(function (el) {
       if (isScrolledAway(el, pane)) return;

@@ -71,7 +71,15 @@ export function hoverOnlyWherePointing(css: string): string {
     if (/^@(media|supports|container|layer)\b/.test(selector)) out += `${head}{${hoverOnlyWherePointing(body)}}`;
     else if (selector.startsWith("@") || !selector.includes(":hover")) out += `${head}{${body}}`;
     else {
-      const parts = selector.split(/,(?![^(]*\))/).map((part) => part.trim());
+      // Split at the list's own commas only, never inside :is(), :not() or :has(), however deep they nest.
+      const parts: string[] = [];
+      let nestingLevel = 0, partStartIndex = 0;
+      for (let i = 0; i < selector.length; i++) {
+        if (selector[i] === "(") nestingLevel++;
+        else if (selector[i] === ")") nestingLevel--;
+        else if (selector[i] === "," && nestingLevel === 0) { parts.push(selector.slice(partStartIndex, i).trim()); partStartIndex = i + 1; }
+      }
+      parts.push(selector.slice(partStartIndex).trim());
       const pointing = parts.filter((part) => part.includes(":hover")), resting = parts.filter((part) => !part.includes(":hover"));
       out += `${head.slice(0, head.length - head.trimStart().length)}${resting.length ? `${resting.join(", ")} {${body}}\n` : ""}@media (hover: hover) { ${pointing.join(", ")} {${body}} }`;
     }
@@ -87,14 +95,14 @@ export const COMPONENT_STYLES = (): string => (shownStyles ||= hoverOnlyWherePoi
 /**
  * The components' scripts, readable, in two (what scripts/minify-components.mjs minifies). The first-paint script draws and places what the
  * page's first paint shows: the page watcher, pictures arriving, the glass and its edge rule, the materials, where panes hang, and every
- * script that sizes or places the layout (a switch's slab, rails, rows, a list row's buttons narrowed to their icons, fades, the sidebar, compacting, a pane started low, the sign-in's pane, a long field's height, a
+ * script that sizes or places the layout (a switch's slab, rails, rows, a list row's buttons narrowed to their icons, a table's slabs, fades, the sidebar, compacting, a pane started low, the sign-in's pane, a long field's height, a
  * chart's scroll, a slider's and a colour's thumb, a date's words in the viewer's time, a menu shown in place), and the backdrop, first, so Zaisma's shader starts with the page, never after its stand-in, and a game's world picks its glass before anything
  * reads the page (read light first, the glass would fade to smoked as the page showed). The page holds its first paint for
  * it alone, in its head ("A page shows whole while it loads", docs/DESIGN.md), so it's kept to that; the loading check (layout-check.mjs)
  * fails a page that changes when the rest is held back, which is how a script is found to belong here. The rest runs after, holding nothing.
  */
-export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + BACKDROP_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + LIST_ROW_FIT_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + WHEEL_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT + CITY_PANE_PLACE_SCRIPT;
-export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT + TABLE_SCRIPT;
+export const FIRST_PAINT_SCRIPT_SOURCE = WATCH_SCRIPT + BACKDROP_SCRIPT + PICTURE_SCRIPT + GLASS_SCRIPT + MATERIAL_SCRIPT + PLACE_SCRIPT + EDGE_LIGHT_SCRIPT + SWITCH_SCRIPT + RAIL_SCRIPT + ROW_SCRIPT + ROW_LAYOUT_SCRIPT + LIST_ROW_FIT_SCRIPT + TABLE_SCRIPT + SCROLL_FADE_SCRIPT + SIDEBAR_SCRIPT + COMPACT_SCRIPT + STARTED_LOW_SCRIPT + WHEEL_SCRIPT + CHART_SCRIPT + LONG_FIELD_SCRIPT + SLIDER_SCRIPT + COLOR_FIELD_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT + CITY_PANE_PLACE_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
  * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't

@@ -191,7 +191,7 @@ export type TagTone = "new" | "count" | "plain" | "warning" | "problem" | "glass
 export const tag = (words: string | number, tone: TagTone, options: { icon?: IconName; removeHref?: string } = {}): Raw => {
   const shownIcon = options.icon ?? (tone === "problem" ? "warning" : undefined);
   return options.removeHref !== undefined
-    ? html`<a class="tag ${tone} is-removable" href="${options.removeHref}" aria-label="Remove ${String(words)}" data-cut-line="0" data-cut-square>${CUT_LINE}<span>${String(words)}</span>${icon("close")}</a>`
+    ? html`<a class="tag-remove" href="${options.removeHref}" aria-label="Remove ${String(words)}"><span class="tag ${tone} is-removable" data-cut-line="0" data-cut-square>${CUT_LINE}<span>${String(words)}</span>${icon("close")}</span></a>`
     : html`<span class="tag ${tone === "new-on-glass" ? "glass is-new" : tone}" data-cut-line="0" data-cut-square>${CUT_LINE}${shownIcon ? html`${icon(shownIcon)}<span>${String(words)}</span>` : String(words)}</span>`;
 };
 

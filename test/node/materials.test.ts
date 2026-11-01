@@ -193,7 +193,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".confirm-body [id$=\"-reason\"] | margin-bottom", "Confirm it's you's reason stands a block's gap from the field under it"],
   [".tag.is-removable | height", "a removable tag is as tall as its remove mark's reach"],
   [".tag.is-removable | padding-inline", "a removable tag keeps room for its remove mark"],
-  [".tag.is-removable:focus-visible | box-shadow", "a removable tag shows the keyboard's focus ring inside its carving"],
+  [".tag-remove:focus-visible > .tag.is-removable | box-shadow", "a removable tag shows the keyboard's focus ring inside its carving"],
   [".stripe-frame.is-covering | height", "over the whole window while a bank asks the player to confirm"],
   [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],
   [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],

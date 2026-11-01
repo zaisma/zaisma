@@ -175,6 +175,13 @@ describe("the gallery", () => {
     for (const each of COMPONENTS()) expect(styles, each.slug).toContain(hoverOnlyWherePointing(each.styles));
   });
 
+  it("moves a pointed look under hover without breaking a selector: a list splits only at its own commas, past nested :is() and :has()", () => {
+    expect(hoverOnlyWherePointing(".a:is(:hover, :has(:focus-visible)) > .b, .c.is-on .b { width: 1px; }")).toBe(".c.is-on .b { width: 1px; }\n@media (hover: hover) { .a:is(:hover, :has(:focus-visible)) > .b { width: 1px; } }");
+    // Every rule in the pages' styles closes each bracket it opens, so no broken selector swallows the rules after it.
+    const unbalanced = [...COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\/|"[^"]*"|'[^']*'/g, "").matchAll(/([^{}]*)\{/g)].map(([, selector = ""]) => selector.trim()).filter((selector) => selector.split("(").length !== selector.split(")").length);
+    expect(unbalanced).toEqual([]);
+  });
+
   it("gives every component a slug of its own", () => {
     const slugs = COMPONENTS().map((each) => each.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
