@@ -1,6 +1,6 @@
 {
   "name": "@zaisma/game-server",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "description": "Write a Zaisma game server once; run it in Zaisma rooms or on your own Node server.",
   "license": "MIT",
   "type": "module",
