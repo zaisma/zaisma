@@ -400,9 +400,10 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var tab = event.target.closest("[data-sheet-tab-to]");
     var tabbed = tab && tab.closest("dialog");
     if (tabbed) { chooseTab(tabbed, tab.getAttribute("data-sheet-tab-to")); return; }
-    // A light box goes on a press anywhere in it but its own controls, when it's the top layer.
+    // A light box goes on a press anywhere in it but its own controls (a video's own too), when it's the top layer; one on a pane (a game's
+    // media), only on a press beside the pane: on it, only Close or Esc.
     var box = event.target.closest("dialog.light-box[open]");
-    if (box && openSheets[openSheets.length - 1] === box && !event.target.closest("a, button, input")) { box.close(); return; }
+    if (box && openSheets[openSheets.length - 1] === box && !event.target.closest("a, button, input, video, .floating-pane, .light-box.on-pane .glass-pane")) { box.close(); return; }
     // A press beside the top sheet closes it, and only it.
     var open = event.target.matches("dialog.sheet[open]") ? event.target : null;
     if (!open || !event.detail || openSheets[openSheets.length - 1] !== open) return;

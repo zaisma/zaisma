@@ -133,7 +133,7 @@ export function friendsHereHtml(gameSlug: string, friends: FriendPlaying[]): str
     join: room ? { room_code: room, server_url: null, refusal: null, refusing_friend_names: [] } : null,
     watch: null,
   } as unknown as FriendsInGame;
-  return String(friendsHere(gameSlug, here));
+  return String(friendsHere(here));
 }
 
 /** The players sheet's friends part: the friends playing the game outside this room, with Join. */

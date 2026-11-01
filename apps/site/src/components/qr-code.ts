@@ -74,7 +74,11 @@ component({
    under it in the label's words. The game's icon sits over its middle, a fifth of its width, ringed in the tile's white: the code is drawn at
    error correction level H, which reads through it. Masked, it blurs until the page shows it. */
 .qr-code { display: grid; justify-items: center; gap: var(--gap-words-control); margin: 0; min-width: 0; }
-.qr-cast { display: block; width: min(220px, 100%); filter: var(--thumb-cast); }
+/* Its tile fills the pane's width, so it keeps the frame gap on all four sides as a well does, up to a light box's size: a QR code that
+   belongs in a wide place gets a pane of its own, sized to it. */
+.qr-cast { display: block; width: min(360px, 100%); filter: var(--thumb-cast); }
+.qr-code:not(.is-large) { justify-items: stretch; }
+.qr-code:not(.is-large) > .qr-cast { justify-self: center; }
 .qr-tile { position: relative; display: block; padding: 6px; background: #fff; clip-path: var(--cut-shape); }
 .qr-tile > .cut-line { --band-top: rgba(255,255,255,1); --band-left: rgba(255,255,255,0.9); --band-right: rgba(20,30,50,0.14); --band-bottom: rgba(20,30,50,0.22); }
 .qr-picture { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #fff; transition: filter var(--motion-state); }

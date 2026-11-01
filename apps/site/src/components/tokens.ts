@@ -56,9 +56,9 @@ export const LIGHT_GLASS = `color-scheme: light;
   /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
      so it takes that glass's --line: a var() in a custom property is read where it's set. */
   --divider: 1px solid var(--line);
-  --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(217, 165, 28, 0.3); --tag-warning-ink: var(--warning); --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
+  --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(217, 165, 28, 0.3); --tag-warning-ink: var(--warning); --tag-problem: rgba(217, 58, 43, 0.2); --tag-problem-ink: #A82718; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   /* Data: a table's header row over the rows scrolling under it, a chart's fill under its line, a meter's fill and its amber past 80%. */
-  --table-head: rgba(250, 252, 255, 0.9); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-near-hi: #F0705F; --meter-near: #D93A2B; --meter-full: #A82718; --meter-full-ink: #A82718; --part-0: #3E6FD8; --part-1: #7B5BD6; --part-2: #1E9C87; --part-3: #5E8C2E; --part-4: #D2577F; --part-5: #2A8FB8;
+  --table-head: rgba(250, 252, 255, 0.9); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-near-hi: #F0705F; --meter-near: #D93A2B; --meter-full: #A82718; --meter-full-ink: #A82718; --part-0: #3E6FD8; --part-1: #7B5BD6; --part-2: #1E9C87; --part-3: #5E8C2E; --part-4: #D2577F; --part-5: #2A8FB8; --code-keyword: #6A4FC9; --code-string: #1E7A5C; --code-number: #B1502A;
   /* A file drop's dashed outline, waiting for a file. */
   --drop-dash: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45); --rail-etch: rgba(255, 255, 255, 0.95); --rail-etch-shade: rgba(20, 30, 50, 0.22);
@@ -104,8 +104,8 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --well-mark: url("/zaisma-mark-glass-white.svg"); --divider: 1px solid var(--line);
-  --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
-  --table-head: rgba(14, 17, 24, 0.9); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-near-hi: #FF8A78; --meter-near: #E5483A; --meter-full: #A82718; --meter-full-ink: #FF8A78; --part-0: #6E97F0; --part-1: #A08AF0; --part-2: #3CC4AC; --part-3: #8DBA55; --part-4: #EC7FA3; --part-5: #5BC0E3; --drop-dash: rgba(255, 255, 255, 0.34);
+  --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(230, 181, 58, 0.24); --tag-warning-ink: var(--warning); --tag-problem: rgba(229, 72, 58, 0.26); --tag-problem-ink: #FF8A78; --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
+  --table-head: rgba(14, 17, 24, 0.9); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-near-hi: #FF8A78; --meter-near: #E5483A; --meter-full: #A82718; --meter-full-ink: #FF8A78; --part-0: #6E97F0; --part-1: #A08AF0; --part-2: #3CC4AC; --part-3: #8DBA55; --part-4: #EC7FA3; --part-5: #5BC0E3; --code-keyword: #B9A6FF; --code-string: #6FD3AE; --code-number: #F0A07A; --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5); --rail-etch: rgba(220, 228, 242, 0.62); --rail-etch-shade: rgba(0, 0, 0, 0.45);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter than light glass's. It has no caustics:
      on light glass they're light on light and only round the edge off, but on dark glass they read as a glow fanning in from the rim, which
@@ -186,7 +186,7 @@ export const TOKEN_STYLES = `
 @property --pad-words { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent);
-  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard); }
+  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
 /* A row that scrolls sideways (data-fades-sideways: a header's tabs, the gallery's groups on a phone) fades out over a side with more past it,
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -200,7 +200,9 @@ export const TOKEN_STYLES = `
 html, body { overscroll-behavior: none; }
 html { -webkit-tap-highlight-color: transparent; }
 .is-scrollable-sideways { overscroll-behavior-x: contain; }
-[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
+/* Each fade's edges ease in and out, all four named on both, so a box that scrolls both ways (a table) eases every edge whichever rule
+   wins. */
+[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%);
@@ -227,7 +229,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
   /* Orange light's other tones (Light, panes.ts): deeper at its start, and the bright tip and white-hot spark at its leading end; a glint is white light running along it. */
   /* What's behind something over everything: dimmed for a task (a sheet), a little for one hanging from its button, deep for one thing large (a light box), whose words are light. */
-  --dim: rgba(6, 9, 14, 0.42); --dim-light: rgba(6, 9, 14, 0.16); --dim-deep: rgba(6, 9, 14, 0.78); --ink-on-dim: #F7F9FC; --on-picture: #FFFFFF; --on-picture-shade: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); --ink-2-on-dim: rgba(247, 249, 252, 0.8);
+  --dim: rgba(6, 9, 14, 0.42); --dim-light: rgba(6, 9, 14, 0.16); --dim-deep: rgba(6, 9, 14, 0.78); --dim-light-box: rgba(6, 9, 14, 0.6); --ink-on-dim: #F7F9FC; --on-picture: #FFFFFF; --on-picture-shade: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); --ink-2-on-dim: rgba(247, 249, 252, 0.8);
   --run-deep: #E9820C; --run-tip: #FFC277; --run-spark: #FFF4E2; --glint: rgba(255, 255, 255, 0.7); --glint-warm: rgba(255, 246, 228, 0.95);
   /* Words and marks on an orange face (the runner, a ticked box): dark ink in both themes, 7.8:1 against it (white is 2.3:1). */
   --on-run: #14171C;
@@ -246,7 +248,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-world: 1.2s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
   --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
   --spring: var(--ease-spring);
-  /* Waiting (components/waiting.ts): Zaisma's orange light, its bright core and its glow, as a Loading state's line and a header's groove
+  /* Waiting (components/waiting.ts): Zaisma's orange light, its bright core and its glow, as a header's groove
      show it (the groove fills over --waiting-fill-time), and the glint a pressed control runs while it waits, one pass in
      --waiting-glint-time. */
   --waiting-light: var(--run-tip); --waiting-glow: var(--run); --waiting-light-width: 2px; --waiting-fill-time: 8s; --waiting-glint-time: 0.75s; --waiting-glint-sweep: 0.4s; --waiting-glint-leave: 0.25s;

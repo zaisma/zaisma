@@ -6,7 +6,7 @@ import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
 import { html, layout, pageData, scriptTags, type Raw } from "./html.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { checkField, choiceCards, longField, type ChoiceCard } from "./components/choices.ts";
-import { doneState } from "./components/data.ts";
+import { stateNote } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
 import { glassPane } from "./components/foundations.ts";
 import { banner, sheet, type SheetStep } from "./components/panes.ts";
@@ -88,7 +88,7 @@ export function reportStep(game: Game, options: { isMultiplayer: boolean }): She
   const body = stack({
     items: [
       { kind: "block", id: "report-tell", markup: tell },
-      { kind: "block", id: "report-sent", isHidden: true, markup: html`<div role="status">${doneState({ title: "Thanks for the report", text: "We'll look at it soon." })}</div>` },
+      { kind: "block", id: "report-sent", isHidden: true, markup: html`<div role="status">${stateNote({ stateKind: "done", title: "Thanks for the report", text: "We'll look at it soon." })}</div>` },
     ],
   });
   return {

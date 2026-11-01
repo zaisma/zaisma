@@ -1,4 +1,4 @@
-import { html } from "../markup.ts";
+import { html, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
 import { primaryButton, secondaryButton, tertiaryButton } from "./actions.ts";
 import { listRows } from "./data.ts";
@@ -73,7 +73,7 @@ component({
     { label: "A way in", markup: html`<div style="width:min(320px,100%)">${secondaryButton("Sign in with a passkey", { wayIn: "passkey", isBusy: true })}</div>`, isStill: true },
     { label: "An orange slab: the glint warm", markup: slab({ body: html`Save`, isLit: true, isWaiting: true }), isStill: true },
     { label: "A plain slab", markup: slab({ body: html`Details`, isWaiting: true }), isStill: true },
-    { label: "A switch saving", markup: html`<div style="width:min(340px,100%)">${listRows({ whenEmpty: html``, rows: [{ title: "Cloud saves", switch: { id: "example-waiting-switch", name: "cloud_saves", isOn: true, isBusy: true } }] })}</div>`, isStill: true },
+    { label: "A switch saving", markup: html`<div style="width:min(340px,100%)">${listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title: "Cloud saves", switch: { id: "example-waiting-switch", name: "cloud_saves", isOn: true, isBusy: true } }] })}</div>`, isStill: true },
     { label: "A PIN sent: every mark glints", markup: html`<div aria-busy="true">${pinField({ name: "purchase_pin", label: "Purchase PIN", id: "example-waiting-pin", digits: "246810" })}</div>`, isStill: true },
     { label: "The header on its way to another page: its bottom edge fills with light", isWide: true, markup: WAITING_HEADER_EXAMPLE },
   ],

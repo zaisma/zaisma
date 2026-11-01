@@ -89,13 +89,10 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   // A card's brand mark, a picture of its own size.
   [".card-row-mark > .card-brand | height", "a card brand's mark is 32 by 20"],
   [".card-row-mark > .card-brand | background", "the mark fits its box"],
-  // An account's picture and its presence marks: drawn from the account's name, sized to the picture.
+  // An account's picture: drawn from the account's name, sized to the picture.
   [".frame | height", "an account's picture is its frame's size"],
   [":is(.frame, .slab.holds-art) .av | *", "an account's picture: its colors drawn from its name, its initials in white"],
-  [".frame-presence | *", "room under a picture for its presence marks"],
-  [".presence-line | *", "online: a green line along a picture's foot"],
-  [".presence-play | *", "playing: a green tab with a white play mark at the line's end"],
-  [".presence-play > .play | height", "the play mark is sized to its tab"],
+  [".person-details | margin-top", "a profile's head stands its details a control's gap under its line"],
   [".picture-row-place:not(:last-child)::after | box-shadow", "pictures in a row lie over each other, each casting onto the next"],
   // A QR code is read by a camera: dark on white with a quiet zone round it, in light and dark alike.
   [".qr-tile | *", "the white tile and its quiet zone"],
@@ -110,39 +107,31 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".chart-scroll | *", "room above the plot for the tip at its highest point"],
   [".chart-inner | *", "room at the plot's ends for the dots at its first and last points, which never scroll it"],
   [".chart-grid | border-top", "the scale's lines across the plot"],
-  [".chart-last | *", "the dot at the last point"],
-  [".chart-dot | *", "the dot at the point you're on"],
-  [".chart-tip | *", "the tip at the point you're on: its amount and when"],
-  [".chart-inner.is-bars .chart-hit:is(:hover, .is-pointed), .chart:focus-visible .chart-inner.is-bars .chart-hit.is-focused | background", "the bar you're on lights its column"],
-  [".ring-picture | height", "the ring's size"],
-  [".ring-swatch | *", "a share's color in the key"],
+  [".chart-last | *", "the place of the last point, holding its mark and number"],
+  [".chart-mark | *", "the diamond at the last point"],
+  [".chart-dot | *", "the diamond at the point you're on"],
+  [".chart-tip.glass | *", "the tip at the point you're on: its amount and when"],
+  // A game's media: a video is played as every player plays one.
+  [".media-large | background", "a video's letterbox is black, as in every player"],
   [".usage:is(.is-near, .is-full) .usage-groove .groove-fill | filter", "a meter near its limit glows amber"],
   [".usage.is-near .usage-groove .groove-light | background", "near its limit, the meter's light is amber"],
   [".usage.is-full .usage-groove .groove-light | background", "at its limit, the meter's light is striped"],
-  [".usage-part | background", "a part's color in the meter"],
-  [".usage.is-full .usage-part | background", "at its limit, a part's color is striped"],
-  [".usage-swatch | *", "a part's color in the key"],
-  [".loading-line | *", "the hairline a loading state runs its light along"],
-  [".loading-line::after | background", "the light running along it"],
   // A table's cells: their rows' room and the line under its pinned head and beside its pinned first column, which a cell draws.
   [".data-table | border-collapse", "separate cells, so the pinned head and first column keep their lines as they stick"],
   [".data-table thead th | *", "the head's room and the line under it"],
   [".data-table td, .data-table tbody th | padding", "a row's room, its words at the words margin"],
   [".data-table.compact thead th | padding", "a compact head's room"],
   [".data-table.compact td, .data-table.compact tbody th | padding", "a compact row's room"],
-  [".table-scroll.more-left .data-table tbody th | box-shadow", "the line beside the pinned first column, once what's beside it scrolls under it"],
-  [".table-scroll.more-left .data-table.has-row-heads thead th:first-child | box-shadow", "the pinned corner's lines"],
   // A state sits a block's gap into where its content would be, its button a block's gap under its words.
   [".state-note | padding", "a state sits a block's gap into where its content would be"],
   [".state-action | margin-top", "its button a block's gap under its words"],
-  [".glance li | min-height", "a fact's line is as tall as the friends' pictures beside it"],
   // Reading text is Markdown, which writes no classes: it spaces and draws its own parts.
   [".reading > :nth-child(n + 2) | margin-top", "a block's gap between paragraphs and anything else"],
   [".reading > :is(h2, h3) + :nth-child(n + 2) | margin-top", "a word's gap under a heading"],
   [".reading :is(ul, ol) | padding-inline", "a list's markers in from its words, and its words kept off the far edge by the words margin"],
   [".switch-well > .well-body > .tab-switch | --control-height", "a switch carved into a well takes the well's control height, so its tabs fill it"],
   [".reading :not(pre) > code | *", "code in a line: a sliver of carving"],
-  [".reading pre | *", "a block of code: a carving out to the frame gap"],
+  [".reading > pre | *", "a block of code: a carving out to the frame gap"],
   [".reading blockquote | *", "a quote, set in from a hairline"],
   [".reading table | border-collapse", "a Markdown table's lines run unbroken"],
   [".reading :is(th, td) | *", "a Markdown table's cells and lines"],
@@ -209,9 +198,49 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".list-rows.is-capped | max-height", "a list capped at its shown rows and half the next, so it shows it scrolls"],
   [".table-scroll[data-fades-sideways] | max-height", "a table caps at the screen"],
   [".table-scroll[data-fades-sideways].is-capped | max-height", "a table capped at its head, its shown rows and half the next"],
-  [".list-row-while-on, .list-row-fold-body | margin", "the rows a switch row turns on sit in a well a frame gap in from the list's sides, a frame gap above the next row"],
+  [".list-row-while-on, .list-row-fold-body | padding", "the rows a switch row turns on and a fold opens to sit in from the row's start, a control's gap above the next row"],
   // A control's height.
   [".cut-btn.in-well | --control-height", "a button in a well is a small control less the well's compact frame gap above and below"],
+  // A light box over a pane dims the page under it more than a sheet does, so what it shows stands out.
+  [".sheet.light-box.on-pane::backdrop | background", "a light box dims the page more than a sheet"],
+  // A video is the game's own picture: black behind it and round it full screen, as every player has, and nothing past its edges.
+  [".video-player | *", "a video's own black box"], [".video-player:fullscreen | background", "full screen, black round the video"],
+  [".video-seek-input::-webkit-slider-thumb, .video-level-input::-webkit-slider-thumb | height", "the unseen range's thumb, a touch target's height over its Groove"],
+  [".video-seek-input::-moz-range-thumb, .video-level-input::-moz-range-thumb | height", "the unseen range's thumb, a touch target's height over its Groove"],
+  [".video-loaded | background", "how much has loaded, a glint along the Groove under what's played"],
+  [".video-status | *", "the video's state, spoken to screen readers alone"],
+  [".video-level | overflow", "the sound's Groove slides out of the sound button, hidden until it does"],
+  [".media-head > .media-title | overflow", "a long game name ends in an ellipsis on the light box's one-line head"],
+  [".media-frame | overflow", "a media well holds its picture or video to its own box"],
+  [".list-row-lead:has(> svg) | margin-inline-end", "an icon leading a row keeps a control's gap after it, as a picture does"],
+  [".list-well .list-row:is(.is-link, .is-press):is(:active, .is-pressed) | box-shadow", "a row pressed in a well sinks into its carving"],
+  [".list-row-fold::details-content | overflow", "a fold's rows clip as it slides open and shut"], [".list-row-fold-body | overflow", "a fold's rows clip as it slides open and shut"],
+  [".list-row-fold-body::after | height", "room under a fold's last row, inside it so the slide carries it"],
+  [".list-row:has(> .list-row-action, > .list-row-end) > .list-row-words | margin-inline-end", "a row's words keep a block's gap from its action or end"],
+  [".list-row.is-narrow .list-row-action .cut-btn:has(> .face > .ico) > .face > span:not([class]) | *", "narrow, an icon button's words are kept for screen readers alone"],
+  // A table's header slab, row-head slab and corner, sticky in one grid cell: as tall as its head row and the rows it shows; and the fades
+  // under them, strips of the slab's own white sized by the scroll.
+  [".table-scroll > .table-head-slab | height", "as tall as the head row"], [".table-scroll > .table-corner-slab | height", "as tall as the head row"],
+  [".table-scroll > .table-row-head-slab | height", "as tall as the rows shown under the head"],
+  [".table-scroll > .table-frost | *", "the fades under the slabs"], [".table-scroll > .table-frost.is-start | *", "the fades under the slabs"], [".table-scroll > .table-frost.is-end | *", "the fades under the slabs"],
+  [".table-scroll > .table-frost.is-top | *", "the fades under the slabs"], [".table-scroll > .table-frost.is-bottom | *", "the fades under the slabs"],
+  [".table-scroll.shows-rail > .data-table :is(td, th):last-child | padding-inline-end", "the last column keeps clear of the rail beside it"],
+  [".table-placeholder-in | padding", "a table waiting on its rows keeps a pane's margin round its note"],
+  // Details: across, each over a hairline with the words' gap under it; down, hairlines between, the words' gap above and below.
+  [".details.across > .detail | *", "a detail across"], [".details.down > .detail | padding-block", "a detail down"], [".details.down > .detail + .detail | border-top", "the hairline between details down"],
+  [".chart-scale-cell | padding", "the scale's numbers a block's gap down its slab, at the words margin"],
+  [".chart-body > .chart-axis-slab | height", "the axis slab as tall as its labels"],
+  [".chart-hit-bar | background", "the bar you're on lights its column in the chart's color"],
+  [".chart .share-groove .groove-light | background", "a share's Groove lights in the chart's color"],
+  [".share-rows.is-quiet .share-groove.carving.deep.line | height", "a quiet share's Groove is a thin line under its words"],
+  [".usage-groove.carving.deep.line | height", "the meter's track is thick, so the total leads"],
+  [".usage > .share-rows | margin-top", "its parts' rows a control's gap under the track"],
+  [".reading ol | padding-inline-start", "numbers hang in from the words by a block's gap and their own width"],
+  [".reading li > :is(ul, ol) | margin-top", "a list in a list, the words' gap under its line"],
+  [".code-head | padding", "the head's buttons a compact frame gap from the well's top and end, its words at the words margin"],
+  [".code-scroll[data-fades-sideways] | max-height", "long code stops at about twenty lines and scrolls"],
+  [".code-scroll.shows-rail > .code-lines | padding-inline-end", "lines keep clear of the rail beside them"],
+  [".code-lines | padding", "code keeps the words margin inside its well"],
 ]);
 
 /** How things sit together, which only a layout component says in markup. */
@@ -233,8 +262,6 @@ const MARKUP_NOT_MADE_OF_MATERIALS = new Map<string, string>([
   ["actions.ts | flex-wrap: wrap", "quiet links in a line wrap, as the footer's"],
   ["actions.ts | column-gap: var(--gap-block-block)", "quiet links a block's gap apart, as the footer's"],
   ["actions.ts | row-gap: var(--gap-words-words)", "quiet links' lines a words gap apart, as the footer's"],
-  // A value drawn as a share.
-  ["data.ts | flex-grow: ${String(part.sharePct)}", "a usage meter's part takes its share of the bar"],
   // An example's room.
   ["fields.ts | min-height: 22rem", "an open search field's example keeps room for its finishes under it"],
 ]);

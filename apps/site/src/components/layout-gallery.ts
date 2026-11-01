@@ -5,7 +5,7 @@ import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./acti
 import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
-import { table } from "./data.ts";
+import { table, stateNote } from "./data.ts";
 import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
@@ -51,7 +51,7 @@ export const roomsPane = (): Raw =>
     label: "Rooms",
     body: paneParts({
       head: { words: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: secondaryButton("Refresh", { type: "button" }) },
-      body: table({ whenEmpty: html`<p>No open rooms right now.</p>`, caption: "Open rooms", columns: [{ label: "Room" }, { label: "Map" }, { label: "Players", isNumeric: true }], rows: [["North gate", "Glacier", "6"], ["Ember pit", "Caldera", "4"], ["Old harbour", "Coast", "8"]] }),
+      body: table({ whenEmpty: stateNote({ stateKind: "empty", title: "No open rooms right now", text: "Start one, and it shows here for others to join." }), caption: "Open rooms", columns: [{ label: "Room" }, { label: "Map" }, { label: "Players", isNumeric: true }], rows: [["North gate", "Glacier", "6"], ["Ember pit", "Caldera", "4"], ["Old harbour", "Coast", "8"]] }),
       foot: { start: words(html`<p>Updated a minute ago</p>`), end: secondaryButton("All rooms", { type: "button" }) },
     }),
   });
@@ -157,8 +157,8 @@ component({
   styles: GRID_STYLES,
   render: grid,
   examples: [
-    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
-    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button" }) }] }) }))) }) }) },
+    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button" }) }] }) }))) }) }) },
   ],
 });
 
@@ -170,7 +170,7 @@ component({
   styles: TRACK_STYLES,
   render: track,
   examples: [
-    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: html`<p>No games here yet.</p>`, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
+    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
     { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
   ],
 });

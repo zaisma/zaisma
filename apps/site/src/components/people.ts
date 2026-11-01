@@ -1,14 +1,14 @@
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { secondaryButton, tertiaryButton, textLink } from "./actions.ts";
-import { ago, glassPane, tag } from "./foundations.ts";
-import { pictureFrame } from "./data.ts";
-import { row, stack, stackOfOne } from "./layout.ts";
-import { readingText } from "./reading.ts";
+import { secondaryButton, textLink } from "./actions.ts";
+import { glassPane, tag, type ShownPicture } from "./foundations.ts";
+import { details, pictureFrame, type Detail } from "./data.ts";
+import { STAND_IN_ACCOUNT_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
+import { row, stackOfOne } from "./layout.ts";
 
 /*
- * People: someone on Zaisma named on a page (a friend in a list, a game's developer, a post's author), and what they wrote (a post). Pages
+ * People: someone on Zaisma named on a page (a friend in a list, a game's developer, a post's author). Pages
  * still to build lean on them: Friends, profiles, the forum, a game's page and its updates.
  */
 
@@ -18,14 +18,18 @@ export interface PersonOptions {
   href: string;
   /** A line about them under their name: "Playing Ashen Crown", "12 games on Zaisma", "Friends since March". */
   note?: string;
-  /** Their picture's size: small in a list ("sm"), regular beside a heading or on its own ("md"). */
-  pictureSize?: "sm" | "md";
-  /** Online, or playing: the picture's presence marks, only where the viewer may see them. */
-  presence?: "online" | "playing";
+  /** Their picture's size: small in a list ("sm"), regular beside a heading or on its own ("md"), large at the head of their profile ("lg"). */
+  pictureSize?: "sm" | "md" | "lg";
+  /** What they're doing now, in green under their name, before their line: "Online", "Playing Ashen Crown". Only where the viewer may see it. */
+  activity?: string;
+  /** The picture they gave; left out, their initials. */
+  picture?: ShownPicture;
   /** Marks beside their name: Tags (Developer, Blocked). */
   marks?: Raw;
   /** One control at the row's end: Join, Add a friend, or a menu's button. */
   end?: ControlMarkup;
+  /** At the head of their profile, a few details about them across under their line (Friends since, Games): Details, side by side. */
+  details?: Detail[];
 }
 
 /**
@@ -34,42 +38,8 @@ export interface PersonOptions {
  */
 export function person(options: PersonOptions): Raw {
   const pictureSize = options.pictureSize ?? "md";
-  return html`<div class="person ${pictureSize}">${pictureFrame(options.username, pictureSize, { presence: options.presence })}<span class="person-words"><span class="person-name">${textLink(options.username, options.href, { isQuiet: true })}${options.marks ?? ""}</span>${options.note ? html`<span class="person-note">${options.note}</span>` : ""}</span>${options.end ? html`<span class="person-end">${options.end}</span>` : ""}</div>`;
+  return html`<div class="person ${pictureSize}">${pictureFrame(options.username, pictureSize, { picture: options.picture })}<span class="person-words"><span class="person-name">${textLink(options.username, options.href, { isQuiet: true })}${options.marks ?? ""}</span>${options.activity ? html`<span class="person-activity">${options.activity}</span>` : ""}${options.note ? html`<span class="person-note">${options.note}</span>` : ""}${options.details?.length ? html`<span class="person-details">${details({ arrangement: "across", details: options.details })}</span>` : ""}</span>${options.end ? html`<span class="person-end">${options.end}</span>` : ""}</div>`;
 }
-
-export interface PostOptions {
-  /** Who wrote it. */
-  author: { username: string; href: string };
-  /** When it was posted, in milliseconds since 1970: said as "2 h ago". */
-  postedAtMs: number;
-  /** What it says, as Reading text (readingText), made safe already. */
-  body: Raw;
-  /** Marks beside the author's name: Tags (Answer, Zaisma, AI). */
-  marks?: Raw;
-  /** What you can do with it, start to end: Tertiary buttons (Reply, Quote) and toggles with a count (Like). */
-  actions?: ControlMarkup[];
-}
-
-/**
- * A post: its author (a small Person, with when they posted as its line), what they wrote as Reading text, and what you can do with it in
- * a Row at its foot. A list of posts is Posts, a hairline between each.
- */
-export function post(options: PostOptions): Raw {
-  return html`<article class="post">${stack({
-    items: [
-      { kind: "block", markup: person({ username: options.author.username, href: options.author.href, pictureSize: "sm", note: ago(Date.now() - options.postedAtMs), marks: options.marks }) },
-      { kind: "words", markup: options.body },
-      ...(options.actions?.length ? [{ kind: "block" as const, markup: row({ widths: "fit", items: options.actions.map((action) => ({ kind: "control" as const, markup: action })) }) }] : []),
-    ],
-  })}</article>`;
-}
-
-/** Posts one under another, a hairline between each: a topic's replies, a game's updates. */
-export function posts(options: { posts: PostOptions[]; label?: string }): Raw {
-  return html`<div class="posts hairlines roomy"${options.label ? html` role="feed" aria-label="${options.label}"` : ""}>${options.posts.map((each) => post(each))}</div>`;
-}
-
-const HOUR_MS = 60 * 60_000;
 
 component({
   name: "Person",
@@ -86,54 +56,19 @@ component({
 .person-words { flex: 1 1 auto; display: grid; gap: 0; min-width: 0; }
 .person-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--gap-words-words); min-width: 0; font: var(--type-name); color: var(--ink); overflow-wrap: anywhere; }
 .person.sm .person-name { font: var(--type-label); }
+/* A profile's head: the large picture beside a larger name, its line, and its details across under them. */
+.person.lg { gap: var(--gap-block-block); }
+.person.lg .person-name { font: var(--type-section); }
+.person-details { display: grid; margin-top: var(--gap-words-control); }
 .person-note { font: var(--type-facts); color: var(--muted); }
+.person-activity { font: var(--type-facts); color: var(--tag-new-ink); }
 .person-end { flex: none; display: flex; margin-inline-start: auto; }
 `,
   render: person,
   examples: [
     { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }), "words") }) },
-    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", presence: "playing", note: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }), "words") }) },
+    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", activity: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }), "words") }) },
+    { label: "A profile's head: large, with details about them", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(person({ username: "Sofia", href: "#person", pictureSize: "lg", picture: STAND_IN_ACCOUNT_PICTURES["kestrel-sky"], activity: "Playing Ashen Crown", details: [{ label: "Friends since", text: "March" }, { label: "Games", text: "12" }, { label: "On Zaisma since", text: "2026" }], end: secondaryButton("Add a friend", { type: "button" }) }), "words") }) },
     { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }), "words") }) },
-  ],
-});
-
-component({
-  name: "Post",
-  slug: "post",
-  group: "data",
-  subgroup: "reading",
-  summary: "What someone wrote: a forum reply, a game's update. Its author and when, the words as Reading text, and what you can do with it at its foot. A list of posts has a hairline between each.",
-  styles: `
-/* Posts: one under another, a block's gap and a hairline between each. */
-.posts { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
-.post { min-width: 0; }
-`,
-  render: post,
-  examples: [
-    {
-      label: "A reply, and the answer",
-      isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(posts({
-          label: "Replies",
-          posts: [
-            {
-              author: { username: "Sofia", href: "#post" },
-              postedAtMs: Date.now() - 2 * HOUR_MS,
-              body: readingText({ markup: html`<p>Rooms drop everyone at about 50 players for me too, on Chrome and Firefox. It started after Tuesday's update.</p>` }),
-              actions: [tertiaryButton("Reply", { type: "button", icon: "reply" }), tertiaryButton("Quote", { type: "button", icon: "quote" })],
-            },
-            {
-              author: { username: "zaisma_team", href: "#post" },
-              postedAtMs: Date.now() - 40 * 60_000,
-              marks: tag("Answer", "new"),
-              body: readingText({ markup: html`<p>Thanks, both. The fix is live: rooms past 50 players stay connected now. If one still drops, reply here with its room code.</p>` }),
-              actions: [tertiaryButton("Reply", { type: "button", icon: "reply" })],
-            },
-          ],
-        }), "words"),
-      }),
-    },
   ],
 });

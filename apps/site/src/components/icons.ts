@@ -60,6 +60,8 @@ export const ICONS = {
   flag: stroke("0 0 20 20", '<path d="M4.5 17.5V3"/><path d="M4.5 3.5h10.5l-2.2 3.8 2.2 3.8H4.5"/>'),
   hash: stroke("0 0 20 20", '<path d="M4 7.5h13M3 12.5h13M8.5 3 7 17M13.5 3 12 17"/>'),
   "full-screen": stroke("0 0 20 20", '<path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/>'),
+  // Out of full screen: its corners turned in.
+  "full-screen-exit": stroke("0 0 20 20", '<path d="M7.5 3.5v4h-4M12.5 3.5v4h4M7.5 16.5v-4h-4M12.5 16.5v-4h4"/>'),
   more: stroke("0 0 20 20", '<circle cx="4.5" cy="10" r="1.1"/><circle cx="10" cy="10" r="1.1"/><circle cx="15.5" cy="10" r="1.1"/>', ' stroke-width="1.8"'),
   save: stroke("0 0 20 20", '<path d="M4 3h9.5L16 5.5V17H4z"/><path d="M7 3v4.5h6V3M7 17v-5.5h6V17"/>'),
   rules: stroke("0 0 20 20", '<path d="M10 2.8l6.5 2.4v4.6c0 3.6-2.8 6.6-6.5 7.4-3.7-.8-6.5-3.8-6.5-7.4V5.2z"/><path d="M7.2 10l2 2 3.8-4.2"/>'),
@@ -91,6 +93,8 @@ export const ICONS = {
   pause: stroke("0 0 20 20", '<path d="M7 4.5v11M13 4.5v11"/>', ' stroke-width="2.2"'),
   // Someone blocked, or something turned off.
   speaker: stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.3 7.4a3.7 3.7 0 0 1 0 5.2M15.6 5.2a6.8 6.8 0 0 1 0 9.6"/>'),
+  // Sound turned down: one wave.
+  "speaker-low": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.3 7.4a3.7 3.7 0 0 1 0 5.2"/>'),
   "speaker-off": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.4 7.6l4.8 4.8M18.2 7.6l-4.8 4.8"/>'),
   ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
   bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),

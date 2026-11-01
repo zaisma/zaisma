@@ -20,6 +20,9 @@ export const UNSTYLED_HOOKS = new Set<string>([
   // A tertiary button's words, which a page's script changes (the buy sheet's Keep your saved card); a sheet that stays in the middle,
   // which the layers' script reads; a way in's mark, named for its way (only Google's has a look of its own); and the way a well scrolls.
   "tertiary-label", "placement-middle", "way-passkey", "way-discord", "way-apple_pay", "scrolls-across", "scrolls-down",
+  // A Progress's words, which a page's script changes (the buy sheet's), and a video's two Grooves, which its script fills as it plays and
+  // as its sound is set.
+  "progress-label", "video-progress", "video-level-groove",
 ]);
 
 

@@ -5,6 +5,7 @@
  * sitemap of listed games; and a game's link, or a room's, comes as a QR code.
  */
 
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import { SEARCH_ENGINES_ENABLED_SQL, SHOWN_IN_LISTS_SQL, qrCodeSvg, type Game } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -144,7 +145,7 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
     { kind: "control", markup: secondaryButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
     { kind: "block", id: "share-room", isHidden: true, markup: copyField({ id: "share-room-code", label: "Room code", copiedText: "", isCode: true }) },
     { kind: "control", markup: copyField({ id: "share-link", label: "Link", copiedText: "" }) },
-    { kind: "block", markup: listRows({ whenEmpty: html``, isCompact: true, label: "More ways to share", rows: choices }) },
+    { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "More ways to share", rows: choices }) },
   ];
   const qrBox = hasQrCode
     ? lightBox({ id: "share-qr-box", label: `QR code for ${gameTitle}`, closeLabel: "Close", body: qrCode({ id: "share-qr", label: `QR code for ${gameTitle}`, caption: "Scan with a phone's camera to play", isLarge: true }) })

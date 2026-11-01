@@ -18,5 +18,5 @@ export function smallGameCard(options: { imageUrl: string | null; placeholderDat
   const isPlaceholder = options.imageUrl === null;
   // A Picture (foundations.ts): its placeholder in its place until it arrives, offered at its kept sizes up to three times the card's widest.
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture({ imageUrl: options.imageUrl!, widthPx: 160, heightPx: 90, placeholderDataUrl: options.placeholderDataUrl ?? null }, { shownSizes: `${SMALL_GAME_CARD_LARGEST_PX}px`, largestPx: SMALL_GAME_CARD_LARGEST_PX * 3, isEager: true })}</span>`;
-  return html`<span class="cover is-small${isPlaceholder ? " is-placeholder" : ""}"><span class="cover-art carving holds-art" data-cut-line="0">${CUT_LINE}${art}</span></span>`;
+  return html`<span class="cover is-small${isPlaceholder ? " is-placeholder" : ""}"><span class="cover-art carving holds-art" data-cut-line="0" data-cut-square>${CUT_LINE}${art}</span></span>`;
 }

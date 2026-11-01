@@ -40,6 +40,18 @@ export class Raw {
 }
 export const raw = (html: string) => new Raw(html);
 
+/**
+ * An empty note's markup (data.ts's State note of kind empty): the only thing a list, table, grid, track or chart takes for whenEmpty, so
+ * a hand-written line or another kind of note can't stand in for it: the compiler refuses it.
+ */
+export class EmptyNoteMarkup extends Raw {
+  /** Makes it a type of its own: plain markup isn't an empty note. */
+  private declare readonly isEmptyNote: true;
+}
+
+/** For a list that never shows empty: its rows are fixed in the code (a menu, a page's rules), or it hides whole while it has none. */
+export const NO_EMPTY_NOTE = new EmptyNoteMarkup("");
+
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Raw {
   let out = strings[0]!;
   values.forEach((interpolation, i) => {

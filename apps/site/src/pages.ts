@@ -1,3 +1,4 @@
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 import {
@@ -52,13 +53,14 @@ import { gameUrl, type Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { emptyState, glanceFacts, listRows, type ListRow } from "./components/data.ts";
+import { details, gameKeyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
 import { glassPane, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { banner, dropdown, gameCard, notice, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { playingBar, playingCheck, screenshot, screenshotLarge } from "./components/playing.ts";
-import { facts, readingText } from "./components/reading.ts";
+import { playingBar, playingCheck } from "./components/playing.ts";
+import { gameMedia } from "./components/game-media.ts";
+import { readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -395,14 +397,14 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       items: [
         { kind: "words", markup: html`<h1 id="title">${game.title}</h1>` },
         ...(developer ? [{ kind: "words" as const, markup: html`<p>by ${textLink(developer.name, profilePath(developer.name), { isQuiet: true })}</p>` }] : []),
-        { kind: "block", id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, markup: glanceFacts({ playerCount: playingNowPlayerCount }) },
+        { kind: "block", id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, markup: gameKeyDetails({ playerCount: playingNowPlayerCount }) },
         ...(tester || !canSignIn || isClosed ? [] : [{ kind: "block" as const, id: "friends-here", isHidden: true, markup: html`` }]),
         ...(tester ? [{ kind: "block" as const, markup: banner({ text: testerWords, icon: "info", tone: "warning" }) }] : []),
         ...(isClosed ? [{ kind: "words" as const, id: "closed", markup: html`<p>This game isn't open to your account. ${textLink("Find other games", "/")}</p>` }] : []),
         { kind: "block", markup: paneActions },
         ...(accountNote ? [{ kind: "words" as const, markup: accountNote }] : []),
         { kind: "block", id: "device-note", isHidden: !deviceNote.notes.length, markup: banner({ text: deviceNote.notes.join(" "), icon: "warning", ...(deviceNote.isOtherBrowserNeeded ? { tone: "warning" as const } : {}) }) },
-        ...(gameFacts.length ? [{ kind: "words" as const, markup: facts({ facts: gameFacts, arrangement: "across", label: "About playing it" }) }] : []),
+        ...(gameFacts.length ? [{ kind: "words" as const, markup: details({ details: gameFacts, arrangement: "across", label: "About playing it" }) }] : []),
       ],
     }),
   });
@@ -416,7 +418,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const sections: LayoutItem[] = [
     ...(rooms ? [section("rooms", "Rooms", [{ kind: "block", markup: codeBox(game.slug) }, { kind: "block", id: "rooms-list", markup: roomsPanel(game, rooms) }])] : []),
     ...(shots.length
-      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: track({ whenEmpty: emptyState({ title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), id: "screenshots-track", itemSize: "cover", label: "Screenshots", items: shots.map((shot, shotIndex) => ({ kind: "block" as const, markup: screenshot({ picture: shot, label: `Screenshot ${shotIndex + 1} of ${shots.length}`, sheetId: `screenshot-${shotIndex + 1}` }) })) }) }])]
+      ? [section("screenshots", "Screenshots", [{ kind: "block", markup: gameMedia({ id: "screenshots", gameTitle: game.title, whenEmpty: stateNote({ stateKind: "empty", title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), items: shots.map((shot) => ({ mediaKind: "picture" as const, picture: shot })) }) }])]
       : []),
     ...(addOns.length
       ? [section("add-ons", "Add-ons", [{
@@ -424,7 +426,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           markup: listRows({
             label: "Add-ons",
             // The part shows only with an add-on in it.
-            whenEmpty: emptyState({ title: "No add-ons yet", text: "The developer sells nothing on this page." }),
+            whenEmpty: stateNote({ stateKind: "empty", title: "No add-ons yet", text: "The developer sells nothing on this page." }),
             rows: addOns.map((gameItem) => {
               const price = priceFor(gameItem, view.countryCode);
               const detail = gameItem.description.split("\n")[0]?.trim() || undefined;
@@ -437,7 +439,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       : []),
     section("about", "About", [
       { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
-      { kind: "words", markup: facts({ facts: purchaseFacts, arrangement: "down", label: "Purchases and refunds" }) },
+      { kind: "words", markup: details({ details: purchaseFacts, arrangement: "down", label: "Purchases and refunds" }) },
       ...(developer ? [{ kind: "block" as const, markup: person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) }] : []),
       ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
     ]),
@@ -445,10 +447,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
-      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: emptyState({ title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
+      ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
-  const screenshotSheets = shots.map((shot, shotIndex) => sheet({ id: `screenshot-${shotIndex + 1}`, title: `${game.title}, screenshot ${shotIndex + 1} of ${shots.length}`, body: stackOfOne(screenshotLarge(shot, `${game.title}, screenshot ${shotIndex + 1}`)), closeLabel: "Close", isPicture: true }));
   // Playing: the bar beside the game, and what it opens.
   const barControls = [
     ...(multiplayer ? [secondaryButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
@@ -532,7 +533,6 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     isPrivate: game.minimum_player_age_years > 13 || game.full_game_item_name !== null || addOns.length > 0,
     hasStripeFrame: !isClosed,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
-${screenshotSheets}
 ${playingBar({ title: game.title, controls: barControls })}
 <template id="game-frame"><iframe class="game-frame" id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
@@ -745,15 +745,15 @@ function termsBody(): Raw {
 
 /** One rule as a row that opens: its short title (the anchor a hold's rule links to) and its test, opening to what it is, Fine and Not fine. */
 const ruleRow = (rule: ContentRule): ListRow => {
-  const details = CONTENT_RULE_DETAILS[rule];
+  const ruleDetails = CONTENT_RULE_DETAILS[rule];
   const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
   return {
-    title: details.title,
-    detail: details.test,
+    title: ruleDetails.title,
+    detail: ruleDetails.test,
     fold: { id: rule, body: stack({
       items: [
-        { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${NOTICE_ONLY_CONTENT_RULES.includes(rule) && details.explanation ? ` ${details.explanation}` : ""}</p>` },
-        { kind: "words", markup: facts({ arrangement: "across", facts: [{ label: "Fine", text: sentence(details.fine) }, { label: "Not fine", text: sentence(details.notFine) }] }) },
+        { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${NOTICE_ONLY_CONTENT_RULES.includes(rule) && ruleDetails.explanation ? ` ${ruleDetails.explanation}` : ""}</p>` },
+        { kind: "words", markup: details({ arrangement: "across", details: [{ label: "Fine", text: sentence(ruleDetails.fine) }, { label: "Not fine", text: sentence(ruleDetails.notFine) }] }) },
       ],
     }) },
   };
@@ -772,20 +772,20 @@ function contentRulesBody(): Raw {
       pane("The lines", [
         { kind: "words", markup: html`<h2>The lines</h2>` },
         { kind: "words", markup: html`<p>Every version is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
-        { kind: "block", markup: listRows({ label: "The lines", whenEmpty: html``, rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
+        { kind: "block", markup: listRows({ label: "The lines", whenEmpty: NO_EMPTY_NOTE, rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("Only on a notice", [
         { kind: "words", markup: html`<h2>Only on a notice</h2>` },
         { kind: "words", markup: html`<p>Zaisma does not judge these itself. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
-        { kind: "block", markup: listRows({ label: "Only on a notice", whenEmpty: html``, rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
+        { kind: "block", markup: listRows({ label: "Only on a notice", whenEmpty: NO_EMPTY_NOTE, rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("What happens", [
         { kind: "words", markup: html`<h2>What happens</h2>` },
         {
           kind: "words",
-          markup: facts({
+          markup: details({
             arrangement: "across",
-            facts: [
+            details: [
               { label: "Review", text: "Each version is checked for malware, matched against known illegal images and reviewed against each rule's test, usually within minutes." },
               { label: "Rejection", text: "A version that breaks a rule is rejected with the rule, the finding and the fix. Nothing is deleted; a corrected version can be published." },
               { label: "Appeal", text: "To contest a decision, message Zaisma about the version. A person replies, usually within a day." },
@@ -799,7 +799,7 @@ function contentRulesBody(): Raw {
           kind: "block",
           markup: listRows({
             label: "Reports and enforcement",
-            whenEmpty: html``,
+            whenEmpty: NO_EMPTY_NOTE,
             rows: [
               {
                 title: "Reports",

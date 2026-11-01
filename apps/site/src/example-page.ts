@@ -1,3 +1,4 @@
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import type { Env } from "./env.ts";
 import { html, layout } from "./html.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
@@ -21,7 +22,7 @@ export function examplePage(env: Env): Response {
         { kind: "words", markup: html`<h2>Tell players about your game</h2>` },
         { kind: "control", markup: cutField({ id: "example-page-title", name: "title", label: "Title", type: "text", icon: "pencil", placeholder: "Tiny Farm" }) },
         { kind: "block", markup: longField({ id: "example-page-description", name: "description", label: "Description", rowCount: 3, maximumCharacterCount: 500, placeholder: "What is it, and who is it for?" }) },
-        { kind: "block", markup: listRows({ whenEmpty: html``, rows: [{ title: "Show it to players", detail: "Only people with the link can play it while this is off.", switch: { id: "example-page-listed", name: "is_listed", isOn: true } }] }) },
+        { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title: "Show it to players", detail: "Only people with the link can play it while this is off.", switch: { id: "example-page-listed", name: "is_listed", isOn: true } }] }) },
         { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Save", { type: "button" }) }, { kind: "control", markup: secondaryButton("Cancel", { type: "button" }) }] }) },
         { kind: "words", markup: html`<p>This page saves nothing: it shows how one is built from the gallery. ${textLink("Every component", "/design")}, in every state.</p>` },
       ],

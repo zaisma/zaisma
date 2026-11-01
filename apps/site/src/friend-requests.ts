@@ -3,7 +3,7 @@ import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
-import { listRows, pictureFrame, emptyState } from "./components/data.ts";
+import { listRows, pictureFrame, stateNote } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
 import { banner, notice, sheet } from "./components/panes.ts";
 import { accountPicture, html, pageData, scriptTags, type Raw } from "./html.ts";
@@ -134,7 +134,7 @@ ${status ? html`<p class="note" role="status">${status}</p>` : ""}
 export function friendRequestParts(options: { gameOrigin: string; slug: string }): Raw {
   const body = stack({
     items: [
-      { kind: "block", markup: listRows({ whenEmpty: emptyState({ title: "Nobody picked", text: "Who you're adding shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "friend-request-who" }) },
+      { kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "Nobody picked", text: "Who you're adding shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "friend-request-who" }) },
       { kind: "words", markup: html`<p><span id="friend-request-told"></span> can accept it from their game or their friends page. Once you're friends, you can chat and join each other in games that allow it.</p>` },
       { kind: "block", markup: html`<div id="friend-request-error" role="alert" hidden>${banner({ text: "Couldn't send it. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
     ],

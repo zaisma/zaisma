@@ -1,10 +1,10 @@
-import { html, raw, type Raw } from "../markup.ts";
+import { html, raw, type Raw, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { doneState, emptyState, glanceFacts, problemState, listRows, pictureFrame, pictureRow } from "./data.ts";
+import { gameKeyDetails, listRows, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
 import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
@@ -106,7 +106,7 @@ export interface GameCardFacts {
   /** It changed since the viewer last played it: Updated, the art's top left corner. */
   isUpdated?: boolean;
   /** Friends playing it now: their faces, the art's bottom left corner (three, and how many more). */
-  friends?: { username: string }[];
+  friends?: FramedPerson[];
   /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): the art's bottom right corner, the art dimmed. */
   deviceNote?: string;
 }
@@ -157,10 +157,10 @@ export function gameCard(options: GameCardOptions): Raw {
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
-  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends.map((friend) => friend.username), "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
+  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends, "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
 }
 
 /**
@@ -218,7 +218,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
   var CAST_REACH_PX = 64;
   window.zaismaCast = function (pane) {
     var cast = pane.floatCast;
-    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); document.body.appendChild(cast); }
+    if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); (pane.parentElement || document.body).appendChild(cast); }
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
     // Where it stands once its arriving move is done: its box less the move, so the shadow doesn't jump when the move ends.
     var box = pane.getBoundingClientRect(), move = new DOMMatrix(getComputedStyle(pane).transform === "none" ? undefined : getComputedStyle(pane).transform);
@@ -276,10 +276,11 @@ export const PLACE_SCRIPT = `/* place */(function () {
     var openedAt = null;
     function anchorNow() { return typeof options.anchor === "function" ? options.anchor() : options.anchor; }
     if (!isInPlace) {
-      document.querySelectorAll("body > .floating-pane").forEach(function (left) { if (left.floatingHome && !left.floatingHome.isConnected) { if (left.floatCast) left.floatCast.remove(); left.remove(); } });
+      document.querySelectorAll("body > .floating-pane, dialog > .floating-pane").forEach(function (left) { if (left.floatingHome && !left.floatingHome.isConnected) { if (left.floatCast) left.floatCast.remove(); left.remove(); } });
       pane.floatingHome = options.home || anchorNow();
       if (pane.floatingHome && pane.floatingHome.closest(".smoke")) pane.classList.add("smoke");
-      document.body.appendChild(pane);
+      // Into the dialog it's in, when it's in one: outside an open modal dialog everything is inert, so it couldn't be pressed.
+      ((anchorNow() && anchorNow().closest("dialog")) || document.body).appendChild(pane);
     }
     function isOpen() { return isInPlace || pane.matches(":popover-open"); }
     // Shown open in place and as wide as what's in it (a gallery's open menu), it hangs under its anchor inside what holds it, never over
@@ -545,6 +546,9 @@ const COVER_STYLES = `
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
+/* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner; the marks in its art's corners
+   sit the compact frame gap in, so the edge rule cuts them along its corners at that gap (--rail-inset). */
+.cover-art { --rail-inset: var(--pad-frame-compact); }
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -602,7 +606,7 @@ interface StandInGame {
   playerCount: number;
   playedAgoDurationMs?: number;
   updatedAgoDurationMs?: number;
-  friends?: { username: string }[];
+  friends?: FramedPerson[];
 }
 export const STAND_IN_GAMES: StandInGame[] = [
   { slug: "ashen-crown", title: "Ashen Crown", playerCount: 1204, playedAgoDurationMs: 2 * HOUR_MS, updatedAgoDurationMs: HOUR_MS },
@@ -697,12 +701,12 @@ component({
     {
       label: "Full: holding a row of covers",
       isWide: true,
-      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
+      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: ["ashen-crown", "neon-drift", "hollow-tide"].map((slug) => ({ kind: "block", markup: STAND_IN_COVERS[slug]! })) }) }),
     },
     {
       label: "Full, holding nothing yet: what it says in its place",
       isWide: true,
-      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: emptyState({ title: "Nothing played yet", text: "Games you play show here, so you can pick up where you left off." }), itemSize: "cover", items: [] }) }),
+      markup: tray({ paneWidth: "full", head: html`<h3 class="tray-sample-title">Continue playing</h3>`, body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "Nothing played yet", text: "Games you play show here, so you can pick up where you left off." }), itemSize: "cover", items: [] }) }),
     },
   ],
 });
@@ -745,7 +749,7 @@ component({
   styles: `
 /* Light: the only things lit in the glass, each defined here once. Orange light lies inside a carving (light-fill: a groove's fill, a step's
    line), deeper at its start across a line (across), glowing softly (light-glow), with a bright tip at its leading end (light-tip, shown by
-   its owner). A glint is white light running along it (light-glint; loops while something's still going). A line of light is 4px (light-line). */
+   its owner). A glint is white light running along it (light-glint; a steady train of them while something's still going). A line of light is 4px (light-line). */
 .light-fill { background: linear-gradient(180deg, var(--light-hi, var(--run-hi)), var(--light, var(--run))); }
 .light-fill.across { background: linear-gradient(90deg, var(--run-deep), var(--run) 40%, var(--run-hi)); }
 .light-glow { filter: drop-shadow(0 0 1.5px var(--run)); }
@@ -753,8 +757,9 @@ component({
 .light-tip::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 55%, var(--run-tip) 82%, var(--run-spark)); opacity: 0; transition: opacity var(--motion-arrive) ease; }
 .light-glint { overflow: hidden; }
 .light-glint::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 48px; background: linear-gradient(90deg, transparent, var(--glint) 50%, transparent); opacity: 0; }
-.light-glint.loops::after { left: -48px; opacity: 1; animation: light-glint var(--motion-loop) var(--ease-standard) infinite; }
-@keyframes light-glint { from { left: -48px; } to { left: 100%; } }
+/* Looping, glints run along it one after another, 160px apart at an even pace, so one is always on its way across, never a gap with none. */
+.light-glint.loops::after { right: 0; width: auto; opacity: 1; background: linear-gradient(90deg, transparent 56px, var(--glint) 80px, transparent 104px) 0 0 / 160px 100% repeat-x; animation: light-glint calc(var(--motion-loop) / 2) linear infinite; }
+@keyframes light-glint { from { background-position-x: 0; } to { background-position-x: 160px; } }
 @media (prefers-reduced-motion: reduce) { .light-glint.loops::after { animation: none; display: none; } }
 /* An edge light (EDGE_LIGHT, EDGE_LIGHT_SCRIPT): laid in its holder before what it holds, cut to the holder's own shape (--cut-shape), so
    it stops at a cut corner instead of spilling past it. Pointed at, the whole edge wakes (--edge-wake); beside the part you point at, the
@@ -955,14 +960,19 @@ component({
   summary: "One thing large in the middle of a dimmed screen, like a QR code to hold up to a friend across a room: nothing else round it, and a press anywhere, Close or Esc takes it away, back to the sheet that opened it. Not for something to read or act on: that's a Sheet.",
   styles: `
 /* A light box: no glass of its own, the screen dimmed deep behind what it shows, which sits in the middle in light words (a QR code keeps
-   its white). It fades in and grows a little; it's a sheet to the stack (LAYERS_SCRIPT), so it's the top layer and closes like one. */
+   its white). It fades in as a layer over the page, its size kept: nothing grows. It's a sheet to the stack (LAYERS_SCRIPT), so it's the top
+   layer and closes like one. */
 .sheet.light-box:not(.in-place) { inset: 0; width: 100%; max-width: none; max-height: none; margin: 0; background: transparent; box-shadow: none; cursor: zoom-out; }
-.sheet.light-box:is(:not([open]), .is-leaving, .is-arriving) { transform: scale(0.96); }
-@starting-style { .sheet.light-box[open] { transform: scale(0.96); } }
+.sheet.light-box:is(:not([open]), .is-leaving, .is-arriving) { transform: none; }
+@starting-style { .sheet.light-box[open] { transform: none; } }
 .light-box-in { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-words-control); margin: 0; }
 .light-box-close { position: absolute; top: var(--pad-frame); right: var(--pad-frame); }
 .light-box-close .tertiary-btn { color: var(--ink); }
-@media (prefers-reduced-motion: reduce) { .sheet.light-box:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.light-box[open] { transform: none; } } }
+/* On a pane (a game's media): what it shows and its controls sit together on one glass pane in the middle, in the pane's own ink, over a
+   page dimmed a touch deeper than under a sheet. A press beside the pane leaves; one on it doesn't. */
+.sheet.light-box.on-pane { cursor: auto; }
+.sheet.light-box.on-pane::backdrop { background: var(--dim-light-box); }
+.sheet.light-box.on-pane > .light-box-in > .glass-pane { max-width: 100%; max-height: 100%; }
 `,
   render: lightBox,
   examples: [
@@ -987,7 +997,7 @@ component({
     {
       label: "In a list: every card the same shape, its facts in their corners",
       isWide: true,
-      markup: grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [
+      markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [
         { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 12480, isUpdated: true } }) },
         { kind: "block", markup: gameCard({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
         { kind: "block", markup: gameCard({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }, { username: "Sofia" }] } }) },
@@ -1291,7 +1301,7 @@ component({
     {
       label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
       isStill: true,
-      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: listRows({ whenEmpty: html``, isCompact: true, label: "More ways to share", rows: [{ title: "Show QR code", lead: icon("qr-code"), press: {} }, { title: "More ways to share", lead: icon("share"), press: {} }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "More ways to share", rows: [{ title: "Show QR code", lead: icon("qr-code"), press: {} }, { title: "More ways to share", lead: icon("share"), press: {} }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
     },
     {
       label: "Sending: its button busy",
@@ -1346,7 +1356,7 @@ component({
             title: "Players · 3",
             isCompact: true,
             body: stackOfOne(listRows({
-              whenEmpty: emptyState({ title: "Nobody here yet", text: "Players show here as they join your room." }),
+              whenEmpty: stateNote({ stateKind: "empty", title: "Nobody here yet", text: "Players show here as they join your room." }),
               label: "In this room",
               isCompact: true,
               rows: [
@@ -1360,7 +1370,7 @@ component({
             stepName: "player",
             title: "Liam",
             isCompact: true,
-            body: stackOfOne(listRows({ whenEmpty: html``, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#sheet" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: { dataAttributes: { "sheet-step-to": "report" } } }] })),
+            body: stackOfOne(listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#sheet" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: { dataAttributes: { "sheet-step-to": "report" } } }] })),
           },
           { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
         ],
@@ -1374,8 +1384,8 @@ component({
         closeLabel: "Close",
         isCompact: true,
         tabs: [
-          { label: "This room", itemCount: 3, tabValue: "room", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>Nobody here yet.</p>`, rows: ["Liam", "Sofia", "Noah"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name })) })) },
-          { label: "Friends", itemCount: 1, tabValue: "friends", body: stackOfOne(listRows({ isCompact: true, whenEmpty: html`<p>None of your friends are playing.</p>`, rows: ["Emma"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name, detail: "In Ashen Crown" })) })) },
+          { label: "This room", itemCount: 3, tabValue: "room", body: stackOfOne(listRows({ isCompact: true, whenEmpty: stateNote({ stateKind: "empty", title: "Nobody here yet", text: "Players show here as they join." }), rows: ["Liam", "Sofia", "Noah"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name })) })) },
+          { label: "Friends", itemCount: 1, tabValue: "friends", body: stackOfOne(listRows({ isCompact: true, whenEmpty: stateNote({ stateKind: "empty", title: "No friends playing", text: "When a friend plays something, it shows here." }), rows: ["Emma"].map((name) => ({ lead: pictureFrame(name, "sm"), title: name, detail: "In Ashen Crown" })) })) },
         ],
       })}`,
     },
@@ -1523,12 +1533,12 @@ component({
     {
       label: "Over a game, it didn't go through: two short lines on what went wrong, and Try again",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, momentItems: [{ kind: "block", markup: problemState({ title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
+      markup: storePanel({ id: "example-store-panel-declined", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: STORE_ITEM, momentItems: [{ kind: "block", markup: stateNote({ stateKind: "problem", title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }) }], footItems: [storeExampleCard, storeExampleBuy("example-store-panel-declined-buy", "$1.99", "Try again")] }),
     },
     {
       label: "Over a game, bought: it's theirs, and it closes by itself a moment later",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-bought", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: { ...STORE_ITEM, sellerName: undefined }, momentItems: [{ kind: "block", markup: doneState({ title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }], footItems: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }),
+      markup: storePanel({ id: "example-store-panel-bought", closeLabel: "Close", isOverGame: true, isShown: true, soldItem: { ...STORE_ITEM, sellerName: undefined }, momentItems: [{ kind: "block", markup: stateNote({ stateKind: "done", title: "Bought", text: "Revive is yours. The receipt is on its way to your account's email." }) }], footItems: [{ kind: "control", markup: secondaryButton("Back to the game", { type: "submit", formMethod: "dialog", isFullWidth: true }) }] }),
     },
     {
       label: "On a page, ready: the cover large, what it is and the full terms",
@@ -2092,7 +2102,7 @@ component({
     },
     {
       label: "Words beside or under words in one block, an icon and its word: 8px",
-      markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, playedAtMs: Date.now() - 2 * 60 * 60_000 })}</div>`)),
+      markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".key-details">${gameKeyDetails({ playerCount: 1204, playedAtMs: Date.now() - 2 * 60 * 60_000 })}</div>`)),
     },
     {
       label: "Two blocks, here two labeled fields in a pane: 24px",

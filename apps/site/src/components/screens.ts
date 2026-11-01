@@ -7,6 +7,7 @@ import { secondaryButton, primaryButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { checkField } from "./choices.ts";
 import { grid, paneParts, row, stack, stackOfOne } from "./layout.ts";
+import { stateNote } from "./data.ts";
 import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type ScreenName, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
 
@@ -82,7 +83,7 @@ export function screensPicker(path: string, screenNames: readonly ScreenName[] =
         // The pages the check measures, in Zaisma's branches: each branch's name over its pages.
         {
           kind: "block",
-          markup: grid({ whenEmpty: html`<p>No pages are measured yet.</p>`,
+          markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No pages measured yet", text: "Each page shows here once the layout check measures it." }),
             itemSize: "card",
             label: "Pages the check measures",
             items: AREAS.filter((area) => ownPages.some((page) => page.area === area)).map((area) => ({

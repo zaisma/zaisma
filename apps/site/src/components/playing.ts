@@ -2,13 +2,12 @@ import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
 import { secondaryButton } from "./actions.ts";
-import { CUT_LINE, EDGE, logo, picture, type ShownPicture } from "./foundations.ts";
+import { EDGE, logo, picture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { row, stackOfOne } from "./layout.ts";
-import { sheet } from "./panes.ts";
+import { row } from "./layout.ts";
 
 /*
- * A game's page: its screenshots, the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
+ * A game's page: the game cards of every list of games (Browse, More from a developer), and playing it. Playing is the page once Play is pressed. The game fills the screen; Zaisma keeps one slim bar of glass beside it (above it, or down
  * the left edge of a landscape phone) and a card over its corner when something needs the player (keep your progress, sign in). Everything
  * else on the page steps aside: the header, the background, the page's panes and the footer. The page's script turns it on by putting
  * is-playing on <html> and adding the game's frame (class game-frame) to the body.
@@ -29,23 +28,6 @@ export interface PlayingBarOptions {
 export function playingBar(options: PlayingBarOptions): Raw {
   return html`<div class="playing-bar glass glass-bar at-screen-edge${options.isShown ? " in-place" : ""}${options.shownAs ? ` on-${options.shownAs}` : ""}" data-glass data-glass-corners="0 0 0 0">${EDGE}<span class="playing-mark words-margin at-start">${logo("mark")}</span><strong class="playing-title words-margin one-line">${options.title}</strong><div class="playing-controls">${row({ widths: "fit", label: "The game's buttons", items: options.controls.map((control) => ({ kind: "control" as const, markup: control })) })}</div></div>`;
 }
-
-export interface ScreenshotOptions {
-  picture: ShownPicture;
-  /** What a screen reader says for it: "Screenshot 2 of 5". */
-  label: string;
-  /** The sheet that shows it large (a Sheet holding screenshotLarge), which it opens. */
-  sheetId: string;
-}
-
-/**
- * A screenshot in a game's row of them: the picture set in a carved well, cut like a game card's, which opens large in a sheet. The well and
- * the picture both follow the edge rule, so the one at the start of the row takes the pane's corner there, the one at its end the pane's
- * other corner, and every one between is square, wherever the row is scrolled to.
- */
-export const screenshot = (options: ScreenshotOptions): Raw =>
-  html`<button class="screenshot carving holds-art" type="button" data-cut-line="0" aria-controls="${options.sheetId}" aria-label="${options.label}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${picture(options.picture, { shownSizes: "(max-width: 760px) 100vw, 480px", largestPx: 1440 })}</span></button>`;
-
 
 /**
  * A card with nothing to press in it (a notification) dismisses on a tap or a click, or a swipe sideways or up past a threshold. While it's
@@ -118,9 +100,6 @@ export const PLAYING_CARD_SCRIPT = `/* playing cards */(function () {
 })();
 `;
 
-/** A screenshot large, as a sheet's body: as big as the screen allows, whole. */
-export const screenshotLarge = (shown: ShownPicture, label: string): Raw => picture(shown, { label, hasOwnShape: true, className: "screenshot-large", shownSizes: "(max-width: 760px) 100vw, 960px", largestPx: 1920 });
-
 /** Where Cloudflare's check sits on a game's page: unseen, unless it ever needs a tap, when it shows at the screen's foot, over the game too. */
 export const playingCheck = (id: string): Raw => html`<div class="playing-check" id="${id}"></div>`;
 
@@ -170,19 +149,6 @@ ${onPhoneSideways(".playing-bar.on-phone-sideways")}
 
 @media (prefers-reduced-motion: reduce) { html.is-playing .game-frame { animation: none; } }
 
-/* Screenshots: a carved well like a game card's, the picture filling it up to its rim (2px); pointed at, the picture comes a little closer.
-   Large, it's whole, as big as the screen allows. */
-/* A carving that holds art (materials.ts), the screenshot its art. */
-.screenshot { display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; cursor: zoom-in; }
-.screenshot img { transition: transform var(--motion-arrive) var(--ease-glide); }
-.screenshot:hover img { transform: scale(1.03); }
-.screenshot:focus-visible { outline: none; }
-.screenshot:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* As wide as a picture's sheet goes, less its frame: up to --size-sheet-picture, and the screen less its margins. */
-/* Large, at its own shape, as wide as the sheet lets it be without growing taller than 70% of the window. */
-.screenshot-large { width: min(calc(var(--size-sheet-picture) - 2 * var(--pad-frame)), calc(100vw - 2 * var(--pad-pane) - 2 * var(--pad-frame)), calc(70dvh * var(--picture-shape))); }
-@media (prefers-reduced-motion: reduce) { .screenshot img { transition: none; } }
-
 /* Cloudflare's check: unseen; if it ever needs a tap, at the foot of the screen, over the page or the game. */
 .playing-check { position: fixed; z-index: 30; left: 50%; bottom: var(--pad-pane); transform: translateX(-50%); }
 `;
@@ -193,20 +159,6 @@ const STAND_IN_CONTROLS = (): ControlMarkup[] => [
   secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isSmall: true }),
   secondaryButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false }),
 ];
-
-component({
-  name: "Screenshot",
-  slug: "screenshot",
-  group: "data",
-  subgroup: "pictures",
-  summary: "A game's screenshot in its row of them, in a carved well cut like a game card's; it opens large in a sheet, whole, as big as the screen allows.",
-  styles: "",
-  render: screenshot,
-  examples: [
-    { label: "In a row: press it to open it large", markup: html`<div style="width:280px">${screenshot({ picture: STAND_IN_COVER_PICTURES["neon-drift"]!, label: "Screenshot 1 of 3", sheetId: "example-screenshot" })}</div>${sheet({ id: "example-screenshot", title: "Neon Drift, screenshot 1 of 3", body: stackOfOne(screenshotLarge(STAND_IN_COVER_PICTURES["neon-drift"]!, "Neon Drift, screenshot 1")), closeLabel: "Close", isPicture: true })}` },
-  ],
-});
-
 
 component({
   name: "Playing bar",

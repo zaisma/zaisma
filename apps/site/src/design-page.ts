@@ -13,7 +13,8 @@ import { secondaryButton, primaryButton, textLink } from "./components/actions.t
 import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
 import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack, stackOfOne } from "./components/layout.ts";
-import { listRows, emptyState } from "./components/data.ts";
+import { listRows, stateNote } from "./components/data.ts";
+import { YOUTUBE_FRAME_ORIGIN } from "./components/game-media.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
 /*
@@ -102,7 +103,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
     const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
     return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
   });
-  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ whenEmpty: emptyState({ title: "No older versions", text: "Every version is above." }), id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions", text: "Every version is above." }), id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
   return new Response(page.html, { headers: securityHeaders(env) });
 }
 
@@ -120,8 +121,9 @@ export function designPage(env: Env, url: URL): Response | null {
   const main = html`<h1 class="group-name">${placeName(place)}</h1>
 ${shown.map((each) => section(each, theme))}`;
   const checkedPage = galleryPageName(place);
-  // The layout group's Screens example frames the example page.
-  return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames: place.group === "layout" ? ["'self'"] : [] });
+  // The layout group's Screens example frames the example page; Data's pictures, Game media's YouTube video once it's pressed.
+  const frames = place.group === "layout" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
+  return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames });
 }
 
 /** A page of the gallery: its bar with the sidebar's button and light or dark, the groups and their subgroups down its side, and what it shows. */
@@ -621,3 +623,24 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
 })();
 `,
 );
+
+/**
+ * A gallery stand-in from the brand folder (a video), answering a byte range with just those bytes (206), so a player can seek in it: the
+ * asset server sends a file whole, and Safari can't seek in a video without ranges. A game's own videos come from R2 on the game domain,
+ * which answers ranges itself.
+ */
+export async function assetInRanges(request: Request, env: Env): Promise<Response> {
+  const whole = await env.ASSETS.fetch(new Request(request.url));
+  const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get("Range") ?? "");
+  const headers = new Headers(whole.headers);
+  headers.set("Accept-Ranges", "bytes");
+  if (!whole.ok || !range || (!range[1] && !range[2])) return new Response(whole.body, { status: whole.status, headers });
+  const fileBytes = await whole.arrayBuffer();
+  const sizeBytes = fileBytes.byteLength;
+  const startByte = range[1] ? Number(range[1]) : Math.max(0, sizeBytes - Number(range[2]));
+  const endByte = range[1] && range[2] ? Math.min(Number(range[2]), sizeBytes - 1) : sizeBytes - 1;
+  if (startByte >= sizeBytes || startByte > endByte) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${String(sizeBytes)}` } });
+  headers.set("Content-Range", `bytes ${String(startByte)}-${String(endByte)}/${String(sizeBytes)}`);
+  headers.set("Content-Length", String(endByte - startByte + 1));
+  return new Response(fileBytes.slice(startByte, endByte + 1), { status: 206, headers });
+}

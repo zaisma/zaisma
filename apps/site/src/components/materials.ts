@@ -44,9 +44,9 @@ export const MATERIAL_STYLES = `
    through both, as through two real sheets, and it costs one blur less. A floating pane, sheet or notice open over the page (the top layer)
    blurs the page itself; so does glass laid over a world of its own (a game's backdrop in what holds it, as the gallery's samples are: a
    backdrop or header frame, named rather than found with :has(), which Safari ignores here and leaves the glass unblurred), as does
-   glass over a picture it lies on (a game card's marks over its art),
+   glass over a picture it lies on (a game card's marks over its art, a video's controls), a light box's pane (the only glass in it),
    and the gallery's strips of shapes blur the shapes they hold, to show what glass does. */
-.glass .glass:not(:popover-open, :modal, .glass-strip .glass, :is(.backdrop-frame, .header-frame) .glass, .cover-art .glass)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.glass .glass:not(:popover-open, :modal, .glass-strip .glass, :is(.backdrop-frame, .header-frame) .glass, .cover-art .glass, .video-player .glass, .chart-tip, .light-box.on-pane .glass-pane)::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* Caps and scrolls: past its cap, what's in a material scrolls inside it (the part marked scrolls), on Zaisma's rail (RAIL_SCRIPT finds it)
    with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
@@ -82,7 +82,8 @@ export const MATERIAL_STYLES = `
 .sheet.is-anchored:not(.in-place) { max-height: var(--sheet-max-height); }
 .sheet.is-anchored:not(.in-place)::backdrop { background: var(--dim-light); }
 .sheet.light-box::before { display: none; }
-.sheet.light-box:not(.in-place) { height: 100%; padding: var(--pad-pane); --ink: var(--ink-on-dim); --ink-2: var(--ink-2-on-dim); }
+.sheet.light-box:not(.in-place) { height: 100%; padding: var(--pad-pane); }
+.sheet.light-box:not(.in-place, .on-pane) { --ink: var(--ink-on-dim); --ink-2: var(--ink-2-on-dim); }
 .sheet.light-box::backdrop { background: var(--dim-deep); }
 .light-box-in { height: 100%; }
 @media (max-width: 760px) { .sheet:not(.in-place) { max-height: 78dvh; } }
@@ -111,7 +112,9 @@ export const MATERIAL_STYLES = `
 /* What's in it sits over its face; zero specificity, so a part placed by its owner (a tertiary button's line) keeps its place. */
 .flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
 .flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
-.flush-row.quiet:is(:hover, .is-pointed) { color: var(--ink); }
+.flush-row.quiet:not(:where(div, li)):is(:hover, .is-pointed) { color: var(--ink); }
+/* A row that's only words (a list row with no press, a share row) is still: no hand, no light. */
+.flush-row:where(div, li) { cursor: auto; }
 /* Lit at its start (lights-start, a sidebar's place you're on): orange light inside the slab along its start edge, as a picked card's. */
 .flush-row.lights-start[aria-current="page"]::after { content: ""; position: absolute; z-index: 1; inset: 0 auto 0 0; width: 18px; pointer-events: none; background: linear-gradient(to right, var(--run) 0, var(--run) 2.5px, var(--run-flood) 3.5px, transparent 100%); clip-path: var(--cut-shape); }
 .flush-row:is([aria-current="page"], [aria-pressed="true"]) { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
@@ -120,13 +123,15 @@ export const MATERIAL_STYLES = `
 .flush-row:is(:focus-visible, .is-focused) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 
 /* A hairline: the one line drawn on glass, between things (a menu's head and its choices, rows one under another, or either side of a word). */
-hr.hairline { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
+:is(hr.hairline, .reading hr) { border: 0; border-top: var(--divider); margin: var(--gap-control-stack) 0; }
 .hairline-below { border-bottom: var(--divider); }
 .hairlines > * + * { border-top: var(--divider); }
 /* A table's rows draw no line of their own, so the line between them is on their cells; the row you point at takes the rows' wash. */
 .hairlines > tr + tr > * { border-top: var(--divider); }
-tbody.hairlines > tr:hover > td:not(.table-placeholder) { background: var(--row-hover); }
-tbody.hairlines > tr:hover > th { --glass-layer: linear-gradient(var(--row-hover), var(--row-hover)); }
+/* A table row under the pointer catches the light as every hover does, its head with it; the light goes out in half the time, so a pointer
+   swept down a long table leaves no trail of lit rows behind it. */
+tbody.hairlines > tr > :is(td:not(.table-placeholder), th) { background: var(--face-color); transition: --face-color calc(var(--motion-state) / 2); }
+tbody.hairlines > tr:hover > :is(td:not(.table-placeholder), th) { --face-color: var(--row-hover); transition-duration: var(--motion-state); }
 /* Things a block apart (posts), the line in the middle of the gap between them. */
 .hairlines.roomy > * + * { padding-top: var(--gap-block-block); }
 /* What follows something else, a line and a part's gap over it (a game's facts under its name). */
@@ -172,12 +177,15 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* Its words and icon sit in its box's middle: Jost's capitals and figures fill its line evenly at a tag's size, so lifting them made them
    sit high, an icon beside them higher still. */
 .tag { display: inline-flex; align-items: center; justify-content: center; height: 22px; min-width: 22px; padding: 0 10px 0 9px; flex: none; white-space: nowrap;
-  font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.tag.new, .tag.count, .tag.plain, .tag.warning { box-shadow: var(--tag-carve); }
+  font: var(--type-tag); clip-path: var(--cut-shape, none); }
+.tag.new, .tag.count, .tag.plain, .tag.warning, .tag.problem { box-shadow: var(--tag-carve); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
 .tag.count { padding: 0 8px; color: var(--ink-2); background: var(--tag-plain); font-variant-numeric: tabular-nums; }
 .tag.plain { color: var(--ink-2); background: var(--tag-plain); }
 .tag.warning { color: var(--tag-warning-ink); background: var(--tag-warning); }
+.tag.problem { color: var(--tag-problem-ink); background: var(--tag-problem); }
+/* Its cut line lies over it, out of its flow, on glass too (where the glass lifts what's on it into its own flow). */
+.tag > .cut-line { position: absolute; }
 
 /* A carving: the glass cut away, cut by the edge rule, its face a touch darker than the glass round it and shaded under its top edge; its
    edge lit along its foot and shaded along its top (the edge rule's bands, turned round from a slab's). What has words in it keeps them a
@@ -317,6 +325,8 @@ span.hairline { flex: 1; border-top: var(--divider); }
 /* Its words end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .slab > :is(span:not([class]), .label-idle) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .slab-holder { display: inline-flex; max-width: 100%; }
+/* Dense: over what moves under it (a table's rows), its face on a backing the words under it never show through, as a mark's name is. */
+.slab.dense { background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), linear-gradient(var(--face-color), var(--face-color)), var(--table-row-head); }
 /* Holds art: a slab whose face is a picture (your picture as the account button), square at its control height. Its bevel and focus line are
    drawn over the picture's edge; pointed, the picture catches the light; pressed, it takes the press shade and the slab sinks in place as
    a whole, so no strip of face shows past the picture. */
@@ -464,12 +474,16 @@ export interface SlabOptions {
   state?: "is-pointed" | "is-pressed" | "is-focused" | "is-disabled";
   /** Pressed and waiting: the gallery's still copy of the waiting state, which a real slab takes from its button's aria-busy. */
   isWaiting?: boolean;
+  /** Over what moves under it (a table's header row, as its rows scroll): on a dense backing, so the words under it never show through. */
+  isDense?: boolean;
+  /** Its owner's name for it, on its holder, ending in -slab so it never meets another component's class: "table-head-slab". */
+  kind?: string;
 }
 
 /** A slab, on its own: the gallery's look at the material. A button's face is one (actions.ts), its states from the button. */
 export function slab(options: SlabOptions): Raw {
-  const className = ["slab", options.isLit ? "lit" : "", options.slabSize && options.slabSize !== "regular" ? options.slabSize : "", options.isWaiting ? "is-pressed" : options.state ?? ""].filter(Boolean).join(" ");
-  return html`<span class="slab-holder"${options.isWaiting ? raw(' aria-busy="true"') : ""}><span class="${className}" data-cut-line="12">${CUT_LINE}<span>${options.body}</span></span></span>`;
+  const className = ["slab", options.isLit ? "lit" : "", options.isDense ? "dense" : "", options.slabSize && options.slabSize !== "regular" ? options.slabSize : "", options.isWaiting ? "is-pressed" : options.state ?? ""].filter(Boolean).join(" ");
+  return html`<span class="slab-holder${options.kind ? ` ${options.kind}` : ""}"${options.isWaiting ? raw(' aria-busy="true"') : ""}><span class="${className}" data-cut-line="12">${CUT_LINE}<span>${options.body}</span></span></span>`;
 }
 
 /** The four thicknesses side by side over shapes, so what shows through each tells them apart. */
@@ -554,6 +568,7 @@ component({
       markup: html`<div class="glass-strip"><i></i><i></i><i></i>${glassPane({ paneWidth: "fit", body: stackOfOne(PLAY_AND_DETAILS()) })}</div>`,
     },
     { label: "Lit: the orange one", markup: carvingSample(slab({ body: html`Play`, isLit: true })) },
+    { label: "Dense: over what moves under it (a table's header row)", markup: carvingSample(slab({ body: html`Version`, isDense: true })) },
     { label: "Lit, pointed at", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pointed" })) },
     { label: "Lit, pressed", isStill: true, markup: carvingSample(slab({ body: html`Play`, isLit: true, state: "is-pressed" })) },
     { label: "Lit, waiting", isStill: true, markup: carvingSample(slab({ body: html`Save`, isLit: true, isWaiting: true })) },

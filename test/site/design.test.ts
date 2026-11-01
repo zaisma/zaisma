@@ -21,7 +21,7 @@ import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/s
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
-import { raw } from "../../apps/site/src/markup.ts";
+import { NO_EMPTY_NOTE, raw } from "../../apps/site/src/markup.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import materialsSource from "../../apps/site/src/components/materials.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
@@ -52,6 +52,10 @@ import readingSource from "../../apps/site/src/components/reading.ts?raw";
 import peopleSource from "../../apps/site/src/components/people.ts?raw";
 import gameCoverSource from "../../apps/site/src/components/game-cover.ts?raw";
 import waitingSource from "../../apps/site/src/components/waiting.ts?raw";
+import codeColorsSource from "../../apps/site/src/components/code-colors.ts?raw";
+import gameMediaSource from "../../apps/site/src/components/game-media.ts?raw";
+import loadMoreSource from "../../apps/site/src/components/load-more.ts?raw";
+import videoPlayerSource from "../../apps/site/src/components/video-player.ts?raw";
 import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 
 /** The gallery's own source, to check it draws nothing by hand. */
@@ -60,6 +64,7 @@ const SOURCES: Record<string, string> = {
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/light-box.ts": lightBoxSource, "components/qr-code.ts": qrCodeSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
   "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource, "components/game-cover.ts": gameCoverSource, "components/waiting.ts": waitingSource,
+  "components/code-colors.ts": codeColorsSource, "components/game-media.ts": gameMediaSource, "components/load-more.ts": loadMoreSource, "components/video-player.ts": videoPlayerSource,
   "design-page.ts": galleryPageSource,
 };
 
@@ -154,7 +159,7 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack" };
+    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details" };
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
     const problems = Object.entries({ actions, inputs, navigation, panes, data, layout: layoutComponents }).flatMap(([file, exports]) =>
       Object.entries(exports)
@@ -313,7 +318,8 @@ describe("the gallery", () => {
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
       const decoration = /(?:^|[;\s])text-decoration(?:-line)?:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      if (decoration && decoration !== "none" && !/:focus|is-focused/.test(selector) && !selector.split(",").every((each) => /^\.link\b/.test(each.trim()))) problems.push(`${selector}: text-decoration: ${decoration}`);
+      // Reading text's own links, in the HTML a post or the rules bring, are Links too: the same rule as .link.
+      if (decoration && decoration !== "none" && !/:focus|is-focused/.test(selector) && !splitSelectors(selector).every((each) => /^(\.link\b|\.reading :where\(a\b)/.test(each))) problems.push(`${selector}: text-decoration: ${decoration}`);
       for (const each of splitSelectors(selector)) {
         const subject = subjectOf(each);
         if (/^a(?=$|[:.[])/.test(subject) && !LINK_IN_CONTROL.has(each.replace(/:[a-z-]+(\([^)]*\))?/g, ""))) problems.push(`${each}: styles a link of its own`);
@@ -338,8 +344,11 @@ describe("the gallery", () => {
         if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
         // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places), and a
         // fold's row and what it opens to are one thing.
-        if (holder.classes.includes("well-body") || holder.tag === "details" || holder.children[0]?.classes.includes("list-row")) continue;
+        // A list's rows and a chart's share rows lie flush, one under the next, with no gap between them.
+        if (holder.classes.includes("well-body") || holder.tag === "details" || holder.children[0]?.classes.includes("list-row") || holder.classes.includes("share-rows")) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
+        // Marks and pictures that stay square (tags, a game's media wells and their strip) never slant toward a neighbor.
+        if (children.every((child) => child.attributes.includes(" data-cut-square"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
         const gaps = [...matching.map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
@@ -500,7 +509,7 @@ describe("components", () => {
   });
 
   it("make a row's switch a checkbox that posts with its form, with no script, the whole row its label", () => {
-    const switchRow = (isOn: boolean) => data.listRows({ whenEmpty: html``, rows: [{ title: "Cloud saves", switch: { name: "cloud_saves", isOn } }] }).html;
+    const switchRow = (isOn: boolean) => data.listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title: "Cloud saves", switch: { name: "cloud_saves", isOn } }] }).html;
     expect(switchRow(true)).toContain('<input class="toggle-input" type="checkbox" role="switch" id="switch-cloud_saves" name="cloud_saves" value="on" checked>');
     expect(switchRow(true)).toContain('<label class="list-row flush-row toggle" for="switch-cloud_saves"');
     expect(switchRow(false)).not.toContain(" checked");
@@ -517,13 +526,13 @@ describe("components", () => {
   });
 
   it("head a table's columns for screen readers and line its numbers up on the right", () => {
-    const markup = data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
+    const markup = data.table({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No rows yet", text: "Rows show here as they come." }), caption: "Versions", columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html;
     expect(markup).toContain('<p class="table-caption words-margin" id="table-versions-caption">Versions</p>');
     expect(markup).toContain('aria-labelledby="table-versions-caption"');
-    expect(markup).toContain('<th scope="col" class="glass">Version</th><th scope="col" class="glass num">Files</th>');
+    expect(markup).toContain('<th scope="col">Version</th><th scope="col" class="num">Files</th>');
     expect(markup).toContain('<td>Version 14</td><td class="num">312</td>');
     // A first column that names the rows is each row's head.
-    expect(data.table({ whenEmpty: html`<p>No rows yet.</p>`, caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row" class="glass">Version 14</th><td class="num">312</td>');
+    expect(data.table({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No rows yet", text: "Rows show here as they come." }), caption: "Versions", hasRowHeads: true, columns: [{ label: "Version" }, { label: "Files", isNumeric: true }], rows: [["Version 14", "312"]] }).html).toContain('<th scope="row">Version 14</th><td class="num">312</td>');
   });
 
   it("give a chart's numbers to screen readers as a table of the same values", () => {
@@ -622,8 +631,6 @@ const HAND_CUT = new Set<string>([
   ".tray-group > .glass.tray-head::after",
   // The gallery's stand-in game screen, cut as a pane is.
   ".game-stand-in",
-  // A picture's presence marks: the green line along its foot and the playing tab, slanted like a tag.
-  ".presence-line", ".presence-play",
 ]);
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
@@ -652,7 +659,6 @@ const OWN_SVG = new Map<string, string>([
   ['class="edge"', "glass's drawn rim (EDGE)"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
   ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
-  ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
   ["const cardBrandImage = ", "the card brands' marks on a card row (Visa, Mastercard and the rest), as their owners draw them"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
@@ -661,6 +667,7 @@ const OWN_SVG = new Map<string, string>([
   ["cursor.innerHTML", "the gallery's loops' own pointer"],
   ["data-glass-play", "the Glass foundation's demo window's resize grip"],
   ["const STAND_IN_GAME_ICON", "the gallery's stand-in game icon, a picture as a game's own icon would be"],
+  ["data-shown-at=", "a video's sound button's three icons, each shown at its own level (the icon set's, marked)"],
 ]);
 
 // The only places glass is made by hand, each with why: every other sheet is a Glass pane or a Tray.
@@ -678,6 +685,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="playing-bar glass', "the bar beside a running game"],
   ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
+  ['class="chart-tip glass', "a chart's number where you point, on a small piece of floating glass"],
+  ['class="video-controls glass', "a video's controls, a bar of smoked glass along its foot"],
   ['class="sidebar glass glass-pane compact pinned"', "Sidebar itself"],
   ['const stillSidebar = ', "Sidebar's still copy on its gallery page"],
   ['class="sidebar-example-phone glass"', "Sidebar's still phone screen, the sheet over its page"],
@@ -726,11 +735,17 @@ const NOT_SPACING = new Set<string>([
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
-  ".chart-last | margin", ".chart-dot | margin",
+  ".chart-dot | margin",
   // A chart's room for the dots at its ends.
   ".chart-inner | padding",
   // A chart's number where you point: a small label's own room round its words.
-  ".chart-tip | padding",
+  ".chart-tip.glass | padding",
+  // A key detail's label close over its value, and friends' pictures as tall as the value's words.
+  ".key-detail | gap", ".key-detail-value > .picture-row | margin-block",
+  // A quiet share row: its words close over their hairline groove.
+  ".share-rows.is-quiet li | row-gap",
+  // A table's header slab and fades, sticky in one grid cell: moved past the row heads by a margin, a place rather than spacing.
+  ".table-scroll > .table-frost.is-start | margin-left", ".table-scroll > .table-frost.is-end | margin-left", ".table-scroll:has(> .table-corner-slab) > .table-head-slab | margin-left",
   // A masked link's words: room round them for their blur, taken back by a margin so they sit where they would.
   ".copy-field.is-masked:not(.is-code) .copy-field-text | padding", ".copy-field.is-masked:not(.is-code) .copy-field-text | margin",
   // A search's list: its head's words lined up with the field's, and a game's two lines, closer than any gap.
@@ -1069,10 +1084,10 @@ describe("page structure", () => {
     const tokens = [...STYLES().matchAll(/(--[a-z0-9-]+):\s*([^;}]+)/g)];
     for (let size = 0; size !== orange.size; ) { size = orange.size; for (const [, name = "", value = ""] of tokens) if ([...orange].some((each) => value.includes(`var(${each})`))) orange.add(name); }
     // A part of something you act on counts too: a toggle's icon, on.
-    const ACTED_ON = /(^|[\s>+~])(a|button|summary|label)\b|\.(run|link|cut-btn|toggle-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
+    const ACTED_ON = /(^|[\s>+~(])(a|button|summary|label)\b|\.(run|link|cut-btn|toggle-btn|tertiary-btn|danger)\b|\[role="?(tab|button)/;
     const problems = rulesOf(STYLES()).flatMap((rule) => [...rule.declarations.matchAll(/(?:^|[;\s])color:\s*([^;]+)/g)]
       .filter(([, value = ""]) => [...orange].some((each) => value.includes(`var(${each})`)))
-      .flatMap(() => rule.selectors.split(",").map((selector) => selector.trim()).filter((selector) => !ACTED_ON.test(selector))));
+      .flatMap(() => splitSelectors(rule.selectors).filter((selector) => !ACTED_ON.test(selector))));
     expect(problems).toEqual([]);
   });
 
@@ -1208,7 +1223,7 @@ describe("layout", () => {
   });
 
   it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
-    expect(grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
+    expect(grid({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
     // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.

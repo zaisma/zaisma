@@ -427,6 +427,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (along.scrollWidth > along.clientWidth + 1) p = { top: p.top, bottom: p.bottom, left: p.left - along.scrollLeft, right: p.right + along.scrollWidth - along.clientWidth - along.scrollLeft };
     }
     if (!scroller || scroller === holder || !holder.contains(scroller)) return p;
+    // What stays put as the box scrolls (a table's header and row heads, sticky) is cut where it shows, as if the box didn't scroll.
+    if (el.parentElement && getComputedStyle(el.parentElement).position === "sticky") return p;
     var scrolled = scrollOf(scroller);
     if (scrolled.scrollHeight <= scrolled.clientHeight + 1) return p;
     // The holder's own box, run on by what's scrolled out of view above and below it, so a scroller that's only part of it (a sheet's body,
@@ -439,13 +441,20 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // data-cut-stack="first", "last", "first last" or "": a part of a vertical stack (a vertical switch's slab): its top follows the holder's top
   // only on the first, its bottom only on the last, at its gap from the sides, wherever it sits as it moves; between, it's square.
   // as: { beside, ends, stack } stands in for data-cut-beside, data-cut-ends and data-cut-stack, for the shape a part had before it moved (a glide).
+  // data-cut-square: a mark that's square wherever nothing holds it (a tag over a cover's art, or on a gallery stage), where a control
+  // alone would take lone corners; in a pane it fits the pane's corners like anything else.
   function fitCuts(el, w, h, as) {
+    // What's full screen (a video player) fills the screen, square: no pane holds it there, so it takes no pane's corners, and nor does
+    // anything in it (its controls' bar and buttons).
+    if (el === document.fullscreenElement) return [0, 0, 0, 0];
     var holder = holderOf(el);
+    if (!holder && el.hasAttribute("data-cut-square")) return [0, 0, 0, 0];
     if (!holder) {
       var stack = stacked(el);
       return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.min(cut, Math.round(Math.min(w, h) * 0.25)); });
     }
-    var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
+    // A holder cut by the edge rule (a control, or a slab that names no corners of its own) gives the cuts it took; any other glass, its own.
+    var c = holder === document.fullscreenElement ? [0, 0, 0, 0] : holder.hasAttribute("data-cut-line") || holder.cutCorners ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
     var r = rectOf(el), p = contentRectOf(el, holder), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
@@ -726,6 +735,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
   };
   window.zaismaGlass = glass;
+  // Going full screen or back changes which corners hold what's in it, though nothing in it may change size: everything is drawn again once
+  // it's laid out, and once more a frame on, so a part drawn before its holder takes the holder's new corners.
+  document.addEventListener("fullscreenchange", function () {
+    var watch = window.zaismaWatch; if (!watch) return;
+    requestAnimationFrame(function () { watch.drawAll(); requestAnimationFrame(watch.drawAll); });
+  });
   window.zaismaCutLine = cutLine;
   // How the page was last used, keyboard or pointer (a mouse, a touch, a pen): a ring only ever shows for the keyboard (:focus-visible), so a sheet
   // opened by a press focuses itself, not its first button, and only one opened from the keyboard focuses its first control (LAYERS_SCRIPT).
@@ -741,6 +756,12 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var slabs = Array.prototype.slice.call(root.querySelectorAll("[data-glass]")), lines = Array.prototype.slice.call(root.querySelectorAll("[data-cut-line]"));
     if (root.matches && root.matches("[data-glass]")) slabs.push(root);
     if (root.matches && root.matches("[data-cut-line]")) lines.push(root);
+    // A control made of glass is drawn by glass, from the same edge rule. Cut lines go first, so a slab with no corners of its own in one
+    // (a table's header in its well) fits the cuts its holder has already taken.
+    lines.forEach(function (el) {
+      if (done.has(el) || el.hasAttribute("data-glass")) return; done.add(el);
+      cutLine(el);
+    });
     slabs.forEach(function (el) {
       if (done.has(el)) return; done.add(el);
       // Read as it's drawn, so a pane whose corners change (the home's pane, a tray's head only while its tray shows) is cut anew when it next changes size.
@@ -749,14 +770,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         var own = corners(el, "pane");
         if (own.some(function (cut) { return cut > 0; }) || !holderOf(el)) return own;
         var size = sizeOf(el);
-        return fitCuts(el, size[0], size[1]);
+        // Kept, so what it holds (a video's bar's buttons) fits these cuts, not the none it names.
+        return (el.cutCorners = fitCuts(el, size[0], size[1]));
       });
       if (/^[0\\s]+$/.test(el.getAttribute("data-glass-corners") || "")) { edgeDraws.set(el, draw); drawEdgeAfterFonts(); }
-    });
-    // A control made of glass is drawn by glass, from the same edge rule.
-    lines.forEach(function (el) {
-      if (done.has(el) || el.hasAttribute("data-glass")) return; done.add(el);
-      cutLine(el);
     });
   }
   runBatch(function () { apply(document); });

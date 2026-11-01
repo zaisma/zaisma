@@ -511,6 +511,8 @@ component({
 export interface TertiaryButtonOptions extends ButtonTarget {
   /** An icon before its words, like Show all's chevron. */
   icon?: IconName;
+  /** The icon shown instead while what it acts on is on (data-is-on="true", set by its script): a video's Pause for Play, Exit full screen. */
+  onIcon?: IconName;
   /**
    * Only its icon shows, its words said to a screen reader, and pointing brings up its slab with no orange line under it: a pane's Close and
    * a sheet's Back, which sit quietly in its corners until they're wanted.
@@ -541,7 +543,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
   const isIconOnly = Boolean(options.isLabelHidden && options.icon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${options.icon && options.onIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(options.onIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -557,6 +559,8 @@ component({
    along it, the way a cover's line does; leaving, the line runs on out to the right, quicker than it came. A press darkens its slab where
    it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
 .tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
+/* With an icon for on: it shows the one that fits, Play or Pause, Full screen or Exit. */
+.tertiary-btn:not([data-is-on="true"]) svg[data-shown-when="on"], .tertiary-btn[data-is-on="true"] svg[data-shown-when="off"] { display: none; }
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
@@ -769,13 +773,13 @@ component({
 /* A link: the words' own font, ink, with an orange underline. Under the pointer its words take the line's orange (--run-words, dark enough
    on light glass to read); nothing moves and nothing fills in behind them, which would read as the browser's own selection. Quiet: plain
    until pointed at, when the line comes up and the words turn orange. Keyboard focus is the focus outline: a link can wrap across lines,
-   so it can't take a control's cut. */
-.link { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 3px;
+   so it can't take a control's cut. A link in Reading text (a post's, written as Markdown) is one too. */
+.link, .reading :where(a:not(:has(img))) { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 3px;
   transition: text-decoration-color var(--motion-state), color var(--motion-state); }
-.link:hover, .link.is-pointed, .link:active { color: var(--run-words); }
+.link:hover, .link.is-pointed, .link:active, .reading :where(a:not(:has(img))):is(:hover, :active) { color: var(--run-words); }
 .link.quiet { color: inherit; font-weight: inherit; text-decoration-color: transparent; }
 .link.quiet:hover, .link.quiet.is-pointed { color: var(--run-words); text-decoration-color: var(--run); }
-.link:focus-visible, .link.is-focused { outline: 2px solid var(--focus); outline-offset: 3px; }
+.link:focus-visible, .link.is-focused, .reading :where(a):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 /* On a touch screen a link in a list of links (a footer's) still takes a finger: its hit area reaches a regular control's height, its look
    unchanged. A link inside a sentence keeps its line's, so it never reaches over the lines above and below it. */
 /* On a touch screen a link that stands on its own (a quiet one, or one a layout places: Share in a row) is a control's height to press; one
