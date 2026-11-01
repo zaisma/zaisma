@@ -410,10 +410,11 @@ export const ROW_STYLES = `
 /* Fields that show their labels, wrapped onto lines of their own, are blocks one under another. */
 .layout-row.is-on-field-boxes { align-items: flex-end; row-gap: var(--gap-block-block); }
 .row-cell { display: flex; align-items: center; }
-/* A box in a cell that scrolls sideways has its rail laid under it (navigation.ts), on a line of its own: beside it, the rail would have no
-   width, its thumb hanging past the row's end, and past a phone's screen, widening the page. */
-.row-cell:has(> .rail.sideways) { flex-wrap: wrap; }
-.row-cell > .rail.sideways { flex: 1 1 100%; }
+/* A box in a cell that scrolls sideways has its rail laid under it (navigation.ts), hanging in the gap below the row: beside it, the rail
+   would have no width, its thumb past the row's end, and past a phone's screen, widening the page. Out of the cell's flow, so it never
+   changes what the row measures to decide whether it stacks. */
+.row-cell:has(> .rail.sideways) { position: relative; }
+.row-cell > .rail.sideways { position: absolute; left: 0; right: 0; top: 100%; }
 /* Words beside controls sit on the controls' center line: half the tallest control's height less a line's is above their first line and below
    their last, so held up with the controls (a row, and one at a pane's top edge, where the controls take the corner's cut) their first line
    lines up, and held down (on a field's boxes, at a pane's bottom edge) their last. A heading beside a button lines up with it however many
