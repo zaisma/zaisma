@@ -571,9 +571,10 @@ new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-pre
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
 /**
- * The first-paint script as a page carries it, at the end of its <body>: the pieces what it shows needs (components/index.ts,
+ * The first-paint script as a page carries it, first in its <body>: the pieces what it shows needs (components/index.ts,
  * FIRST_PAINT_PIECES), each a script element nothing in it can end. Pages' policy lets each run by its hash and no other inline script
- * (Strict scripts on zaisma.com). They run as the page is read to them, before its first paint.
+ * (Strict scripts on zaisma.com). They run before any of the body is read and watch each piece of it arrive, so a pane has its cuts and
+ * rims in the first frame it shows in, however the page arrives.
  */
 const FIRST_PAINT_PIECE_TEXTS = FIRST_PAINT_PIECES.map((piece) => ({ piece, text: firstPaintPieceText(piece).replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\!--") }));
 /** Each piece's text as a page carries it, for the strict-scripts check (test/strict-scripts.ts). */
@@ -696,9 +697,9 @@ ${themeColors}
 ${options.head ?? ""}
 </head>
 <body>
+${firstPaintScriptTags(shownMarkup(body.html))}
 ${body}
 ${followingStyleTags(...sheets)}
-${firstPaintScriptTags(shownMarkup(body.html))}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);

@@ -27,9 +27,9 @@ export const STYLES_WAIT_LIMIT_MS = 10_000;
 /**
  * The site's stylesheet and the page's script files follow the first paint. The page carries the rules its own markup needs
  * (first-paint-styles.ts); the whole sheet, for what scripts add later (a sheet, a notice, a list fetched in), is named with
- * link rel=preload data-site-style just above this script, and each script file with link rel=preload data-page-script (html.ts's
- * scriptTags), so they download while nothing waits on them. The sheet is put on the page at once, which never holds a paint in any
- * browser; once it has loaded (or failed, or after STYLES_WAIT_LIMIT_MS) and the page is read, the script files run in the page's order,
+ * link rel=preload data-site-style at its body's end, and each script file with link rel=preload data-page-script (html.ts's
+ * scriptTags), so they download while nothing waits on them. This runs first in the body, so it puts the sheet on once the page is read,
+ * which never holds a paint in any browser; once it has loaded (or failed, or after STYLES_WAIT_LIMIT_MS), the script files run in the page's order,
  * as the classic scripts they are (async false), so what one names at its top level another still finds. A page with its stylesheets
  * linked already (the gallery) only runs its files.
  */
@@ -45,9 +45,9 @@ export const FOLLOWING_FILES_SCRIPT = `/* following files */(function () {
     });
   }
   function styled() { isStyled = true; runFiles(); }
-  var named = Array.prototype.slice.call(document.querySelectorAll("link[rel=preload][data-site-style]"));
-  if (!named.length) styled();
-  else {
+  function putSheets() {
+    var named = Array.prototype.slice.call(document.querySelectorAll("link[rel=preload][data-site-style]"));
+    if (!named.length) { styled(); return; }
     var left = named.length;
     var arrived = function () { if (--left === 0) styled(); };
     named.forEach(function (preload) {
@@ -60,7 +60,8 @@ export const FOLLOWING_FILES_SCRIPT = `/* following files */(function () {
     });
     setTimeout(styled, ${STYLES_WAIT_LIMIT_MS});
   }
-  if (!isRead) document.addEventListener("readystatechange", function read() { if (document.readyState === "loading") return; document.removeEventListener("readystatechange", read); isRead = true; runFiles(); });
+  if (isRead) putSheets();
+  else document.addEventListener("readystatechange", function read() { if (document.readyState === "loading") return; document.removeEventListener("readystatechange", read); isRead = true; putSheets(); runFiles(); });
 })();
 `;
 
