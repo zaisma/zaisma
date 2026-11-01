@@ -635,11 +635,11 @@ component({
   summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
-   and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later and slower. */
+   and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later: the same gentle
+   start, never a glide whose first frame is half in, which Safari, with a frame or two to spare while the game's world starts, shows as a pop. */
 html.is-opening-game .backdrop { animation: opening-game-settles calc(var(--motion-page-switch) * 1.8) var(--ease-glide) both; }
 @keyframes opening-game-settles { from { scale: 1.06; } }
-html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * {
-  animation-duration: calc(var(--motion-page-switch) * 0.8); animation-delay: var(--motion-page-switch); animation-timing-function: var(--ease-glide); }
+html.is-opening-game main .glass:not(.glass .glass)::before, html.is-opening-game main .glass:not(.glass .glass) > * { animation-delay: var(--motion-page-switch); }
 /* A page holds its arrival at its start (is-page-held) until the browser has shown it, and a page prepared ahead until it's opened. */
 html.is-page-held .backdrop, html.is-page-held main .glass:not(.glass .glass)::before, html.is-page-held main .glass:not(.glass .glass) > * { animation-play-state: paused; }
 `,
