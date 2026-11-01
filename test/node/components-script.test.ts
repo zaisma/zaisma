@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE, HEADER_SCRIPT } from "../../apps/site/src/components/index.ts";
+import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE, FIRST_PAINT_PIECES, HEADER_SCRIPT, LOOK_SCRIPT, LOOK_SCRIPT_SOURCE } from "../../apps/site/src/components/index.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-components.mjs";
 
@@ -11,11 +11,11 @@ import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-compo
  */
 describe("the components' script", () => {
   it("is current: run npm run components:minify after changing a component's script", async () => {
-    expect(readFileSync(GENERATED_PATH, "utf8")).toBe(await minifiedModuleSource(FIRST_PAINT_SCRIPT_SOURCE, COMPONENT_SCRIPT_SOURCE));
+    expect(readFileSync(GENERATED_PATH, "utf8")).toBe(await minifiedModuleSource(FIRST_PAINT_PIECES, FIRST_PAINT_SCRIPT_SOURCE, LOOK_SCRIPT_SOURCE, COMPONENT_SCRIPT_SOURCE));
   });
 
   it("is the minified one: a good deal smaller than the source, and it still parses", () => {
-    for (const [script, source] of [[FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE], [COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE]] as const) {
+    for (const [script, source] of [[FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE], [LOOK_SCRIPT, LOOK_SCRIPT_SOURCE], [COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE]] as const) {
       expect(script.sourceText.length).toBeLessThan(source.length * 0.7);
       expect(() => new Script(script.sourceText, { filename: `${script.name}.js` })).not.toThrow();
     }

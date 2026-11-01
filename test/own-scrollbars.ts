@@ -12,7 +12,7 @@ export function defaultScrollbarProblems(page: string): string[] {
   if (!/^\s*<!doctype html>/i.test(page)) return [];
   const problems: string[] = [];
   if (!/\sdata-rail="page"/.test(page)) problems.push('no page rail (rail("page")), so the browser shows its own scrollbar');
-  if (!/<script src="\/js\/components\.[0-9a-f]{16}\.js"/.test(page)) problems.push("doesn't load the components' script, so no box that scrolls gets its rail");
+  if (!/<(script src|link rel="preload" as="script" href)="\/js\/components\.[0-9a-f]{16}\.js"/.test(page)) problems.push("doesn't load the components' script, so no box that scrolls gets its rail");
   const styles = [...page.matchAll(/<style[^>]*>([\s\S]*?)<\/style>|\sstyle="([^"]*)"/g)].map((match) => match[1] ?? match[2] ?? "").join("\n");
   for (const [, value = ""] of styles.matchAll(/scrollbar-width:\s*([^;}"]+)/g)) if (value.trim() !== "none") problems.push(`shows the browser's scrollbar: scrollbar-width: ${value.trim()}`);
   return problems;

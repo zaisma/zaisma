@@ -113,7 +113,11 @@
     // Zaisma Pro checkouts, cancels and resumes an owner starts (pro-api.ts): each reaches Stripe.
     { "name": "PRO_LIMIT", "namespace_id": "1094", "simple": { "limit": 10, "period": 60 } },
     // Purchases a player starts with the buy sheet (buy.ts): each makes a purchase and reaches Stripe.
-    { "name": "PURCHASE_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } }
+    { "name": "PURCHASE_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } },
+    // Pages' speed reports, per connection address (speed-reports.ts): one a page a visit, so a burst is a script.
+    { "name": "SPEED_REPORT_LIMIT", "namespace_id": "1155", "simple": { "limit": 30, "period": 60 } }
   ],
+  // Real visits' speed reports (speed-reports.ts): no address kept, 3 months.
+  "analytics_engine_datasets": [{ "binding": "PAGE_SPEED", "dataset": "zaisma_page_speed" }],
   "send_email": [{ "name": "ALERTS" }, { "name": "EMAIL" }]
 }

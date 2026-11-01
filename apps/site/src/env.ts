@@ -74,6 +74,10 @@ export interface Env {
   EXPORT_LIMIT?: RateLimit;
   /** Script policy violation reports per connection address (security-alerts.ts). */
   CSP_REPORT_LIMIT?: RateLimit;
+  /** Pages' speed reports per connection address, only counted (speed-reports.ts). */
+  SPEED_REPORT_LIMIT?: RateLimit;
+  /** Real visits' speed reports (speed-reports.ts): Workers Analytics Engine's zaisma_page_speed. */
+  PAGE_SPEED?: AnalyticsEngineDataset;
   /** Credit top-ups and refunds an owner starts in a minute (credit-api.ts): each reaches Stripe. */
   CREDIT_LIMIT?: RateLimit;
   /** Zaisma Pro checkouts, cancels and resumes an owner starts in a minute (pro-api.ts): each reaches Stripe. */
@@ -147,6 +151,8 @@ export interface Env {
   CLOUDFLARE_WATCH_TOKEN?: string;
   /** Only to point the error-spike query and the outside checker's run list at stand-ins (tests). */
   CLOUDFLARE_GRAPHQL_URL?: string;
+  /** Only to point get_page_speed's Analytics Engine SQL at a stand-in (tests): Cloudflare's API's root. */
+  CLOUDFLARE_API_URL?: string;
   WATCH_RUNS_URL?: string;
   ANTHROPIC_API_KEY?: string;
   VT_API_KEY?: string;
@@ -169,6 +175,8 @@ export interface Env {
   PERFORMANCE_CHECK_MAXIMUM_RUN_DURATION_SEC?: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
   ROOM_LIST_CACHE_SECONDS?: string;
+  /** How long each place keeps a guest's copy of a page (guest-page-cache.ts). 60 unless set; 0 keeps none (tests set 0). */
+  GUEST_PAGE_CACHE_SECONDS?: string;
   /** How long each place keeps a copy of how many people play each game now. 30 unless set (tests set 0). */
   PLAYING_NOW_CACHE_SECONDS?: string;
   /** Supabase Auth. Without these, accounts are off and everything else still works. */

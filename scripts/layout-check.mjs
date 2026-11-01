@@ -14,7 +14,8 @@
 //   - read: no words cut off or over something with an edge, nothing lost at 200% text (the sweep's screens), the page not scrolling sideways;
 //   - reach: on a touch screen everything pressed at least 44px tall, and on one without touch every control reached by Tab, its focus
 //     showing (checkKeyboardReach);
-//   - load: nothing moving or changing its words after the first paint (its first-paint script alone run, the rest held back), and
+//   - load: nothing moving or changing its words after the first paint (the page alone, every file it names held back), the page within
+//     its first paint's size (FIRST_PAINT_SIZE_LIMIT_BYTES), and
 //     every picture in a Picture's box, its placeholder in its place (docs/DESIGN.md, "A page shows whole while it loads");
 //   - press: every press answers within 400 ms (the Doherty threshold), on a laptop, in the sweep.
 // Style isn't measured: the components hold it, and test/site/design.test.ts and test/node/materials.test.ts check them.
@@ -50,7 +51,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
-import { FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { FIRST_PAINT_BROTLI_LEVEL, FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SIZE_LIMIT_BYTES, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
+import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -228,8 +230,9 @@ const PHONE_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit
 const TABLET_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 /**
- * Waits for the page's first paint as a slow connection shows it: the page read, its stylesheet in and its first-paint script run (the
- * rest of its scripts held back), and what that script draws drawn.
+ * Waits for the page's first paint as a slow connection shows it: the page alone read and the first-paint script it carries run (every
+ * file it names held back: its stylesheet, its script files, its pictures), and what that script draws drawn. The gallery holds its first
+ * paint for its files, so its own are let through.
  */
 const FIRST_PAINT_READY = `(async () => {
   const turn = () => new Promise((done) => setTimeout(done, 0));
@@ -480,25 +483,28 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
     });
     let next = loaded();
-    // The loading check (layout-measure.ts, FIRST_PAINT_SNAPSHOT_SOURCE): the page as it first paints, with its first-paint script (and the
-    // ones the parse waits on) run and every other script held back, as a slow connection shows it, kept to be compared once it has loaded. Fonts aren't
-    // held, and it waits for them: Jost's fallback is Arial set to take its room, and a runner without Arial would measure a fallback no
-    // player sees.
+    // The loading check (layout-measure.ts, FIRST_PAINT_SNAPSHOT_SOURCE): the page as it first paints, the page alone with the first-paint
+    // script it carries, every file it names held back (its stylesheet, script files and pictures), as a slow connection shows it, kept to be
+    // compared once it has loaded. Fonts aren't held, and it waits for them: Jost's fallback is Arial set to take its room, and a runner
+    // without Arial would measure a fallback no player sees.
     const isFirstPaintChecked = !options.pictureOf && !options.stepsToTake?.length && !options.markup && !options.setUp;
     const held = [];
     const offPaused = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
       if (method !== "Fetch.requestPaused") return;
-      // What the first paint itself runs: the first-paint script, every script the parse waits on (a script that isn't deferred, which Chrome
-      // asks for at a high priority: the theme, styles-applied at the body's end, an old page's own), and the preview's own tools, which no
-      // player gets. Deferred and async scripts, asked for at a low priority, are held.
-      const isParseWaiting = !/^(Low|VeryLow)$/.test(params.request.initialPriority ?? "");
-      if (isParseWaiting || /\/js\/(first-paint|layout-inspect)\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
+      // The preview's own tools, which no player gets, pass; so do the gallery's files, which its first paint waits for (design-page.ts).
+      const isGalleryFile = options.isGallery && params.resourceType !== "Image";
+      if (isGalleryFile || /\/js\/layout-inspect\.|\/__preview\//.test(params.request.url)) send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => {});
       else held.push(params.requestId);
     }) : null;
-    if (isFirstPaintChecked) await send("Fetch.enable", { patterns: [{ urlPattern: "*", resourceType: "Script", requestStage: "Request" }] });
+    if (isFirstPaintChecked) await send("Fetch.enable", { patterns: ["Script", "Stylesheet", "Image"].map((resourceType) => ({ urlPattern: "*", resourceType, requestStage: "Request" })) });
     // A device's kind kept from another screen's page in this run (device-kind.ts's cookie) would lay this one out for that screen: the page
     // guesses it from the browser's name, as on a first visit.
     await send("Network.deleteCookies", { name: "zaisma_device_kind", url }).catch(() => {});
+    // The page as sent, for its first paint's size: the document's own answer, read once it's loaded.
+    let documentRequestId = null;
+    const offDocument = isFirstPaintChecked ? chrome.listen(sessionId, (method, params) => {
+      if (method === "Network.responseReceived" && params.type === "Document" && documentRequestId === null) documentRequestId = params.requestId;
+    }) : null;
     await send("Page.navigate", { url });
     if (isFirstPaintChecked) {
       await send("Runtime.evaluate", { expression: FIRST_PAINT_READY, awaitPromise: true, returnByValue: true });
@@ -543,6 +549,12 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const firstPaintTiers = options.isGallery ? options.tiers.filter((tier) => tier !== "page") : options.tiers;
         const compared = await send("Runtime.evaluate", { expression: `(${FIRST_PAINT_COMPARE_SOURCE})(${JSON.stringify({ tiers: firstPaintTiers })})`, returnByValue: true });
         found.push(...(compared.exceptionDetails ? [{ check: "moved after the first paint", element: "", said: compared.exceptionDetails.exception?.description ?? compared.exceptionDetails.text }] : compared.result.value));
+        offDocument?.();
+        const sent = documentRequestId === null ? null : await send("Network.getResponseBody", { requestId: documentRequestId }).catch(() => null);
+        if (sent) {
+          const sizeBytes = brotliCompressSync(Buffer.from(sent.body, sent.base64Encoded ? "base64" : "utf8"), { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: FIRST_PAINT_BROTLI_LEVEL } }).length;
+          if (sizeBytes > FIRST_PAINT_SIZE_LIMIT_BYTES) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${FIRST_PAINT_SIZE_LIMIT_BYTES / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
+        }
       }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();

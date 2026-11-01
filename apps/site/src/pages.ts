@@ -914,7 +914,8 @@ function privacyBody(): Raw {
         "Privacy policy",
         html`<h1>Privacy policy</h1>
 <p>Zaisma keeps as little personal data as possible. Most games require no account, and guests leave no data behind.</p>
-<p>Zaisma does not sell personal data, and there is no advertising on Zaisma.</p>`,
+<p>Zaisma does not sell personal data, and there is no advertising on Zaisma.</p>
+<p>Each page reports how fast it showed: which page, how long it took, whether it was opened or reached from another page on Zaisma, and the type of device and connection. The report carries nothing that identifies you or your device, and it is kept for 3 months.</p>`,
       ),
       pane(
         "Guests",

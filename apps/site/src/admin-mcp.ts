@@ -64,6 +64,7 @@ import { CHAT_REVIEW_DECISIONS, decideChatReview, type ChatReviewDecision } from
 import { setAccountCanPublish } from "./admin-publishing.ts";
 import { banAccount, decideBanMatch, unbanAccount, type BanMatch } from "./bans.ts";
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
+import { PAGE_SPEED_DAYS_LIMIT, pageSpeedAnswer } from "./speed-reports.ts";
 import { changesSince } from "./scan.ts";
 import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
 import {
@@ -82,6 +83,7 @@ import {
   COUNTRY_BLOCK_DECIDED,
   PUBLISHING_ACCOUNT_LIST,
   BLOCKED_SCRIPT_LIST,
+  PAGE_SPEED,
   SECURITY_SPIKE_LIST,
   REVIEW_COUNTS,
   HANDLED_REPORTS,
@@ -1177,6 +1179,19 @@ export const ADMIN_TOOLS: AdminTool[] = [
     outputSchema: BLOCKED_SCRIPT_LIST,
     annotations: read,
     run: async (_, { env }) => blockedScriptsAnswer(env),
+  },
+  {
+    name: "get_page_speed",
+    title: "Page speed on real visits",
+    description:
+      "How fast Zaisma's pages showed on real visits: for each page and whether it was opened or switched to, how many visits reported and the time to the page's first paint at the median, 75th and 95th percentile, over the last days. Visits report nothing that names a player or device (speed-reports.ts).",
+    inputSchema: object({
+      day_count: { type: "integer", minimum: 1, maximum: PAGE_SPEED_DAYS_LIMIT, description: `How many days back, 1 to ${PAGE_SPEED_DAYS_LIMIT}; 7 when left out.`, examples: [7] },
+      by_device_kind: { type: "boolean", description: "Split each page by the kind of device (phone, tablet, computer)." },
+    }),
+    outputSchema: answerOrError(PAGE_SPEED),
+    annotations: read,
+    run: async (toolArguments, { env }) => pageSpeedAnswer(env, { dayCount: typeof toolArguments.day_count === "number" ? toolArguments.day_count : 7, isByDeviceKind: toolArguments.by_device_kind === true }),
   },
   {
     name: "get_game",

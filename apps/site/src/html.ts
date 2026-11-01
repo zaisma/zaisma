@@ -6,7 +6,10 @@ import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
 import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
-import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT } from "./components/index.ts";
+import { createHash } from "node:crypto";
+import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_PIECES, HEADER_SCRIPT, LOOK_SCRIPT, firstPaintPieceText } from "./components/index.ts";
+import { firstPaintStyles, shownMarkup } from "./first-paint-styles.ts";
+import { SPEED_SCRIPT } from "./speed-reports.ts";
 import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
@@ -16,35 +19,32 @@ import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
 
-/** A page's scripts, as their files (page-scripts.ts). They run in order once the page is read. */
-export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
+/**
+ * A page's scripts, as their files (page-scripts.ts), named for the first-paint script to run: they download while nothing waits on them,
+ * and run in the page's order once the page is read and the site's stylesheet has followed it (components/first-paint-script.ts).
+ */
+export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<link rel="preload" as="script" href="${pageScriptPath(script)}" fetchpriority="low" data-page-script>`).join(""));
 
 /**
- * The same, for the page's <head>: FIRST_PAINT_SCRIPT (components/index.ts), which draws the components' cuts, edges and rails and places
- * the layout. Render-blocking, so the first paint waits for it: without that, Chrome painted a page it had read before its deferred scripts
- * ran, square and flat with the browser's own scroll bar, and drew the glass a moment later, even on a fast connection. Small and asked
- * for first (Early Hints, high priority), it costs a first visit on Slow 3G little (page:probe --slow).
+ * Scripts in the gallery's <head>, which is a tool: its first paint waits for them (design-page.ts). A page carries its first-paint script
+ * inside itself instead (layout), so nothing it downloads holds its first paint.
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw =>
   raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render" fetchpriority="high"></script>`).join(""));
 
 /**
- * The head scripts read the page's tokens as they start (the cuts' sizes, the slant), so they must run after its stylesheets apply. Every
+ * The gallery's head scripts read its tokens as they start (the cuts' sizes, the slant), so they must run after its stylesheet applies. Every
  * browser holds a script that isn't deferred until the stylesheets above it have, but Safari runs deferred ones as soon as the page is read,
- * ahead of a stylesheet still loading, as it is on a first visit: every cut then read as 0, and every pane and control stayed square. So a
- * page with headScriptTags ends its body with this one, which does nothing but wait: deferred scripts run only after the page's last
- * script has. At the body's end, not in the head, so the browser reads the whole page while the stylesheet loads.
+ * ahead of a stylesheet still loading: every cut then read as 0. So the gallery ends its body with this one, which does nothing but wait:
+ * deferred scripts run only after the page's last script has.
  */
 const STYLES_APPLIED_SCRIPT = pageScript("styles-applied", "/* The page's stylesheets have applied: the head scripts run after this one and read their tokens (html.ts). */");
 export const stylesAppliedTag = (): Raw => raw(`<script src="${pageScriptPath(STYLES_APPLIED_SCRIPT)}"></script>`);
 
-/**
- * A script in the page's <head> that runs as it's read, before anything below it: one that sets what the first paint shows (the home's
- * opening game, its color and glass), from a data block just above it.
- */
-export const openingScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}"></script>`).join(""));
+/** The site's stylesheets, named at a page's body's end for the first-paint script to put on the page once the page is read. */
+const followingStyleTags = (...styles: PageStyle[]): Raw => raw(styles.map((style) => `<link rel="preload" as="style" href="${pageStylePath(style)}" fetchpriority="low" data-site-style>`).join(""));
 
-/** A page's stylesheets, as their files (page-styles.ts), for its <head>: the browser holds the first paint until they've loaded. */
+/** Stylesheets as their files (page-styles.ts), for the gallery's <head>: its first paint waits for them. A page carries its own rules instead (layout). */
 export const styleTags = (...styles: PageStyle[]): Raw => raw(styles.map((style) => `<link rel="stylesheet" href="${pageStylePath(style)}">`).join(""));
 
 /**
@@ -532,8 +532,8 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       "default-src 'self'",
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      // Only the site's own script files (page-scripts.ts), never an inline one: Strict scripts on zaisma.com.
-      `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_SCRIPT_ORIGIN}` : ""}`,
+      // Only the site's own script files (page-scripts.ts) and the one first-paint script pages carry, by its hash: Strict scripts on zaisma.com.
+      `script-src 'self' ${FIRST_PAINT_SCRIPT_HASHES}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_SCRIPT_ORIGIN}` : ""}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${hasStripePayments ? ` ${STRIPE_FRAME_ORIGINS.join(" ")}` : ""}${hasStripeFrame ? " 'self'" : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       ...(hasStripePayments ? [`connect-src 'self' ${STRIPE_API_ORIGIN}`] : []),
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
@@ -570,27 +570,19 @@ const start=()=>{beat();setInterval(beat,${PRESENCE_CHECK_IN_MS})};if(b.dataset.
 new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-presence-game"]});
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
-// Right after the header, before the page shows, so a signed-in player never sees Sign in flash on a page that doesn't know who's
-// looking (message and legal pages, cached for everyone): the Sign in runner becomes a way to the account.
-const ACCOUNT_LINK_SCRIPT = pageScript("account-link", `(()=>{if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){const a=document.querySelector("header.top .end > a:is(.run-wrap,.cut-btn)");if(a){a.href="/account";a.querySelector(".face > span:not([class])").textContent="Account"}}})();`);
-
 /**
- * Light or dark: the page carries the player's choice (data-theme-choice on <html>, "system" for guests), and CSS follows it with no script.
- * This tells page scripts what's showing: zaismaTheme.now() is "light" or "dark", choice() the saved choice, and onChange(fn) hears the
- * device change. It also sets data-theme on <html> to what's showing. It isn't deferred, so data-theme is there before the first paint.
+ * The first-paint script as a page carries it, at the end of its <body>: the pieces what it shows needs (components/index.ts,
+ * FIRST_PAINT_PIECES), each a script element nothing in it can end. Pages' policy lets each run by its hash and no other inline script
+ * (Strict scripts on zaisma.com). They run as the page is read to them, before its first paint.
  */
-const THEME_SCRIPT = pageScript("theme", `(function () {
-  var root = document.documentElement, query = window.matchMedia("(prefers-color-scheme: dark)"), listeners = [];
-  function choice() { var saved = root.getAttribute("data-theme-choice"); return saved === "light" || saved === "dark" ? saved : "system"; }
-  function now() { return choice() === "system" ? (query.matches ? "dark" : "light") : choice(); }
-  function apply() { var theme = now(); if (root.getAttribute("data-theme") === theme) return; root.setAttribute("data-theme", theme); listeners.forEach(function (listener) { listener(theme); }); }
-  if (query.addEventListener) query.addEventListener("change", apply);
-  // A choice changed on the page itself (Screens sets each frame's) shows at once.
-  new MutationObserver(apply).observe(root, { attributes: true, attributeFilter: ["data-theme-choice"] });
-  window.zaismaTheme = { now: now, choice: choice, onChange: function (listener) { listeners.push(listener); } };
-  apply();
-})();
-`);
+const FIRST_PAINT_PIECE_TEXTS = FIRST_PAINT_PIECES.map((piece) => ({ piece, text: firstPaintPieceText(piece).replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\!--") }));
+/** Each piece's text as a page carries it, for the strict-scripts check (test/strict-scripts.ts). */
+export const FIRST_PAINT_SCRIPT_TEXTS: readonly string[] = FIRST_PAINT_PIECE_TEXTS.map(({ text }) => text);
+const FIRST_PAINT_SCRIPT_HASHES = FIRST_PAINT_PIECE_TEXTS.map(({ text }) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`).join(" ");
+export function firstPaintScriptTags(markup: string): Raw {
+  const carried = FIRST_PAINT_PIECE_TEXTS.filter(({ piece }) => !piece.marker || piece.marker.test(markup));
+  return raw(carried.map(({ text }) => `<script>${text}</script>`).join(""));
+}
 
 /** Where a page is in the header: Home, Browse, or the developer tabs, which open out of the end of the tabs on developer pages. */
 export type Nav = "home" | "browse" | "developer" | "forum";
@@ -676,6 +668,18 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
   const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
+  const sheets = [sheet, ...(options.steelStyles ?? [])];
+  // What the page shows, read first: its own styles are the rules its markup needs (first-paint-styles.ts).
+  const body = html`${options.stage ?? backdrop()}
+${options.isBare
+    ? options.body
+    : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
+<main${isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
+${siteFooter()}`}
+${scriptTags(LOOK_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT)}
+${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}${options.isAdmin ? "" : scriptTags(SPEED_SCRIPT)}`;
+  // Nothing the page downloads holds its first paint: its own styles and its first-paint script come inside it, and the site's stylesheet,
+  // its script files and Jost follow (components/first-paint-script.ts), named only at the body's end so they never slow the page itself.
   const page = html`<!doctype html>
 <html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html` style="--backdrop-edge: ${options.stageColor}"` : ""}>
 <head>
@@ -687,39 +691,24 @@ ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="preload" href="${FONT_PATH}" as="font" type="font/woff2" crossorigin>
 ${themeColors}
+<style>${raw(firstPaintStyles(sheets, body.html + (options.head?.html ?? "")))}</style>
 ${options.head ?? ""}
-<script src="${pageScriptPath(THEME_SCRIPT)}"></script>
-${styleTags(sheet, ...(options.steelStyles ?? []))}
-${headScriptTags(FIRST_PAINT_SCRIPT)}
 </head>
 <body>
-${options.stage ?? backdrop()}
-${options.isBare
-    ? options.body
-    : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
-<main${isRebuilt ? "" : raw(' class="steel" data-covers-backdrop')}>${options.action && !isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
-${siteFooter()}`}
-${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
-${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
-${stylesAppliedTag()}
+${body}
+${followingStyleTags(...sheets)}
+${firstPaintScriptTags(shownMarkup(body.html))}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  // What the first paint waits for, named in a header too: Cloudflare's Early Hints sends it ahead while the page is still being made. The
-  // styles-applied script holds the head scripts until it's here, so it comes with the stylesheet, not a trip after it.
-  const firstPaintFiles = `<${pageStylePath(sheet)}>; rel=preload; as=style, <${pageScriptPath(STYLES_APPLIED_SCRIPT)}>; rel=preload; as=script, <${pageScriptPath(FIRST_PAINT_SCRIPT)}>; rel=preload; as=script, <${FONT_PATH}>; rel=preload; as=font; type="font/woff2"; crossorigin`;
   // A link to a game's page is fetched ahead as the pointer rests on it or presses it (SPECULATION_RULES), from the header, so no script is on the page.
-  const extra: Record<string, string> = { Link: firstPaintFiles, "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
+  const extra: Record<string, string> = { "Speculation-Rules": `"${SPECULATION_RULES_PATH}"`, ...(isPrivate ? { "Cache-Control": "no-store" } : {}) };
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });
 }
 
 /** Which state on the checks' list a page is (LayoutOptions.checkedPage), for the layout check to read and a swapped-in sign-in step to carry over. */
 export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="checked-page" content="${name}">`;
-
-/** Jost, named for its contents (brand/fonts), so it's cached for good: the same path tokens.ts's @font-face loads. */
-const FONT_PATH = "/fonts/jost.7726a5cd.woff2";
 
 /** Where pages' speculation rules are served (index.ts). */
 export const SPECULATION_RULES_PATH = "/speculation-rules.json";
@@ -757,8 +746,8 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     hasPageRunner: options.hasPageRunner,
     sidebarButton: options.sidebarButton,
   });
-  // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie.
-  return options.viewer === undefined && env.SUPABASE_URL ? html`${markup}<script src="${pageScriptPath(ACCOUNT_LINK_SCRIPT)}"></script>` : markup;
+  // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie (the first-paint script).
+  return options.viewer === undefined && env.SUPABASE_URL ? raw(markup.html.replace("<header ", "<header data-account-from-cookie ")) : markup;
 }
 
 export function siteFooter(): Raw {

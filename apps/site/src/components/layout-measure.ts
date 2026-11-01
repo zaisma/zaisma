@@ -49,8 +49,19 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "a picture without its placeholder": "page",
   "moved after the first paint": "page",
   "words changed after the first paint": "page",
+  // Everything a page's first paint needs comes inside it (html.ts's layout), so the page as sent is that paint's size.
+  "first paint over its size": "page",
   "the check couldn't press the page's buttons": "sweep",
 };
+
+/**
+ * The most a page may be as sent, compressed as Cloudflare compresses pages it makes (brotli at level 5), with everything its first paint
+ * needs inside it: on Slow 3G (DevTools': 2 s a round trip, 50 KB/s) about 1.3 s on top of its round trip, so a page shows in about 3 s
+ * on a first visit and every one after. The layout check fails a page past it ("first paint over its size").
+ */
+export const FIRST_PAINT_SIZE_LIMIT_BYTES = 64_000;
+/** The brotli level the size is measured at. */
+export const FIRST_PAINT_BROTLI_LEVEL = 5;
 
 /**
  * What Tab can focus on a page (the keyboard check, scripts/layout-check.mjs): every control it must reach, once it's shown and enabled,
