@@ -75,7 +75,8 @@ const WHEN_OPENED_SCRIPT = pageScript(
 
 /**
  * A prepared page as it's sent: every script of the page's body that isn't on the reviewed list (page-scripts.ts, runsWhilePreparedBecause)
- * is held until the page is opened, so a new script waits by default; <html> says the page was prepared (data-prepared-ahead), for a script
+ * is held until the page is opened, so a new script waits by default, and fetched ahead (a preload beside it), so it runs the moment the
+ * page is opened and the page's buttons work from its first tap; <html> says the page was prepared (data-prepared-ahead), for a script
  * that does on opening what the server left undone; and the browser may keep it for half a minute, so a browser without speculation rules
  * (Safari) opens it from its cache. Vary: Cookie, so it never opens for someone else's sign-in.
  */
@@ -90,7 +91,9 @@ export function heldUntilOpened(response: Response): Response {
     .on("body script[src]", {
       element: (script) => {
         const source = script.getAttribute("src") ?? "";
-        if (source.startsWith("/js/") && !running.has(source)) script.setAttribute("type", WAITING_SCRIPT_TYPE);
+        if (!source.startsWith("/js/") || running.has(source)) return;
+        script.setAttribute("type", WAITING_SCRIPT_TYPE);
+        script.before(`<link rel="preload" as="script" href="${source}">`, { html: true });
       },
     })
     .on("body", { element: (body) => body.onEndTag((end) => void end.before(`<script src="${pageScriptPath(WHEN_OPENED_SCRIPT)}"></script>`, { html: true })) })

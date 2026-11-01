@@ -56,6 +56,8 @@ describe("a page prepared ahead", () => {
       expect(held.join("")).toContain('src="/js/presence.');
       expect(running.map((tag) => tag.match(/\/js\/([a-z-]+)\./)![1])).toEqual(["account-link", "styles-applied", "when-opened"]);
       expect(scripts.at(-1)).toContain('src="/js/when-opened.');
+      // Each held script is fetched ahead, so it runs the moment the page is opened.
+      for (const tag of held) expect(page).toContain(`<link rel="preload" as="script" href="${tag.match(/src="([^"]+)"/)![1]}">`);
       // The head's first-paint script draws the page while it's prepared.
       expect(page.slice(0, page.indexOf("<body"))).toMatch(/<script src="\/js\/first-paint\.[0-9a-f]{16}\.js" defer blocking="render"/);
     }
