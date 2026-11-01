@@ -9,7 +9,10 @@
 # read and write on this repository only, set up by hand; when it expires that job stops, so renew it).
 # The state between runs (how many runs failed, when Julius was last told) lives in an Actions cache entry per run,
 # not in failed runs: a failed run emails the committer, and a site that's down would send one every 5 minutes.
-# The job fails only when the push itself fails. Repository secrets: PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN.
+# The job fails only when the push itself fails. Repository secrets: PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN, and for the
+# Cloudflare account's watch (new members and API tokens, scripts/watch-checks.mjs checkCloudflareAccount)
+# CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_OUTSIDE_WATCH_TOKEN (a user token with Account Settings, Account API Tokens and
+# User API Tokens read, kept only here; without it that watch is off).
 name: Watch
 
 on:
@@ -48,4 +51,6 @@ jobs:
         env:
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_OUTSIDE_WATCH_TOKEN: ${{ secrets.CLOUDFLARE_OUTSIDE_WATCH_TOKEN }}
         run: node scripts/watch.mjs

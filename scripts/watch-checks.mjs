@@ -84,3 +84,106 @@ export async function sendPushover({ userKey, appToken }, push, url = PUSHOVER_U
   const response = await fetch(url, { method: "POST", body: form, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Pushover answered ${response.status}: ${(await response.text()).slice(0, 200)}`);
 }
+
+// The Cloudflare account, watched from outside Cloudflare ("Zaisma's own accounts are watched" in docs/DECISIONS.md, the
+// ops repo): a new member or API token pushes Julius at once, with who made it and from where when the audit log says.
+// The site Worker emails the same items (apps/site/src/account-watch.ts); a Cloudflare taken over can stop that email,
+// not this push. A removed item pushes nothing.
+
+export const CLOUDFLARE_API_URL = "https://api.cloudflare.com/client/v4";
+/** Pushes one by one in a run; the rest go in one more push. */
+export const CLOUDFLARE_WATCH_MAXIMUM_PUSH_COUNT = 10;
+const CLOUDFLARE_WATCH_MAXIMUM_PAGE_COUNT = 20;
+const CLOUDFLARE_AUDIT_LOG_MAXIMUM_PAGE_COUNT = 5;
+/** The audit log is read from the last run less this, so an item made just before it is still found. */
+const CLOUDFLARE_AUDIT_LOG_OVERLAP_MS = 10 * 60_000;
+export const CLOUDFLARE_WATCH_STARTED_OVER_PUSH = { title: "The Cloudflare watch started over", message: "Its saved state was gone (GitHub drops a cache it hasn't used in a week): tokens and members made in the last hour weren't compared.", priority: 0 };
+
+const CLOUDFLARE_WATCH_KINDS = [
+  { itemKind: "member", path: (accountId) => `/accounts/${accountId}/members`, listWords: "members", itemWords: "a new member of Zaisma's Cloudflare account", listPageUrl: (accountId) => `https://dash.cloudflare.com/${accountId}/members` },
+  { itemKind: "account_token", path: (accountId) => `/accounts/${accountId}/tokens`, listWords: "account API tokens", itemWords: "a new API token on Zaisma's Cloudflare account", listPageUrl: (accountId) => `https://dash.cloudflare.com/${accountId}/api-tokens` },
+  { itemKind: "user_token", path: () => "/user/tokens", listWords: "user API tokens", itemWords: "a new API token on Julius's Cloudflare profile", listPageUrl: () => "https://dash.cloudflare.com/profile/api-tokens" },
+];
+
+const cloudflareItem = (itemKind, row) => {
+  const createdAtMs = Date.parse(row.issued_on ?? "");
+  const itemLabel = itemKind === "member" ? `${row.user?.email ?? ""} (${row.status ?? "member"})` : String(row.name ?? "");
+  return { itemId: String(row.id ?? ""), itemLabel, createdAtMs: Number.isNaN(createdAtMs) ? null : createdAtMs };
+};
+
+/**
+ * One run of the Cloudflare watch. `state.cloudflareItemIds` holds each kind's item ids from the last good read; a kind
+ * missing from it is read for the first time, which is the baseline and pushes nothing. Answers the ids to keep, when
+ * this check ran (the next run's audit log starts there), the pushes to send, and a note per list that couldn't be read
+ * (they join the checker's failed notes; that list keeps its old ids).
+ */
+export async function checkCloudflareAccount(state, { accountId, token }, nowMs, fetchImpl = fetch) {
+  const headers = { authorization: `Bearer ${token}`, accept: "application/json" };
+  const readJson = async (url) => {
+    const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10_000) });
+    // Only the status, never the body: a note is pushed and logged.
+    if (!response.ok) throw new Error(`answered ${response.status}`);
+    const body = await response.json();
+    if (body?.success === false) throw new Error("answered with errors");
+    return body;
+  };
+  const knownItemIds = state.cloudflareItemIds ?? {};
+  const cloudflareItemIds = { ...knownItemIds };
+  const failedNotes = [];
+  const newItems = [];
+  for (const kind of CLOUDFLARE_WATCH_KINDS) {
+    const rows = [];
+    try {
+      for (let pageNumber = 1; pageNumber <= CLOUDFLARE_WATCH_MAXIMUM_PAGE_COUNT; pageNumber++) {
+        const body = await readJson(`${CLOUDFLARE_API_URL}${kind.path(accountId)}?per_page=50&page=${pageNumber}`);
+        rows.push(...(Array.isArray(body?.result) ? body.result : []));
+        if (!(pageNumber < Number(body?.result_info?.total_pages ?? 1))) break;
+      }
+    } catch (error) {
+      failedNotes.push(`Cloudflare watch can't read ${kind.listWords}: ${error instanceof Error && error.message.startsWith("answered") ? error.message : "no answer"}`);
+      continue;
+    }
+    const items = rows.map((row) => cloudflareItem(kind.itemKind, row));
+    cloudflareItemIds[kind.itemKind] = items.map((item) => item.itemId);
+    if (!knownItemIds[kind.itemKind]) continue;
+    const known = new Set(knownItemIds[kind.itemKind]);
+    newItems.push(...items.filter((item) => !known.has(item.itemId)).map((item) => ({ ...item, itemWords: kind.itemWords, listPageUrl: kind.listPageUrl(accountId) })));
+  }
+  const checkedAtMs = nowMs;
+  if (!newItems.length) return { cloudflareItemIds, checkedAtMs, pushes: [], failedNotes };
+
+  // Who made each one, from the audit log. Its answers come in two shapes, so an entry matches when it names the item's id anywhere.
+  const sinceMs = Math.min(state.cloudflareCheckedAtMs ?? nowMs - 60 * 60_000, nowMs) - CLOUDFLARE_AUDIT_LOG_OVERLAP_MS;
+  const auditEntries = [];
+  try {
+    let cursor = "";
+    for (let pageNumber = 0; pageNumber < CLOUDFLARE_AUDIT_LOG_MAXIMUM_PAGE_COUNT; pageNumber++) {
+      const query = new URLSearchParams({ since: new Date(sinceMs).toISOString(), before: new Date(nowMs).toISOString(), limit: "1000" });
+      if (cursor) query.set("cursor", cursor);
+      const body = await readJson(`${CLOUDFLARE_API_URL}/accounts/${accountId}/logs/audit?${query}`);
+      auditEntries.push(...(Array.isArray(body?.result) ? body.result : []));
+      cursor = body?.result_info?.cursor ?? "";
+      if (!cursor) break;
+    }
+  } catch {
+    // The push goes out without who made it.
+  }
+  const madeByText = (itemId) => {
+    const entry = auditEntries.find((candidate) => JSON.stringify(candidate).includes(itemId));
+    if (!entry) return " The audit log doesn't show who made it.";
+    const email = entry.actor?.email ?? "someone";
+    const address = entry.actor?.ip_address ?? entry.actor?.ip ?? entry.ip;
+    return ` Made by ${email}${address ? ` from ${address}` : ""}.`;
+  };
+  const pushes = newItems.slice(0, CLOUDFLARE_WATCH_MAXIMUM_PUSH_COUNT).map((item) => {
+    const madeText = item.createdAtMs === null ? "" : `, made ${new Date(item.createdAtMs).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+    const words = item.itemWords.charAt(0).toUpperCase() + item.itemWords.slice(1);
+    return { title: `New on Cloudflare: ${item.itemLabel}`, message: `${words}: ${item.itemLabel}${madeText}.${madeByText(item.itemId)} If this wasn't you or Gleb, remove it now: ${item.listPageUrl}`, priority: 2 };
+  });
+  const restItems = newItems.slice(CLOUDFLARE_WATCH_MAXIMUM_PUSH_COUNT);
+  if (restItems.length) {
+    const listPageUrls = [...new Set(restItems.map((item) => item.listPageUrl))];
+    pushes.push({ title: `${restItems.length} more new keys and members`, message: `${restItems.length} more new items on Cloudflare weren't sent one by one. If they weren't you or Gleb, look now: ${listPageUrls.join(" ")}`, priority: 2 });
+  }
+  return { cloudflareItemIds, checkedAtMs, pushes, failedNotes };
+}

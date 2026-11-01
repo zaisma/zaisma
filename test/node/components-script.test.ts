@@ -39,7 +39,7 @@ describe("the components' script", () => {
   it("waits through zaismaWait, part of the first paint: every press that sends something on the same page goes through it, and only search as you type and the city fetch outside it", () => {
     expect(FIRST_PAINT_SCRIPT_SOURCE).toContain("window.zaismaWait = function (element, promise)");
     const fetches = [...(FIRST_PAINT_SCRIPT_SOURCE + COMPONENT_SCRIPT_SOURCE).matchAll(/(.{0,40})\bfetch\(([^\n]{0,80})/g)];
-    expect(fetches.filter(([, before = "", after = ""]) => !/zaismaWait\([^,]+, $/.test(before) && !after.includes('"search="')).map(([found]) => found)).toEqual([]);
+    expect(fetches.filter(([, before = "", after = ""]) => !/zaismaWait\([^,]+, $/.test(before) && !after.includes('"search_text="')).map(([found]) => found)).toEqual([]);
   });
 
   it("lights the header for a new page, after the waiting delay, and puts it out when the page comes back from the browser's history", () => {

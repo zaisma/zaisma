@@ -208,6 +208,45 @@ describe("Browse", () => {
   });
 });
 
+describe("the search's suggestions", () => {
+  const suggest = async (searchText: string, headers: Record<string, string> = { cookie: "zaisma_device_kind=computer" }) => {
+    const response = await SELF.fetch(`${SITE}/games/suggestions?search_text=${encodeURIComponent(searchText)}`, { headers });
+    return { response, answer: (await response.json()) as { finishes: string[]; games: { title: string; page_url: string; cover_url: string; fact: string }[] } };
+  };
+
+  it("finishes what's typed from titles, developers and genres, and lists the games Browse finds", async () => {
+    const { response, answer } = await suggest("Qui");
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(answer.finishes).toEqual(["Quiet Lake"]);
+    expect(answer.games).toEqual([{ title: "Quiet Lake", page_url: "/g/browse-quiet", cover_url: "", fact: "By Lake_Studio" }]);
+    expect((await suggest("lake_s")).answer.finishes).toEqual(["Lake_Studio"]);
+    expect((await suggest("role")).answer.finishes).toEqual(["Role-playing"]);
+    expect((await suggest("role")).answer.games.map((game) => game.title)).toEqual(["Key Tactics"]);
+  });
+
+  it("puts the finish that finds the most games first, and shows at most three of each", async () => {
+    const { answer } = await suggest("s");
+    expect(answer.finishes.length).toBeLessThanOrEqual(3);
+    expect(answer.games.length).toBeLessThanOrEqual(3);
+    expect(answer.finishes[0]).toBe("Strategy");
+  });
+
+  it("shows nothing a stranger couldn't find on Browse", async () => {
+    expect((await suggest("private pe")).answer).toEqual({ finishes: [], games: [] });
+    expect((await suggest("held hol")).answer).toEqual({ finishes: [], games: [] });
+    expect((await suggest("")).answer).toEqual({ finishes: [], games: [] });
+  });
+
+  it("says why a game may not suit the viewer's device, as its cover does", async () => {
+    const { answer } = await suggest("key t", { "user-agent": IPHONE });
+    expect(answer.games).toEqual([expect.objectContaining({ title: "Key Tactics", fact: "Needs a keyboard" })]);
+  });
+
+  it("is where every player page's header search and Browse's own ask as you type", async () => {
+    for (const path of ["/", "/games?search_text=lake"]) expect(await (await SELF.fetch(`${SITE}${path}`)).text()).toMatch(/<form[^>]*action="\/games"[^>]*data-suggest="\/games\/suggestions"/);
+  });
+});
+
 describe("the home's rows", () => {
   it("put games for this device first, and keep the device for Browse", () => {
     expect(HOME_SCRIPT.sourceText).toContain("zaisma_device_kind");

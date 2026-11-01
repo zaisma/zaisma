@@ -1,7 +1,8 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, icon, tag, well, type IconName } from "./foundations.ts";
+import { CUT_LINE, glassPane, icon, tag, well, type IconName } from "./foundations.ts";
+import { stack } from "./layout.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -75,6 +76,18 @@ export function tabSwitch(options: {
   );
 }
 
+/** The gallery's pane with a full switch at its head, as the sign-in pane has it, on the tab named. */
+const paneHeadSwitch = (current: "Sign in" | "Make an account"): Raw =>
+  glassPane({
+    paneWidth: "full",
+    body: stack({
+      items: [
+        { kind: "control", markup: tabSwitch({ label: "Sign in or make an account", switchSize: "regular", isFull: true, tabs: [{ label: "Sign in", isCurrent: current === "Sign in" }, { label: "Make an account", isCurrent: current === "Make an account" }] }) },
+        { kind: "words", markup: html`<h2>${current === "Sign in" ? "Welcome back" : "Make an account"}</h2>` },
+      ],
+    }),
+  });
+
 /** The switch's slab sits under the one you're on, sliding on the spring; a tab you point at only lights its words (CSS). */
 export const SWITCH_SCRIPT = `/* switches */(function () {
   window.zaismaWatch.each(".tab-switch", function (sw) {
@@ -107,20 +120,26 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       el.slideAt = at; var sizePx = Math.round(at.size) + "px";
       if (isVertical) { el.style.height = sizePx; el.style.transform = "translateY(" + at.pos + "px)"; } else { el.style.width = sizePx; el.style.transform = "translateX(" + at.pos + "px)"; }
     }
+    // Where it's sliding to is el.slideTarget, read each frame, so a settle on the way (its room changing size as a page swaps what's under the
+    // switch) moves where it lands without cutting the slide short.
     function slide(el, to, ms) {
-      var from = el.slideAt || to, startMs = performance.now(), id = (el.slideId || 0) + 1; el.slideId = id;
+      var from = el.slideAt || to, startMs = performance.now(), id = (el.slideId || 0) + 1; el.slideId = id; el.slideTarget = to;
       (function frame() {
         if (el.slideId !== id) return;
-        var t = Math.min(1, (performance.now() - startMs) / ms), e = slideEase(t);
+        var t = Math.min(1, (performance.now() - startMs) / ms), e = slideEase(t); to = el.slideTarget;
         // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
-        if (el.redrawCut) el.redrawCut();
+        if (el.redrawCut) el.redrawCut({ isFrame: true });
         // Between pixels as it moves (its own layer moves it smoothly there; whole steps stuttered where it goes slowly), on one as it lands.
         place(el, { pos: t < 1 ? from.pos + (to.pos - from.pos) * e : to.pos, size: to.size });
-        if (t < 1) requestAnimationFrame(frame);
+        if (t < 1) { requestAnimationFrame(frame); return; }
+        // Landed, it's cut again where it rests, so its corners are always the edge rule's for the place it's in.
+        el.slideTarget = null; if (el.redrawCut) el.redrawCut();
       })();
     }
     // isGliding: the slab is moving there, so its shape blends from the old place's to the new one's over the move.
     function put(el, tab, isGliding) {
+      // Put again on the tab it's sliding to (a settle), it lets the slide land there.
+      var isOnItsWay = !isGliding && el.slideTarget && el.pickedTab === tab; el.pickedTab = tab;
       if (!tab) { el.style.width = "0px"; return; }
       var from = { beside: el.getAttribute("data-cut-beside"), ends: el.getAttribute("data-cut-ends") || "", stack: el.getAttribute("data-cut-stack") };
       // A folded tab takes no room, so the ends are the first and last tabs shown.
@@ -136,8 +155,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         }
         el.setAttribute("data-cut-beside", "");
         el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
-        if (el.redrawCut) el.redrawCut(msY && from.stack !== null ? { from: from, ms: msY, ease: slideEase, isDriven: true } : undefined);
-        if (msY) slide(el, toY, msY); else { el.slideId = (el.slideId || 0) + 1; place(el, toY); if (el.redrawCut) el.redrawCut(); }
+        moveTo(el, toY, msY, from.stack !== null ? from : null, isOnItsWay);
         return;
       }
       // Beside another tab, it reaches into the slant between them, so only the row's gap is left between its place and the next one's.
@@ -165,8 +183,19 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
-      if (el.redrawCut) el.redrawCut(ms && from.beside !== null ? { from: from, ms: ms, ease: slideEase, isDriven: true } : undefined);
-      if (ms) slide(el, to, ms); else { el.slideId = (el.slideId || 0) + 1; place(el, to); if (el.redrawCut) el.redrawCut(); }
+      moveTo(el, to, ms, from.beside !== null ? from : null, isOnItsWay);
+    }
+    // Moves it to its tab: gliding, its new shape is worked out where it will land (the edge rule measures where it sits, so a shape worked
+    // out where it starts would keep that end's corners), then it slides there from where it was; otherwise it's put and cut there at once.
+    function moveTo(el, to, ms, from, isOnItsWay) {
+      if (isOnItsWay) { el.slideTarget = to; return; }
+      if (ms && el.redrawCut) {
+        // A part never drawn before (from is null) takes its new shape with no blend.
+        var was = el.slideAt; place(el, to); el.redrawCut(from ? { from: from, ms: ms, ease: slideEase, isDriven: true } : undefined); if (was) place(el, was);
+        slide(el, to, ms);
+        return;
+      }
+      el.slideId = (el.slideId || 0) + 1; el.slideTarget = null; place(el, to); if (el.redrawCut) el.redrawCut();
     }
     function slideMs(el) { return parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
     // While a slide from the last page waits or plays, nothing moves the slab: a settle then (the fonts, a picture in the header loading)
@@ -222,7 +251,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
       // A link within this page (or one a page script shows) becomes the one you're on, so pressing it again stays put and the one you left slides back.
       else tabs.forEach(function (each) { if (each === tab) each.setAttribute("aria-current", "page"); else each.removeAttribute("aria-current"); });
-      put(slab, tab, true);
+      // Picked twice for one press (the switch's own click and a page script's), it keeps the slide it started: a second one would start
+      // again from where it is, its shape already the new one, so the corners would jump ahead of it.
+      if (slab.pickedTab !== tab) put(slab, tab, true);
       // In a row that scrolls, the picked tab comes whole into view, clear of the row's fades (SCROLL_FADE_SCRIPT's showWhole).
       var row = sw.closest("[data-fades-sideways]");
       if (row && row.showWhole) row.showWhole(tab, true);
@@ -357,6 +388,12 @@ component({
       label: "Full: it fills its place, its tabs sharing the width (a pane's head)",
       markup: html`<div style="width:min(420px,100%)">${tabSwitch({ label: "Sign in or make an account", switchSize: "regular", isFull: true, tabs: [{ label: "Sign in", isCurrent: true }, { label: "Make an account", isCurrent: false }] })}</div>`,
     },
+    // At a pane's head, as Sign in and Make an account are: wherever the slab comes to rest, it's cut for that end of the pane, so press the
+    // other tab to see it recut as it lands.
+    ...(["Sign in", "Make an account"] as const).map((current) => ({
+      label: `Full, at a pane's head: on ${current}`,
+      markup: html`<div style="width:min(420px,100%)">${paneHeadSwitch(current)}</div>`,
+    })),
     {
       label: "Small",
       markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] }),

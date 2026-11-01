@@ -75,6 +75,7 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "moved after the first paint": "page",
   "words changed after the first paint": "page",
   "no answer within 400 ms": "sweep",
+  "switch slab not recut where it rests": "sweep",
   "the check couldn't press the page's buttons": "sweep",
 };
 

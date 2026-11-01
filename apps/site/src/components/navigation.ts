@@ -321,6 +321,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var rails = Array.from(dueRails); dueRails.clear();
       var places = rails.map(function (rail) { return rail.place(); });
       rails.forEach(function (rail, i) { rail.putPlace(places[i]); });
+      // A rail that has just come on was measured while it wasn't shown (no offsetParent, so no place): it's placed again now, in this same
+      // frame, so it's never drawn for a frame at its corner of the box before it's where it belongs.
+      var unplaced = rails.filter(function (rail, i) { return rail.isUnplaced(places[i]); });
+      var replaces = unplaced.map(function (rail) { return rail.place(); });
+      unplaced.forEach(function (rail, i) { places[rails.indexOf(rail)] = replaces[i]; rail.putPlace(replaces[i]); });
       var measures = rails.map(function (rail, i) { return rail.measure(places[i]); });
       rails.forEach(function (rail, i) { rail.put(places[i], measures[i]); });
     });
@@ -474,6 +479,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
         if (!isPage) scroller.classList.toggle("shows-rail", isShown);
       },
+      // Shown, in a box, but given no place: it was measured hidden.
+      isUnplaced: function (placed) { return !isPage && isShown && !placed.box && !placed.side; },
       // Its track, where it's scrolled to and where its marks' parts sit, read once it's placed.
       measure: function () {
         if (!isShown) return null;

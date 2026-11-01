@@ -3,6 +3,7 @@ import { component } from "./component.ts";
 import { primaryButton, secondaryButton, tertiaryButton, wayButton } from "./actions.ts";
 import { settingRow } from "./choices.ts";
 import { pinField } from "./fields.ts";
+import { row } from "./layout.ts";
 import { slab } from "./materials.ts";
 import { header, headerFrame } from "./navigation.ts";
 
@@ -65,7 +66,7 @@ component({
 `,
   render: () => primaryButton("Save", { type: "button", isBusy: true }),
   examples: [
-    { label: "Try it: press one, and it waits a second and a half on its answer", markup: html`<div data-waiting-example style="display:flex;flex-wrap:wrap;gap:12px">${secondaryButton("Save", { type: "button" })}${primaryButton("Sign in", { type: "button" })}${tertiaryButton("Undo", { type: "button" })}</div>` },
+    { label: "Try it: press one, and it waits a second and a half on its answer", markup: html`<div data-waiting-example>${row({ widths: "fit", items: [secondaryButton("Save", { type: "button" }), primaryButton("Sign in", { type: "button" }), tertiaryButton("Undo", { type: "button" })].map((markup) => ({ kind: "control" as const, markup })) })}</div>` },
     { label: "The primary button, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "A secondary button", markup: secondaryButton("Save", { type: "button", isBusy: true }), isStill: true },
     { label: "A small button", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
