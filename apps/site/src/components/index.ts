@@ -99,25 +99,31 @@ export interface FirstPaintPiece {
   readonly source: string;
   /** What in a page's markup needs it; null for every page. */
   readonly marker: RegExp | null;
+  /**
+   * Whether it runs first in the page's body: a piece that follows the page as it arrives (through window.zaismaWatch, handed only whole
+   * elements), so the glass has its cuts and rims in the first frame each pane shows in. The rest run at the body's end, once what they
+   * look for is all there, as they were written to.
+   */
+  readonly isFirstInBody: boolean;
 }
 
 /**
  * Each piece runs once in a page, whether the page carried it or a file brought it for something added later (a sheet fetched in with a
  * wheel in it): the look script carries every piece that only some pages carry.
  */
-const firstPaintPiece = (name: string, source: string, marker: RegExp | null): FirstPaintPiece => ({
-  name, marker,
+const firstPaintPiece = (name: string, source: string, marker: RegExp | null, isFirstInBody = false): FirstPaintPiece => ({
+  name, marker, isFirstInBody,
   source: `(function () { var pieces = window.zaismaPieces = window.zaismaPieces || {}; if (pieces[${JSON.stringify(name)}]) return; pieces[${JSON.stringify(name)}] = true;\n${source}})();\n`,
 });
 
 /** The first-paint script's pieces, in the order they run: a page carries the ones its markup needs (html.ts, firstPaintScriptTags). */
 export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
-  firstPaintPiece("theme", THEME_SCRIPT, null),
-  firstPaintPiece("following-files", FOLLOWING_FILES_SCRIPT, null),
-  firstPaintPiece("watch", WATCH_SCRIPT, null),
-  firstPaintPiece("pictures", PICTURE_SCRIPT, null),
-  firstPaintPiece("glass", GLASS_SCRIPT, null),
-  firstPaintPiece("materials", MATERIAL_SCRIPT, null),
+  firstPaintPiece("theme", THEME_SCRIPT, null, true),
+  firstPaintPiece("following-files", FOLLOWING_FILES_SCRIPT, null, true),
+  firstPaintPiece("watch", WATCH_SCRIPT, null, true),
+  firstPaintPiece("pictures", PICTURE_SCRIPT, null, true),
+  firstPaintPiece("glass", GLASS_SCRIPT, null, true),
+  firstPaintPiece("materials", MATERIAL_SCRIPT, null, true),
   firstPaintPiece("rows", ROW_LAYOUT_SCRIPT, null),
   firstPaintPiece("compacting", COMPACT_SCRIPT, null),
   // A rail takes its room beside what scrolls (a table, a track), and every page has the page's own.
@@ -127,7 +133,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   // Zaisma's own shader is drawn in the first frame, so its stand-in never flashes; a game's world starts as its blurred placeholder and
   // follows with the look script.
   firstPaintPiece("backdrop", BACKDROP_SCRIPT, /data-backdrop="shader"/),
-  firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/),
+  firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/, true),
   firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),
   firstPaintPiece("row-arrows", ROW_SCRIPT, /data-row-arrows/),
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),

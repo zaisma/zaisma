@@ -85,12 +85,14 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       runBatched(due);
     },
     scroll: function (callback) { watchWindow("scroll", scrollCallbacks, callback); },
+    // Kept once the page is read; while it's read, what's there so far, and what follows is handed over as it arrives (scrollBoxesIn).
     scrollBoxes: function () {
       if (scrollBoxes) return scrollBoxes;
       var found = new Set();
       scrollSelectors().forEach(function (selector) { matching(document, selector).forEach(function (box) { if (isScrolling(box)) found.add(box); }); });
-      scrollBoxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
-      return scrollBoxes;
+      var boxes = Array.from(found).sort(function (one, other) { return one.compareDocumentPosition(other) & 4 ? -1 : 1; });
+      if (document.readyState !== "loading") scrollBoxes = boxes;
+      return boxes;
     },
     // The same for what was added to the page later (a list the page swaps in): the element and what's inside it that scrolls.
     scrollBoxesIn: function (root) {
@@ -104,9 +106,14 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     },
     each: function (selector, callback) {
       var wired = new WeakSet();
-      function wire(element) { if (wired.has(element)) return; wired.add(element); callback(element); }
+      // One already on the page but not yet whole waits for the next change or for the page to be read.
+      var waiting = [];
+      function wire(element) { if (wired.has(element)) return; if (!isWhole(element)) { waiting.push(element); return; } wired.add(element); callback(element); }
+      function wireWaiting() { var due = waiting; waiting = []; due.forEach(wire); }
       document.querySelectorAll(selector).forEach(wire);
+      if (waiting.length) document.addEventListener("readystatechange", wireWaiting);
       pageCallbacks.push(function (changes) {
+        wireWaiting();
         changes.forEach(function (change) {
           change.addedNodes.forEach(function (node) {
             if (node.nodeType !== 1 || !node.isConnected) return;
@@ -129,10 +136,37 @@ export const WATCH_SCRIPT = `/* watch */(function () {
       return change.oldValue !== change.target.getAttribute(change.attributeName);
     });
   }
+  /*
+   * The page is watched from the start of its body, so while it's read an element arrives before what's in it and what follows it. What
+   * the page adds is handed over only once it's whole (something follows it, or the page is read), so nothing is wired or measured half
+   * there: a switch with half its tabs, a rail beside a pane whose corners aren't known. Once the page is read, every edge, rail and size
+   * is drawn again together (drawAll), as the whole page now places them.
+   */
+  var heldChanges = [];
+  function isWhole(node) {
+    if (document.readyState !== "loading") return true;
+    for (var each = node; each && each !== document.body; each = each.parentNode) if (each.nextSibling) return true;
+    return false;
+  }
+  function isChangeWhole(change) {
+    return change.type !== "childList" || Array.prototype.every.call(change.addedNodes, function (node) { return node.nodeType !== 1 || isWhole(node); });
+  }
+  function handOver(changes) {
+    var due = heldChanges.concat(changes);
+    heldChanges = [];
+    var whole = due.filter(function (change) { if (isChangeWhole(change)) return true; heldChanges.push(change); return false; });
+    if (whole.length) pageCallbacks.slice().forEach(function (callback) { callback(whole); });
+  }
   new MutationObserver(function (changes) {
     var due = heard(changes);
-    if (due.length) pageCallbacks.slice().forEach(function (callback) { callback(due); });
+    if (due.length || heldChanges.length) handOver(due);
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "open", "hidden"] });
+  if (document.readyState === "loading") document.addEventListener("readystatechange", function read() {
+    if (document.readyState === "loading") return;
+    document.removeEventListener("readystatechange", read);
+    handOver([]);
+    window.zaismaWatch.drawAll();
+  });
 })();
 `;
 
