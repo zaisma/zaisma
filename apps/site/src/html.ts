@@ -683,7 +683,8 @@ export function layout(env: Env, options: LayoutOptions): Response {
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const sheets = [sheet, ...(options.steelStyles ?? [])];
   // What the page shows, read first: its own styles are the rules its markup needs (first-paint-styles.ts).
-  const body = html`${options.stage ?? backdrop()}
+  // The page's rail first, so the browser's own scrollbar never shows while the page arrives (RAIL_SCRIPT); it's fixed, so where it sits doesn't move it.
+  const body = html`${options.stage ?? backdrop()}${options.isBare ? "" : rail("page")}
 ${options.isBare
     ? options.body
     : html`${siteHeader(env, { ...options, hasPageRunner: /class="[^"]*\brun-wrap\b/.test(options.body.html) })}
@@ -750,7 +751,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
 }
 
 export function siteFooter(): Raw {
-  return html`${footer()}${rail("page")}`;
+  return footer();
 }
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {

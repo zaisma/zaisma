@@ -366,11 +366,14 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       box.insertAdjacentHTML("afterend", '<div class="rail sideways" data-rail="side" aria-hidden="true">${RAIL_PARTS}</div>');
     });
   }
-  var wiredBars = new WeakSet();
+  var wiredBars = new WeakSet(), isPageRailWaiting = false;
   // Each rail is wired once: the page's, those of the boxes found at the start and those of boxes added later.
   function wireRails() {
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     if (wiredBars.has(bar)) return;
+    // The page's rail comes first in its body: the browser's own scrollbar goes at once, so it never takes its room for a moment, and the
+    // rail is wired once the page is read, when the parts it marks and the header it starts below are there.
+    if (bar.getAttribute("data-rail") === "page" && document.readyState === "loading") { document.documentElement.classList.add("own-scroll"); if (!isPageRailWaiting) { isPageRailWaiting = true; window.zaismaWatch.whenRead(wireRails); } return; }
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     // A box laid out round what scrolls (a switch's well round its tabs) names it: the rail goes under the box, and follows what's in it.

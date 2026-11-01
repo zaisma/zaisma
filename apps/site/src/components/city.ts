@@ -84,10 +84,11 @@ export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
 
 /**
  * The page over the city's stage (cityStage goes in the page's stage): the header, the one pane in front of the city, placed as the city
- * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail.
+ * places it (on the right under the header on a wide screen, low and full width on a phone), and the page's rail, first.
  */
 export function cityPane(options: CityPaneOptions): Raw {
-  return html`<div class="city-page">${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>${rail("page")}
+  // The page's rail first, so the browser's own scrollbar never shows while the page arrives (RAIL_SCRIPT).
+  return html`<div class="city-page">${rail("page")}${options.header}<div class="city-pane" data-city-pane>${glassPane({ paneWidth: "full", label: options.label, body: options.body })}</div>
 ${options.after ?? ""}</div>`;
 }
 
