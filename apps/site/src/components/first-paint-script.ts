@@ -89,6 +89,27 @@ export const MEASURED_GLASS_SCRIPT = `/* measured glass */(function () {
 })();
 `;
 
+/** How long a game's shader frame that never says it has drawn waits, once loaded, before it shows anyway. */
+export const FRAME_SAYS_LIMIT_MS = 4000;
+
+/**
+ * A game's shader on its page (data-shows-once-drawn, backgrounds.ts) fades in over its placeholder once its runner first says something:
+ * it has drawn, or it failed and shows its still instead. Part of the first-paint script, so it hears a runner that's quicker than the
+ * page's files; one that never says shows once it has loaded and had FRAME_SAYS_LIMIT_MS to.
+ */
+export const SHOWN_ONCE_DRAWN_SCRIPT = `/* shown once drawn */(function () {
+  var FRAMES = "iframe[data-shows-once-drawn]";
+  function show(frame) { frame.classList.add("is-shown"); }
+  window.addEventListener("message", function (event) {
+    if (!event.data || !event.data.zaismaBackground) return;
+    document.querySelectorAll(FRAMES).forEach(function (frame) { if (event.source === frame.contentWindow) { frame.hasSaid = true; show(frame); } });
+  });
+  window.zaismaWatch.eachArriving(FRAMES, function (frame) {
+    frame.addEventListener("load", function () { setTimeout(function () { if (!frame.hasSaid) show(frame); }, ${FRAME_SAYS_LIMIT_MS}); });
+  });
+})();
+`;
+
 /**
  * Amounts hidden on this device (Developer settings' Payments, its eye: data-amounts-toggle): every [data-amount] shows •••, kept in
  * this browser. Part of the first-paint script, so a device that hid them never paints the figures first.

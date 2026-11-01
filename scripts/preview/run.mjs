@@ -195,6 +195,32 @@ function openPreviewDatabase() {
   return new DatabaseSync(databasePath, { timeout: 15_000 });
 }
 
+/** A file's bytes from the preview, or null when it has none. */
+async function fetchBytes(url) {
+  const answer = await fetch(url).catch(() => null);
+  return answer && answer.ok ? new Uint8Array(await answer.arrayBuffer()) : null;
+}
+
+/**
+ * Placeholders, the 24px copy a page shows blurred until a picture or shader arrives: production makes them with Cloudflare's Images
+ * (placeholders.ts), which the preview doesn't have, so the Mac's own sips makes them here at the same width, as JPEG.
+ */
+function fillPlaceholders(pictures) {
+  const folder = join(STATE, "placeholders");
+  mkdirSync(folder, { recursive: true });
+  let madeCount = 0;
+  for (const { table, id, bytes } of pictures) {
+    if (!bytes) continue;
+    const from = join(folder, `${id}.source`), to = join(folder, `${id}.jpg`);
+    writeFileSync(from, bytes);
+    if (spawnSync("sips", ["-Z", "24", "-s", "format", "jpeg", "-s", "formatOptions", "60", from, "--out", to], { stdio: "ignore" }).status !== 0 || !existsSync(to)) continue;
+    const dataUrl = `data:image/jpeg;base64,${readFileSync(to).toString("base64")}`;
+    if (dataUrl.length <= 2000 && runSql(`UPDATE ${table} SET placeholder_data_url = '${dataUrl}' WHERE id = '${id.replace(/'/g, "")}'`)) madeCount++;
+  }
+  rmSync(folder, { recursive: true, force: true });
+  console.log(`  Placeholders made for ${madeCount} of ${pictures.length} pictures and shaders.`);
+}
+
 /** Runs SQL, one statement or several split by semicolons, on the preview's database: true when it all ran. */
 function runSql(sql) {
   const database = openPreviewDatabase();
@@ -1026,6 +1052,10 @@ async function seed() {
     await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
   }
   stepDone("backgrounds and shaders");
+  fillPlaceholders(await Promise.all([
+    ...querySql("SELECT id FROM game_images WHERE placeholder_data_url IS NULL AND review_status = 'approved' AND kind IN ('cover', 'square', 'share', 'screenshot', 'background', 'phone_background')").map(async ({ id }) => ({ table: "game_images", id, bytes: await fetchBytes(`${LOCAL_SITE}/img/${id}`) })),
+    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
+  ]));
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).

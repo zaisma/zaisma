@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_PIECES, MINIFIED_FIRST_PAINT_SCRIPT, MINIFIED_LOOK_SCRIPT } from "../generated/components-script.generated.ts";
-import { ACCOUNT_LINK_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
+import { ACCOUNT_LINK_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, SHOWN_ONCE_DRAWN_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
@@ -128,6 +128,8 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   // follows with the look script.
   firstPaintPiece("backdrop", BACKDROP_SCRIPT, /data-backdrop="shader"/),
   firstPaintPiece("measured-glass", MEASURED_GLASS_SCRIPT, /data-glass-kind=/),
+  // A game's shader frame fades in once it has drawn: listening from the start, as its runner can say so before the page's files run.
+  firstPaintPiece("shown-once-drawn", SHOWN_ONCE_DRAWN_SCRIPT, /data-shows-once-drawn/),
   firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),
   firstPaintPiece("row-arrows", ROW_SCRIPT, /data-row-arrows/),
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
