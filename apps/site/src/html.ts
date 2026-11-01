@@ -571,17 +571,17 @@ new MutationObserver(beat).observe(b,{attributes:true,attributeFilter:["data-pre
 addEventListener("pagehide",()=>{const g=b.dataset.presenceGame;if(g&&!off)navigator.sendBeacon("/api/presence",JSON.stringify({left_game_slug:g}))})})();`);
 
 /**
- * The first-paint script as a page carries it: the pieces what it shows needs (components/index.ts, FIRST_PAINT_PIECES), each a script
- * element nothing in it can end. Pages' policy lets each run by its hash and no other inline script (Strict scripts on zaisma.com). The
- * glass's pieces come first in the <body> and watch each part of it arrive, so a pane has its cuts and rims in the first frame it shows in,
- * however the page arrives; the rest come at its end, before its first paint once it's all read.
+ * The first-paint script as a page carries it, first in its <body>: the pieces what it shows needs (components/index.ts,
+ * FIRST_PAINT_PIECES), each a script element nothing in it can end. Pages' policy lets each run by its hash and no other inline script
+ * (Strict scripts on zaisma.com). They run before any of the body is read and follow each part of it as it arrives (window.zaismaWatch),
+ * so every part is placed, cut and lit in the first frame it shows in, however the page arrives.
  */
 const FIRST_PAINT_PIECE_TEXTS = FIRST_PAINT_PIECES.map((piece) => ({ piece, text: firstPaintPieceText(piece).replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\!--") }));
 /** Each piece's text as a page carries it, for the strict-scripts check (test/strict-scripts.ts). */
 export const FIRST_PAINT_SCRIPT_TEXTS: readonly string[] = FIRST_PAINT_PIECE_TEXTS.map(({ text }) => text);
 const FIRST_PAINT_SCRIPT_HASHES = FIRST_PAINT_PIECE_TEXTS.map(({ text }) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`).join(" ");
-export function firstPaintScriptTags(markup: string, isFirstInBody: boolean): Raw {
-  const carried = FIRST_PAINT_PIECE_TEXTS.filter(({ piece }) => piece.isFirstInBody === isFirstInBody && (!piece.marker || piece.marker.test(markup)));
+export function firstPaintScriptTags(markup: string): Raw {
+  const carried = FIRST_PAINT_PIECE_TEXTS.filter(({ piece }) => !piece.marker || piece.marker.test(markup));
   return raw(carried.map(({ text }) => `<script>${text}</script>`).join(""));
 }
 
@@ -699,10 +699,9 @@ ${themeColors}
 ${options.head ?? ""}
 </head>
 <body>
-${firstPaintScriptTags(shown, true)}
+${firstPaintScriptTags(shown)}
 ${body}
 ${followingStyleTags(...sheets)}
-${firstPaintScriptTags(shown, false)}
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);

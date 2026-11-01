@@ -295,7 +295,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
     }
     if (isInPlace && !isOver && !options.isAnchorWidth) {
       pane.classList.add("is-hanging"); hang();
-      window.zaismaWatch.resize(hang); if (document.fonts && document.fonts.ready) document.fonts.ready.then(hang);
+      window.zaismaWatch.resize(hang); window.zaismaWatch.fontsIn(hang);
     }
     function place() {
       var anchor = anchorNow();
@@ -394,7 +394,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       // Placed again as anything scrolls: riding the page, the page's own scroll leaves it where it was; a box scrolling inside the page moves it.
       window.zaismaWatch.scroll(place);
       // Measured again once the fonts are in, when what's in it has its real size.
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+      window.zaismaWatch.fontsIn(place);
     }
     return pane.floating = { open: open, close: close, isOpen: isOpen, place: place };
   };

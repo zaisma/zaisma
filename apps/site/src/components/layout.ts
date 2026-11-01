@@ -176,7 +176,9 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     var cells = Array.prototype.slice.call(row.children);
     row.classList.add("is-measuring");
     var widestPx = 0;
-    if (row.classList.contains("widths-equal")) cells.forEach(function (cell) { if (cell.classList.contains("fills")) widestPx = Math.max(widestPx, cell.getBoundingClientRect().width); });
+    // Measured as it's laid out, not as it's drawn: in a sheet still growing in as it opens, it's drawn smaller than it lays out.
+    var drawnScale = row.offsetWidth ? row.getBoundingClientRect().width / row.offsetWidth : 1;
+    if (row.classList.contains("widths-equal")) cells.forEach(function (cell) { if (cell.classList.contains("fills")) widestPx = Math.max(widestPx, cell.getBoundingClientRect().width / (drawnScale || 1)); });
     row.classList.remove("is-measuring");
     var equalWidth = widestPx ? Math.ceil(widestPx) + "px" : "";
     if (row.style.getPropertyValue("--equal-cell-width") !== equalWidth) row.style.setProperty("--equal-cell-width", equalWidth);
@@ -196,7 +198,7 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     lay(row);
     window.zaismaWatch.size(row, function () { lay(row); });
   });
-  if (document.fonts) document.fonts.ready.then(function () { document.querySelectorAll(".layout-row").forEach(lay); });
+  window.zaismaWatch.fontArrived(function () { document.querySelectorAll(".layout-row").forEach(lay); });
   // A cell whose only thing is hidden is marked so (holds-only-hidden), for SHOWN to pass it over by its class: a :has() inside
   // :nth-child(1 of …) makes WebKit check the whole page again on every hidden that changes anywhere, 75 ms each on a page of fields.
   var CELLS = ".stack-cell, .row-cell";

@@ -74,9 +74,10 @@ export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
     pane.style.marginTop = Math.round(Math.max(below, window.innerHeight - peek)) + "px";
   }
   window.zaismaPlaceCityPane = place;
-  place();
+  window.zaismaWatch.each("[data-city-pane]", function () { place(true); });
+  window.zaismaWatch.whenRead(function () { place(true); });
   window.addEventListener("resize", function () { place(); });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { place(true); });
+  window.zaismaWatch.fontsIn(function () { place(true); });
 })();
 `;
 
@@ -144,7 +145,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   }
   function settle() { place(); frameStill(); }
   settle();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { settle(); });
+  window.zaismaWatch.fontsIn(function () { settle(); });
   window.addEventListener("resize", settle);
 
   // Under reduced motion nothing moves: the still stays, with everything already in place.

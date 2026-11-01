@@ -64,6 +64,23 @@ export const WATCH_SCRIPT = `/* watch */(function () {
   function isScrolling(box) { return box !== document.body && document.body.contains(box) && ((box.classList.contains("scrolls") && !box.classList.contains("across")) || /^(auto|scroll)$/.test(getComputedStyle(box).overflowY)); }
   window.zaismaWatch = {
     page: function (callback) { pageCallbacks.push(callback); },
+    // Every change the moment it's made, even to what's still arriving: for the glass, which draws a pane as it fills and again as it grows.
+    arriving: function (callback) { arrivingCallbacks.push(callback); },
+    // Now, or once the page is read: for what one part finds of another that may come later in the page (a row's arrows and its track).
+    whenRead: function (callback) { if (document.readyState !== "loading") callback(); else readCallbacks.push(callback); },
+    // Once the fonts the page shows have arrived. Asked at the start of the page, the browser's fonts.ready is already settled, as nothing
+    // has asked for a font yet: so it's asked once the page is read and laid out, when every font it shows has been asked for.
+    // Each time a font arrives, for what measures words again: a font a sheet opened later asks for arrives after fontsIn.
+    fontArrived: function (callback) {
+      window.zaismaWatch.fontsIn(callback);
+      if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener("loadingdone", function () { callback(); });
+    },
+    fontsIn: function (callback) {
+      window.zaismaWatch.whenRead(function () {
+        void document.body.offsetHeight;
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(callback); else callback();
+      });
+    },
     size: function (element, callback, batch) {
       if (!window.ResizeObserver) { watchWindow("resize", resizeCallbacks, callback, batch); return; }
       if (!sizes) {
@@ -142,7 +159,7 @@ export const WATCH_SCRIPT = `/* watch */(function () {
    * there: a switch with half its tabs, a rail beside a pane whose corners aren't known. Once the page is read, every edge, rail and size
    * is drawn again together (drawAll), as the whole page now places them.
    */
-  var heldChanges = [];
+  var heldChanges = [], arrivingCallbacks = [], readCallbacks = [];
   function isWhole(node) {
     if (document.readyState !== "loading") return true;
     for (var each = node; each && each !== document.body; each = each.parentNode) if (each.nextSibling) return true;
@@ -159,12 +176,14 @@ export const WATCH_SCRIPT = `/* watch */(function () {
   }
   new MutationObserver(function (changes) {
     var due = heard(changes);
+    if (due.length) arrivingCallbacks.slice().forEach(function (callback) { callback(due); });
     if (due.length || heldChanges.length) handOver(due);
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "open", "hidden"] });
   if (document.readyState === "loading") document.addEventListener("readystatechange", function read() {
     if (document.readyState === "loading") return;
     document.removeEventListener("readystatechange", read);
     handOver([]);
+    readCallbacks.splice(0).forEach(function (callback) { callback(); });
     window.zaismaWatch.drawAll();
   });
 })();
@@ -794,7 +813,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     });
   }
   runBatch(function () { apply(document); });
-  window.zaismaWatch.page(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
+  window.zaismaWatch.arriving(function (changes) { runBatch(function () { changes.forEach(function (change) { change.addedNodes.forEach(apply); }); }); });
   // Edged things are found once the page has laid out, and again whenever something may have moved them into a corner: in the panes round
   // a change and in it, in a pane that changed size, and in every pane once the window's width changes or a font arrives.
   var edgedTimer = 0, edgedPanes = new Set(), isEveryPaneDue = false;

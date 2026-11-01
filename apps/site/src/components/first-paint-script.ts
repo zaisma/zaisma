@@ -97,18 +97,19 @@ export const HIDDEN_AMOUNTS_SCRIPT = String.raw`/* hidden amounts */(function ()
   var KEY = "zaisma.payments_amounts_hidden";
   var hidden = false;
   try { hidden = localStorage.getItem(KEY) === "yes"; } catch (e) {}
-  function draw() {
-    document.querySelectorAll("#payments .number-amount, [data-amount]").forEach(function (each) {
-      if (!each.hasAttribute("data-amount")) each.setAttribute("data-amount", each.textContent);
-      each.textContent = hidden ? "•••" : each.getAttribute("data-amount");
-    });
-    document.querySelectorAll("[data-amounts-toggle]").forEach(function (button) {
-      button.setAttribute("aria-pressed", String(hidden));
-      var label = button.querySelector("span:not([class])");
-      if (label) label.textContent = hidden ? "Show amounts" : "Hide amounts";
-    });
+  var AMOUNTS = "#payments .number-amount, [data-amount]", TOGGLES = "[data-amounts-toggle]";
+  function drawAmount(each) {
+    if (!each.hasAttribute("data-amount")) each.setAttribute("data-amount", each.textContent);
+    each.textContent = hidden ? "•••" : each.getAttribute("data-amount");
   }
-  draw();
+  function drawToggle(button) {
+    button.setAttribute("aria-pressed", String(hidden));
+    var label = button.querySelector("span:not([class])");
+    if (label) label.textContent = hidden ? "Show amounts" : "Hide amounts";
+  }
+  function draw() { document.querySelectorAll(AMOUNTS).forEach(drawAmount); document.querySelectorAll(TOGGLES).forEach(drawToggle); }
+  window.zaismaWatch.each(AMOUNTS, drawAmount);
+  window.zaismaWatch.each(TOGGLES, drawToggle);
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("[data-amounts-toggle]");
     if (!button) return;
@@ -125,7 +126,8 @@ export const HIDDEN_AMOUNTS_SCRIPT = String.raw`/* hidden amounts */(function ()
  */
 export const ACCOUNT_LINK_SCRIPT = `/* account link */(function () {
   if (!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
-  var link = document.querySelector("header.top[data-account-from-cookie] .end > a:is(.run-wrap,.cut-btn)");
-  if (link) { link.href = "/account"; var words = link.querySelector(".face > span:not([class])"); if (words) words.textContent = "Account"; }
+  window.zaismaWatch.each("header.top[data-account-from-cookie] .end > a:is(.run-wrap,.cut-btn)", function (link) {
+    link.href = "/account"; var words = link.querySelector(".face > span:not([class])"); if (words) words.textContent = "Account";
+  });
 })();
 `;

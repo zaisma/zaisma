@@ -700,9 +700,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
   function find() {
     // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
-    var heldBoxes = Array.from(document.querySelectorAll("[data-scroll-box]")), canScroll = heldBoxes.map(function (box) { return box.scrollHeight > box.clientHeight + 1; });
-    heldBoxes.forEach(function (box, i) {
-      box.classList.toggle("is-scrollable", canScroll[i]);
+    window.zaismaWatch.each("[data-scroll-box]", function (box) {
+      held(box);
       window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
     });
     fadeBoxes(window.zaismaWatch.scrollBoxes());
@@ -735,7 +734,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   window.zaismaWatch.resize(function () { syncAll(boxes); });
   // Rows that scroll sideways fade over a side with more past it, and start where the one you're on shows whole.
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
+  window.zaismaWatch.each("[data-fades-sideways]", function (row) {
     // What's shown in it: a tab, a cover. A folded tab, or a switch's slab, ghost and ring, never counts, so a row whose box only rounds a
     // few pixels wider than what it shows (a phone's emulator) never fades.
     function shown() {
@@ -791,10 +790,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       row.scrollTo({ left: goal, behavior: "smooth" });
       clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
     };
-    if (here && document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (isStarted) row.showWhole(here, false); });
+    if (here) window.zaismaWatch.fontsIn(function () { if (isStarted) row.showWhole(here, false); });
     var isFadeQueued = false;
     row.addEventListener("scroll", function () { if (isFadeQueued) return; isFadeQueued = true; requestAnimationFrame(function () { isFadeQueued = false; fades(); }); }, { passive: true });
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
+    // Words that narrow once their font arrives can leave a row that ran past its box fitting it again, its own size unchanged.
+    window.zaismaWatch.fontArrived(ends);
     ends();
   });
 })();
@@ -808,7 +809,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
  */
 export const COMPACT_SCRIPT = `/* compact bars */(function () {
   var COMPACT_AT_PX = 24;
-  document.querySelectorAll("[data-compacts]").forEach(function (bar) {
+  window.zaismaWatch.each("[data-compacts]", function (bar) {
     if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
     // A bar follows the box that scrolls right beside it (a header example's stand-in page), or else the page: never a box deeper in, like a table.
     var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window;
@@ -823,7 +824,12 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
 /** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
+  // A row's arrows may come before the row they scroll: they're wired once it's there too.
+  window.zaismaWatch.each("[data-row-arrows]", function (steps) {
+    var back = steps.querySelectorAll(".cut-btn")[0];
+    if (document.getElementById(back.getAttribute("aria-controls"))) wire(steps); else window.zaismaWatch.whenRead(function () { wire(steps); });
+  });
+  function wire(steps) {
     var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
     if (!track) return;
     // The gallery's fixed states: the row starts scrolled to its middle or its end, once it's laid out (a section off screen isn't yet).
@@ -839,7 +845,7 @@ export const ROW_SCRIPT = `/* rows */(function () {
     track.addEventListener("scroll", ends, { passive: true });
     window.zaismaWatch.size(track, ends);
     ends();
-  });
+  }
 })();
 `;
 
@@ -1305,6 +1311,11 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
   }
   window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
     try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
+    // Its sheet may come later in the page than the sidebar.
+    window.zaismaWatch.whenRead(function () { listenToSheet(nav); });
+    say(nav);
+  });
+  function listenToSheet(nav) {
     var sheet = document.getElementById(nav.id + "-sheet");
     if (sheet) {
       sheet.addEventListener("close", function () { say(nav); var button = buttonsOf(nav)[0]; if (button && (!document.activeElement || document.activeElement === document.body || sheet.contains(document.activeElement))) button.focus({ preventScroll: true }); });
@@ -1312,7 +1323,7 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
       sheet.addEventListener("click", function (event) { if (event.target.closest && event.target.closest("a[href]")) sheet.close(); });
     }
     say(nav);
-  });
+  }
   document.addEventListener("click", function (event) {
     // A group opens and shuts in place.
     var group = event.target.closest && event.target.closest(".sidebar-group");
