@@ -524,8 +524,8 @@ export function backdrop(options: BackdropOptions = {}): Raw {
  */
 export const backdropPlaceholder = (placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }): Raw => {
   if (!placeholderDataUrl) return raw("");
-  const ratio = shape && shape.widthPx > 0 && shape.heightPx > 0 ? shape.widthPx / shape.heightPx : undefined;
-  return html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl, undefined, ratio)}></div>`;
+  const shapeNumber = shape && shape.widthPx > 0 && shape.heightPx > 0 ? shape.widthPx / shape.heightPx : undefined;
+  return html`<div class="backdrop backdrop-placeholder" aria-hidden="true"${placeholderStyle(placeholderDataUrl, undefined, shapeNumber)}></div>`;
 };
 
 /**
@@ -726,15 +726,15 @@ function keptSizes(imageUrl: string, shownSizes: string, largestPx: number): Raw
 
 /**
  * The style that carries a picture's placeholder (and its shape) to its box. Only a data: URL of an image is ever written into it.
- * coverRatio, the picture's width over its height, has the placeholder cover its box at that shape rather than its own rounded one
+ * coverShapeNumber, the picture's width over its height, has the placeholder cover its box at that shape rather than its own rounded one
  * (--placeholder-size, in the box's own size: it's a size container).
  */
-export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }, coverRatio?: number): Raw {
-  const ratio = coverRatio && Number.isFinite(coverRatio) && coverRatio > 0 ? coverRatio.toFixed(4) : null;
+export function placeholderStyle(placeholderDataUrl: string | null, shape?: { widthPx: number; heightPx: number }, coverShapeNumber?: number): Raw {
+  const shapeText = coverShapeNumber && Number.isFinite(coverShapeNumber) && coverShapeNumber > 0 ? coverShapeNumber.toFixed(4) : null;
   const parts = [
     placeholderDataUrl && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(placeholderDataUrl) ? `--placeholder: url(${placeholderDataUrl})` : "",
     shape ? `--picture-shape: ${Math.round(shape.widthPx)} / ${Math.round(shape.heightPx)}` : "",
-    ratio ? `--placeholder-size: max(100cqw, 100cqh * ${ratio}) max(100cqw / ${ratio}, 100cqh)` : "",
+    shapeText ? `--placeholder-size: max(100cqw, 100cqh * ${shapeText}) max(100cqw / ${shapeText}, 100cqh)` : "",
   ].filter(Boolean);
   return parts.length ? html` style="${parts.join("; ")}"` : raw("");
 }

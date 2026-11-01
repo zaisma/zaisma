@@ -237,7 +237,10 @@ const TABLET_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) Apple
 const FIRST_PAINT_READY = `(async () => {
   const turn = () => new Promise((done) => setTimeout(done, 0));
   for (let waitedMs = 0; waitedMs < 15000 && (document.readyState === "loading" || (document.querySelector('script[src*="/js/first-paint."]') && !window.zaismaWatch)); waitedMs += 50) await new Promise((done) => setTimeout(done, 50));
-  // Its fonts in, as they are when it's compared: Jost's fallback takes its room, so their arrival is no part of what's measured.
+  // Its fonts in, as they are when it's compared: Jost's fallback takes its room, so their arrival is no part of what's measured. Laid
+  // out first, so every font it shows has been asked for: asked before, the browser's fonts.ready is settled with none loading, and a
+  // fallback another system draws at another width (Linux's) would be measured as the first paint.
+  if (document.body) void document.body.offsetHeight;
   if (document.fonts) await Promise.race([document.fonts.ready, new Promise((done) => setTimeout(done, 5000))]);
   if (window.zaismaWatch?.drawAll) for (let pass = 0; pass < 3; pass++) { await turn(); window.zaismaWatch.drawAll(); }
   // The frames a browser takes to its first paint, its ResizeObservers' answers in them.
