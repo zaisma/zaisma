@@ -4,13 +4,12 @@ import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-
 import { describe, expect, it } from "vitest";
 import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { glassPane } from "../../apps/site/src/components/foundations.ts";
-import { html, raw } from "../../apps/site/src/markup.ts";
-import { grid, paneParts, stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
+import { raw } from "../../apps/site/src/markup.ts";
+import { stack, type LayoutMarkup } from "../../apps/site/src/components/layout.ts";
 
 /** A pane's body built by hand past the types, as a page could still forge one: these fixtures are pages the check must catch. */
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
-import { table } from "../../apps/site/src/components/data.ts";
-import { dropdown, gameCard, notice, sheet } from "../../apps/site/src/components/panes.ts";
+import { dropdown } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
 import { MEASURED_SCREEN_NAMES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
@@ -22,7 +21,7 @@ import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
 
 /*
  * The measuring check (scripts/layout-check.mjs, npm run layout:check) on this checkout's preview, in headless Chrome: a run's pages
- * (LAYOUT_CHECK_RUNS: a pull request's unless LAYOUT_CHECK_RUN says gallery or sweep), with nothing out of line; and pages made to break
+ * (LAYOUT_CHECK_RUNS: a pull request's unless LAYOUT_CHECK_RUN says sweep), with nothing out of line; and pages made to break
  * each rule, which it must catch by name. GitHub's check runs it in its own job (Layout check, .github/workflows/check.yml) with
  * LAYOUT_CHECK=1, on the preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says
  * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first share also measures
@@ -36,7 +35,7 @@ if (!sites) console.log("No preview is running, so the layout check is skipped: 
 
 type Failure = { page: string; size: string; theme: string; check: string; element: string; said: string };
 type LayoutRun = { pages: { name: string; isGallery?: boolean }[]; sizes: unknown[]; themes: string[]; tiersOf: (page: unknown) => string[] };
-const RUNS = LAYOUT_CHECK_RUNS as Record<"pull_request" | "gallery" | "sweep", LayoutRun>;
+const RUNS = LAYOUT_CHECK_RUNS as Record<"pull_request" | "sweep", LayoutRun>;
 const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
@@ -59,24 +58,25 @@ describe("the measured rules", () => {
     expect(Object.keys(LAYOUT_RULE_TIERS).filter((name) => !names.includes(name))).toEqual([]);
   });
 
-  it("are measured as each run says: a pull request's every page for its arrangement on two screens in light, the gallery's for its components too", () => {
+  it("are measured as each run says: a pull request's every page on two screens in light, the sweep's on the measured screens at 200% text too", () => {
+    expect(Object.keys(RUNS)).toEqual(["pull_request", "sweep"]);
     expect(RUNS.pull_request.themes).toEqual(["light"]);
     expect(RUNS.pull_request.pages.some((page) => / (long names|empty|full)$/.test(page.name))).toBe(false);
     expect(RUNS.pull_request.tiersOf({ name: "Home" })).toEqual(["page"]);
-    expect(RUNS.pull_request.tiersOf({ name: "Gallery: layout", isGallery: true })).toEqual(["gallery", "page"]);
-    expect(RUNS.gallery.pages.every((page) => page.isGallery)).toBe(true);
-    expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["gallery", "page", "sweep"]);
-    expect(RUNS.sweep.sizes.length).toBeGreaterThan(RUNS.pull_request.sizes.length);
+    expect(RUNS.pull_request.tiersOf({ name: "Gallery: layout", isGallery: true })).toEqual(["page"]);
+    expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["page", "sweep"]);
+    expect(RUNS.sweep.themes).toEqual(["light"]);
+    expect((RUNS.sweep.sizes as { name: string }[]).map((size) => size.name)).toEqual([...MEASURED_SCREEN_NAMES, ...TEXT_SCREEN_NAMES.map((name) => `${name} at 200% text`)]);
   });
 
-  it("are measured in light on the measured screens by the gallery and the sweep, with the arrangements a layout component makes proven on the gallery", () => {
-    const measuredSizeNames = [...MEASURED_SCREEN_NAMES, ...TEXT_SCREEN_NAMES.map((name) => `${name} at 200% text`)];
-    for (const run of [RUNS.gallery, RUNS.sweep]) {
-      expect(run.themes).toEqual(["light"]);
-      expect((run.sizes as { name: string }[]).map((size) => size.name)).toEqual(measuredSizeNames);
-    }
-    for (const name of ["two panes closer than a block's gap", "two panes overlapping", "out of line with the header", "controls in one row not on one line", "words nearer the block before than their own", "one group on two surfaces"]) expect(LAYOUT_RULE_TIERS[name], name).toBe("gallery");
-    for (const name of ["overlaps another thing", "spills out of its pane", "words cut off", "the page scrolls sideways", "the runner below the fold", "an empty thing taking a gap", "two controls side by side outside a row"]) expect(LAYOUT_RULE_TIERS[name], name).toBe("page");
+  it("judge only what a player would notice: see, read, reach and press, with style held by the components", () => {
+    const playerRules = Object.keys(LAYOUT_RULE_TIERS).filter((name) => !/^the (check|page) /.test(name) || /^the page scrolls/.test(name));
+    expect(playerRules.sort()).toEqual([
+      "a control the keyboard doesn't reach", "a focused control with no visible focus", "a pane past the screen", "a pane that overflows without scrolling",
+      "a touch target under 44px", "no answer within 400 ms", "overlaps another thing", "spills out of its pane", "the first cover below the fold",
+      "the page scrolls sideways", "the runner below the fold", "two panes overlapping", "words cut off", "words over something with an edge",
+    ]);
+    expect(LAYOUT_RULE_TIERS["no answer within 400 ms"]).toBe("sweep");
   });
 });
 
@@ -96,7 +96,7 @@ describe("the merge queue's skip", () => {
     expect(pageFingerprint(markup("a1", "n1", "t1", "120").replace('value="farm"', 'value="cave"'), page, looks, ["page"])).not.toBe(fingerprint);
     expect(pageFingerprint(markup("a1", "n1", "t1", "120"), { ...page, mainActionShows: "nowhere" }, looks, ["page"])).not.toBe(fingerprint);
     expect(pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks.slice(1), ["page"])).not.toBe(fingerprint);
-    expect(pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks, ["gallery", "page", "sweep"])).not.toBe(fingerprint);
+    expect(pageFingerprint(markup("a1", "n1", "t1", "120"), page, looks, ["page", "sweep"])).not.toBe(fingerprint);
   });
   it("takes the pages asked for by name, and says which names no page has", () => {
     const pages = [{ name: "Home" }, { name: "Buying, declined" }, { name: "Sign in" }];
@@ -122,66 +122,6 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
-  it.skipIf(!isFirstShare)("catches a corner control off its corner, naming it", async () => {
-    // The real components, then broken the way a hand-made page would be: the corner control pushed down.
-    const offCorner = paneParts({ head: { words: html`<h2>Rooms</h2>`, end: secondaryButton("Refresh", { type: "button" }) }, body: html`<p>Rooms here</p>` }).html.replace('<div class="pane-head-end">', '<div class="pane-head-end" style="margin-top:30px">');
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCorner) }] }) }).html;
-    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
-    const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
-    expect(said.some((line) => /corner/.test(line) && /Refresh/.test(line)), said.join("\n")).toBe(true);
-  }, 300_000);
-
-  it.skipIf(!isFirstShare)("catches words inset twice, words off a control's center line, and two controls side by side outside a row", async () => {
-    // The real components, then broken the way a hand-made page would be.
-    const insetTwice = stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>');
-    const offCenter = paneParts({ head: { words: html`<h2>Versions</h2>`, end: secondaryButton("New version", { type: "button" }) }, body: html`<p>Every version</p>` }).html.replace("<h2>Versions</h2>", '<h2 style="padding-top:30px">Versions</h2>');
-    const sideBySide = `<div style="display:flex;gap:8px">${secondaryButton("Keep", { type: "button" }).html}${secondaryButton("Drop", { type: "button" }).html}</div>`;
-    const markup = glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: raw(offCenter) }, { kind: "block", markup: raw(insetTwice) }, { kind: "block", markup: raw(sideBySide) }] }) }).html;
-    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
-    const said = failures.map((failure) => `${failure.check}: ${failure.element}`);
-    expect(said.some((line) => /off the pane's margin/.test(line) && /Inset twice/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /off its center line/.test(line) && /Versions/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /side by side outside a row/.test(line) && /Drop|Keep/.test(line)), said.join("\n")).toBe(true);
-  }, 300_000);
-
-  it.skipIf(!isFirstShare)("cuts anything with an edge in a pane's corner by itself, and catches one kept square", async () => {
-    // Two panes, each with a filled box at its foot and nothing asking for a cut: the edge rule cuts the first; the second is forced square.
-    const boxPane = (box: string) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<p>Pictures</p>` }, { kind: "block", markup: raw(box) }] }) }).html;
-    const markup = boxPane('<div style="height:60px;background:#4a7"></div>') + boxPane('<div class="kept-square" style="height:60px;background:#47a"></div><style>.kept-square{clip-path:none!important}</style>');
-    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
-    const square = failures.filter((failure) => /square in a cut corner/.test(failure.check));
-    expect(square.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(1);
-  }, 300_000);
-
-  it.skipIf(!isFirstShare)("catches a bare group closer to the pane's edge than the words margin, naming the card, and passes a grid of game cards as it is", async () => {
-    // A grid of game cards as the components make it (inset as one unit), and once with its inset taken away, as a page's own style might.
-    const cards = () => grid({ whenEmpty: html`<p>No games here yet.</p>`, itemSize: "cover", items: ["kestrel", "verdant"].map((slug) => ({ kind: "block" as const, markup: gameCard({ title: slug === "kestrel" ? "Kestrel" : "Verdant", picture: STAND_IN_COVER_PICTURES[slug]!, href: `#${slug}`, facts: { playerCount: 12 } }) })) }).html;
-    const pane = (grids: string) => glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>More</h2>` }, { kind: "block", markup: raw(grids) }] }) }).html;
-    const markup = pane(cards()) + pane(cards()).replace('class="layout-grid', 'style="padding-inline:0" class="layout-grid');
-    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
-    const close = failures.filter((failure) => /bare group closer to the pane's edge/.test(failure.check));
-    expect(close.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBeGreaterThan(0);
-    expect(close.every((failure) => /Kestrel|Verdant/.test(failure.element))).toBe(true);
-    // Only the second pane's first card is at the edge: the first pane's cards keep the margin.
-    expect(close.length).toBeLessThan(3);
-  }, 300_000);
-
-  it.skipIf(!isFirstShare)("catches words closer to a card's edge than the words margin, and passes the same card as it is", async () => {
-    // A playing card in place, once as the components make it and once with its inner padding forced down to 12px, as a page might style it.
-    const card = (id: string) => notice({ placement: "over-game", id, title: "Keep your progress", body: forged(raw("<p>Sign in to keep what you've done.</p>")), isShown: true, isInPlace: true }).html;
-    const markup = card("fine-card") + card("close-card").replace('class="playing-card-in"', 'class="playing-card-in" style="padding:12px;--pad-words:0px"');
-    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
-    const close = failures.filter((failure) => /words closer to the pane's edge than its margin/.test(failure.check));
-    expect(close.length, failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBeGreaterThan(0);
-    expect(close.every((failure) => /close-card|Keep your progress|Sign in to keep/.test(`${failure.element} ${failure.said}`))).toBe(true);
-    expect(close.some((failure) => /fine-card/.test(`${failure.element} ${failure.said}`))).toBe(false);
-  }, 300_000);
-
   // Each new rule, on a laptop: a fixture built to break it, and its fixed twin beside it, which it must pass.
   const brokenOnLaptop = async (markup: string) => {
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup };
@@ -191,46 +131,35 @@ describe.skipIf(!sites)("the layout check", () => {
   const fullPane = (body: string) => glassPane({ paneWidth: "full", body: forged(raw(body)) }).html;
   const choices = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Choice ${index + 1}`, href: "#menu" }));
 
-  it.skipIf(!isFirstShare)("catches a pane wider than its page's shape, two panes touching, and panes over the page past their kind's size, past the screen or overflowing unscrolled", async () => {
-    // The example page is a reading page (820px); a menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
-    const tooWide = `<div style="width:1100px">${fullPane("<p>Wider than its shape</p>")}</div>`;
+  it.skipIf(!isFirstShare)("catches panes over the page past the screen or overflowing unscrolled, and passes one that scrolls inside itself", async () => {
+    // A menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
     const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:8px" class="floating-pane placed-under dropdown glass in-place"');
-    const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:400px;max-height:none" class="floating-pane placed-under dropdown glass in-place"').replace('class="floating-body"', 'style="overflow:visible" class="floating-body"');
-    const wideSheet = sheet({ id: "fixture-sheet", title: "Too wide", body: forged(html`<p>A sheet</p>`), closeLabel: "Close", isShown: true }).html.replace('class="sheet', 'style="width:900px;max-width:none" class="sheet');
-    // Two panes set down one after the other by hand, with no layout component to put a block's gap between them.
-    const touching = fullPane("<p>Touching above</p>") + fullPane("<p>Touching below</p>");
-    const said = await brokenOnLaptop(tooWide + menu + spilling + wideSheet + touching);
-    expect(said.some((line) => /two panes closer than a block's gap/.test(line) && /Touching below/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /wider than its page's shape/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /taller than its kind allows/.test(line) && /Spilling menu/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /a pane past the screen/.test(line)), said.join("\n")).toBe(true);
-    expect(said.some((line) => /wider than its kind allows/.test(line) && /Too wide/.test(line)), said.join("\n")).toBe(true);
-    // The fine menu scrolls inside itself: nothing names it.
-    expect(said.filter((line) => /Fine menu|Choice 1"/.test(line) && /pane (taller|past|that overflows)/.test(line) && !/400px/.test(line)).length, said.join("\n")).toBeLessThan(2);
+    const spilling = dropdown({ id: "fixture-spill", label: "Spilling menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:400px;max-height:none" class="floating-pane placed-under dropdown glass in-place"');
+    const said = await brokenOnLaptop(menu + spilling);
+    expect(said.some((line) => /a pane past the screen|a pane that overflows without scrolling/.test(line) && /Spilling menu/.test(line)), said.join("\n")).toBe(true);
+    expect(said.filter((line) => /Fine menu/.test(line) && /pane (past|that overflows)/.test(line)), said.join("\n")).toEqual([]);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("measures a gallery rule on the gallery's pages and skips it on a page in a pull request's run", async () => {
-    // Words inset twice (a gallery rule), in place of a gallery page's own and of the example page's.
-    const insetTwice = fullPane(stack({ items: [{ kind: "words", markup: html`<p>Inset twice</p>` }] }).html.replace("<p>Inset twice</p>", '<p style="padding-left:12px">Inset twice</p>'));
-    const measuredOn = async (page: Record<string, unknown>) => {
-      const { failures } = (await checkPages({ ...sites!, pages: [{ ...page, markup: insetTwice }], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.pull_request.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
-      return failures.filter((failure) => /off the pane's margin/.test(failure.check) && /Inset twice/.test(failure.element)).length;
-    };
-    expect(await measuredOn({ name: "Gallery: layout", path: "/design/layout", mainActionShows: "nowhere", isGallery: true })).toBeGreaterThan(0);
-    expect(await measuredOn({ name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere" })).toBe(0);
-  }, 300_000);
-
-  it.skipIf(!isFirstShare)("catches the Laws of UX it can measure: proximity, common region, similarity and an answer within 400 ms", async () => {
-    const hugging = fullPane(stack({ items: [{ kind: "block", markup: raw(table({ caption: "Rooms", columns: [{ label: "Room" }], rows: [["North"]], whenEmpty: html`<p>No rooms.</p>` }).html) }, { kind: "words", markup: html`<h2>Hugging the table</h2>` }, { kind: "words", markup: html`<p>What it names</p>` }] }).html.replace("<h2>Hugging the table</h2>", '<h2 style="margin-top:-20px;margin-bottom:30px">Hugging the table</h2>'));
-    const splitGroup = fullPane(html`<p>Before</p><h2>Left alone</h2>`.html) + fullPane("<p>Its group, on another pane</p>");
-    const mixedGrid = fullPane(grid({ itemSize: "card", whenEmpty: html`<p>None.</p>`, items: ["One", "Two"].map((title) => ({ kind: "block" as const, markup: glassPane({ paneWidth: "full", body: forged(html`<p>${title}</p>`) }) })) }).html.replace('<div class="grid-cell is-block">', '<div class="grid-cell is-block" style="max-width:120px">'));
+  it.skipIf(!isFirstShare)("catches a press that answers nothing within 400 ms, in the sweep", async () => {
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
-    const said = await brokenOnLaptop(hugging + splitGroup + mixedGrid + deaf);
-    for (const [check, named] of [
-      [/words nearer the block before than their own/, /Hugging the table/],
-      [/one group on two surfaces/, /Left alone/],
-      [/one kind at different sizes/, /Two|One/],
-      [/no answer within 400 ms/, /Answers nothing/],
-    ] as const) expect(said.some((line) => check.test(line) && named.test(line)), `${check}\n${said.join("\n")}`).toBe(true);
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup: deaf };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.sweep.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures.some((failure) => /no answer within 400 ms/.test(failure.check) && /Answers nothing/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(true);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a control with no focus showing, and passes a real button beside it", async () => {
+    const said = await brokenOnLaptop(fullPane(stack({ items: [{ kind: "block", markup: forged(raw('<div tabindex="0" style="outline:none">Quiet focus</div>')) }, { kind: "control", markup: secondaryButton("Shows its focus", { type: "button" }) }] }).html));
+    expect(said.some((line) => /a focused control with no visible focus/.test(line) && /Quiet focus/.test(line)), said.join("\n")).toBe(true);
+    expect(said.filter((line) => /Shows its focus/.test(line)), said.join("\n")).toEqual([]);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a control the keyboard can't reach past one that holds Tab", async () => {
+    const markup = fullPane('<div id="holds-tab" tabindex="0">Holds Tab</div><button type="button">Past the hold</button>');
+    // The page's policy refuses inline handlers: the hold is added the way a page's own script would add it.
+    const setUp = `document.getElementById("holds-tab").addEventListener("keydown", (event) => { if (event.key === "Tab") event.preventDefault(); }); true`;
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup, setUp };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const unreached = failures.filter((failure) => failure.check === "a control the keyboard doesn't reach");
+    expect(unreached.some((failure) => /Past the hold/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`).join("\n")).toBe(true);
   }, 300_000);
 });

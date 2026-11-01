@@ -1,5 +1,5 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, usageMonth } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import { GameDatabaseService, type GameDatabaseObject } from "../../apps/rooms/src/database.ts";
@@ -134,6 +134,10 @@ describe("game database", () => {
   });
 
   it("keeps reading and writing for the hour after its game's hosting pauses, then answers hosting_paused", async () => {
+    // A fixed mid-month time: a pause an hour back stays in this month, whenever the test runs.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+    onTestFinished(() => void vi.useRealTimers());
     await addSandboxGame("busy", LEADERBOARD);
     const a = await join("busy", "ABCDEF");
     await a.next();
@@ -223,6 +227,10 @@ describe("game database", () => {
   });
 
   it("erases a player from every table with a player_id column, in one transaction, while the game's hosting is paused", async () => {
+    // A fixed mid-month time: a pause an hour back stays in this month, whenever the test runs.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+    onTestFinished(() => void vi.useRealTimers());
     await addSandboxGame("erasing", LEADERBOARD);
     const a = await join("erasing", "ABCDEF");
     await a.next();

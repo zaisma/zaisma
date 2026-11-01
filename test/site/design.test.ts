@@ -12,7 +12,7 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
@@ -1165,7 +1165,7 @@ describe("layout", () => {
   });
 
   const words = (text: string): LayoutItem => ({ kind: "words", markup: html`<p>${text}</p>` });
-  const block = (text: string): LayoutItem => ({ kind: "block", markup: html`<div>${text}</div>` });
+  const block = (text: string): GridItem => ({ kind: "block", markup: html`<div>${text}</div>` });
   const control = (markup: ReturnType<typeof actions.secondaryButton>): LayoutItem => ({ kind: "control", markup });
   const cells = (markup: string) => [...markup.matchAll(/<div class="((?:stack|row|grid)-cell[^"]*)"/g)].map((match) => match[1]!.split(" "));
 
@@ -1237,6 +1237,51 @@ describe("layout", () => {
     const MAKERS = ["components/actions.ts", "components/fields.ts", "components/choices.ts", "components/inputs.ts", "components/switch.ts", "components/navigation.ts", "components/control-markup.ts"];
     const makers = Object.entries(SOURCES).filter(([, source]) => /\bcontrolMarkup\(|new ControlMarkup\(/.test(source)).map(([file]) => file);
     expect(makers.filter((file) => !MAKERS.includes(file))).toEqual([]);
+  });
+
+  // What the layout check stopped measuring (scripts/layout-check.mjs judges only what a player would notice) is held here, in the
+  // components' own styles and scripts.
+  it("keeps every word in a pane at its margin, and everything with an edge at the frame gap", () => {
+    expect(tokensSource).toContain('${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }');
+    expect(tokensSource).toContain(':where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }');
+    expect(tokensSource).toContain(':where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }');
+    expect(panesSource).toContain(".tray { padding: var(--pad-frame); --pad-words: calc(var(--pad-tray) - var(--pad-frame)); }");
+  });
+
+  it("cuts every corner the edge rule cuts to a bevel of at least 4px", () => {
+    expect(glassScriptSource).toContain("var LEAST_BEVEL_PX = 4;");
+    expect(glassScriptSource).toContain("cut > 0 ? Math.max(LEAST_BEVEL_PX, cut) : 0");
+  });
+
+  it("sets a row's words on its controls' center line", () => {
+    expect(ROW_STYLES).toContain(".row-cell { display: flex; align-items: center; }");
+  });
+
+  it("keeps a pane over the page to its kind's size and the screen", () => {
+    expect(panesSource).toContain(".floating-pane.dropdown { width: max-content; max-width: min(var(--size-menu), calc(100vw - 2 * var(--pad-frame)));");
+    expect(materialsSource).toContain(".floating-pane { max-height: min(var(--size-menu-height),");
+    expect(panesSource).toContain(".sheet { width: fit-content; max-width: min(var(--size-sheet), calc(100% - 2 * var(--pad-pane)));");
+    expect(panesSource).toContain(".sheet.is-picture { max-width: min(var(--size-sheet-picture), calc(100% - 2 * var(--pad-pane))); }");
+  });
+
+  it("runs words to a reading width, and a reading page's column to its shape's", () => {
+    expect(tokensSource).toContain(':where(${WORDS_HOLDERS.join(", ")}, .tray-head) :where(p, li) { max-width: 75ch;');
+    expect(layoutSource).toContain('html[data-page-shape="reading"] body > main:not(:has(> .sidebar-layout)) { width: min(var(--size-page-reading), calc(100% - 2 * var(--pad-pane))); }');
+  });
+
+  it("scrolls a select's list by more than a sliver", () => {
+    expect(choicesSource).toContain("extraPx > 0 && extraPx < LEAST_SCROLL_PX");
+  });
+
+  it("gives nothing empty a gap, and takes controls side by side only in a row", () => {
+    const markup = stack({ items: [{ kind: "words", markup: html`` }, { kind: "words", markup: html`<p>Kept</p>` }, { kind: "block", id: "filled-later", markup: html`` }] }).html;
+    expect(markup.match(/class="stack-cell/g)?.length).toBe(2);
+    expect(markup).toContain('id="filled-later"');
+    expect(STACK_STYLES).toContain(".stack-cell:is(:empty, :has(> [hidden]:only-child)) { display: none; }");
+    // @ts-expect-error: a grid's cell is a block or words, never a bare control.
+    grid({ itemSize: "figure", items: [{ kind: "control", markup: actions.secondaryButton("Keep", { type: "button" }) }] });
+    // @ts-expect-error: a column holds a pane or a stack, never a bare control.
+    columns({ columns: [actions.secondaryButton("Keep", { type: "button" }), html`<p>Beside</p>`] });
   });
 
   it("gives a pane's body only a layout's markup, made by the layouts alone, so every word in a pane keeps its margin", () => {

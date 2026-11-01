@@ -69,6 +69,6 @@ describe("the preview checks' shares", () => {
     expect(shares.every((share) => share.length > 0)).toBe(true);
     expect(nightly).toContain("npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4");
     expect(workflow).not.toContain("LAYOUT_CHECK_SHARD");
-    expect(workflow.slice(workflow.indexOf("\n  layout:"), workflow.indexOf("\n  gallery:"))).not.toContain("matrix");
+    expect(workflow.slice(workflow.indexOf("\n  layout:"), workflow.indexOf("\n  sweep:"))).not.toContain("matrix");
   });
 });

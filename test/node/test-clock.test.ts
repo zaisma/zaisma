@@ -19,6 +19,13 @@ export const REAL_CALENDAR = /(new Date\(\)|new Date\(Date\.now\(\)[^)]*\))\.(to
 /** A fixed sleep: new Promise((resolve) => setTimeout(resolve, 50)) and the like. */
 export const REAL_SLEEP = /setTimeout\(\s*\w+\s*,\s*[0-9_]+\s*\)/g;
 
+/**
+ * A pause set an hour back from the real clock (setHostingPause(Date.now() - …)): the game database clears a pause from an earlier
+ * month, so in the first hour of a month UTC that pause counts as last month's and the test fails (Nov 1, 2026). A file that sets
+ * the clock is left alone; the pause then lands in the month it sets.
+ */
+export const REAL_MONTH_PAUSE = /setHostingPause\(\s*Date\.now\(\)\s*-/;
+
 type Counts = { real_calendar_count: number; real_sleep_count: number };
 
 export function realTimeCounts(source: string): Counts {
@@ -46,6 +53,16 @@ describe("tests and the real clock", () => {
     expect(realTimeCounts("const day = new Date(Date.now() - 2 * DAY_MS).toISOString().slice(0, 10); const year = new Date().getUTCFullYear();")).toEqual({ real_calendar_count: 2, real_sleep_count: 0 });
     expect(realTimeCounts("await new Promise((resolve) => setTimeout(resolve, 1_500));")).toEqual({ real_calendar_count: 0, real_sleep_count: 1 });
     expect(realTimeCounts('vi.setSystemTime(new Date("2026-10-26T12:00:00Z")); const today = new Date("2026-10-26T12:00:00Z").toISOString().slice(0, 10); setTimeout(() => done(), delayMs);')).toEqual({ real_calendar_count: 0, real_sleep_count: 0 });
+  });
+
+  it("sets the clock in every test file that pauses a game's hosting an hour back", () => {
+    expect(REAL_MONTH_PAUSE.test("await stub.setHostingPause(Date.now() - MATCH_FINISH_DURATION_SEC * 1000 - 1000);")).toBe(true);
+    expect(REAL_MONTH_PAUSE.test("await stub.setHostingPause(Date.now()); await stub.setHostingPause(Date.UTC(2020, 0, 15));")).toBe(false);
+    const unset = testSourceFiles().filter((path) => {
+      const source = readFileSync(join(ROOT, path), "utf8");
+      return REAL_MONTH_PAUSE.test(source) && !source.includes("vi.setSystemTime(");
+    });
+    expect(unset.map((path) => `${path}: pauses hosting an hour back from the real clock; set the clock first: vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-15T12:00:00Z")).`)).toEqual([]);
   });
 
   it("are never used more than the baseline allows", () => {

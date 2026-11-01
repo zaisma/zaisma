@@ -125,8 +125,8 @@ export const SMOKED_GLASS = `color-scheme: dark;
  * The words margin (docs/DESIGN.md, Spacing), defined once. Words are never closer to the edge of a surface of glass than its margin, --pad-pane
  * (a tray's, --pad-tray): only what has an edge of its own (a control, a field, a list's rows, a cover, a table) may sit closer, at the frame
  * gap. A surface that holds words pads at the frame gap and sets --pad-words, the extra the margin needs; every one is listed here, and
- * nothing else sets a surface's padding for words. A surface that isn't listed has no words margin, and the layout check
- * (layout-measure.ts) fails any words it finds closer to a surface's edge than the margin.
+ * nothing else sets a surface's padding for words. A surface that isn't listed has no words margin (test/site/design.test.ts holds the
+ * padding).
  *   - WORDS_SURFACES: what holds a pane's, a sheet's and a playing card's content, and a banner (which sets its words' own padding).
  *   - WORDS_HOLDERS: where a heading or paragraph, or the first and last words (layout.ts's edgeWords), take the margin from --pad-words.
  */
@@ -140,11 +140,11 @@ export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-
  * is treated apart and a component never pads its own words. A row, a grid or a track of them is inset at its start, end and foot as one
  * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A cover always has its words under it (its title or players
  * now); a picture with none (a screenshot) has an edge all round and keeps the frame gap. A new bare group is added here and nowhere else;
- * the layout check (layout-measure.ts) measures each one's box.
+ * test/site/design.test.ts holds its padding.
  */
 export const BARE_GROUPS = [".cover", ".person"];
 
-/** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. The layout check holds it. */
+/** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. A select's list holds it (choices.ts). */
 export const LEAST_SCROLL_PX = 12;
 
 /** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
@@ -357,8 +357,7 @@ ${WORDS_SURFACES.join(", ")} { padding: var(--pad-frame); --pad-words: var(--pad
 /* Headings and paragraphs keep the margin at their sides wherever they sit in it (layout.ts's edge rules give their top and bottom); inside
    anything with an edge of its own there's none (a slab of glass sets --pad-words to nothing), and any component's own padding wins. */
 :where(${WORDS_HOLDERS.join(", ")}) :where(h1, h2, h3, h4, p) { padding-inline: var(--pad-words); }
-/* A line of words runs at most 75 characters of its own font, however wide its surface (the layout check's "a line of words longer than the
-   reading width"); a pane that fits what's in it stops its paragraphs sooner, at --size-reading. A word longer than the line (an email address
+/* A line of words runs at most 75 characters of its own font, however wide its surface (test/site/design.test.ts holds it); a pane that fits what's in it stops its paragraphs sooner, at --size-reading. A word longer than the line (an email address
    at a large text size) breaks rather than run past the margin. */
 :where(${WORDS_HOLDERS.join(", ")}, .tray-head) :where(p, li) { max-width: 75ch; overflow-wrap: break-word; }
 /* Bare groups (BARE_GROUPS above): a game card, a person. The unit takes the margin as a whole, at its sides here and its top and bottom in layout.ts. */${BARE_GROUPS_STYLES}

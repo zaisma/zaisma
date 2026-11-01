@@ -51,7 +51,7 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
     expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
     // Every checking job steps aside for it; only the required check and main's caches run.
-    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Gallery on every screen", "Every screen (", "Docs tests"]) {
+    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Every screen (", "Docs tests"]) {
       const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
       expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
     }
@@ -66,21 +66,18 @@ describe("the workflow and ship agree", () => {
     // A skip passes only with the engines' own flag false; any other result but success leaves engines_ok false.
     expect(workflow).toContain(`if [ "$ENGINES_RESULT" = success ]; then engines_ok=true; fi`);
   });
-  it("on running the gallery on every screen when the components change, and failing the required check when it fails", () => {
-    expect(workflow).toContain(`if [ "$GALLERY_RESULT" = skipped ] && [ "$IS_GALLERY_CHANGED" = false ]; then gallery_ok=true; fi`);
-    expect(workflow).toContain("grep -qE '^apps/site/src/(components/|page-styles\\.ts$|design-page\\.ts$)'");
-    expect(workflow).toContain("run: npm run layout:check -- --gallery");
+  it("on no gallery run of its own: a pull request's Layout check measures the gallery's pages with the rest", () => {
+    expect(workflow).not.toContain("--gallery");
+    expect(workflow).not.toContain("is_gallery_changed");
   });
-  it("on the merge queue measuring every page its change reaches on every screen, in the gallery's place, and failing the required check when it fails", () => {
+  it("on the merge queue measuring every page its change reaches on every screen, and failing the required check when it fails", () => {
     const sweepJob = workflow.slice(workflow.indexOf("name: Every screen ("), workflow.indexOf("\n  docs-tests:"));
     expect(sweepJob).toContain("github.event_name == 'merge_group'");
     expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --measured .wrangler/layout-sweep-measured.json --changed-only");
     expect(sweepJob).toContain("restore-keys: layout-sweep-measured-");
     expect(sweepJob).toContain("name: layout-sweep-measured-${{ matrix.shard }}");
-    const galleryJob = workflow.slice(workflow.indexOf("name: Gallery on every screen"), workflow.indexOf("runs-on:", workflow.indexOf("name: Gallery on every screen")));
-    expect(galleryJob).toContain("github.event_name != 'merge_group'");
-    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, gallery, sweep, docs-tests]");
-    expect(workflow).toContain(`if [ "$EVENT_NAME" = merge_group ]; then gallery_ok=false; if [ "$SWEEP_RESULT" = success ]; then gallery_ok=true; fi; fi`);
+    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, engines, seed, layout, sweep, docs-tests]");
+    expect(workflow).toContain(`if [ "$EVENT_NAME" = merge_group ]; then sweep_ok=false; if [ "$SWEEP_RESULT" = success ]; then sweep_ok=true; fi; fi`);
     // Its measured pages reach main's cache once its commit is main, where the next merge group reads them.
     const mainJob = workflow.slice(workflow.indexOf("name: Measured pages for main"), workflow.indexOf("\n  check:"));
     expect(mainJob).toContain("event=merge_group");
