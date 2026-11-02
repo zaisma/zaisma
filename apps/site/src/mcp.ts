@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -20,7 +20,7 @@ const INSTRUCTIONS = `Zaisma hosts browser games: a game is a folder with an ind
 How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
-3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
+3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small). Passed versions get a private preview link.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
 
 To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
@@ -850,10 +850,54 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("DELETE", "/stripe-account"),
   },
   {
+    name: "get_storage",
+    title: "My storage",
+    description:
+      "What the developer's account stores and can store. A game can be any size: the limits are the account's storage and its new data a day. A new account stores 10 GB and sends 10 GB of new data a day; established or paid by card, 50 GB and 25 GB; Zaisma Pro, 500 GB and 100 GB. Everything stored counts, drafts and old versions too; a file shared between versions counts once. Answers what's stored, what can be, today's new data, the storage budget and the biggest versions delete_version can delete now.",
+    inputSchema: object({}),
+    outputSchema: STORAGE,
+    annotations: read,
+    run: (_, call) => call("GET", "/storage"),
+  },
+  {
+    name: "set_storage_budget",
+    title: "Set my storage budget",
+    description:
+      "Set what the account may draw from credit each month for storage past what's included, at 12¢ per GB a month, or null to stop. $10 of budget and credit buys room for about 83 GB. Nothing is ever deleted: when credit runs out, uploads just stop fitting. A first or higher budget answers confirmation_needed: give the developer confirm_url, where they approve with a passkey tap. Off or lower works at once. Ask the developer first.\n" +
+      'Not: { "monthly_storage_budget_cents": 10 } (that\'s 10 cents: cents, not dollars, so $10 is 1000)',
+    inputSchema: {
+      ...object({ monthly_storage_budget_cents: { type: ["integer", "null"], minimum: 100, maximum: 1000000, description: "Cents a month: 1000 is $10. null: no budget." } }, ["monthly_storage_budget_cents"]),
+      examples: [{ monthly_storage_budget_cents: 1000 }, { monthly_storage_budget_cents: null }],
+    },
+    outputSchema: STORAGE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/storage", { monthly_storage_budget_cents: toolArguments.monthly_storage_budget_cents }),
+  },
+  {
+    name: "delete_version",
+    title: "Delete a version",
+    description:
+      "Deletes one version for good, and frees the files no other version has at once. Not for a version that's live, set to publish, picked by a tester link (version_in_use), being scanned (still_scanning) or kept for a person at Zaisma (kept_for_review). get_storage lists the ones that can go. Ask the developer first: it can't be rolled back to afterwards.",
+    inputSchema: { ...object({ slug, version_id: { type: "string", description: "A version's ID, from get_game or get_storage." } }, ["slug", "version_id"]), examples: [{ slug: "sky-hopper", version_id: "version_abc123" }] },
+    outputSchema: DELETED_WITH_STORAGE,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}`),
+  },
+  {
+    name: "delete_game",
+    title: "Delete a game",
+    description:
+      "Deletes a whole game for good: it stops at once for every player, its link is never used again, and its versions, database, saves and purchases all go. Frees its files at once. export_game keeps a copy first. Nothing brings it back, so ask the developer first, and send its slug again as confirm_slug. A game kept for a person at Zaisma answers kept_for_review.",
+    inputSchema: { ...object({ slug, confirm_slug: { type: "string", description: "The game's slug again: the check that this is the game meant." } }, ["slug", "confirm_slug"]), examples: [{ slug: "sky-hopper", confirm_slug: "sky-hopper" }] },
+    outputSchema: DELETED_WITH_STORAGE,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}`, { confirm_slug: toolArguments.confirm_slug }),
+  },
+  {
     name: "get_pro",
     title: "My plan",
     description:
-      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
+      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro gives 500 GB of storage, 100 GB of new data a day and 60 performance checks a day (free: 10 GB and 10 GB for a new account, 50 GB and 25 GB once established or paid by card, and 20 checks). Reviews and versions a day are the same on every plan (limits_for_everyone). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
     inputSchema: object({}),
     outputSchema: PRO,
     annotations: read,
@@ -871,7 +915,7 @@ export const TOOLS: Tool[] = [
   {
     name: "cancel_pro",
     title: "Cancel Zaisma Pro",
-    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back; a live version over 2 GB stays live, and only new uploads must fit. resume_pro takes the cancelling back before then. Ask the developer first.",
+    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back; everything stored stays, and only new uploads must fit. resume_pro takes the cancelling back before then. Ask the developer first.",
     inputSchema: object({}),
     outputSchema: PRO_CHANGED,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1239,7 +1283,7 @@ export const TOOLS: Tool[] = [
       banned_at: nullable(isoTime("When Zaisma banned this account; null when it isn't banned.")),
       ban_scope: nullable(choice({ developer: "its games are down, and only get_access, list_games and export_game work; playing still works", whole_account: "the account is closed" }, "How far the ban goes; null when it isn't banned.")),
       credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
-      plan: choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits" }, "The developer's plan; get_pro has its limits."),
+      plan: choice({ free: "storage and performance checks by the account's standing", pro: "Zaisma Pro: more storage and performance checks" }, "The developer's plan; get_pro has its limits."),
       standing: STANDING,
       next_steps: NEXT,
     }),

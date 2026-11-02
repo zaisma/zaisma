@@ -1,6 +1,5 @@
 import {
   IMAGE_TYPES,
-  PLAN_LIMITS,
   REVIEW_CODES,
   REVIEW_LIMITS,
   TEXT_EXTENSIONS,
@@ -12,8 +11,6 @@ import {
   FIXABLE_FINDING_CODES,
   isSameItem,
   isTweak,
-  limitsFor,
-  planFor,
   apiKeyTokensIn,
   audit,
   decide,
@@ -29,7 +26,6 @@ import {
   versionById,
   type EvidenceItem,
   type Finding,
-  type PlanLimits,
   type ImageMatcher,
   type ReviewAi,
   type ImageMatchResult,
@@ -90,12 +86,15 @@ import { noteRulingOnGame } from "./standing.ts";
 
 /** Most text we read for the static checks. Bigger games are held for a person. */
 const MAXIMUM_STATIC_TEXT_SIZE_BYTES = 40 * 1024 * 1024;
-/** Most pictures and videos matched per version (each is a request to the matcher and one to storage). More are held for a person. */
-export const MAXIMUM_MATCHED_MEDIA_COUNT = 5000;
-/** Most other files whose first bytes are read, to find pictures and videos under other names. More are held for a person. */
-export const MAXIMUM_SNIFFED_FILE_COUNT = 5000;
 /** Most pictures found inside packs that are matched per version; the rest pass, with a note. */
 export const MAXIMUM_PACK_PICTURE_COUNT = 10_000;
+/** Pictures and videos sent to the matchers between saving what cleared, so a scan that stops doesn't start over. */
+const MATCHED_MEDIA_COUNT_PER_SAVE = 1000;
+/** How long one run matches before it goes back on the queue: well inside a run's limits, however many pictures a game has. */
+const MATCH_DURATION_MS = 240_000;
+
+/** Matching ran out of its time with progress saved: the version goes back on the queue and carries on. */
+export class ScanContinues extends Error {}
 
 export interface ScanDeps {
   images: ImageMatcher;
@@ -153,6 +152,11 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, in
       else await scanVersion(env, message.body.versionId, deps);
       message.ack();
     } catch (error) {
+      if (error instanceof ScanContinues) {
+        await env.SCAN_QUEUE.send(message.body);
+        message.ack();
+        continue;
+      }
       console.error(recheck ? "re-check failed" : isImageRecheck ? "image check failed" : "scan failed", message.body.versionId, error);
       if (isImageRecheck && message.attempts >= 3) {
         // Tried again with tomorrow's batch; the version stays as it is.
@@ -366,9 +370,8 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   const previous = earlier && { evidence: earlier.evidence, readFileSha256s: earlier.readFileSha256s, texts: await previousTexts(env, earlier.version, input.texts) };
   const pictures = await picturesToRead(env, input.imageFiles);
   const isSmallReview = !input.isRecheck && newReadCount({ texts: input.texts, pictures, previous }) > 0;
-  const plan = game.owner_id ? await planFor(env.DB, game.owner_id) : "free";
-  if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumSmallReviewsPerDay) {
-    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: dailyReviewMeaning("daily_small_reviews_used", plan) }], isChildSafety: false };
+  if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumSmallReviewsPerDay) {
+    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: dailyReviewMeaning("daily_small_reviews_used") }], isChildSafety: false };
   }
 
   // (b) Read, and (c) keep only items whose quotes are in the files (gatherEvidence does both).
@@ -401,9 +404,9 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
       }
     }
     // (e) The owner's large reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
-    if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumLargeReviewsPerDay) {
+    if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumLargeReviewsPerDay) {
       await alertReviewBudget(env, budgetCents);
-      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: dailyReviewMeaning("daily_large_reviews_used", plan) });
+      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: dailyReviewMeaning("daily_large_reviews_used") });
       return { ai: { ...skipped("Waiting for one of the developer's daily large reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read };
     }
   }
@@ -610,20 +613,17 @@ export async function rescanWaiting(env: Env, nowMs = Date.now()): Promise<numbe
     )
     .all<{ id: string; owner_id: string | null; waiting_code: "daily_large_reviews_used" | "daily_small_reviews_used" }>();
   const freeByOwnerAndKind = new Map<string, number>();
-  const limitsByOwner = new Map<string, PlanLimits>();
   const queued: string[] = [];
   for (const waiting of results) {
     if (queued.length >= 50) break;
     const isSmall = waiting.waiting_code === "daily_small_reviews_used";
     const key = `${waiting.owner_id ?? ""}\n${isSmall ? "small" : "large"}`;
     if (!freeByOwnerAndKind.has(key)) {
-      if (waiting.owner_id && !limitsByOwner.has(waiting.owner_id)) limitsByOwner.set(waiting.owner_id, await limitsFor(env.DB, waiting.owner_id, nowMs));
-      const limits = waiting.owner_id ? limitsByOwner.get(waiting.owner_id)! : null;
-      const freeReviewCount = !limits
+      const freeReviewCount = !waiting.owner_id
         ? Infinity
         : isSmall
-          ? limits.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id!, nowMs))
-          : limits.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id!, nowMs));
+          ? REVIEW_LIMITS.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id, nowMs))
+          : REVIEW_LIMITS.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id, nowMs));
       freeByOwnerAndKind.set(key, freeReviewCount);
     }
     if (freeByOwnerAndKind.get(key)! <= 0) continue;
@@ -665,10 +665,13 @@ export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number };
  * by every matcher connected now isn't sent again, and one whose first bytes said it's no picture isn't
  * read again (checked_files), so an update sends only what changed. Pictures stored inside packs (Godot .pck,
  * .glb, Emscripten .data, .wasm) are found and matched too, and so are Unity's and Godot's GPU textures, decoded
- * into pictures; a pack whose pictures all cleared isn't searched again.
+ * into pictures; a pack whose pictures all cleared isn't searched again. Every file is covered, so no game waits for
+ * a person because of how many pictures it has: what cleared is saved as it goes, and a run out of time goes back on
+ * the queue and picks up there (ScanContinues).
  */
-export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher, nowMs = Date.now()): Promise<MediaMatchResult> {
+export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher, nowMs = Date.now(), maximumDurationMs = MATCH_DURATION_MS): Promise<MediaMatchResult> {
   if (matcher === notConnected) return { ...(await matcher.check([])), reusedMediaCount: 0 };
+  const stopsAtMs = Date.now() + maximumDurationMs;
   const findings: Finding[] = [];
   const embedded: MediaForMatching[] = [];
   for (const textFile of texts) {
@@ -691,7 +694,6 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   const stored = (file: StoredFile, type: string): MediaForMatching => ({ path: file.path, type, id: file.key, ...(file.sha256 ? { sha256: file.sha256 } : {}), body: () => streamFile(env, file.key) });
   const sniffedNotMedia: string[] = [];
   const packs: StoredFile[] = [];
-  let sniffedFileCount = 0;
   for (const file of files) {
     const extension = extensionOf(file.path);
     if (TEXT_EXTENSIONS.has(extension)) continue; // Read in full already.
@@ -717,7 +719,6 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
       continue;
     }
     if (file.sha256 && checked.get(file.sha256)?.is_media === 0) continue; // Its first bytes said it's no picture.
-    if (++sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) continue;
     const start = await readStart(env, file.key, SNIFF_BYTES);
     if (isUnityPack(start)) {
       packs.push(file); // An asset bundle, whatever it's called.
@@ -730,20 +731,59 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
     }
     media.push(stored(file, type));
   }
-  if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_files_to_check", message: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
   embedded.forEach(add);
-  if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_images_to_check", message: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
-  const inside = await mediaInsidePacks(env, packs, async (hashes) => {
-    const insideChecked = await checkedFiles(env, hashes, nowMs);
-    return (sha256) => isClearedRow(insideChecked.get(sha256));
-  });
-  reusedMediaCount += inside.reusedMediaCount;
-  if (inside.isCapped) findings.push({ stage: "images", severity: "info", code: "too_many_pictures_inside_packs", message: `More than ${MAXIMUM_PACK_PICTURE_COUNT} pictures inside packs: the first ${MAXIMUM_PACK_PICTURE_COUNT} were matched.` });
-  const sent = [...media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT), ...inside.media];
-  const matchResult = await matcher.check(sent);
-  const clearedPackHashes = isMatchFinished(matchResult) && !inside.isCapped ? packs.filter((pack) => pack.sha256 && !matchResult.findings.some((finding) => finding.path?.startsWith(`${pack.path} (`))).map((pack) => pack.sha256!) : [];
-  await saveCheckedFiles(env, sent, sniffedNotMedia, matchResult, nowMs, clearedPackHashes);
-  return { ...matchResult, findings: [...findings, ...matchResult.findings], reusedMediaCount };
+  await saveCheckedFiles(env, [], sniffedNotMedia, { provider: "", isConnected: true, checkedMediaCount: 0, findings: [] }, nowMs);
+
+  const results: ImageMatchResult[] = [];
+  const stopIfOutOfTime = () => {
+    if (Date.now() >= stopsAtMs) throw new ScanContinues(`Matching carries on in another run.`);
+  };
+  /** Sends media a part at a time, saving what cleared after each. Answers false once a matcher stopped. */
+  const matchInParts = async (sent: MediaForMatching[], clearedPackHash?: { path: string; sha256: string }): Promise<boolean> => {
+    for (let i = 0; i < sent.length || i === 0; i += MATCHED_MEDIA_COUNT_PER_SAVE) {
+      const part = sent.slice(i, i + MATCHED_MEDIA_COUNT_PER_SAVE);
+      const matchResult = await matcher.check(part);
+      results.push(matchResult);
+      const isLastPart = i + MATCHED_MEDIA_COUNT_PER_SAVE >= sent.length;
+      const isPackCleared = isLastPart && clearedPackHash && !results.some((earlier) => earlier.findings.some((finding) => finding.path?.startsWith(`${clearedPackHash.path} (`)));
+      await saveCheckedFiles(env, part, [], matchResult, nowMs, isPackCleared ? [clearedPackHash.sha256] : []);
+      if (!isMatchFinished(matchResult)) return false;
+      if (!isLastPart) stopIfOutOfTime();
+    }
+    return true;
+  };
+
+  let isMatching = await matchInParts(media);
+  let insidePictureCount = 0;
+  let isInsideCapped = false;
+  for (const pack of packs) {
+    if (!isMatching) break;
+    stopIfOutOfTime();
+    const inside = await mediaInsidePacks(
+      env,
+      [pack],
+      async (hashes) => {
+        const insideChecked = await checkedFiles(env, hashes, nowMs);
+        return (sha256) => isClearedRow(insideChecked.get(sha256));
+      },
+      MAXIMUM_PACK_PICTURE_COUNT - insidePictureCount,
+    );
+    reusedMediaCount += inside.reusedMediaCount;
+    insidePictureCount += inside.media.length;
+    isInsideCapped ||= inside.isCapped;
+    isMatching = await matchInParts(inside.media, pack.sha256 && !inside.isCapped ? { path: pack.path, sha256: pack.sha256 } : undefined);
+  }
+  if (isInsideCapped) findings.push({ stage: "images", severity: "info", code: "too_many_pictures_inside_packs", message: `More than ${MAXIMUM_PACK_PICTURE_COUNT} pictures inside packs: the first ${MAXIMUM_PACK_PICTURE_COUNT} were matched.` });
+  const last = results.at(-1)!;
+  const uncheckedMediaCount = results.reduce((totalCount, each) => totalCount + (each.uncheckedMediaCount ?? 0), 0);
+  return {
+    provider: last.provider,
+    isConnected: last.isConnected,
+    checkedMediaCount: results.reduce((totalCount, each) => totalCount + each.checkedMediaCount, 0),
+    ...(uncheckedMediaCount ? { uncheckedMediaCount } : {}),
+    findings: [...findings, ...results.flatMap((each) => each.findings)],
+    reusedMediaCount,
+  };
 }
 
 /**
@@ -752,11 +792,11 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
  * (and decoded) when it's sent; one cleared earlier, in this pack or any other, isn't sent again. A pack that
  * can't be read passes.
  */
-async function mediaInsidePacks(env: Env, packs: StoredFile[], clearedAmong: (hashes: string[]) => Promise<(sha256: string) => boolean>): Promise<{ media: MediaForMatching[]; reusedMediaCount: number; isCapped: boolean }> {
+async function mediaInsidePacks(env: Env, packs: StoredFile[], clearedAmong: (hashes: string[]) => Promise<(sha256: string) => boolean>, maximumPictureCount: number): Promise<{ media: MediaForMatching[]; reusedMediaCount: number; isCapped: boolean }> {
   const found: MediaForMatching[] = [];
   const seenHashes = new Set<string>();
   // Found pictures are kept as references until cleared ones are looked up, so a pack of cleared pictures can hold more than are sent.
-  const isFoundCapped = () => found.length >= MAXIMUM_PACK_PICTURE_COUNT * 4;
+  const isFoundCapped = () => found.length >= maximumPictureCount * 4;
   const add = (picture: MediaForMatching & { sha256: string }) => {
     if (seenHashes.has(picture.sha256)) return;
     seenHashes.add(picture.sha256);
@@ -798,7 +838,7 @@ async function mediaInsidePacks(env: Env, packs: StoredFile[], clearedAmong: (ha
   let isCapped = isFoundCapped();
   for (const picture of found) {
     if (isCleared(picture.sha256!)) reusedMediaCount++;
-    else if (media.length < MAXIMUM_PACK_PICTURE_COUNT) media.push(picture);
+    else if (media.length < maximumPictureCount) media.push(picture);
     else isCapped = true;
   }
   return { media, reusedMediaCount, isCapped };

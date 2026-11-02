@@ -229,7 +229,7 @@ export const PERFORMANCE_CHECK = object(
       waiting: "the version passed and waits for Chrome, usually under a minute",
       checking: "running in Chrome now",
       checked: "done; see the numbers and notes",
-      over_daily_limit: `not measured: the developer's ${PLAN_LIMITS.free.maximumDailyCheckCount} checks today (${PLAN_LIMITS.pro.maximumDailyCheckCount} with Zaisma Pro) are used; versions are measured again from midnight UTC`,
+      over_daily_limit: `not measured: the developer's daily checks are used (${PLAN_LIMITS.free.maximumDailyCheckCount}, or ${PLAN_LIMITS.pro.maximumDailyCheckCount} with Zaisma Pro); versions are measured again from midnight UTC`,
       could_not_run: "Chrome couldn't run it on Zaisma's side; nothing for the developer to fix",
     }),
     checked_at: nullable(isoTime("When the run finished; null until it has.")),
@@ -644,7 +644,7 @@ const CREDIT_PLAN = object(
   },
   "The monthly credit plan (start_credit_plan); null with none.",
 );
-const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
+const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", storage_charge: "the account's storage past what's included, one entry per day, with no game", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
 /** A developer's hosting credit (get_credit). */
 export const CREDIT = object({
   credit: object({
@@ -668,16 +668,16 @@ export const CREDIT = object({
     ),
   }),
 });
-const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")) }, "game_budget's");
+const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's or the account's storage's monthly budget; null: none.")) }, "game_budget's and storage_budget's");
 const PLAN_LEVEL_CHANGE = object({ refill_level_cents: nullable(countOf("The monthly credit plan's level; null: no plan.")) }, "credit_plan_refill_level's");
 /** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
 export const SPENDING_REQUEST = object({
   spending_request: object({
     id: idOf("spending_request"),
-    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level" }),
+    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level", storage_budget: "the account's monthly storage budget" }),
     game_slug: nullable(text("The game; null once it's deleted, and for the credit plan's level.")),
     game_title: nullable(text()),
-    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a game's budget, refill_level_cents for the credit plan's level." },
+    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a budget, refill_level_cents for the credit plan's level." },
     current_setting: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The same field as it is now." },
     request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
     created_at: isoTime(),
@@ -685,14 +685,12 @@ export const SPENDING_REQUEST = object({
     answered_at: nullable(isoTime()),
   }),
 });
-const PLAN_CHOICES = choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits, $10 a month" }, "The developer's plan.");
-/** One plan's daily limits, in the same words for both (get_pro). */
+const PLAN_CHOICES = choice({ free: "storage and performance checks by the account's standing", pro: "Zaisma Pro: more storage and performance checks, $10 a month" }, "The developer's plan.");
+/** What one plan gives, in the same words for both (get_pro). */
 const PLAN_LIMITS_SCHEMA = object({
-  maximum_large_review_count: countOf("Large reviews a day across all their games: a new game or a real change, read and judged."),
-  maximum_small_review_count: countOf("Small reviews a day across all their games: versions the AI reads."),
   maximum_performance_check_count: countOf("Performance checks a day, from UTC midnight; past them a version just isn't measured."),
-  maximum_version_count: countOf("Versions a game can get in a day."),
-  maximum_game_size_bytes: countOf("The biggest a game's files can be together, in bytes."),
+  included_size_bytes: countOf("What the account stores with no storage budget, in bytes: everything counts, drafts and old versions too, and a file shared between versions counts once."),
+  maximum_new_data_size_bytes: countOf("New data the account can send in a day, from UTC midnight, in bytes."),
 });
 /** A developer's plan (get_pro). */
 export const PRO = object({
@@ -702,7 +700,12 @@ export const PRO = object({
     is_pro_cancelled: yes("Whether Pro ends at pro_ends_at instead of renewing (cancel_pro did it; resume_pro takes it back)."),
     refund_ends_at: nullable(isoTime("Until when refund_pro refunds the first payment: 14 days after it, while it's the only one. null after that, on the free plan, or when Stripe didn't answer within 3 seconds.")),
     monthly_price_cents: countOf("What Zaisma Pro costs a month on the developer's card, in cents (1000 is $10). Apart from hosting credit."),
-    limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }),
+    limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }, "free: what this account has without Pro, by its standing. pro: what Pro gives."),
+    limits_for_everyone: object({
+      maximum_large_review_count: countOf("Large reviews a day across all their games: a new game or a real change, read and judged. The same on every plan."),
+      maximum_small_review_count: countOf("Small reviews a day across all their games: versions the AI reads. The same on every plan."),
+      maximum_version_count: countOf("Versions a game can get in a day. The same on every plan."),
+    }),
     used_today: object({
       large_review_count: countOf("Large reviews used in the last 24 hours."),
       small_review_count: countOf("Small reviews used in the last 24 hours."),
@@ -710,6 +713,25 @@ export const PRO = object({
     }),
   }),
 });
+/** What an account stores (get_storage). */
+const STORAGE_FIELDS = object({
+  stored_size_bytes: countOf("Everything the account stores now, in bytes: drafts and old versions too, and a file shared between versions counts once."),
+  included_size_bytes: countOf("What it stores with no storage budget, in bytes, by allowance_kind."),
+  maximum_stored_size_bytes: countOf("What it can hold now, in bytes: what's included, and what its budget and credit buy. Over it, it keeps everything; new uploads must fit."),
+  allowance_kind: choice({ new: "a new account", established: "an established account (get_access, standing)", paid_by_card: "a card paid Zaisma", pro: "Zaisma Pro" }, "What sets what's included."),
+  new_data_today_size_bytes: countOf("New data it sent today, from UTC midnight, in bytes, whether or not it became a version."),
+  maximum_new_data_size_bytes: countOf("New data it can send in a day, in bytes. Files it already stores don't count."),
+  monthly_storage_budget_cents: nullable(countOf("What it may draw from credit each month for storage past what's included, in cents (1000 is $10); null: none, so uploads stop at what's included.")),
+  spent_this_month_cents: countOf("What storage drew from credit this month, in cents."),
+  price_per_gigabyte_month_cents: countOf("What a GB past what's included costs from credit each month, in cents."),
+  deletable_versions: describe(
+    list(object({ game_slug: text(), version_id: idOf("version"), size_bytes: countOf("The version's whole size. Deleting it frees only the files no other version has."), created_at: isoTime() })),
+    "The biggest 20 versions delete_version can delete now: not live, set to publish, picked by a tester link, being scanned or kept for a person at Zaisma. A key limited to some games sees only those.",
+  ),
+});
+export const STORAGE = object({ storage: STORAGE_FIELDS });
+export const STORAGE_CHANGED = object({ storage: STORAGE_FIELDS, next_steps: NEXT });
+export const DELETED_WITH_STORAGE = object({ is_deleted: yes("Always true."), storage: STORAGE_FIELDS, next_steps: NEXT });
 /** The plan after cancel_pro or resume_pro. */
 export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
 /** A refund of Zaisma Pro's first payment (refund_pro). */

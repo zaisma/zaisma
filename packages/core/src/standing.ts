@@ -41,6 +41,8 @@ export interface Standing {
   /** When the wait after the last ruling ends, while it's on; null when there's no wait. */
   rulingWaitEndsAtMs: number | null;
   hasCardOrStripeAccount: boolean;
+  /** A card paid Zaisma: more storage at once, unlike a connected Stripe account. */
+  hasPaidByCard: boolean;
   isBanned: boolean;
 }
 
@@ -53,6 +55,7 @@ const NO_STANDING: Standing = {
   lastRulingAtMs: null,
   rulingWaitEndsAtMs: null,
   hasCardOrStripeAccount: false,
+  hasPaidByCard: false,
   isBanned: false,
 };
 
@@ -91,7 +94,7 @@ export async function standingOf(database: D1Database, ownerId: string | null, n
   const rulingWaitEndsAtMs = rulingWaitEndsAt(row.last_ruling_at_ms, nowMs);
   const hasCardOrStripeAccount = row.has_card === 1 || (row.stripe_account_id !== null && row.can_take_stripe_payments === 1);
   const isBanned = row.banned_at_ms !== null;
-  const facts = { returningPlayerCount: row.returning_player_count, accountAgeDays, lastRulingAtMs: row.last_ruling_at_ms, rulingWaitEndsAtMs, hasCardOrStripeAccount, isBanned };
+  const facts = { returningPlayerCount: row.returning_player_count, accountAgeDays, lastRulingAtMs: row.last_ruling_at_ms, rulingWaitEndsAtMs, hasCardOrStripeAccount, hasPaidByCard: row.has_card === 1, isBanned };
   if (isBanned || rulingWaitEndsAtMs !== null) return { ...NO_STANDING, ...facts };
   const isEstablishedDeveloper = row.is_established === 1 || row.is_zaisma_account === 1;
   return { ...facts, isEstablishedDeveloper, outsideLinksEnabled: isEstablishedDeveloper || hasCardOrStripeAccount, searchEnginesEnabled: isEstablishedDeveloper };

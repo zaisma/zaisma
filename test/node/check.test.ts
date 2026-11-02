@@ -38,7 +38,7 @@ describe("the game check", () => {
       "bad_path",
       "file_too_big",
     ]);
-    expect(codesOf({ "index.html": page(""), ...Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`part${i}.bin`, UPLOAD_LIMITS.maximumFileSizeBytes])) })).toEqual(["game_too_big"]);
+    expect(codesOf({ "index.html": page(""), ...Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`part${i}.bin`, UPLOAD_LIMITS.maximumFileSizeBytes])) })).toEqual([]);
     const packed = checkGameFiles(gameOf({ "index.html": page(""), "Build/game.wasm.gz": 10 })).problems[0]!;
     expect(packed).toMatchObject({ problem_kind: "refused", is_fixed_by_upload_command: true, path: "Build/game.wasm.gz" });
     expect(packed.fix).toContain("unpacks it into Build/game.wasm");
@@ -165,7 +165,7 @@ describe("the game check", () => {
 
   it("holds the file types, limits and codes to the API's", () => {
     expect(GAME_FILE_EXTENSIONS).toEqual(Object.keys(CONTENT_TYPES));
-    expect(UPLOAD_LIMITS).toEqual({ maximumGameSizeBytes: PLAN_LIMITS.free.maximumGameSizeBytes, maximumFileSizeBytes: FILE_LIMITS.maximumFileSizeBytes, maximumFileCount: FILE_LIMITS.maximumFileCount, maximumPathCharacterCount: ZIP_LIMITS.maximumPathCharacterCount });
+    expect(UPLOAD_LIMITS).toEqual({ maximumFileSizeBytes: FILE_LIMITS.maximumFileSizeBytes, maximumFileCount: FILE_LIMITS.maximumFileCount, maximumPathCharacterCount: ZIP_LIMITS.maximumPathCharacterCount });
     for (const [code, { problemKind }] of Object.entries(CHECK_PROBLEM_CODES)) if (problemKind === "refused") expect(ERROR_CODES, code).toHaveProperty([code]);
   });
 });

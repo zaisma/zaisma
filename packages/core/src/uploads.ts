@@ -1,6 +1,5 @@
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
 import { UploadError, cleanPath } from "./zip.ts";
-import { PLAN_LIMITS, withProSize, type PlanKind } from "./plans.ts";
 import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, isServerPath, type Version } from "./types.ts";
 
 /**
@@ -15,6 +14,8 @@ export const FILE_LIMITS = {
   maximumDirectSizeBytes: 95 * 1024 * 1024,
   partSizeBytes: 50 * 1024 * 1024,
   maximumFileCount: 20_000,
+  /** Versions a game can get in a day, on any plan. */
+  maximumVersionsPerDay: 100,
   maximumPatchNotesCharacterCount: 2000,
 };
 
@@ -64,8 +65,8 @@ export const SHA256 = /^[0-9a-f]{64}$/;
 
 const PATH_FIX = "Give paths relative to the game's folder, like index.html or assets/hero.png: no leading /, no . or .. parts, up to 200 characters.";
 
-/** Check a version's file list against the same rules as zips, with the bigger limits, and the game size of the developer's plan. Throws UploadError with its code, field and fix. */
-export function checkUploadList(input: unknown, plan: PlanKind = "free"): UploadFile[] {
+/** Check a version's file list against the same rules as zips, with the bigger limits. A game can be any size: storage.ts limits what an account keeps. Throws UploadError with its code, field and fix. */
+export function checkUploadList(input: unknown): UploadFile[] {
   if (!Array.isArray(input) || input.length === 0) {
     throw new UploadError("files isn't a list of files.", { code: "bad_files", field: "files", fix: 'Send the game\'s files as a list of { "path", "sha256", "size_bytes" }, with index.html among them.' });
   }
@@ -77,7 +78,6 @@ export function checkUploadList(input: unknown, plan: PlanKind = "free"): Upload
     });
   }
   const seen = new Set<string>();
-  let totalSizeBytes = 0;
   const files: UploadFile[] = [];
   for (const [i, givenFile] of input.entries()) {
     const file = givenFile as Partial<UploadFile> | null;
@@ -110,7 +110,6 @@ export function checkUploadList(input: unknown, plan: PlanKind = "free"): Upload
     const key = path.toLowerCase();
     if (seen.has(key)) throw new UploadError(`Two files share the path ${path} (paths don't depend on case).`, { code: "duplicate_path", field, fix: "Give each file its own path." });
     seen.add(key);
-    totalSizeBytes += file.size_bytes!;
     files.push({ path, sha256: file.sha256, size_bytes: file.size_bytes! });
   }
   if (!seen.has("index.html")) {
@@ -118,13 +117,6 @@ export function checkUploadList(input: unknown, plan: PlanKind = "free"): Upload
       code: "no_index_html",
       field: "files",
       fix: "Send the game's start page with the path index.html, not game/index.html: paths are relative to the folder players get.",
-    });
-  }
-  if (totalSizeBytes > PLAN_LIMITS[plan].maximumGameSizeBytes) {
-    throw new UploadError(`The game is ${megabytes(totalSizeBytes)}; the limit is ${withProSize(plan)}.`, {
-      code: "game_too_big",
-      field: "files",
-      fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more.",
     });
   }
   return files;
@@ -143,8 +135,8 @@ export async function locateBlobs(database: D1Database, hashes: string[], ownerI
   for (let i = 0; i < unique.length; i += 90) {
     const chunk = unique.slice(i, i + 90);
     const placeholders = chunk.map(() => "?").join(",");
-    statements.push(database.prepare(`SELECT blobs.sha256, 'shared' AS kind FROM blob_owners JOIN blobs ON blobs.sha256 = blob_owners.sha256 WHERE blob_owners.owner_id = ? AND blob_owners.sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
-    statements.push(database.prepare(`SELECT sha256, 'owned' AS kind FROM owned_blobs WHERE owner_id = ? AND sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
+    statements.push(database.prepare(`SELECT blobs.sha256, 'shared' AS kind FROM blob_owners JOIN blobs ON blobs.sha256 = blob_owners.sha256 WHERE blob_owners.owner_id = ? AND blob_owners.released_at_ms IS NULL AND blob_owners.sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
+    statements.push(database.prepare(`SELECT sha256, 'owned' AS kind FROM owned_blobs WHERE owner_id = ? AND released_at_ms IS NULL AND sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
   }
   for (let i = 0; i < statements.length; i += 50) {
     for (const batch of await database.batch<{ sha256: string; kind: "shared" | "owned" }>(statements.slice(i, i + 50))) {
@@ -160,19 +152,27 @@ export async function missingBlobs(database: D1Database, hashes: string[], owner
   return [...new Set(hashes)].filter((hash) => !found.has(hash));
 }
 
+/** A big file this owner sent: theirs alone, and counted in what they store unless it already is. A released one starts over. */
 export async function addOwnedBlob(database: D1Database, ownerId: string, sha256: string, sizeBytes: number): Promise<void> {
-  await database
-    .prepare("INSERT INTO owned_blobs (owner_id, sha256, size_bytes, created_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (owner_id, sha256) DO NOTHING")
-    .bind(ownerId, sha256, sizeBytes, Date.now())
-    .run();
+  const nowMs = Date.now();
+  await database.batch([
+    database.prepare("UPDATE owners SET stored_size_bytes = stored_size_bytes + ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM owned_blobs WHERE owner_id = ? AND sha256 = ? AND released_at_ms IS NULL)").bind(sizeBytes, ownerId, ownerId, sha256),
+    database
+      .prepare("INSERT INTO owned_blobs (owner_id, sha256, size_bytes, created_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (owner_id, sha256) DO UPDATE SET released_at_ms = NULL, created_at_ms = excluded.created_at_ms WHERE released_at_ms IS NOT NULL")
+      .bind(ownerId, sha256, sizeBytes, nowMs),
+  ]);
 }
 
-/** A shared file this owner sent: stored once, and theirs to use from now on. */
+/**
+ * A shared file this owner sent: stored once, theirs to use from now on, and counted in what they store unless it
+ * already is. Sending a released file again counts it again; its row keeps when they first sent it, for copies.
+ */
 export async function addBlob(database: D1Database, ownerId: string, sha256: string, sizeBytes: number): Promise<void> {
   const nowMs = Date.now();
   await database.batch([
-    database.prepare("INSERT INTO blobs (sha256, size_bytes, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING").bind(sha256, sizeBytes, nowMs),
-    database.prepare("INSERT INTO blob_owners (owner_id, sha256, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (owner_id, sha256) DO NOTHING").bind(ownerId, sha256, nowMs),
+    database.prepare("UPDATE owners SET stored_size_bytes = stored_size_bytes + ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM blob_owners WHERE owner_id = ? AND sha256 = ? AND released_at_ms IS NULL)").bind(sizeBytes, ownerId, ownerId, sha256),
+    database.prepare("INSERT INTO blobs (sha256, size_bytes, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET created_at_ms = excluded.created_at_ms").bind(sha256, sizeBytes, nowMs),
+    database.prepare("INSERT INTO blob_owners (owner_id, sha256, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (owner_id, sha256) DO UPDATE SET released_at_ms = NULL WHERE released_at_ms IS NOT NULL").bind(ownerId, sha256, nowMs),
   ]);
 }
 

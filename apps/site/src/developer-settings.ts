@@ -1,9 +1,10 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
-import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
 import { withSpendingConfirmation } from "./credit-api.ts";
+import type { storageAnswer } from "./storage-api.ts";
 import type { Env } from "./env.ts";
 import { html, layout, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -62,6 +63,8 @@ const DONE_WORDS: Record<string, string> = {
   app: "Sign-in app saved.",
   "app-deleted": "Sign-in app deleted.",
   "key-removed": "Key removed.",
+  "storage-budget": "Storage budget saved.",
+  "storage-budget-off": "Storage budget off. Nothing is charged for storage now.",
   connected: "Stripe is connected.",
 };
 
@@ -130,6 +133,8 @@ interface CreditJson {
   entries: { id: string; entry_kind: string; amount_cents: number; game_slug: string | null; created_at: string }[];
 }
 
+type StorageJson = Awaited<ReturnType<typeof storageAnswer>>;
+
 interface WebhookJson {
   id: string;
   destination_kind: "endpoint_url" | "game_server";
@@ -163,8 +168,8 @@ interface ProJson {
   pro_ends_at: string | null;
   is_pro_cancelled: boolean;
   refund_ends_at: string | null;
-  limits: Record<"free" | "pro", Record<string, number>>;
-  used_today: Record<string, number>;
+  limits: Record<"free" | "pro", { maximum_performance_check_count: number; included_size_bytes: number; maximum_new_data_size_bytes: number }>;
+  used_today: { large_review_count: number; small_review_count: number; performance_check_count: number };
 }
 
 interface GameHosting {
@@ -176,9 +181,10 @@ interface GameHosting {
 /** Everything the page shows, read through the same API calls an AI makes (the games' meters through the code that answers get_game's). */
 async function readSettings(env: Env, caller: Caller) {
   const read = <Answer>(path: string) => apiCall(env, caller, "GET", path) as Promise<Answer>;
-  const [{ credit }, { pro }, stripeRow, { webhooks }, { sign_in_apps: signInApps }, games] = await Promise.all([
+  const [{ credit }, { pro }, { storage }, stripeRow, { webhooks }, { sign_in_apps: signInApps }, games] = await Promise.all([
     read<{ credit: CreditJson }>("/credit"),
     read<{ pro: ProJson }>("/pro"),
+    read<{ storage: StorageJson }>("/storage"),
     stripeAccountRow(env, caller.ownerId),
     read<{ webhooks: WebhookJson[] }>("/webhooks"),
     read<{ sign_in_apps: SignInAppJson[] }>("/sign-in-apps"),
@@ -191,7 +197,7 @@ async function readSettings(env: Env, caller: Caller) {
       return { game, hosting: hostingUseJson(game, use, month), lastMonthBeyondFreeCents: lastMonth.get(game.slug) ?? 0 };
     }),
   );
-  return { credit, pro, stripe: await stripeAccountWithBalance(env, stripeRow), webhooks, signInApps, gameHostings, games: games.results };
+  return { credit, pro, storage, stripe: await stripeAccountWithBalance(env, stripeRow), webhooks, signInApps, gameHostings, games: games.results };
 }
 
 type Settings = Awaited<ReturnType<typeof readSettings>>;
@@ -266,6 +272,7 @@ function hostingPane(settings: Settings): LayoutItem {
     ...(credit.is_credit_low ? [words("Credit is low: add credit.")] : []),
     words(credit.balance_cents === 0 ? "Hosting is free up to each game's monthly allowance. Credit pays for what goes past it, only in games you give a budget." : "Credit pays for hosting past each game's free allowance, only in games you give a budget."),
     ...creditPlanItems(credit),
+    ...storageItems(settings),
     layer(
       sheet({
         id: "add-credit",
@@ -387,7 +394,55 @@ function creditPlanItems(credit: CreditJson): LayoutItem[] {
   ];
 }
 
-const ENTRY_WORDS: Record<string, string> = { top_up: "Credit added", hosting_charge: "Hosting", refund: "Refunded", written_off: "Written off by Zaisma" };
+const ENTRY_WORDS: Record<string, string> = { top_up: "Credit added", hosting_charge: "Hosting", storage_charge: "Storage", refund: "Refunded", written_off: "Written off by Zaisma" };
+
+/** A size on a meter: GB, a tenth at a time. */
+const shownGigabytes = (sizeBytes: number) => Number((sizeBytes / 1024 ** 3).toFixed(1));
+
+/** What the account stores and sends: its two meters, what raises them, and its budget's button and sheets. */
+function storageItems({ storage }: Settings): LayoutItem[] {
+  const budgetCents = storage.monthly_storage_budget_cents;
+  const boughtSizeBytes = storage.maximum_stored_size_bytes - storage.included_size_bytes;
+  const included = `${storageSizeText(storage.included_size_bytes)} included`;
+  const storedWords = budgetCents === null ? `${included}. Past it, uploads stop until you delete something or set a budget.` : boughtSizeBytes > 0 ? `${included}, and credit buys ${storageSizeText(boughtSizeBytes)} more. ${dollars(storage.spent_this_month_cents)} spent this month.` : `${included}. Add credit: your ${dollars(budgetCents)} budget has none to draw from.`;
+  const raises = storage.allowance_kind === "new" ? `${storageSizeText(STORAGE_ALLOWANCES.established.includedSizeBytes)} once your account is established or a card has paid Zaisma.` : undefined;
+  const midnight = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  return [
+    heading("Storage"),
+    block(
+      listRows({
+        whenEmpty: NO_EMPTY_NOTE,
+        label: "Storage",
+        rows: [
+          { title: "Stored", detail: storedWords, secondDetail: raises, meter: { label: "Stored", usedNumber: shownGigabytes(storage.stored_size_bytes), limitNumber: shownGigabytes(storage.maximum_stored_size_bytes), unit: "GB" }, action: budgetCents === null ? opens("Set budget", "storage-budget") : [opens("Change budget", "storage-budget"), more("Storage budget", "storage-budget-more")] },
+          { title: "New data today", detail: "Files you already store don't count.", meter: { label: "New data today", usedNumber: shownGigabytes(storage.new_data_today_size_bytes), limitNumber: shownGigabytes(storage.maximum_new_data_size_bytes), unit: "GB", resetDate: midnight } },
+        ],
+      }),
+    ),
+    layer(
+      sheet({
+        id: "storage-budget",
+        title: "Monthly storage budget",
+        closeLabel: "Close",
+        action: `${PAGE}/storage/budget`,
+        body: stackOfOne(html`<div data-tap="confirm" data-tap-over='${JSON.stringify({ monthly_storage_budget_dollars: budgetCents ?? 0 })}'>${stack({
+          items: [
+            { kind: "words", markup: html`<p>The most credit storage may use each month, past what's included, at ${STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS}¢ per GB a month. If credit runs out, nothing is deleted: uploads stop.</p>` },
+            { kind: "control", markup: cutField({ id: "storage-budget-field", name: "monthly_storage_budget_dollars", label: "Monthly budget ($)", type: "text", icon: "card", inputMode: "numeric", text: budgetCents === null ? "" : String(budgetCents / 100), isRequired: true, hint: "$10 buys about 83 GB." }) },
+            { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
+          ],
+        })}</div>`),
+        buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save budget", { type: "submit" })],
+      }),
+    ),
+    ...(budgetCents === null
+      ? []
+      : [
+          layer(dropdown({ id: "storage-budget-more", label: "Storage budget", items: [{ label: "Turn off storage budget", icon: "pause", confirmSheetId: "storage-budget-off" }] })),
+          layer(askSheet("storage-budget-off", "Turn off the storage budget?", "Everything stays. Nothing more is charged, and uploads must fit in what's included.", `${PAGE}/storage/budget-off`, "Turn off")),
+        ]),
+  ];
+}
 
 /** One game's row: its free allowance and budget on one meter, what it says about them, and its budget's button. */
 function gameRow(each: GameHosting): ListRow {
@@ -445,21 +500,25 @@ function gameSheets(each: GameHosting): LayoutItem[] {
 /* ---- Pro ---- */
 
 function proPane(settings: Settings): LayoutItem {
-  const { pro } = settings;
+  const { pro, storage } = settings;
   const isPro = pro.plan === "pro";
-  const limitRow = (label: string, key: string, usedKey: string | null): string[] => [label, String(pro.limits.free[key]), String(pro.limits.pro[key]), usedKey ? String(pro.used_today[usedKey]) : ""];
   const items: LayoutItem[] = [
     block(keyDetails({ details: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", detailValue: isPro ? "Pro" : "Free" }] })),
-    words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro raises your daily limits for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
+    words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro gives you more storage and performance checks for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
     block(
-      table({ whenEmpty: stateNote({ stateKind: "empty", title: "No limits", text: "Your daily limits show here." }),
-        caption: "Daily limits",
+      table({ whenEmpty: stateNote({ stateKind: "empty", title: "No limits", text: "Your limits show here." }),
+        caption: "What each plan gives",
         isCompact: true,
-        columns: [{ label: "Limit" }, { label: "Free", isNumeric: true }, { label: "Pro", isNumeric: true }, { label: "Used today", isNumeric: true }],
-        rows: [limitRow("Large reviews", "maximum_large_review_count", "large_review_count"), limitRow("Small reviews", "maximum_small_review_count", "small_review_count"), limitRow("Performance checks", "maximum_performance_check_count", "performance_check_count"), limitRow("Versions a game a day", "maximum_version_count", null)],
+        columns: [{ label: "Limit" }, { label: "Free", isNumeric: true }, { label: "Pro", isNumeric: true }, { label: "Used", isNumeric: true }],
+        rows: [
+          ["Storage", storageSizeText(pro.limits.free.included_size_bytes), storageSizeText(pro.limits.pro.included_size_bytes), storageSizeText(storage.stored_size_bytes)],
+          ["New data a day", storageSizeText(pro.limits.free.maximum_new_data_size_bytes), storageSizeText(pro.limits.pro.maximum_new_data_size_bytes), storageSizeText(storage.new_data_today_size_bytes)],
+          ["Performance checks a day", String(pro.limits.free.maximum_performance_check_count), String(pro.limits.pro.maximum_performance_check_count), String(pro.used_today.performance_check_count)],
+        ],
       }),
     ),
+    words("Reviews and versions a day are the same on every plan."),
   ];
   let end: ControlMarkup;
   if (!isPro) {
@@ -958,6 +1017,11 @@ function spendingChangeWords(request: NonNullable<Awaited<ReturnType<typeof spen
     const nowLevelCents = "refill_level_cents" in request.current_setting ? (request.current_setting.refill_level_cents ?? null) : null;
     return { what: "Your AI asks to raise your monthly credit plan's level.", change: `Monthly credit plan's level, ${nowLevelCents === null ? "none" : dollars(nowLevelCents)} → ${askedLevelCents === null ? "none" : dollars(askedLevelCents)}` };
   }
+  if (request.request_kind === "storage_budget") {
+    const askedStorageCents = "monthly_budget_cents" in request.requested_change ? (request.requested_change.monthly_budget_cents ?? null) : null;
+    const nowStorageCents = "monthly_budget_cents" in request.current_setting ? (request.current_setting.monthly_budget_cents ?? null) : null;
+    return { what: "Your AI asks to raise your storage budget.", change: `Monthly storage budget, ${nowStorageCents === null ? "none" : dollars(nowStorageCents)} → ${askedStorageCents === null ? "none" : dollars(askedStorageCents)}` };
+  }
   const askedCents = "monthly_budget_cents" in request.requested_change ? (request.requested_change.monthly_budget_cents ?? null) : null;
   const nowCents = "monthly_budget_cents" in request.current_setting ? (request.current_setting.monthly_budget_cents ?? null) : null;
   return { what: `Your AI asks to raise ${request.game_title ?? request.game_slug}'s monthly budget.`, change: `${request.game_title ?? request.game_slug}'s monthly budget, ${nowCents === null ? "none" : dollars(nowCents)} → ${askedCents === null ? "none" : dollars(askedCents)}` };
@@ -1054,6 +1118,10 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
       if (!game || game.owner_id !== caller.ownerId) return redirect(PAGE, session.cookies);
       await call("PATCH", `/games/${game.slug}`, { monthly_budget_cents: match[2] ? null : centsOf(field("monthly_budget_dollars", 20)) });
       return back(match[2] ? "budget-cleared" : "budget", "hosting");
+    }
+    if (sub === "storage/budget" || sub === "storage/budget-off") {
+      await call("PATCH", "/storage", { monthly_storage_budget_cents: sub === "storage/budget-off" ? null : centsOf(field("monthly_storage_budget_dollars", 20)) });
+      return back(sub === "storage/budget-off" ? "storage-budget-off" : "storage-budget", "hosting");
     }
     if ((match = sub.match(/^spending\/(spending_request_[a-z0-9]+)$/))) {
       const answer = field("answer", 20) === "declined" ? "declined" : "approved";

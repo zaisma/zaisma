@@ -9,7 +9,6 @@ export type CheckProblemCode =
   | "duplicate_path"
   | "bad_path"
   | "file_too_big"
-  | "game_too_big"
   | "too_many_files"
   | "outside_file"
   | "outside_address"
@@ -63,7 +62,7 @@ export interface OutsideReference {
 }
 
 export const GAME_FILE_EXTENSIONS: string[];
-export const UPLOAD_LIMITS: { maximumGameSizeBytes: number; maximumFileSizeBytes: number; maximumFileCount: number; maximumPathCharacterCount: number };
+export const UPLOAD_LIMITS: { maximumFileSizeBytes: number; maximumFileCount: number; maximumPathCharacterCount: number };
 export const CHECKED_TEXT_EXTENSIONS: string[];
 export const PRECOMPRESSED_EXTENSIONS: string[];
 export const MAXIMUM_PROBLEM_COUNT: number;

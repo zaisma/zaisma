@@ -39,6 +39,7 @@ export * from "./game-storage.ts";
 export * from "./hosting.ts";
 export * from "./credit.ts";
 export * from "./plans.ts";
+export * from "./storage.ts";
 export * from "./text-filter.ts";
 export * from "./chat-filter.ts";
 export * from "./forum.ts";

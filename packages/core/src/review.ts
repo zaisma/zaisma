@@ -1,4 +1,3 @@
-import { PLAN_LIMITS, type PlanKind, type PlanLimits } from "./plans.ts";
 import type { ScanReport } from "./types.ts";
 
 /**
@@ -187,14 +186,11 @@ interface ReviewCode {
 }
 
 
-/** The two daily review findings' message: the developer's own limit, with the Pro number added on the free plan (plans.ts). */
-export function dailyReviewMeaning(code: "daily_large_reviews_used" | "daily_small_reviews_used", plan: PlanKind): string {
-  const [kind, limit, what, waits]: [string, keyof PlanLimits, string, string] =
-    code === "daily_large_reviews_used"
-      ? ["large", "maximumLargeReviewsPerDay", "a new game or a real change, judged", "waits"]
-      : ["small", "maximumSmallReviewsPerDay", "versions read by the AI", "waits unread"];
-  const proNote = plan === "free" ? ` Zaisma Pro has ${PLAN_LIMITS.pro[limit]} ${kind} reviews a day.` : "";
-  return `This developer's ${PLAN_LIMITS[plan][limit]} ${kind} reviews for today (${what}) are used, so this version ${waits} for the next one to free up.${proNote}`;
+/** The two daily review findings' message: the same limit for every developer, the numbers in REVIEW_LIMITS (review-evidence.ts imports this file, so plans.test.ts keeps them the same). */
+export function dailyReviewMeaning(code: "daily_large_reviews_used" | "daily_small_reviews_used"): string {
+  return code === "daily_large_reviews_used"
+    ? "This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up."
+    : "This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up.";
 }
 
 /**
@@ -274,8 +270,6 @@ export const REVIEW_CODES = {
 
   // Checks that couldn't finish: no rule is broken, and a person looks instead
   too_much_code: { meaning: "The game has more code than the review reads (about 19 MB of text), so a person at Zaisma looks first.", messageForPeople: "The game has more code than the review reads, so a person at Zaisma looks first, usually within a day. Leaving unused files out keeps the next version under the limit.", contentRule: null, fix: `${PERSON_LOOKS} Leaving unused files out keeps the next version under the limit.` },
-  too_many_files_to_check: { meaning: "The game has more files than the scan checks for hidden pictures (5,000), so a person at Zaisma looks at the rest.", messageForPeople: "The game has more files than the scan checks for hidden pictures, so a person at Zaisma looks at the rest, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
-  too_many_images_to_check: { meaning: "The game has more pictures and videos than image matching checks (5,000), so a person at Zaisma looks at the rest.", messageForPeople: "The game has more pictures and videos than image matching checks, so a person at Zaisma looks at the rest, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   too_many_pictures_inside_packs: { meaning: "The game's packs hold more pictures than image matching checks inside them (10,000), so the first 10,000 were matched.", messageForPeople: "The game's packs hold more pictures than image matching checks, so the first 10,000 were matched. Nothing is held: this is a note.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   image_matching_off: { meaning: "Image matching isn't connected, so a person at Zaisma approves each version.", messageForPeople: "Image matching isn't connected here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   image_matching_failed: { meaning: "Image matching couldn't check every picture and video, so a person at Zaisma looks first.", messageForPeople: "Image matching couldn't check every picture and video, so a person at Zaisma looks first, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
@@ -284,13 +278,13 @@ export const REVIEW_CODES = {
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", messageForPeople: "The AI review wouldn't review the game, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", messageForPeople: "The AI review didn't finish, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   daily_large_reviews_used: {
-    meaning: dailyReviewMeaning("daily_large_reviews_used", "free"),
+    meaning: dailyReviewMeaning("daily_large_reviews_used"),
     messageForPeople: "Today's large reviews are used, so this version waits for the next one to free up, within a day. Nothing to change.",
     contentRule: null,
     fix: "Nothing to do: it's checked by itself within a day, as soon as one of your daily large reviews frees up. A tweak of a game that already passed (levels, sprites, balance) uses a small review instead.",
   },
   daily_small_reviews_used: {
-    meaning: dailyReviewMeaning("daily_small_reviews_used", "free"),
+    meaning: dailyReviewMeaning("daily_small_reviews_used"),
     messageForPeople: "Today's small reviews are used, so this version waits for the next one to free up, within a day. Nothing to change.",
     contentRule: null,
     fix: "Nothing to do: it's read by itself within a day, as soon as one of your daily small reviews frees up.",
@@ -429,6 +423,12 @@ export const REVIEW_CODES = {
     messageForPeople: "The developer deleted their account, which deletes their games with it.",
     contentRule: null,
     fix: "Nothing to change: the game is deleted with the account.",
+  },
+  developer_deleted_game: {
+    meaning: "The game's developer deleted it.",
+    messageForPeople: "The developer deleted this game.",
+    contentRule: null,
+    fix: "Nothing to change: the game is deleted.",
   },
   image_rejected: {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",
