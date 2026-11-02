@@ -791,7 +791,7 @@ function contentRulesBody(): Raw {
       ]),
       pane("Only when reported", [
         { kind: "words", markup: html`<h2>Only when reported</h2>` },
-        { kind: "words", markup: html`<p>A game's files can't show whether a person is real, so the check doesn't judge this. Use the Report button on the game's page: a person at Zaisma reads the lines it's about and decides.</p>` },
+        { kind: "words", markup: html`<p>A game's files cannot show whether a person is real, so the check does not judge this. Use the Report button on the game's page: a person at Zaisma reads the lines the report names and decides.</p>` },
         { kind: "block", markup: listRows({ label: "Only when reported", whenEmpty: NO_EMPTY_NOTE, rows: REPORT_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("Only on a notice", [

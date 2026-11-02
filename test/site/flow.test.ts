@@ -722,7 +722,7 @@ describe("re-uploads checked against their hold", () => {
       const reads = readsFlags({ readerCallCount: 0 });
       const deps: ScanDeps = { images: connected, readCode: async (...input) => (sentChunks.push(input[2]), reads(...input)), readPictures: seesNothing, judge: judgeSays("pass") };
       const first = await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(bundle) }), deps);
-      expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["lifelike_gore", "crypto"]);
+      expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["crypto", "lifelike_gore"]);
 
       // One string changed in the middle, and the gore flag edited away near the end.
       sentChunks.length = 0;

@@ -67,7 +67,7 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
     title: "Real people",
     test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
     explanation:
-      "Zaisma acts on it when someone reports the game, since a game's files can't show whether a person is real. Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
+      "Zaisma acts on it when someone reports the game, since a game's files cannot show whether a person is real. Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that is gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
