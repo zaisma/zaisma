@@ -2250,7 +2250,11 @@ function seedDeveloperSettings() {
     `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner'`,
     ...[["Quiet_Builder", 9.6, 8.2, "NULL", 0], ["Many_Things", 12.4, 0.4, "NULL", 0], ["Moss_Runner", 40, 2.5, 1000, 2500]].flatMap(([username, storedGigabytes, todayGigabytes, budgetCents, balanceCents]) => {
       const previewOwner = `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
+      // A real row for the size, so deleting something here recounts to the same number instead of to nothing.
+      const previewSha256 = Buffer.from(username).toString("hex").padEnd(64, "0");
       return [
+        `INSERT OR REPLACE INTO blobs (sha256, size_bytes, created_at_ms) VALUES ('${previewSha256}', ${Math.round(storedGigabytes * 1024 ** 3)}, ${now})`,
+        `INSERT OR REPLACE INTO blob_owners (owner_id, sha256, created_at_ms) VALUES (${previewOwner}, '${previewSha256}', ${now})`,
         `UPDATE owners SET stored_size_bytes = ${Math.round(storedGigabytes * 1024 ** 3)}, monthly_storage_budget_cents = ${budgetCents}${balanceCents ? `, credit_balance_cents = ${balanceCents}` : ""} WHERE id = ${previewOwner}`,
         `INSERT INTO owner_new_data_days (owner_id, date, new_data_size_bytes) VALUES (${previewOwner}, '${new Date(now).toISOString().slice(0, 10)}', ${Math.round(todayGigabytes * 1024 ** 3)}) ON CONFLICT (owner_id, date) DO UPDATE SET new_data_size_bytes = excluded.new_data_size_bytes`,
       ];
