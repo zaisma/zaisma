@@ -11,11 +11,13 @@ import { stack, type LayoutMarkup } from "../../apps/site/src/components/layout.
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { dropdown } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
-import { MEASURED_SCREEN_NAMES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
+import { MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { openChrome } from "../../scripts/chrome.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
 
@@ -131,6 +133,34 @@ describe.skipIf(!sites)("the layout check", () => {
   };
   const fullPane = (body: string) => glassPane({ paneWidth: "full", body: forged(raw(body)) }).html;
   const choices = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Choice ${index + 1}`, href: "#menu" }));
+
+  it.skipIf(!isFirstShare)("measures each page as its own first visit, whatever the page before it fetched ahead", async () => {
+    // A game's page has Browse's link on a phone's screen, so it fetches /games ahead, under Chrome's own name: a computer's page, which the
+    // browser may keep for half a minute. Answered from there, Browse would draw itself again for the phone after its first paint.
+    const pagesInOrder = ["Game page", "Games"].map((name) => layoutRun.pages.find((page) => page.name === name));
+    const { failures } = (await checkPages({ ...sites!, pages: pagesInOrder, sizes: SCREEN_SIZES.filter((size) => size.name === "Phone"), themes: ["light"], tabCount: 1, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures).toEqual([]);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home while its played list is on its way", async () => {
+    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+    try {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      await signIn(chrome, browserContextId, sites!.site, "Many_Things");
+      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      // The list is asked for after the shelf is first filled, and never answered here, so this is what a slow connection shows until it comes.
+      const isAsked = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") done(); }));
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
+      await send("Page.navigate", { url: `${sites!.site}/` });
+      await isAsked;
+      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-continue").hidden`, returnByValue: true });
+      expect(result.value).toBe(false);
+    } finally {
+      await chrome.close();
+    }
+  }, 300_000);
 
   it.skipIf(!isFirstShare)("catches panes over the page past the screen or overflowing unscrolled, and passes one that scrolls inside itself", async () => {
     // A menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.

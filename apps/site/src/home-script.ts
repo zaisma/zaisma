@@ -200,7 +200,8 @@ function coverFor(game, list, at) {
 let sort = "played";
 function fillContinue() {
   const row = $("home-continue"), list = playedList();
-  row.hidden = !list.length;
+  // An account's covers from the server stay while its list is on its way.
+  row.hidden = !list.length && !$("track-continue").querySelector(".cover");
   if (!list.length) return;
   if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].published_at_ms || 0) - (bySlug[a.slug].published_at_ms || 0));
   // What the page already shows (an account's, from the server) stays as it is.
