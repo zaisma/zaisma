@@ -772,7 +772,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
   Storage         ${SITE}/dashboard/settings#hosting  (the Storage rows: as Quiet_Builder, new and nearly full, with what raises it; as Many_Things, over what it can store, with no budget; as Moss_Runner, buying room with a $10 budget, $1.23 spent this month; as Preview_Studio, Pro's 500 GB)
   Pro's limits    ${SITE}/dashboard/settings#pro  (as Quiet_Builder: storage, new data and checks by plan, and the line that reviews and versions are the same)
-  Delete          ${SITE}/dashboard/arena/versions  (as Preview_Studio: Delete under a version that isn't in use), ${SITE}/dashboard/arena/details#delete  (Delete this game, with its link name typed in)
+  Delete          ${SITE}/dashboard/tiny-farm/versions  (as Preview_Studio: Delete under a version that isn't in use), ${SITE}/dashboard/arena/details#delete  (Delete this game, with its link name typed in)
   Credit plan     ${SITE}/dashboard/settings#hosting  (as Key_Maker: the monthly plan's row, back to $40 on the 1st, which pays $12.40 so far, with Change level and Stop plan; as Moss_Runner: its card declined; as Preview_Studio: Start a monthly plan and its sheet)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
