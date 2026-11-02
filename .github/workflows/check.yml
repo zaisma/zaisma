@@ -424,6 +424,32 @@ jobs:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
       - run: npm ci --no-audit --no-fund
+      # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
+      # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
+      - id: miniflare
+        run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
+      - id: browser-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
+      # On a miss, the browser is fetched with curl and unpacked with unzip (miniflare's own unpacking can stall on a runner) into the folder miniflare
+      # looks in, then saved at once, so a job's later failure doesn't lose it. A failure here only leaves miniflare to download it itself.
+      - id: browser-install
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          version=$(grep -m1 -oE 'BROWSER_VERSION = "[0-9.]+"' node_modules/miniflare/dist/src/index.js | grep -oE '[0-9.]+')
+          directory="$HOME/.cache/.wrangler/chrome/linux-$version"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 --output "$RUNNER_TEMP/chrome.zip" "https://storage.googleapis.com/chrome-for-testing-public/$version/linux64/chrome-linux64.zip"
+          mkdir -p "$directory"
+          unzip -q "$RUNNER_TEMP/chrome.zip" -d "$directory"
+          test -x "$directory/chrome-linux64/chrome"
+      - if: steps.browser-install.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       - run: npm run preview:start -- --reset
       # Stopped first, so its databases are written out whole.
       - run: npm run preview:stop
@@ -586,7 +612,8 @@ jobs:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
       - run: npm ci --no-audit --no-fund
-      # The Workers browser, saved to main's cache when it's missing there (a pull request reads only its own and main's caches).
+      # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
+      # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
       - id: miniflare
         run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
       - id: browser-cache
