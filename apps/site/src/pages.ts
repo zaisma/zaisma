@@ -1088,9 +1088,11 @@ function warmUp() {
   const isComputer = !matchMedia("(pointer: coarse)").matches;
   const isAndroidOnWifi = /Android/.test(navigator.userAgent) && connection && (connection.type === "wifi" || connection.type === "ethernet");
   const isIPhone = /iPhone/.test(navigator.userAgent);
-  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi || isIPhone)) return;
+  // An iPad downloads nothing ahead of time: its warm-up only keeps redirects (warm.js), so an update there downloads only what changed.
+  const isIPad = !isComputer && (/iPad/.test(navigator.userAgent) || navigator.platform === "MacIntel");
+  if (frame || !gamePage.warm_url || (connection && connection.saveData === true) || !(isComputer || isAndroidOnWifi || isIPhone || isIPad)) return;
   warming = document.createElement("iframe");
-  warming.src = gamePage.warm_url + (isComputer || isAndroidOnWifi ? "" : "?maximum_start_size_bytes=${PERFORMANCE_CHECK_LIMITS.maximumPhoneWarmUpSizeBytes}");
+  warming.src = gamePage.warm_url + (isComputer || isAndroidOnWifi ? "" : "?maximum_start_size_bytes=" + (isIPad ? 0 : ${PERFORMANCE_CHECK_LIMITS.maximumPhoneWarmUpSizeBytes}));
   warming.setAttribute("sandbox", "allow-scripts allow-same-origin");
   warming.hidden = true;
   warming.setAttribute("aria-hidden", "true");

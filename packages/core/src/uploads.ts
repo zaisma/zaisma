@@ -1,7 +1,7 @@
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
 import { UploadError, cleanPath } from "./zip.ts";
 import { PLAN_LIMITS, withProSize, type PlanKind } from "./plans.ts";
-import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.ts";
+import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, isServerPath, type Version } from "./types.ts";
 
 /**
  * File-by-file uploads. Each file is stored once, by its SHA-256, at blobs/<sha256> in the games
@@ -212,6 +212,34 @@ const VERSION_ADDRESS_PATTERN = /^_zaisma\/versions\/([^/]+)\/(.*)$/s;
 export function readVersionAddress(path: string): { versionId: string; path: string } | null {
   const match = VERSION_ADDRESS_PATTERN.exec(path);
   return match ? { versionId: match[1]!, path: match[2]! } : null;
+}
+
+/**
+ * A file an update didn't change is already in a returning player's browser: a file at its version's own address
+ * redirects, for good, to <base>_zaisma/content/<sha256>/<path>, the same address in every version that has it, so
+ * only what changed downloads. The address serves a file only to whoever may open a version of this game that has
+ * it at that path; the path stays in it for the file's type and for loaders that read a response's own address.
+ */
+const CONTENT_ADDRESS_PATTERN = /^_zaisma\/content\/([0-9a-f]{64})\/(.+)$/s;
+
+/** The fingerprint and the path inside the game, when a path inside a game is under a file's content address. */
+export function readContentAddress(path: string): { sha256: string; path: string } | null {
+  const match = CONTENT_ADDRESS_PATTERN.exec(path);
+  return match ? { sha256: match[1]!, path: match[2]! } : null;
+}
+
+/**
+ * Files a browser reads from wherever they ended up: pages, scripts (a module's imports, and one module has to keep
+ * one address), workers, stylesheets, playlists and the like resolve the relative paths inside them against their
+ * own final address, so moved to one shared across versions they'd load another version's files. They stay at their
+ * version's address.
+ */
+const FILES_READ_FROM_THEIR_ADDRESS = new Set(["html", "htm", "xhtml", "js", "mjs", "cjs", "css", "svg", "xml", "xsl", "webmanifest", "m3u8", "mpd"]);
+
+/** Whether a path in a version redirects to a content address: a file of the game's own that names no other files by where it is. */
+export function hasContentAddress(path: string): boolean {
+  if (path.startsWith("_zaisma/") || isServerPath(path)) return false;
+  return !FILES_READ_FROM_THEIR_ADDRESS.has(extensionOf(path));
 }
 
 /** Where a version's file lives in the games bucket: under its prefix (zip uploads) or as a shared blob. */

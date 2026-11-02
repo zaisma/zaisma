@@ -110,6 +110,24 @@ describe("a run's report", () => {
     expect(report.notes.map((note) => note.path)).toEqual(["Build/missing.data"]);
   });
 
+  it("reads a file at its content address as the game's own path, so a preload and the warm-up ask for what the page asks for", () => {
+    const VERSION = "_zaisma/versions/version_1c2r6z4i462017691t6s/";
+    const CONTENT = `_zaisma/content/${"a".repeat(64)}/`;
+    const report = reportFromObservations(
+      observed({
+        firstDrawAtMs: OPENED_AT_MS + 3000,
+        requests: [
+          request(VERSION, 0, 50, { fetchDestination: "document", fetchMode: "navigate" }),
+          request(`${CONTENT}Build/game%20data.data`, 70, 200, { fetchDestination: "empty", fetchMode: "cors" }),
+          request(`${CONTENT}Build/missing.bin`, 80, 210, { httpStatus: 404, fetchDestination: "empty", fetchMode: "cors" }),
+        ],
+      }),
+      [],
+    );
+    expect(report.start_files).toEqual([{ path: "Build/game data.data", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 1000 }]);
+    expect(report.notes.map((note) => note.path)).toEqual(["Build/missing.bin"]);
+  });
+
   it("gives errors with their file and line, up to 5", () => {
     const errors = Array.from({ length: 7 }, (_, i) => ({ message: `TypeError: player ${i} is undefined\n    at start (game.js:12)`, url: `${BASE}game.js`, lineNumber: 12 }));
     const report = reportFromObservations(observed({ firstDrawAtMs: OPENED_AT_MS + 1000, errors }), []);
