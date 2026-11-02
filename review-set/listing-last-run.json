@@ -1,19 +1,19 @@
 {
-  "fingerprint_sha256": "c139244464310baa9dd69acaf2850e5e431d9d36ce21f03b3a3df6cb102026b7",
-  "ran_at": "2026-10-27T19:09:09Z",
+  "fingerprint_sha256": "a4707181760166501980d24475bfa85146478a137b89a1b623649f001f383fee",
+  "ran_at": "2026-11-02T18:22:35Z",
   "model_vars": {
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
-    "case_count": 19,
-    "honest_case_count": 8,
-    "slop_case_count": 11,
-    "matched_case_count": 19,
+    "case_count": 27,
+    "honest_case_count": 13,
+    "slop_case_count": 14,
+    "matched_case_count": 27,
     "missed_case_count": 0,
     "inconsistent_case_count": 0,
     "declined_attempt_count": 0,
-    "cost_cents": 33.59762,
+    "cost_cents": 38.4708,
     "is_passing": true
   },
   "cases": [
@@ -270,6 +270,106 @@
       "declined_attempt_count": 0
     },
     {
+      "name": "name-long-sentence",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-long-with-subtitle",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-longest-honest",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-says-what-it-is",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-simulator",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
       "name": "name-with-2x",
       "is_honest": true,
       "expected": {
@@ -480,6 +580,66 @@
         {
           "title": "fine",
           "background.webp": "text_on_background"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "word-list-after-name",
+      "is_honest": false,
+      "expected": {
+        "title": "search_words_in_title"
+      },
+      "runs": [
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "word-list-as-title",
+      "is_honest": false,
+      "expected": {
+        "title": "search_words_in_title"
+      },
+      "runs": [
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "word-list-with-3d",
+      "is_honest": false,
+      "expected": {
+        "title": "search_words_in_title"
+      },
+      "runs": [
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
+        },
+        {
+          "title": "search_words_in_title"
         }
       ],
       "outcome": "matched",

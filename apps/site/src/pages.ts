@@ -135,7 +135,7 @@ export interface GamePageView {
   viewer: Viewer;
   developer: { name: string; game_count: number } | null;
   pictures: (PictureRow & { kind: string })[];
-  updates: { id: string; patch_notes: string; published_at_ms: number }[];
+  updates: { id: string; patch_notes: string; first_published_at_ms: number }[];
   /** The showcase's games, for More from the developer. */
   otherGames: ShowGame[];
   /** The game's live rooms on Zaisma, or null when it has none to count or list. */
@@ -217,7 +217,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare(`SELECT ${PICTURE_COLUMNS_SQL}, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms`).bind(game.id).all<PictureRow & { kind: string }>(),
-    env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
+    // Quiet patches and big updates alike, each under the day it first went live: a rollback moves neither.
+    env.DB.prepare("SELECT id, patch_notes, first_published_at_ms FROM versions WHERE game_id = ? AND first_published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY first_published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; first_published_at_ms: number }>(),
     // The viewer's age picks More games.
     showcase(env, viewer.ageFloorYears, 60, countryCode),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
@@ -337,6 +338,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const gameFacts = [
     ...(describedModes.length ? [{ label: "Players", entries: describedModes.map((playMode) => ({ text: playMode.playerCount ? `${playMode.label}, ${playMode.playerCount}` : playMode.label, icon: MODE_ICON_NAMES[playMode.mode] })) }] : []),
     ...(devices.length ? [{ label: "Works on", entries: devices.map((device) => ({ text: DEVICE_LABELS[device] ?? device, icon: DEVICE_ICON_NAMES[device] ?? ("computer" as const) })) }] : []),
+    // Only a marked big update: a quiet patch, a rollback or a title change never says so.
+    ...(game.big_update_at_ms ? [{ label: "Updated", text: day(game.big_update_at_ms) }] : []),
   ];
   // What the game sells, before anyone plays ("Every game that sells something states its refund policy"), under About.
   const purchaseFacts = [
@@ -448,7 +451,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
     ]),
     ...(view.updates.length
-      ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
+      ? [section("updates", "Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.first_published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }])]
       : []),
     ...(developerGames.length && developer
       ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]

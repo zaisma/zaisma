@@ -108,6 +108,12 @@ export interface Game {
   live_version_published_at_ms: number | null;
   /** The visibility it takes once its live version's AI review passes; null when it's waiting for none. */
   visibility_after_ai_review: "listed" | "unlisted" | null;
+  /** When the game first went live; it never moves. */
+  first_published_at_ms: number | null;
+  /** The last marked big update: the Updated tag and fact. A first release is never one. */
+  big_update_at_ms: number | null;
+  /** Where Browse's Recently updated places it, moved at most once every RECENTLY_UPDATED_MOVE_DAYS; NULL is first_published_at_ms. */
+  recently_updated_at_ms: number | null;
   /** 1 when the live version changed the game's own files, not only its game server: a room switching to it now reloads its players' games. */
   has_live_version_game_file_changes: number;
   created_at_ms: number;
@@ -144,6 +150,10 @@ export interface Version {
   /** The key this version's preview links are made with (apps/site/src/preview-links.ts); a new one ends every link made so far. Null until it passes. */
   preview_link_key: string | null;
   published_at_ms: number | null;
+  /** When it first went live; unlike published_at_ms, a rollback doesn't move it. */
+  first_published_at_ms: number | null;
+  /** 1 when the developer marked it a big update; it counts as news only when it goes live for the first time. */
+  is_big_update: number;
   created_at_ms: number;
   /** When a child-safety or illegal-content report paused this version, until a person looks. */
   report_held_at_ms: number | null;
