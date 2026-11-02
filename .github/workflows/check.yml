@@ -201,6 +201,23 @@ jobs:
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
+      # On a miss, the browser is fetched with curl and unpacked with unzip (miniflare's own unpacking can stall on a runner) into the folder miniflare
+      # looks in, then saved at once, so a job's later failure doesn't lose it. A failure here only leaves miniflare to download it itself.
+      - id: browser-install
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          version=$(grep -m1 -oE 'BROWSER_VERSION = "[0-9.]+"' node_modules/miniflare/dist/src/index.js | grep -oE '[0-9.]+')
+          directory="$HOME/.cache/.wrangler/chrome/linux-$version"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 --output "$RUNNER_TEMP/chrome.zip" "https://storage.googleapis.com/chrome-for-testing-public/$version/linux64/chrome-linux64.zip"
+          mkdir -p "$directory"
+          unzip -q "$RUNNER_TEMP/chrome.zip" -d "$directory"
+          test -x "$directory/chrome-linux64/chrome"
+      - if: steps.browser-install.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
       # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
       - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
@@ -216,15 +233,6 @@ jobs:
         with:
           name: flaky-tests-${{ matrix.shard }}
           path: flaky_tests.json
-      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
-      - id: browser-installed
-        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
-        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - if: always() && steps.browser-installed.outputs.installed == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/.wrangler
-          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   # The test files a pull request adds or changes, ten runs one after another: most flaky tests show before the merge queue.
   # rerun.yml's fifty runs stay for proving a flaky test's fix.
@@ -257,6 +265,23 @@ jobs:
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
+      # On a miss, the browser is fetched with curl and unpacked with unzip (miniflare's own unpacking can stall on a runner) into the folder miniflare
+      # looks in, then saved at once, so a job's later failure doesn't lose it. A failure here only leaves miniflare to download it itself.
+      - id: browser-install
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          version=$(grep -m1 -oE 'BROWSER_VERSION = "[0-9.]+"' node_modules/miniflare/dist/src/index.js | grep -oE '[0-9.]+')
+          directory="$HOME/.cache/.wrangler/chrome/linux-$version"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 --output "$RUNNER_TEMP/chrome.zip" "https://storage.googleapis.com/chrome-for-testing-public/$version/linux64/chrome-linux64.zip"
+          mkdir -p "$directory"
+          unzip -q "$RUNNER_TEMP/chrome.zip" -d "$directory"
+          test -x "$directory/chrome-linux64/chrome"
+      - if: steps.browser-install.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
       # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
       - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
@@ -271,15 +296,6 @@ jobs:
             if ! npx vitest run $CHANGED_TEST_FILES; then echo "::error::Run $run of 10 failed: a test this pull request adds or changes is flaky or failing."; exit 1; fi
             echo "::endgroup::"
           done
-      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
-      - id: browser-installed
-        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
-        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - if: always() && steps.browser-installed.outputs.installed == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/.wrangler
-          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   typecheck:
     name: Typecheck
@@ -346,6 +362,23 @@ jobs:
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
+      # On a miss, the browser is fetched with curl and unpacked with unzip (miniflare's own unpacking can stall on a runner) into the folder miniflare
+      # looks in, then saved at once, so a job's later failure doesn't lose it. A failure here only leaves miniflare to download it itself.
+      - id: browser-install
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          version=$(grep -m1 -oE 'BROWSER_VERSION = "[0-9.]+"' node_modules/miniflare/dist/src/index.js | grep -oE '[0-9.]+')
+          directory="$HOME/.cache/.wrangler/chrome/linux-$version"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 --output "$RUNNER_TEMP/chrome.zip" "https://storage.googleapis.com/chrome-for-testing-public/$version/linux64/chrome-linux64.zip"
+          mkdir -p "$directory"
+          unzip -q "$RUNNER_TEMP/chrome.zip" -d "$directory"
+          test -x "$directory/chrome-linux64/chrome"
+      - if: steps.browser-install.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       - run: npm run preview:start -- --reset --engines-only
       - run: npm run engines:play
       - if: failure()
@@ -354,15 +387,6 @@ jobs:
         run: |
           grep -ihE "browser|chrome" .wrangler/preview-run/preview.log .wrangler/preview/servers.log | head -n 40 || true
           find ~/.cache/.wrangler -maxdepth 4 2>/dev/null | head -n 20 || true
-      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
-      - id: browser-installed
-        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
-        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - if: always() && steps.browser-installed.outputs.installed == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/.wrangler
-          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   # The preview's full test data, made once when there's no snapshot of it from the same files (What changed), for the Layout check.
   seed:
