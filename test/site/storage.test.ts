@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { addCreditEntry, blobKey, createAccount, createApiKey, gameBySlug, notConnected, ownedBlobKey, personOwner, sha256Hex, utcDateOf, versionById, type ImageMatcher } from "@zaisma/core";
+import { addCreditEntry, blobKey, createAccount, createApiKey, gameBySlug, notConnected, ownedBlobKey, personOwner, sha256Hex, storageOf, utcDateOf, versionById, type ImageMatcher } from "@zaisma/core";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { chargeStorage } from "../../apps/site/src/hosting-job.ts";
 import { MAXIMUM_PACK_PICTURE_COUNT, ScanContinues, matchMedia, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
@@ -319,7 +319,8 @@ describe("storage past the limit with nothing paying for it", () => {
     await judgeUnpaidStorage(env, startMs + 14 * DAY_MS);
     expect(await versionById(env.DB, kept)).not.toBeNull();
     expect(await versionById(env.DB, live)).not.toBeNull();
-    expect((await storage()).unpaid_files_delete_at).toBeNull();
+    // Nothing more is due once the day has passed, though it's still over.
+    expect((await storageOf(env.DB, ownerId, startMs + 14 * DAY_MS)).unpaidFilesDeleteAtMs).toBeNull();
   });
 
   it("doesn't start while Stripe tries a renewal, a card's plan is failing, a ruling's wait runs or a ban stands", async () => {
