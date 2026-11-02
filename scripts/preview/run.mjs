@@ -2245,9 +2245,9 @@ function seedDeveloperSettings() {
           `UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL WHERE id = ${owner}`,
         ]),
     // Storage: Quiet_Builder is new and nearly full, Many_Things is over what it can store, and Moss_Runner buys room with a budget.
-    `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewquietbuilder', 'person', id, ${now} FROM accounts WHERE username = 'Quiet_Builder' ON CONFLICT (account_id) DO NOTHING`,
-    `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmanythings', 'person', id, ${now} FROM accounts WHERE username = 'Many_Things' ON CONFLICT (account_id) DO NOTHING`,
-    `INSERT INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner' ON CONFLICT (account_id) DO NOTHING`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewquietbuilder', 'person', id, ${now} FROM accounts WHERE username = 'Quiet_Builder'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmanythings', 'person', id, ${now} FROM accounts WHERE username = 'Many_Things'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner'`,
     ...[["Quiet_Builder", 9.6, 8.2, "NULL", 0], ["Many_Things", 12.4, 0.4, "NULL", 0], ["Moss_Runner", 40, 2.5, 1000, 2500]].flatMap(([username, storedGigabytes, todayGigabytes, budgetCents, balanceCents]) => {
       const previewOwner = `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
       return [
