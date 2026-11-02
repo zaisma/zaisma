@@ -485,7 +485,7 @@ Every component, with the call that makes it and its options, is in the catalog 
   - `options`: `rowName: string`, `trackId: string`, `scrolledTo?: "middle" | "end"`
 - **Shelf** (`shelf(options: ShelfOptions)`, `navigation.ts`): A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.
   - `options`: `id: string`, `trackId: string`, `title: string`, `titleHref?: string`, `sortTabs?: SwitchTab[]`, `items: LayoutItem[]`, `emptyText?: string`, `scrolledTo?: "middle" | "end"`
-- **Load more** (`loadMore(options: LoadMoreOptions)`, `load-more.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.
+- **Load more** (`loadMore(options: LoadMoreOptions)`, `load-more.ts`): Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll, never before the first scroll. Without scripts it's a link to that page.
   - `options`: `href?: string`, `label: string`, `listId: string`, `moreListIds?: string[]`, `isLoadedOnScroll?: boolean`, `endText?: string`, `isFailed?: boolean`
 - **Breadcrumbs** (`breadcrumbs(options: BreadcrumbsOptions)`, `reading.ts`): Where a page sits: the pages above it as quiet links, a chevron between, this one last. For pages a few levels deep, like a forum topic or a game's version. On a phone it scrolls sideways rather than wrapping.
   - `options`: `trail: { label: string; href: string }[]`, `current: string`
