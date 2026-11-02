@@ -3204,7 +3204,7 @@ describe("recently played", () => {
   async function liveGame(slug: string, title: string) {
     const id = `g-${slug}`;
     await env.DB.prepare("INSERT INTO games (id, slug, title, description, review_status, visibility, created_at_ms, updated_at_ms) VALUES (?, ?, ?, '', 'live', 'listed', 1, 1)").bind(id, slug, title).run();
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, published_at_ms, patch_notes) VALUES (?, ?, 'x', 1, 1, 'approved', 1, ?, ?)").bind(`v-${slug}`, id, Date.now(), "New levels.").run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, published_at_ms, first_published_at_ms, patch_notes) VALUES (?1, ?2, 'x', 1, 1, 'approved', 1, ?3, ?3, ?4)").bind(`v-${slug}`, id, Date.now(), "New levels.").run();
     await env.DB.prepare("UPDATE games SET live_version_id = ? WHERE id = ?").bind(`v-${slug}`, id).run();
   }
 

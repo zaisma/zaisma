@@ -21,7 +21,7 @@ How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
-4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
+4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. A publish is a quiet patch unless is_big_update is true: only that shows players the Updated tag. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
 
 To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
 
@@ -417,6 +417,7 @@ export const TOOLS: Tool[] = [
           },
           patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
           publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan; that's publishing, so it needs a key with version_access publish" },
+          is_big_update: { type: "boolean", description: "With publish_when_approved true: mark it a big update, with patch_notes saying what's new. Left out, it goes live as a quiet patch." },
           match_update_mode: { ...{ type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" }, description: "With publish_when_approved: when running matches get it, next_match (the default) or now" },
         },
         ["slug", "files"],
@@ -496,14 +497,15 @@ export const TOOLS: Tool[] = [
       "Make a version that passed review live now, or later at scheduled_publish_at (from a few minutes to 90 days ahead). Publishing an older version rolls back to it. The live version and the last 5 are kept.\n\n" +
       'Not: { "scheduled_publish_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", not a number)\n' +
       'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")\n' +
-      'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")',
+      'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")\n' +
+      "A publish is a quiet patch: its notes show in the game page's Updates tab and nothing else changes. Only for an update players should come back for, mark it: " + '{ "is_big_update": true, "patch_notes": "Three new worlds and online co-op." }. That shows the Updated tag to players who have played, and moves the game up Recently updated at most once every 30 days. ' + 'Not: { "is_big_update": true } on a version with no notes (a big update says what\'s new), or on a rollback (only a version going live for the first time counts).',
     inputSchema: object(
       { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
       ["slug", "version_id"],
     ),
     outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode"])),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes"])),
   },
   {
     name: "cancel_scheduled_publish",
@@ -2038,6 +2040,7 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
     patch_notes: typeof toolArguments.patch_notes === "string" ? toolArguments.patch_notes : "",
     publish_when_approved: toolArguments.publish_when_approved === true,
     ...(toolArguments.match_update_mode !== undefined ? { match_update_mode: toolArguments.match_update_mode } : {}),
+    ...(toolArguments.is_big_update !== undefined ? { is_big_update: toolArguments.is_big_update } : {}),
   });
   return { version, sent_file_count: sent.size, next_steps: nextSteps };
 }

@@ -59,8 +59,8 @@ beforeAll(async () => {
   for (const seed of GAMES) {
     const game = await createGame(env.DB, { slug: seed.slug, title: seed.title, description: `About ${seed.title}.`, ownerId: owner.id, visibility: "listed" });
     await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, patch_notes, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', '', ?, 0)").bind(`v-${seed.slug}`, game.id, `games/${seed.slug}/v1`, Date.now() - seed.publishedAgoDays * DAY_MS).run();
-    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, devices = ?, controls = ?, genres = ?, play_modes = COALESCE(?, play_modes) WHERE id = ?")
-      .bind(`v-${seed.slug}`, seed.devices ?? "", seed.controls ?? "", seed.genres ?? "", seed.playModes ?? null, game.id)
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, first_published_at_ms = ?, devices = ?, controls = ?, genres = ?, play_modes = COALESCE(?, play_modes) WHERE id = ?")
+      .bind(`v-${seed.slug}`, Date.now() - seed.publishedAgoDays * DAY_MS, seed.devices ?? "", seed.controls ?? "", seed.genres ?? "", seed.playModes ?? null, game.id)
       .run();
     for (const [column, value] of Object.entries(seed.columns ?? {})) await env.DB.prepare(`UPDATE games SET ${column} = ? WHERE id = ?`).bind(value, game.id).run();
     // Played the same every day for two weeks and more, so it doesn't trend; a rising game only in the last 2 days, so it does.
@@ -81,6 +81,10 @@ describe("Browse's link", () => {
     expect(browseQuery(new URL(`${SITE}/games?sort=new&genre=horror&players=multiplayer&price=15_to_30&search_text=%20lake%20&page=3`))).toEqual({ sort: "new", genre: "horror", players: "multiplayer", priceRange: "15_to_30", searchText: "lake", pageNumber: 3 });
     expect(browseQuery(new URL(`${SITE}/games?sort=best&genre=rpg&players=lots&price=cheap&page=-2`))).toEqual({ sort: "popular", genre: "any", players: "any", priceRange: "any", searchText: "", pageNumber: 1 });
     expect(browseQuery(new URL(`${SITE}/games?search_text=${"a".repeat(200)}`)).searchText).toHaveLength(80);
+    // While searching, Best match is the first tab and the default, and a picked sort is that sort.
+    expect(browseQuery(new URL(`${SITE}/games?search_text=lake`)).sort).toBe("best_match");
+    expect(browseQuery(new URL(`${SITE}/games?search_text=lake&sort=popular`)).sort).toBe("best_match");
+    expect(browseQuery(new URL(`${SITE}/games?sort=best_match`)).sort).toBe("popular");
   });
 });
 
@@ -108,7 +112,7 @@ describe("the viewer's device", () => {
 });
 
 describe("Browse", () => {
-  it("lists every listed game, most played this week first, then the rest newest first", async () => {
+  it("lists every listed game, most played this week first, then the rest in today's shuffle", async () => {
     const { response, text, slugs } = await browse("", { headers: { cookie: "zaisma_device_kind=computer" } });
     expect(response.status).toBe(200);
     expect(slugs.slice(0, 3)).toEqual(["browse-crowded", "browse-busy", "browse-keys"]);
@@ -224,7 +228,7 @@ describe("the search's suggestions", () => {
     expect((await suggest("role")).answer.games.map((game) => game.title)).toEqual(["Key Tactics"]);
   });
 
-  it("puts the finish that finds the most games first, and shows at most three of each", async () => {
+  it("puts the finish whose games have the most players first, and shows at most three of each", async () => {
     const { answer } = await suggest("s");
     expect(answer.finishes.length).toBeLessThanOrEqual(3);
     expect(answer.games.length).toBeLessThanOrEqual(3);

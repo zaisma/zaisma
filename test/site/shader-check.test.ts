@@ -81,7 +81,7 @@ const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward:
 const judgeSays =
   (picture: Partial<PictureAnswer> = {}): ListingJudge =>
   async (_apiKey, _model, brief) => ({
-    answer: { pictures: brief.pictures.map((_, index) => ({ ...NO, ...picture, number: index + 1 })), title_fake_reward: "", title_famous_name: "", title_tag: "", description_fake_reward: "", has_words_safety_concern: false },
+    answer: { pictures: brief.pictures.map((_, index) => ({ ...NO, ...picture, number: index + 1 })), title_fake_reward: "", title_famous_name: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false },
     declinedAttemptCount: 0,
     costCents: 1,
   });

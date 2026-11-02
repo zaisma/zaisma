@@ -33,7 +33,7 @@ async function api(path: string, init: { method?: string; body?: unknown; raw?: 
 }
 
 const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
-const CLEAN_WORDS = { title_fake_reward: "", title_famous_name: "", title_tag: "", description_fake_reward: "", has_words_safety_concern: false };
+const CLEAN_WORDS = { title_fake_reward: "", title_famous_name: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false };
 
 /** A stand-in judge: each picture's answer by its kind (covers and screenshots), the words' answer as given; it records what it was sent. */
 function judgeSays(byKind: Partial<Record<ImageKind, Partial<PictureAnswer>>>, words: Partial<ListingAnswer> = {}, briefs: ListingBrief[] = []): ListingJudge {
@@ -106,6 +106,8 @@ describe("the listing check's outcomes", () => {
 
   it("keep a title off lists for a tag or a famous name, and leave it alone when it isn't judged", () => {
     expect(listingOutcomes(brief([]), answer([], { title_tag: "[UPDATE]" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "tag_in_title" } });
+    expect(listingOutcomes(brief([]), answer([], { title_search_words: "Racing Drift Car Driving Simulator" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "search_words_in_title" } });
+    expect(listingOutcomes(brief([], { isTitleJudged: false }), answer([], { title_search_words: "Racing Drift Car Driving Simulator" })).title).toEqual({ outcome: "fine" });
     expect(listingOutcomes(brief([]), answer([], { title_famous_name: "Minecraft" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "famous_name", message: 'The title names "Minecraft".' } });
     expect(listingOutcomes(brief([], { isTitleJudged: false }), answer([], { title_tag: "[UPDATE]" })).title).toEqual({ outcome: "fine" });
   });
