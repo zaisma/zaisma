@@ -467,6 +467,8 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           database.prepare("DELETE FROM stripe_connect_states WHERE owner_id = ?").bind(owner.id),
           // The cards that paid go; a ban's marks (banned_marks) stay, so deleting the account doesn't lift them.
           database.prepare("DELETE FROM owner_cards WHERE owner_id = ?").bind(owner.id),
+          database.prepare("DELETE FROM owner_new_data_days WHERE owner_id = ?").bind(owner.id),
+          database.prepare("DELETE FROM owner_storage_months WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]
       : []),

@@ -194,6 +194,7 @@ const DONE: Record<string, string> = {
   "ai-review": "Its AI review is on its way.",
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
+  "version-deleted": "Version deleted. The files no other version has stopped counting.",
   "tester-added": "Tester link made. Copy it below and send it to your testers.",
   "tester-removed": "Tester link turned off. It stopped working straight away, and its testers leave their multiplayer matches within 10 seconds.",
   "tester-changed": "Tester link changed. Its testers keep the same link and their progress.",
@@ -221,7 +222,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (path === "/dashboard" && !post) return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
     if (post || !/^\/dashboard\/[a-z0-9-]+\/export\.zip$/.test(path)) return done(redirect("/dashboard"));
   }
-  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
+  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail(), url.searchParams.get("done") === "game-deleted" ? "Game deleted." : undefined));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
@@ -365,12 +366,16 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("PATCH", `/games/${slug}/testers/${tester[1]}`, { name: field("name"), ...testerChoicesFrom(field), ends_at: field("at") || null });
       return back("versions", "tester-changed", "#testers");
     }
+    if (action === "/delete") {
+      await call("DELETE", `/games/${slug}`, { confirm_slug: field("confirm_slug") });
+      return done(redirect("/dashboard?done=game-deleted"));
+    }
     const previewsPath = action.match(/^\/versions\/([a-z0-9_]+)\/end-previews$/);
     if (previewsPath) {
       await call("DELETE", `/games/${slug}/versions/${previewsPath[1]}/preview-links`);
       return back(sectionOfAction, "previews-ended");
     }
-    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule|ai-review)$/);
+    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule|ai-review|delete)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
       // "Update running games now": live matches switch now instead of at their next match.
@@ -388,7 +393,8 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       }
       if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate, ...mark });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
-      return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
+      if (what === "delete") await call("DELETE", `/games/${slug}/versions/${id}`);
+      return back(sectionOfAction, what === "publish" ? "published" : what === "delete" ? "version-deleted" : `${what}d`);
     }
   } catch (error) {
     if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, sectionOfAction, { error: error.messageForPeople }, error.httpStatus));
@@ -450,12 +456,13 @@ function coverOf(images: ImageJson[]): ImageJson | undefined {
 
 // --- Your games ---
 
-async function gamesPage(env: Env, call: Call, account: Account | null, error?: string, title = "", isAskingForEmail = false): Promise<Response> {
+async function gamesPage(env: Env, call: Call, account: Account | null, error?: string, title = "", isAskingForEmail = false, doneWords?: string): Promise<Response> {
   const [{ games: listedGames, unread_topic_count: unreadTopicCount }, { can_publish: canPublish }, { unseen_security_alerts: unseenSecurityAlerts }] = (await Promise.all([call("GET", "/games"), call("GET", "/access"), call("GET", "/activity")])) as [
     { games: (GameJson & { alerts: GameAlertJson[] })[]; unread_topic_count: number },
     { can_publish: boolean },
     { unseen_security_alerts: UnseenSecurityAlert[] },
   ];
+  const { storage: { unpaid_files_delete_at: unpaidFilesDeleteAt } } = (await call("GET", "/storage")) as { storage: { unpaid_files_delete_at: string | null } };
   // Games that need attention first, the most urgent first (a kind this page doesn't know after the known ones); the rest keep the API's order, last changed first.
   const urgency = (game: { alerts: GameAlertJson[] }) => (game.alerts.length ? Math.min(...game.alerts.map((alert) => GAME_ALERT_KINDS.indexOf(alert.kind as GameAlertKind) >>> 0)) : Infinity);
   const games = [...listedGames].sort((first, second) => urgency(first) - urgency(second));
@@ -472,6 +479,8 @@ ${metalButton("Make a game", { type: "submit" })}
 ${notice({ error })}
 ${securityAlertsBox(unseenSecurityAlerts, "/dashboard")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed: false, backTo: "/dashboard" }) : ""}
+${doneWords ? html`<p class="done" role="status">${doneWords}</p>` : ""}
+${unpaidFilesDeleteAt ? html`<p class="error" role="alert">Your account is past its storage limit. On ${new Date(unpaidFilesDeleteAt).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, Zaisma deletes what's past it. Live versions stay. <a href="/dashboard/settings#hosting">See your storage</a></p>` : ""}
 ${unreadTopicCount ? html`<p class="done" role="status">Zaisma replied to ${unreadTopicCount === 1 ? "one of your forum topics" : `${unreadTopicCount} of your forum topics`}. <a href="/forum?tab=yours">Read ${unreadTopicCount === 1 ? "it" : "them"}</a></p>` : ""}
 ${canPublish
       ? ""
@@ -734,7 +743,8 @@ function detailsSection(slug: string, { game, images, backgrounds, shaders }: Lo
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game, access)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
-<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
+<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}
+<h2 class="rule-h" id="delete">Delete</h2>${deleteGamePanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
 <h2 class="rule-h" id="background">Background</h2>${backgroundPanel(slug, game, images, backgrounds, shaders, gameAddress)}
 <h2 class="rule-h" id="qr-code">QR code</h2>${qrCodePanel(slug, qrCode)}</aside>
@@ -950,6 +960,7 @@ ${findings.length
       : ""}
 ${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
 ${reviewLine}${version.findings.filter((finding) => finding.code === "ai_review_budget_used" || finding.code === version.ai_review_waiting_reason).map((finding) => html`<p class="muted">${finding.message_for_people}</p>`)}${scheduled}${acts}
+${version.is_live || version.scan_status === "scanning" || version.scheduled_publish_at ? "" : html`<details class="later"><summary>Delete</summary><form class="row" method="post" action="${action("delete")}">${sectionField(section)}<span class="muted">Deletes this version for good, and frees the files no other version has.</span><button class="btn danger" type="submit">Delete this version</button></form></details>`}
 </li>`;
 }
 
@@ -1056,6 +1067,15 @@ function exportPanel(slug: string): Raw {
 <p class="hint">Everything about the game in one .zip: every version that passed review, the cover and screenshots, the database, every player's save, stats, reports and history. Secrets come by name, never their values. It's made as it downloads, so it starts at once. Your AI gets the same link with <code>export_game</code>, and a terminal saves it as a folder with <code>npx @zaisma/cli export ${slug}</code>.</p>
 <a class="btn" href="/dashboard/${slug}/export.zip" data-download>Export everything</a>
 </div>`;
+}
+
+/** Delete this game: its link name typed in, since nothing brings it back. */
+function deleteGamePanel(slug: string): Raw {
+  return html`<form class="stack" method="post" action="/dashboard/${slug}/delete">${sectionField("details")}
+<p class="hint">The game stops for every player, its link is never used again, and its versions, database, saves and purchases go for good. Export it first to keep a copy.</p>
+<label>Type <strong>${slug}</strong> to delete it <input name="confirm_slug" required autocomplete="off" spellcheck="false"></label>
+<div class="row"><button class="btn danger" type="submit">Delete this game</button></div>
+</form>`;
 }
 
 const MULTIPLAYER_LABELS = {

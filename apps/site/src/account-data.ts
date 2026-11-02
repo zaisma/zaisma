@@ -58,6 +58,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
   owned_blobs: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
   blob_owners: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
+  owner_new_data_days: { file_path: null, reason: "Storage bookkeeping: how much new data a developer sent each day." },
+  owner_storage_months: { file_path: null, reason: "Storage bookkeeping: each month's storage past a developer's allowance; its charges are in credit_entries." },
   reports: { file_path: null, reason: "Reports about the player, written by other players." },
   forum_mentions: { file_path: null, reason: "Other people's posts that mention the player." },
   chat_reviews: { file_path: null, reason: "A safety record: messages the chat filter stopped." },

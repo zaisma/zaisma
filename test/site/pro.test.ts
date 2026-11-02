@@ -95,8 +95,10 @@ describe("Zaisma Pro", () => {
   it("starts free, and start_pro answers Stripe's page for the monthly price", async () => {
     const read = await tool("get_pro");
     expect(read.pro).toMatchObject({ plan: "free", pro_ends_at: null, is_pro_cancelled: false, monthly_price_cents: 1000 });
-    expect(read.pro.limits.free).toEqual({ maximum_large_review_count: 5, maximum_small_review_count: 30, maximum_performance_check_count: 20, maximum_version_count: 20, maximum_game_size_bytes: 2 * 1024 ** 3 });
-    expect(read.pro.limits.pro).toMatchObject({ maximum_large_review_count: 20, maximum_small_review_count: 100, maximum_performance_check_count: 60, maximum_version_count: 100, maximum_game_size_bytes: 10 * 1024 ** 3 });
+    const gb = 1024 ** 3;
+    expect(read.pro.limits.free).toEqual({ maximum_performance_check_count: 20, included_size_bytes: 10 * gb, maximum_new_data_size_bytes: 10 * gb });
+    expect(read.pro.limits.pro).toEqual({ maximum_performance_check_count: 60, included_size_bytes: 500 * gb, maximum_new_data_size_bytes: 100 * gb });
+    expect(read.pro.limits_for_everyone).toEqual({ maximum_large_review_count: 5, maximum_small_review_count: 30, maximum_version_count: 100 });
     expect(read.pro.used_today).toEqual({ large_review_count: 0, small_review_count: 0, performance_check_count: 0 });
     expect((await tool("get_access")).plan).toBe("free");
 
@@ -119,7 +121,7 @@ describe("Zaisma Pro", () => {
     expect((await tool("get_pro")).pro).toMatchObject({ plan: "pro", is_pro_cancelled: false, pro_ends_at: expect.any(String) });
     expect((await tool("get_access")).plan).toBe("pro");
     expect((await tool("start_pro")).code).toBe("already_pro");
-    expect((await limitsFor(env.DB, ownerId)).maximumVersionsPerDay).toBe(100);
+    expect((await limitsFor(env.DB, ownerId)).maximumDailyCheckCount).toBe(60);
   });
 
   it("refuses an event that Stripe didn't sign, and one about nobody", async () => {
@@ -297,27 +299,14 @@ describe("what Pro raises", () => {
     expect((await api("/games", { body: { title: "Hop", slug: "hop" } })).status).toBe(201);
   });
 
-  it("lets a game have 100 versions a day instead of 20, naming Pro on the free plan", async () => {
-    await fillVersions(20);
-    const refused = await pushOne();
-    expect(refused.status).toBe(429);
-    expect(((await refused.json()) as any).error.message).toContain("20 versions in the last day, the most a game can (100 with Zaisma Pro).");
-    await makePro();
+  it("lets every game have 100 versions a day, on any plan", async () => {
+    await fillVersions(99);
     expect((await pushOne()).status).toBe(201);
-    await fillVersions(79, "more");
     const overHundred = await pushOne();
     expect(overHundred.status).toBe(429);
     expect(((await overHundred.json()) as any).error.message).toContain("100 versions in the last day, the most a game can.");
+    await makePro();
+    expect((await pushOne()).status).toBe(429);
   });
 
-  it("lets a game be 10 GB instead of 2, naming Pro on the free plan", async () => {
-    const hash = "b".repeat(64);
-    const files = (count: number) => [{ path: "index.html", sha256: hash, size_bytes: 1 }, ...Array.from({ length: count }, (_, i) => ({ path: `data${i}.json`, sha256: hash, size_bytes: 450 * 1024 ** 2 }))];
-    const free = await api("/games/hop/uploads", { body: { files: files(7) } });
-    expect(free.status).toBe(413);
-    expect(free.answer.error).toMatchObject({ code: "game_too_big", message: expect.stringContaining("2 GB (10 GB with Zaisma Pro)") });
-    await makePro();
-    expect((await api("/games/hop/uploads", { body: { files: files(7) } })).status).toBe(200);
-    expect((await api("/games/hop/uploads", { body: { files: files(25) } })).answer.error.code).toBe("game_too_big");
-  });
 });

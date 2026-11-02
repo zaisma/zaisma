@@ -53,7 +53,7 @@ export async function deleteDueGames(env: Env): Promise<void> {
 async function deleteGame(env: Env, deletion: GameDeletion): Promise<void> {
   const gameId = deletion.game_id;
   // The backstop for a scan or report that came after the account went: a game under a child-safety hold is kept.
-  if (deletion.requested_by_kind === "account_deleted" && (await isKeptForChildSafety(env.DB, gameId))) {
+  if (deletion.requested_by_kind !== "zaisma" && (await isKeptForChildSafety(env.DB, gameId))) {
     await cancelGameDeletion(env.DB, gameId);
     await audit(env.DB, gameId, "kept-for-review", KEPT_FOR_REVIEW_REASON);
     return;

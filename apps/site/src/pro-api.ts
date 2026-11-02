@@ -1,4 +1,4 @@
-import { ApiError, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, iso, planOf } from "@zaisma/core";
+import { ApiError, FILE_LIMITS, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, REVIEW_LIMITS, STORAGE_ALLOWANCES, iso, planOf, storageAllowanceKindOf, type StorageAllowanceKind } from "@zaisma/core";
 import { dailyCheckCount } from "./performance-check.ts";
 import { largeReviewCount, smallReviewCount } from "./scan.ts";
 import { logCallerEvent } from "./security-log.ts";
@@ -7,7 +7,7 @@ import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
- * A developer's plan through the developer API (docs/DECISIONS.md, "Zaisma Pro raises the daily limits."): free, or
+ * A developer's plan through the developer API (docs/DECISIONS.md, "Zaisma Pro sells what developers want, never a way past a wait"): free, or
  * Zaisma Pro, $10 a month on their card apart from credit. Their AI reads the plan, starts the checkout (the person
  * pays on Stripe's page), cancels at the end of the paid month and takes that back, and refunds the first payment
  * within 14 days ("Zaisma Pro refunds"), which ends Pro at once. Otherwise Stripe's events set when Pro ends
@@ -30,12 +30,11 @@ interface ProRow {
 const proRow = (env: Env, ownerId: string) =>
   env.DB.prepare("SELECT pro_until_ms, is_pro_cancelled, stripe_subscription_id, stripe_customer_id FROM owners WHERE id = ?").bind(ownerId).first<ProRow>().then((row) => row ?? { pro_until_ms: null, is_pro_cancelled: 0, stripe_subscription_id: null, stripe_customer_id: null });
 
-const limitsAnswer = (plan: keyof typeof PLAN_LIMITS) => ({
-  maximum_large_review_count: PLAN_LIMITS[plan].maximumLargeReviewsPerDay,
-  maximum_small_review_count: PLAN_LIMITS[plan].maximumSmallReviewsPerDay,
+/** What a plan gives: free is what this account has by its standing, since a card or being established raises it. */
+const limitsAnswer = (plan: keyof typeof PLAN_LIMITS, allowanceKind: StorageAllowanceKind) => ({
   maximum_performance_check_count: PLAN_LIMITS[plan].maximumDailyCheckCount,
-  maximum_version_count: PLAN_LIMITS[plan].maximumVersionsPerDay,
-  maximum_game_size_bytes: PLAN_LIMITS[plan].maximumGameSizeBytes,
+  included_size_bytes: STORAGE_ALLOWANCES[allowanceKind].includedSizeBytes,
+  maximum_new_data_size_bytes: STORAGE_ALLOWANCES[allowanceKind].maximumNewDataSizeBytes,
 });
 
 /** The pro_answer: the owner's plan, what each plan allows and what today used. */
@@ -43,7 +42,8 @@ export async function proAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
   const row = await proRow(env, ownerId);
   const plan = planOf(row, nowMs);
   const canRefund = plan === "pro" && row.stripe_subscription_id !== null && row.stripe_customer_id !== null;
-  const [usedLargeReviewCount, usedSmallReviewCount, usedPerformanceCheckCount, refundEndsAtMs] = await Promise.all([
+  const [allowanceKind, usedLargeReviewCount, usedSmallReviewCount, usedPerformanceCheckCount, refundEndsAtMs] = await Promise.all([
+    storageAllowanceKindOf(env.DB, ownerId, nowMs),
     largeReviewCount(env, ownerId, nowMs),
     smallReviewCount(env, ownerId, nowMs),
     dailyCheckCount(env, ownerId, nowMs),
@@ -56,7 +56,8 @@ export async function proAnswer(env: Env, ownerId: string, nowMs = Date.now()) {
       is_pro_cancelled: plan === "pro" && row.is_pro_cancelled === 1,
       refund_ends_at: refundEndsAtMs === null ? null : iso(refundEndsAtMs),
       monthly_price_cents: PRO_PRICE_CENTS_PER_MONTH,
-      limits: { free: limitsAnswer("free"), pro: limitsAnswer("pro") },
+      limits: { free: limitsAnswer("free", allowanceKind === "pro" ? "paid_by_card" : allowanceKind), pro: limitsAnswer("pro", "pro") },
+      limits_for_everyone: { maximum_large_review_count: REVIEW_LIMITS.maximumLargeReviewsPerDay, maximum_small_review_count: REVIEW_LIMITS.maximumSmallReviewsPerDay, maximum_version_count: FILE_LIMITS.maximumVersionsPerDay },
       used_today: { large_review_count: usedLargeReviewCount, small_review_count: usedSmallReviewCount, performance_check_count: usedPerformanceCheckCount },
     },
   };

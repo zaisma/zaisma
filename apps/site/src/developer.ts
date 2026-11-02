@@ -65,9 +65,9 @@ import {
   type GameImage,
   type ImageKind,
   FILE_LIMITS,
-  PLAN_LIMITS,
   planFor,
-  type PlanKind,
+  releaseNewData,
+  storageOf,
   UploadError,
   addBlob,
   blobKey,
@@ -185,6 +185,7 @@ import {
   isCreditLow,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
+import { checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, reserveOrRefuse, storageRoute } from "./storage-api.ts";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
@@ -244,6 +245,10 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "scheduled_publish_at" } publishes later
  *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
  *   POST   /api/dev/games/:slug/versions/:id/ai-review  start a version's AI review without publishing it
+ *   DELETE /api/dev/games/:slug/versions/:id   delete a version that isn't in use (storage-api.ts)
+ *   DELETE /api/dev/games/:slug                delete the game for good: { "confirm_slug" } (storage-api.ts)
+ *   GET    /api/dev/storage                    what the account stores and can store (storage-api.ts)
+ *   PATCH  /api/dev/storage                    { "monthly_storage_budget_cents" } (storage-api.ts)
  *   DELETE /api/dev/games/:slug/versions/:id/preview-links   end every preview link handed out so far
  *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
@@ -624,9 +629,12 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/access", reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/activity", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/api-keys", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
+  call({ method: "GET", path: "/storage", reaches: "account", access: anyKey }),
+  call({ method: "PATCH", path: "/storage", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("monthly_storage_budget_cents") } }),
   call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
   call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
@@ -663,6 +671,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
     },
   }),
   call({ method: "GET", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "DELETE", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes", "publish_after_ai_review_enabled"), isOptional: true } }),
   call({ method: "POST", path: "/games/:slug/versions/:version_id/ai-review", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
@@ -902,7 +911,7 @@ async function ownGameSlugs(env: Env, given: unknown, caller: Caller, field: str
  * this caller alone. One that isn't is answered like a file never sent.
  */
 async function storedFiles(env: Env, given: unknown, caller: Caller): Promise<CheckedCall["files"]> {
-  const list = listOrThrow(given, await planFor(env.DB, caller.ownerId));
+  const list = listOrThrow(given);
   const found = await locateBlobs(env.DB, list.map((file) => file.sha256), caller.ownerId);
   const missingCount = list.filter((file) => !found.has(file.sha256)).length;
   if (missingCount) {
@@ -940,6 +949,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       : [];
     return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
+  if (apiRoute.path === "/storage") return answer(...(await storageRoute(env, method, checked.body, caller)));
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit/plan" || apiRoute.path.startsWith("/credit/plan/")) return answer(...(await creditPlanRoute(env, apiRoute.path, method, checked.body, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
@@ -1074,6 +1084,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (!game) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
   const isImages = apiRoute.path.startsWith("/games/:slug/images");
+
+  if (apiRoute.path === "/games/:slug" && method === "DELETE") return answer(...(await deleteOwnGame(env, game, checked.body, caller)));
 
   if (!isImages && method === "GET") {
     const [images, shaders, backgrounds, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
@@ -1433,9 +1445,13 @@ async function putBlob(request: Request, env: Env, sha256: string, caller: Calle
     return { sha256, storage_status: "already_stored" };
   }
   if (!request.body) throw new ApiError("no_body", { message: "The file came without a body.", fix: "Send the file's bytes as the request body." });
+  const storage = await storageOf(env.DB, caller.ownerId);
+  await checkStoredSizeFits(env, caller, sizeBytes, storage);
+  await reserveOrRefuse(env, caller.ownerId, sizeBytes, storage);
   try {
     await env.GAMES.put(blobKey(sha256), request.body, { sha256 });
   } catch (error) {
+    await releaseNewData(env.DB, caller.ownerId, sizeBytes);
     // Storage checks the SHA-256 as it stores (R2's BadDigest, 10037); any other failure is ours, not the file's.
     if (!/\(10037\)|checksum you specified did not match/.test(String((error as Error)?.message ?? error))) {
       console.error("Storing a file failed", error);
@@ -1472,6 +1488,7 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
       throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, field: "size_bytes", fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
     }
     if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, storage_status: "already_stored", upload_id: null, part_size_bytes: null, part_count: null };
+    await checkStoredSizeFits(env, caller, sizeBytes as number, await storageOf(env.DB, caller.ownerId), "size_bytes");
     const upload = await env.GAMES.createMultipartUpload(key);
     return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partSizeBytes, part_count: Math.ceil((sizeBytes as number) / FILE_LIMITS.partSizeBytes) };
   }
@@ -1486,10 +1503,12 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
     if (!(sizeBytes > 0 && sizeBytes <= FILE_LIMITS.partSizeBytes) || !request.body) {
       throw new ApiError("bad_part_size", { message: `Part ${partNumber} is empty, over ${FILE_LIMITS.partSizeBytes / 1048576} MB or has no Content-Length header.`, field: "Content-Length", fix: `Send each part but the last as exactly part_size_bytes (${FILE_LIMITS.partSizeBytes} bytes), with its Content-Length.` });
     }
+    await reserveOrRefuse(env, caller.ownerId, sizeBytes, await storageOf(env.DB, caller.ownerId));
     try {
       const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(partNumber, request.body);
       return { part_number: part.partNumber, etag: part.etag };
     } catch {
+      await releaseNewData(env.DB, caller.ownerId, sizeBytes);
       throw new ApiError("upload_closed", { message: "That upload_id isn't an open upload any more.", field: "upload_id", fix: `Start again with POST /api/dev/files/${sha256}/parts.` });
     }
   }
@@ -1507,6 +1526,16 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
     if (stored.size > FILE_LIMITS.maximumFileSizeBytes) {
       await env.GAMES.delete(key);
       throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
+    }
+    // The real size this time, however small the start's size_bytes said it was.
+    const isHeld = (await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0;
+    if (!isHeld) {
+      try {
+        await checkStoredSizeFits(env, caller, stored.size, await storageOf(env.DB, caller.ownerId));
+      } catch (error) {
+        await env.GAMES.delete(key);
+        throw error;
+      }
     }
     const start = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
     const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
@@ -1529,8 +1558,12 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
 
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
-    const files = listOrThrow(body.files, await planFor(env.DB, caller.ownerId));
+    const files = listOrThrow(body.files);
     const missing = await missingBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
+    // The whole game must fit in what the account can store; each file checks the day's new data as it comes, so a game too big for one day goes up over several.
+    const missingHashes = new Set(missing);
+    const sizeByMissingHash = new Map(files.filter((file) => missingHashes.has(file.sha256)).map((file) => [file.sha256, file.size_bytes]));
+    await checkStoredSizeFits(env, caller, [...sizeByMissingHash.values()].reduce((totalSizeBytes, sizeBytes) => totalSizeBytes + sizeBytes, 0), await storageOf(env.DB, caller.ownerId), "files");
     return [{ file_count: files.length, size_bytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0), missing_file_hashes: missing }];
   }
 
@@ -1562,10 +1595,9 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
-    const versionPlan = await planFor(env.DB, caller.ownerId);
-    if ((today?.version_count ?? 0) >= PLAN_LIMITS[versionPlan].maximumVersionsPerDay) {
+    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) {
       throw new ApiError("version_limit", {
-        message: `${game.slug} has had ${PLAN_LIMITS[versionPlan].maximumVersionsPerDay} versions in the last day, the most a game can${versionPlan === "free" ? ` (${PLAN_LIMITS.pro.maximumVersionsPerDay} with Zaisma Pro)` : ""}.`,
+        message: `${game.slug} has had ${FILE_LIMITS.maximumVersionsPerDay} versions in the last day, the most a game can.`,
         fix: "Wait until the oldest is a day old, then upload again; meanwhile test with the latest version's preview_url.",
         retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
       });
@@ -1601,6 +1633,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: versionFix });
 
   if (version && !isPublish && method === "GET") return [{ version: await versionAnswer(env, game, version) }];
+  if (version && !isPublish && method === "DELETE") return deleteOwnVersion(env, game, version, caller);
 
   // Start the review ahead of a launch, with nothing published. A repeat answers where it stands.
   if (version && isAiReview && method === "POST") {
@@ -2227,9 +2260,9 @@ function reasonAnswer(stored: string | null) {
   return reason ? reviewReasonAnswer(reason) : null;
 }
 
-function listOrThrow(files: unknown, plan: PlanKind): UploadFile[] {
+function listOrThrow(files: unknown): UploadFile[] {
   try {
-    return checkUploadList(files, plan);
+    return checkUploadList(files);
   } catch (error) {
     if (error instanceof UploadError) throw new ApiError(error.problem?.code ?? "bad_files", { message: error.message, field: error.problem?.field ?? "files", fix: error.problem?.fix ?? "Check the file list against docs/DEVELOPER-API.md, Uploading versions." });
     throw error;
@@ -2625,15 +2658,14 @@ export async function versionAnswer(env: Env, game: Game, version: Version) {
 /** What a game's versions' AI review answers need, read once for all of them; null when every review has ended. */
 async function aiReviewFacts(env: Env, game: Game, versions: Version[]): Promise<AiReviewFacts | null> {
   if (versions.every((version) => isAiReviewDone(version) || version.ai_review_status === "stopped")) return null;
-  const [publish, speed, usualDurationsMin, plan] = await Promise.all([publishFacts(env, game), aiReviewSpeedFor(env, game), usualAiReviewDurations(env), game.owner_id ? planFor(env.DB, game.owner_id) : ("free" as const)]);
-  return { publish, speed, usualDurationsMin, plan };
+  const [publish, speed, usualDurationsMin] = await Promise.all([publishFacts(env, game), aiReviewSpeedFor(env, game), usualAiReviewDurations(env)]);
+  return { publish, speed, usualDurationsMin };
 }
 
 interface AiReviewFacts {
   publish: PublishFacts;
   speed: AiReviewSpeed;
   usualDurationsMin: Record<AiReviewSpeed, number>;
-  plan: PlanKind;
 }
 
 /** How a version started in Chrome: null for zip versions and versions from before it ran. */
@@ -2685,17 +2717,17 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: [...findingsFor(report), ...(isReviewOpen ? waitingFindingsFor(version, aiReview.plan) : [])],
+    findings: [...findingsFor(report), ...(isReviewOpen ? waitingFindingsFor(version) : [])],
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
 }
 
-/** What a review waiting for a free daily review tells the developer, with the limit that's theirs. A note: nothing is held. */
-function waitingFindingsFor(version: Version, plan: PlanKind) {
+/** What a review waiting for a free daily review tells the developer. A note: nothing is held. */
+function waitingFindingsFor(version: Version) {
   const code = version.ai_review_waiting_reason;
   if (!code) return [];
-  return [{ code, severity: "info" as const, message: dailyReviewMeaning(code, plan), content_rule: null, path: null, fix: REVIEW_CODES[code].fix, message_for_people: REVIEW_CODES[code].messageForPeople }];
+  return [{ code, severity: "info" as const, message: dailyReviewMeaning(code), content_rule: null, path: null, fix: REVIEW_CODES[code].fix, message_for_people: REVIEW_CODES[code].messageForPeople }];
 }
 
 /** A person's or a report's decision about a version: a report paused this update, or a person rejected it. */
