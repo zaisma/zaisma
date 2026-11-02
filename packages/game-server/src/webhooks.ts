@@ -19,6 +19,7 @@ export type WebhookEventKind =
   | "bug_reported"
   | "player_reported"
   | "scan_status_changed"
+  | "ai_review_finished"
   | "live_version_changed"
   | "review_status_changed"
   | "country_blocks_changed"

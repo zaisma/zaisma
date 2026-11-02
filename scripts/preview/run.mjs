@@ -627,6 +627,7 @@ function seedAiReviewStates() {
      ${row("version_previewrolledbak01", "rolled-back", "approved", report(null, "approved"), "passed", "batch", 0, true)}
      UPDATE games SET live_version_id = 'version_previewrolledbak01' WHERE slug = 'rolled-back';
      ${row("version_previewrolledbak02", "rolled-back", "rejected", report(stop, "rejected"), "stopped", "batch", 1, true)}
+     DELETE FROM audit_log WHERE action = 'ai-review-rolled-back' AND game_id = 'game_previewrolledback01';
      INSERT INTO audit_log (game_id, action, reason, actor, review_reason, happened_at_ms) SELECT id, 'ai-review-rolled-back', 'Stopped; players are back on the version before', 'system', '${stopReason}', ${nowMs} FROM games WHERE slug = 'rolled-back'`);
 }
 

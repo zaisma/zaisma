@@ -2049,6 +2049,7 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
     files: list,
     patch_notes: typeof toolArguments.patch_notes === "string" ? toolArguments.patch_notes : "",
     publish_when_approved: toolArguments.publish_when_approved === true,
+    ...(toolArguments.publish_after_ai_review_enabled === true ? { publish_after_ai_review_enabled: true } : {}),
     ...(toolArguments.match_update_mode !== undefined ? { match_update_mode: toolArguments.match_update_mode } : {}),
   });
   return { version, sent_file_count: sent.size, next_steps: nextSteps };
