@@ -477,10 +477,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
     // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS).
-    if (!options.pictureOf) {
-      await send("Network.enable");
-      await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
-    }
+    await send("Network.enable");
+    if (!options.pictureOf) await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
+    // Every page opens as its own first visit, with no browser cache: one Chrome plays every screen here, and the cache it would share across
+    // tabs holds pages others fetched ahead (prepared-pages.ts) for half a minute, sent under Chrome's own name and so drawn for a computer.
+    await send("Network.setCacheDisabled", { cacheDisabled: true });
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
