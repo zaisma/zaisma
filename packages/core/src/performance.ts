@@ -1,5 +1,5 @@
 import { ASSET_NOTE_CODES, type PerformanceNote } from "../../cli/performance.mjs";
-import { readVersionAddress } from "./uploads.ts";
+import { readContentAddress, readVersionAddress } from "./uploads.ts";
 
 /**
  * How a version started in headless Chrome (docs/DECISIONS.md, "Every version is started in Chrome, and what it
@@ -25,6 +25,8 @@ export const PERFORMANCE_CHECK_LIMITS = {
   maximumWarmUpSizeBytes: 100 * 1024 ** 2,
   /** On an iPhone, a game page downloads before Play only a game whose start files come to this or less, all of them or none. */
   maximumPhoneWarmUpSizeBytes: 10 * 1000 ** 2,
+  /** How many of a version's redirects to content addresses the warm-up keeps ahead of time in browsers that need it (warm.js). */
+  maximumWarmUpRedirectCount: 5000,
 };
 
 /** Notes only a run in Chrome gives. */
@@ -201,8 +203,8 @@ function gamePathOf(url: string, gameBaseUrl: string): string | null {
   } catch {
     return null;
   }
-  // A file at its version's own address (where the game's pages open) is the same file of the game.
-  const versionAddress = readVersionAddress(path);
+  // A file at its version's own address (where the game's pages open) or at its content address is the same file of the game.
+  const versionAddress = readVersionAddress(path) ?? readContentAddress(path);
   if (versionAddress) path = versionAddress.path;
   else if (path.startsWith("_zaisma/")) return null;
   return path + (queryIndex === -1 ? "" : rest.slice(queryIndex));

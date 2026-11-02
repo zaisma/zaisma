@@ -10,6 +10,7 @@ import {
   PLAYER_PERFORMANCE_LIMITS,
   fileKey,
   gameHeaders,
+  hasContentAddress,
   isCompressibleType,
   isEntryCookieValid,
   isIdOf,
@@ -19,6 +20,7 @@ import {
   manifestKey,
   ownServerUrlsOf,
   playsOnline,
+  readContentAddress,
   readGameAddress,
   readVersionAddress,
   requestCountryCode,
@@ -294,7 +296,7 @@ export function preloadLinkHeader(page: string, base: string, startFiles: StartF
 }
 
 /** The warm-up page: nothing to show, just its script, on the game's own address so it fills this game's cache. */
-const WARM_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><script src="warm.js?v=2"></script>`;
+const WARM_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><script src="warm.js?v=3"></script>`;
 
 /** The host names of a game's own servers, where its own relay may be. */
 const ownHostnames = (ownServerUrls: string[]): string[] => ownServerUrls.map((origin) => new URL(origin).hostname);
@@ -311,6 +313,52 @@ async function manifestFor(env: Env, versionId: string): Promise<Manifest | null
   if (manifests.size >= 20) manifests.delete(manifests.keys().next().value!);
   manifests.set(versionId, manifest);
   return manifest;
+}
+
+// Zip versions have no manifest: each Worker remembers the latest few, so their files don't read storage for one every time.
+const versionIdsWithoutManifest = new Set<string>();
+
+/**
+ * A stored file at its version's own address redirects to its content address (readContentAddress), so an update
+ * downloads only what changed. The answer holds no file and never changes, so the browser keeps it for good and
+ * nothing is read but the manifest each Worker keeps; whoever follows it is checked at the content address.
+ */
+async function redirectToContentAddress(env: Env, url: URL, target: Target): Promise<Response | null> {
+  const pinned = readVersionAddress(target.path);
+  if (!pinned || !hasContentAddress(pinned.path) || versionIdsWithoutManifest.has(pinned.versionId)) return null;
+  const manifest = await manifestFor(env, pinned.versionId);
+  if (!manifest) {
+    if (versionIdsWithoutManifest.size >= 100) versionIdsWithoutManifest.clear();
+    versionIdsWithoutManifest.add(pinned.versionId);
+    return null;
+  }
+  const sha256 = manifest.files[pinned.path]?.sha256;
+  if (!sha256) return null;
+  const sentPath = url.pathname.slice(target.base.length + target.path.length - pinned.path.length);
+  return new Response(null, { status: 301, headers: { Location: `${target.base}_zaisma/content/${sha256}/${sentPath}`, "Cache-Control": `private, max-age=${VERSION_FILE_CACHE_DURATION_SEC}, immutable` } });
+}
+
+/**
+ * The manifest of a version this address may open that has this exact file at this path: the one it serves, or on
+ * the public address the game's earlier releases (a player mid-game on one, and a browser whose kept redirect
+ * outlived its kept file). Only this game's own manifests are read, so a fingerprint neither gets another game's
+ * file nor says whether Zaisma has it.
+ */
+async function manifestWithFile(env: Env, game: Game, version: ServedVersion, mayOpenEarlier: boolean, contentAddress: { sha256: string; path: string }): Promise<Manifest | null> {
+  const hasFile = (manifest: Manifest | null) => manifest?.files[contentAddress.path]?.sha256 === contentAddress.sha256;
+  const served = version.kind === "files" ? await manifestFor(env, version.id) : null;
+  if (hasFile(served)) return served;
+  if (!mayOpenEarlier) return null;
+  const { results: earlier } = await env.DB.prepare(
+    "SELECT id FROM versions WHERE game_id = ? AND kind = 'files' AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND report_held_at_ms IS NULL ORDER BY published_at_ms DESC LIMIT 20",
+  )
+    .bind(game.id)
+    .all<{ id: string }>();
+  for (const { id } of earlier) {
+    const manifest = await manifestFor(env, id);
+    if (hasFile(manifest)) return manifest;
+  }
+  return null;
 }
 
 /** Whether the browser takes Brotli (Accept-Encoding has br, not turned off with q=0). */
@@ -433,6 +481,8 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   const target = resolveGame(url, env);
   if (!target) return page(404, "Game not found", "Check the link and try again.", env);
+  const contentRedirect = await redirectToContentAddress(env, url, target);
+  if (contentRedirect) return contentRedirect;
   // A game's tester links and previews open at its fixed addresses, <slug>--tester and <slug>--preview.
   const address = "slug" in target.by ? readGameAddress(target.by.slug) : null;
   const by = address ? { slug: address.slug } : target.by;
@@ -519,9 +569,10 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     // serve now goes back to the game's own address: pages always, and files when the address may not open it
     // (tester and preview links open only their version; the public address also the game's earlier releases).
     const pinned = readVersionAddress(target.path);
-    const filePath = pinned ? pinned.path : target.path;
+    const contentAddress = readContentAddress(target.path);
+    const filePath = pinned?.path ?? contentAddress?.path ?? target.path;
     // The path as the browser sent it (still encoded), for redirects.
-    const sentPath = url.pathname.slice(target.base.length + (pinned ? target.path.length - pinned.path.length : 0));
+    const sentPath = url.pathname.slice(target.base.length + target.path.length - filePath.length);
     const backToGameAddress = () => new Response(null, { status: 302, headers: { Location: `${target.base}${sentPath}${url.search}`, "Cache-Control": "no-store" } });
     let servedVersion = version;
     if (pinned && pinned.versionId !== version.id) {
@@ -537,6 +588,15 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
     const connectOrigins = connectSources(env.ROOMS_ORIGIN, ownServerUrls);
     // Where this address's version lives: what its start files are preloaded and warmed up from, so they match the page's own requests.
     const versionBase = `${target.base}_zaisma/versions/${version.id}/`;
+
+    // A file at its content address, while a version this address may open has it there. Anything else under one is
+    // a path a loader worked out from a response's own address: it means that path in the version this address serves.
+    if (contentAddress) {
+      const manifest = hasContentAddress(filePath) ? await manifestWithFile(env, game, version, !address, contentAddress) : null;
+      if (!manifest) return new Response(null, { status: 302, headers: { Location: `${versionBase}${sentPath}${url.search}`, "Cache-Control": "no-store" } });
+      const key = fileKey({ kind: "files", r2_prefix: "" }, manifest, filePath)!;
+      return serveStoredFile(request, env, ctx, url, filePath, key, contentAddress.sha256, gameHeaders(contentTypeFor(filePath), env.SITE_ORIGIN, connectOrigins), `public, max-age=${VERSION_FILE_CACHE_DURATION_SEC}, immutable`);
+    }
 
     // The SDK, served from the game's own site so its sandbox allows it, set up for this game.
     if (filePath === "_zaisma/v1.js") {
@@ -598,7 +658,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
 
     // Game files start before Play: the warm-up page, its script and the live version's start files, only on the
     // game's public address. Tester, preview and accounts-only games need a cookie before Play, so they don't warm up.
-    if (filePath === "_zaisma/warm" || filePath === "_zaisma/warm.json" || filePath === "_zaisma/warm.js") {
+    if (filePath === "_zaisma/warm" || filePath === "_zaisma/warm.json" || filePath === "_zaisma/warm.js" || filePath === "_zaisma/warm-redirects.json") {
       if (address || isAccountsOnly) return page(404, "File not found", "This game is missing a file.", env);
       if (filePath === "_zaisma/warm.js") {
         const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
@@ -610,9 +670,21 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
         headers.set("Cache-Control", "no-cache");
         return new Response(request.method === "HEAD" ? null : WARM_PAGE, { headers });
       }
+      const startFiles = await startFilesOf(env, version.id);
+      // Safari reads its cache for a redirect it kept, never for where a fresh one leads, so what warm.js asks for here keeps an update from downloading unchanged files there.
+      if (filePath === "_zaisma/warm-redirects.json") {
+        const manifest = version.kind === "files" ? await manifestFor(env, version.id) : null;
+        const paths = Object.keys(manifest?.files ?? {}).filter(hasContentAddress);
+        const startPaths = new Set(startFiles.map((file) => file.path));
+        const firstPaths = paths.filter((path) => startPaths.has(path));
+        const otherPaths = paths.filter((path) => !startPaths.has(path)).slice(0, Math.max(0, PERFORMANCE_CHECK_LIMITS.maximumWarmUpRedirectCount - firstPaths.length));
+        const toUrl = (path: string) => `${versionBase}${encodeURI(path)}`;
+        const headers = gameHeaders("application/json", env.SITE_ORIGIN, connectOrigins);
+        headers.set("Cache-Control", "no-cache");
+        return new Response(request.method === "HEAD" ? null : JSON.stringify({ start_file_urls: firstPaths.map(toUrl), other_file_urls: otherPaths.map(toUrl) }), { headers });
+      }
       const urls: string[] = [];
       let warmSizeBytes = 0;
-      const startFiles = await startFilesOf(env, version.id);
       // A page that asks for at most so much (an iPhone's game page: maximum_start_size_bytes) gets all the start files or none.
       const askedSizeBytes = Number(url.searchParams.get("maximum_start_size_bytes"));
       const isWithinAsked = !url.searchParams.has("maximum_start_size_bytes") || (Number.isSafeInteger(askedSizeBytes) && startFiles.reduce((sumBytes, file) => sumBytes + file.downloaded_size_bytes, 0) <= askedSizeBytes);
