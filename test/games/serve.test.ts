@@ -507,14 +507,205 @@ describe("game server", () => {
       expect(earlier.headers.get("cache-control")).toBe(IMMUTABLE);
       expect(await earlier.text()).toBe("one");
       // A version never released isn't opened through the public address.
-      const unreleased = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated3/level.json`, { redirect: "manual" });
-      expect(unreleased.status).toBe(302);
-      expect(unreleased.headers.get("location")).toBe("/updated/level.json");
+      const unreleased = await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated3/level.json`);
+      expect(await unreleased.text()).toBe("two");
       expect((await SELF.fetch(`${G}/updated/_zaisma/versions/nothing/level.json`, { redirect: "manual" })).headers.get("location")).toBe("/updated/level.json");
 
       await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
       expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/level.json`)).status).toBe(410);
       expect((await SELF.fetch(`${G}/updated/_zaisma/versions/vupdated2/`)).status).toBe(410);
+    });
+
+    /** Where a request ends up, each step's status and the last response: what a browser's cache keys on. */
+    async function follow(address: string, headers: Record<string, string> = {}) {
+      const steps: { address: string; httpStatus: number; cacheControl: string | null }[] = [];
+      let current = address;
+      for (;;) {
+        const response = await SELF.fetch(`${G}${current}`, { redirect: "manual", headers });
+        steps.push({ address: current, httpStatus: response.status, cacheControl: response.headers.get("cache-control") });
+        const location = response.headers.get("location");
+        if (!location || steps.length > 5) return { address: current, steps, response };
+        current = location;
+      }
+    }
+
+    it("gives a file an update didn't change the same final address, so a returning player's browser already has it", async () => {
+      const id = await addGame("shared", "live", false);
+      const unchanged = { "Build/game.data": "same data", "fonts/title.woff2": "same font" };
+      await addFilesVersion(id, "vshared1", { "index.html": "<p>one</p>", "Build/game.wasm": "wasm one", ...unchanged }, true);
+      await addFilesVersion(id, "vshared2", { "index.html": "<p>two</p>", "Build/game.wasm": "wasm two", ...unchanged }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vshared2' WHERE id = ?").bind(id).run();
+
+      const data1 = await follow("/shared/_zaisma/versions/vshared1/Build/game.data");
+      const data2 = await follow("/shared/_zaisma/versions/vshared2/Build/game.data");
+      expect(data2.address).toBe(data1.address);
+      expect(await data2.response.text()).toBe("same data");
+      expect(data2.response.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect((await follow("/shared/_zaisma/versions/vshared1/fonts/title.woff2")).address).toBe((await follow("/shared/_zaisma/versions/vshared2/fonts/title.woff2")).address);
+      // What changed has a new address, and each version still gets its own bytes.
+      const wasm1 = await follow("/shared/_zaisma/versions/vshared1/Build/game.wasm");
+      const wasm2 = await follow("/shared/_zaisma/versions/vshared2/Build/game.wasm");
+      expect(wasm2.address).not.toBe(wasm1.address);
+      expect(await wasm1.response.text()).toBe("wasm one");
+      expect(await wasm2.response.text()).toBe("wasm two");
+    });
+
+    it("keeps the redirect for good, reads nothing for it, and checks the file's own answer as a file", async () => {
+      const id = await addGame("redirected", "live", false);
+      await addFilesVersion(id, "vredirected1", { "index.html": "<p>one</p>", "My Build/game data.bin": "bytes" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vredirected1' WHERE id = ?").bind(id).run();
+      const sha = await sha256Hex(enc("bytes"));
+
+      const redirect = await SELF.fetch(`${G}/redirected/_zaisma/versions/vredirected1/My%20Build/game%20data.bin?v=2`, { redirect: "manual" });
+      expect(redirect.status).toBe(301);
+      expect(redirect.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+      // Still encoded, and a query that changes nothing about the file doesn't split the browser's copy.
+      expect(redirect.headers.get("location")).toBe(`/redirected/_zaisma/content/${sha}/My%20Build/game%20data.bin`);
+      // The redirect holds no file: a removed game answers at the content address, which every access check guards.
+      await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}/redirected/_zaisma/content/${sha}/My%20Build/game%20data.bin`)).status).toBe(410);
+      await env.DB.prepare("UPDATE games SET review_status = 'live' WHERE id = ?").bind(id).run();
+
+      const file = await SELF.fetch(`${G}/redirected/_zaisma/content/${sha}/My%20Build/game%20data.bin`);
+      expect(file.headers.get("etag")).toBe(`"${sha}"`);
+      expect(file.headers.get("content-security-policy")).toContain("default-src 'self'");
+      expect(await file.text()).toBe("bytes");
+      expect((await SELF.fetch(`${G}/redirected/_zaisma/content/${sha}/My%20Build/game%20data.bin`, { headers: { "if-none-match": `"${sha}"` } })).status).toBe(304);
+      const part = await SELF.fetch(`${G}/redirected/_zaisma/content/${sha}/My%20Build/game%20data.bin`, { headers: { range: "bytes=1-2" } });
+      expect(part.status).toBe(206);
+      expect(await part.text()).toBe("yt");
+    });
+
+    it("leaves files that resolve paths from their own address at their version's address", async () => {
+      const id = await addGame("readers", "live", false);
+      const files = { "index.html": "<p>page</p>", "menu.html": "<p>menu</p>", "main.js": "import './b.js';", "lib.mjs": "m", "style.css": "a{}", "icon.svg": "<svg/>", "site.webmanifest": "{}", "video/stream.m3u8": "#", "levels/one.json": "{}", "zaisma-server.js": "secret" };
+      await addFilesVersion(id, "vreaders1", files, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vreaders1' WHERE id = ?").bind(id).run();
+      for (const path of ["main.js", "lib.mjs", "style.css", "icon.svg", "site.webmanifest", "video/stream.m3u8"]) {
+        const stays = await SELF.fetch(`${G}/readers/_zaisma/versions/vreaders1/${path}`, { redirect: "manual" });
+        expect(stays.status).toBe(200);
+        expect(stays.headers.get("cache-control")).toBe(IMMUTABLE);
+      }
+      expect((await SELF.fetch(`${G}/readers/_zaisma/versions/vreaders1/menu.html`, { redirect: "manual" })).headers.get("cache-control")).toBe("no-cache");
+      expect((await SELF.fetch(`${G}/readers/_zaisma/versions/vreaders1/levels/one.json`, { redirect: "manual" })).status).toBe(301);
+
+      // A page under a content address gets no way around its checks and its scripts: it's the version's own page.
+      const pageSha = await sha256Hex(enc("<p>menu</p>"));
+      const page = await follow(`/readers/_zaisma/content/${pageSha}/menu.html`);
+      expect(page.address).toBe("/readers/_zaisma/versions/vreaders1/menu.html");
+      expect(page.response.headers.get("cache-control")).toBe("no-cache");
+      expect(await page.response.text()).toContain('src="/readers/_zaisma/relay.js');
+      // A game server's code never goes out, and never loops.
+      const server = await follow(`/readers/_zaisma/content/${await sha256Hex(enc("secret"))}/zaisma-server.js`);
+      expect(server.response.status).toBe(404);
+      expect(server.steps.length).toBeLessThan(3);
+      const serverAtVersion = await follow("/readers/_zaisma/versions/vreaders1/zaisma-server.js");
+      expect(serverAtVersion.response.status).toBe(404);
+      expect(serverAtVersion.steps).toHaveLength(1);
+    });
+
+    it("serves a fingerprint only for this game's own versions, and says nothing about anyone else's files", async () => {
+      const id = await addGame("mine", "live", false);
+      const otherId = await addGame("theirs", "live", false);
+      await addFilesVersion(id, "vmine1", { "index.html": "<p>mine</p>", "a.bin": "my file" }, true);
+      await addFilesVersion(otherId, "vtheirs1", { "index.html": "<p>theirs</p>", "a.bin": "their secret file", "only-theirs.bin": "their other file" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vmine1' WHERE id = ?").bind(id).run();
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vtheirs1' WHERE id = ?").bind(otherId).run();
+      const theirs = await sha256Hex(enc("their secret file"));
+
+      // Their fingerprint at a path this game has: this game's file, as for any fingerprint nobody has.
+      const named = await follow(`/mine/_zaisma/content/${theirs}/a.bin`);
+      expect(await named.response.text()).toBe("my file");
+      const nobodys = await follow(`/mine/_zaisma/content/${"0".repeat(64)}/a.bin`);
+      expect(nobodys.address).toBe(named.address);
+      // At a path it doesn't have: the same answer as any file it's missing.
+      const missing = await follow(`/mine/_zaisma/content/${await sha256Hex(enc("their other file"))}/only-theirs.bin`);
+      const missingNobodys = await follow(`/mine/_zaisma/content/${"0".repeat(64)}/only-theirs.bin`);
+      expect(missing.response.status).toBe(404);
+      expect(missingNobodys.response.status).toBe(404);
+      expect(await missing.response.text()).toBe(await missingNobodys.response.text());
+      // Another game's version named at this game's address gets none of its bytes either.
+      const crossed = await follow("/mine/_zaisma/versions/vtheirs1/a.bin");
+      expect(await crossed.response.text()).toBe("my file");
+    });
+
+    it("stops serving with the checks of the address: private, held, taken down, tester and accounts-only", async () => {
+      const id = await addGame("guarded", "live", false);
+      await addFilesVersion(id, "vguarded1", { "index.html": "<p>one</p>", "a.bin": "first", "b.bin": "kept" }, true);
+      await addFilesVersion(id, "vguarded2", { "index.html": "<p>two</p>", "a.bin": "second", "b.bin": "kept" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vguarded2' WHERE id = ?").bind(id).run();
+      const first = `/guarded/_zaisma/content/${await sha256Hex(enc("first"))}/a.bin`;
+      const kept = `/guarded/_zaisma/content/${await sha256Hex(enc("kept"))}/b.bin`;
+      expect(await (await SELF.fetch(`${G}${first}`)).text()).toBe("first");
+
+      // An earlier release held for a report no longer serves the files only it has; the live version's answer takes their place.
+      await env.DB.prepare("UPDATE versions SET report_held_at_ms = 1 WHERE id = 'vguarded1'").run();
+      expect(await (await follow(first)).response.text()).toBe("second");
+      await env.DB.prepare("UPDATE versions SET report_held_at_ms = NULL WHERE id = 'vguarded1'").run();
+
+      // A private game opens to nobody at a content address, whatever their browser remembers of it.
+      await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}${kept}`)).status).toBe(404);
+      const link = await addTesterLink(env.DB, id, "Playtesters");
+      const tester = kept.replace("/guarded/", "/guarded--tester/");
+      expect((await SELF.fetch(`${G}${tester}`)).status).toBe(404);
+      const { cookie } = await enter("guarded", "tester", await createAccessGrant(env.DB, { gameId: id, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 }));
+      const opened = await SELF.fetch(`${G}${tester}`, { headers: { cookie } });
+      expect(await opened.text()).toBe("kept");
+      // Only this browser's cookie opens it: no shared cache keeps it, and no other game loads it.
+      expect(opened.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+      expect(opened.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+      // A tester link opens only its version, never the game's earlier ones.
+      expect((await follow(first.replace("/guarded/", "/guarded--tester/"), { cookie })).response.status).not.toBe(404);
+      expect(await (await follow(first.replace("/guarded/", "/guarded--tester/"), { cookie })).response.text()).toBe("second");
+
+      await env.DB.prepare("UPDATE games SET visibility = 'listed', account_requirement = 'whole_game', entry_signing_key = 'keyone' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}${kept}`)).status).toBe(404);
+      await env.DB.prepare("UPDATE games SET account_requirement = 'none' WHERE id = ?").bind(id).run();
+
+      await env.DB.prepare("UPDATE games SET review_status = 'held' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}${kept}`)).status).toBe(404);
+      await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
+      expect((await SELF.fetch(`${G}${kept}`)).status).toBe(410);
+    });
+
+    it("keeps earlier releases, rollbacks, rooms and relative paths working through content addresses", async () => {
+      const id = await addGame("rolling", "live", false);
+      await addFilesVersion(id, "vrolling1", { "index.html": "<p>one</p>", "dir/a.bin": "one", "dir/b.bin": "b one" }, true);
+      await addFilesVersion(id, "vrolling2", { "index.html": "<p>two</p>", "dir/a.bin": "two", "dir/b.bin": "b two" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vrolling2' WHERE id = ?").bind(id).run();
+
+      // A player still on version 1 finishes loading its own files.
+      const earlier = await follow("/rolling/_zaisma/versions/vrolling1/dir/a.bin");
+      expect(await earlier.response.text()).toBe("one");
+      // A rollback finds the same address, so the browser's copy still counts.
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vrolling1' WHERE id = ?").bind(id).run();
+      const rolledBack = await follow("/rolling/_zaisma/versions/vrolling1/dir/a.bin");
+      expect(rolledBack.address).toBe(earlier.address);
+      expect(await rolledBack.response.text()).toBe("one");
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vrolling2' WHERE id = ?").bind(id).run();
+
+      // A room on version 1: its cookie makes it the version served, so its files come straight from its manifest.
+      await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, version_id, created_at_ms, updated_at_ms) VALUES (?, 'RLLRMA', 2, 8, 'vrolling1', ?, ?)").bind(id, Date.now(), Date.now()).run();
+      const inRoom = await follow(earlier.address, { cookie: "__Host-zaisma_room_version_rolling=vrolling1.RLLRMA" });
+      expect(await inRoom.response.text()).toBe("one");
+
+      // A loader that works out a sibling's path from a response's own address gets the sibling in the version served.
+      const sibling = await follow(`${earlier.address.slice(0, earlier.address.lastIndexOf("/"))}/b.bin`);
+      expect(sibling.steps[0]!.httpStatus).toBe(302);
+      expect(sibling.steps[0]!.cacheControl).toBe("no-store");
+      expect(await sibling.response.text()).toBe("b two");
+    });
+
+    it("lists the redirects a warm-up keeps for browsers that need them, start files first, only on the public address", async () => {
+      const id = await addGame("warmed", "live", false);
+      await addFilesVersion(id, "vwarmed1", { "index.html": "<p>page</p>", "main.js": "1", "a b.bin": "a", "Build/start.bin": "start", "style.css": "a{}" }, true);
+      await env.DB.prepare("UPDATE games SET live_version_id = 'vwarmed1' WHERE id = ?").bind(id).run();
+      await env.DB.prepare("INSERT INTO performance_checks (version_id, owner_id, check_status, start_files, queued_at_ms) VALUES ('vwarmed1', 'owner', 'checked', ?, 0)").bind(JSON.stringify([{ path: "main.js", destination: "script", is_cors_request: false, downloaded_size_bytes: 1 }, { path: "Build/start.bin", destination: "fetch", is_cors_request: true, downloaded_size_bytes: 5 }])).run();
+      const base = "/warmed/_zaisma/versions/vwarmed1";
+      expect(await (await SELF.fetch(`${G}/warmed/_zaisma/warm-redirects.json`)).json()).toEqual({ start_file_urls: [`${base}/Build/start.bin`], other_file_urls: [`${base}/a%20b.bin`] });
+      expect((await SELF.fetch(`${G}/warmed--tester/_zaisma/warm-redirects.json`)).status).toBe(404);
+      expect(await (await SELF.fetch(`${G}/warmed/_zaisma/warm.js`)).text()).toContain('redirect: "manual"');
     });
 
     // A player always plays the version their room runs (docs/DEVELOPER-API.md, "Updates").
@@ -648,7 +839,7 @@ describe("game server", () => {
     expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.json?maximum_start_size_bytes=10000000`)).json()).toEqual(["/live-one/_zaisma/versions/vgliveone/Build/framework.js"]);
     const page = await SELF.fetch(`${G}/live-one/_zaisma/warm`);
     expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain('src="warm.js?v=2"');
+    expect(await page.text()).toContain('src="warm.js?v=3"');
     expect(await (await SELF.fetch(`${G}/live-one/_zaisma/warm.js`)).text()).toContain('fetch("warm.json" + location.search');
     // Tester and preview addresses, and accounts-only games, need a cookie before Play: no warm-up.
     expect((await SELF.fetch(`${G}/live-one--tester/_zaisma/warm.json`)).status).toBe(404);

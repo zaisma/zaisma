@@ -36,7 +36,7 @@ export const LOCAL_VERSION_ID = "version_local";
 export const LOCAL_FOLDER = ".zaisma-local";
 /** Every _zaisma/ file the games Worker serves, split by whether it works here or only loads and does nothing (test/node/local-play-parity.test.ts holds this to apps/games/src/index.ts). */
 export const SERVED_ZAISMA_PATHS = ["_zaisma/v1.js", "_zaisma/v1.d.ts", "_zaisma/relay.js", "_zaisma/picture.js", "_zaisma/saves.js", "_zaisma/restore"];
-export const ONLY_ON_ZAISMA_PATHS = ["_zaisma/performance.js", "_zaisma/warm", "_zaisma/warm.json", "_zaisma/warm.js"];
+export const ONLY_ON_ZAISMA_PATHS = ["_zaisma/performance.js", "_zaisma/warm", "_zaisma/warm.json", "_zaisma/warm-redirects.json", "_zaisma/warm.js"];
 const OPTION_NAMES = ["gameFolder", "port", "isOnNetwork", "gameSlug", "zaismaKey", "developerApiUrl", "log"];
 const SAVE_LIMIT_BYTES = 5 * 1024 * 1024;
 const PASS_DURATION_SEC = 24 * 3600;
