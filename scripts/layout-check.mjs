@@ -402,18 +402,22 @@ const KEYBOARD_STEP = `(() => {
 })()`;
 
 /**
- * Once focus is back where it began: whether to go round again, for a control that arrived this time round behind focus. A load on its way
- * is waited for, so what it brings counts too: an observer that starts one runs with a frame, and it's busy until what it brought is in the
- * page (Load more with isLoadedOnScroll, the one piece that loads as it nears the screen). Never more than KEYBOARD_LOAD_LIMIT_MS: an answer that
- * never comes leaves the page as it is.
+ * A load on its way, waited for so what it brings counts: an observer that starts one runs with a frame, and it's busy until what it brought
+ * is in the page (Load more with isLoadedOnScroll, the one piece that loads as it nears the screen). Never more than
+ * LOAD_ON_ITS_WAY_LIMIT_MS: an answer that never comes leaves the page as it is.
  */
-const KEYBOARD_LOAD_LIMIT_MS = 15_000;
-const KEYBOARD_ROUND_END = `(async () => {
-  const state = window.zaismaKeyboard;
+const LOAD_ON_ITS_WAY_LIMIT_MS = 15_000;
+const LOAD_ON_ITS_WAY = `(async () => {
   const timer = (ms) => new Promise((done) => setTimeout(done, ms));
   const frame = () => new Promise((done) => requestAnimationFrame(done));
   await Promise.race([frame().then(frame), timer(450)]);
-  for (const end = Date.now() + ${KEYBOARD_LOAD_LIMIT_MS}; document.querySelector('[data-loads-on-scroll] [aria-busy="true"]') && Date.now() < end;) await timer(16);
+  for (const end = Date.now() + ${LOAD_ON_ITS_WAY_LIMIT_MS}; document.querySelector('[data-loads-on-scroll] [aria-busy="true"]') && Date.now() < end;) await timer(16);
+})()`;
+
+/** Once focus is back where it began, with any load on its way in: whether to go round again, for a control that arrived this time round behind focus. */
+const KEYBOARD_ROUND_END = `(async () => {
+  const state = window.zaismaKeyboard;
+  await ${LOAD_ON_ITS_WAY};
   const isAnotherRoundNeeded = [...state.arrivedThisRound].some((el) => state.isThere(el) && !state.isReached(el));
   state.arrivedThisRound.clear();
   return isAnotherRoundNeeded;
@@ -539,6 +543,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
     // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
+    if (options.scriptOnNewDocument) await send("Page.addScriptToEvaluateOnNewDocument", { source: options.scriptOnNewDocument });
     // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS).
     await send("Network.enable");
     if (!options.pictureOf) await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
@@ -604,6 +609,8 @@ async function checkPage(chrome, contextId, url, looks, options) {
     for (const [lookIndex, { size, theme }] of looks.entries()) {
       if (lookIndex > 0) await look({ size, theme });
       await plain();
+      // A page that loads more by itself has moved by the time it's compared, however fast its answer comes: never only when the answer wins the race.
+      if (isFirstPaintChecked && lookIndex === 0) await send("Runtime.evaluate", { expression: LOAD_ON_ITS_WAY, awaitPromise: true, returnByValue: true });
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const isMainActionChecked = size.isRunnerChecked !== false && (options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone));
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };

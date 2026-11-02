@@ -194,6 +194,74 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(unreached.some((failure) => /Past the hold/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`).join("\n")).toBe(true);
   }, 300_000);
 
+  it.skipIf(!isFirstShare)("catches a page that loads more by itself after its first paint, however late its answer comes", async () => {
+    // Its answer comes well after the page has settled, counted in frames, and only the wait for what's on its way sees it.
+    const scriptOnNewDocument = `if (window === top) addEventListener("load", () => {
+      const holder = document.createElement("div");
+      holder.setAttribute("data-loads-on-scroll", "");
+      holder.innerHTML = '<a href="#next" aria-busy="true"></a>';
+      document.body.append(holder);
+      let framesLeft = 90;
+      const frame = () => {
+        if (--framesLeft > 0) return requestAnimationFrame(frame);
+        const late = document.createElement("div");
+        late.style.height = "400px";
+        late.textContent = "Late page of covers";
+        document.querySelector("main").append(late);
+        holder.querySelector("a").removeAttribute("aria-busy");
+      };
+      requestAnimationFrame(frame);
+    })`;
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", scriptOnNewDocument };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], tiersOf: () => ["page"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures.some((failure) => failure.check === "moved after the first paint" && /Late page of covers/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(true);
+  }, 300_000);
+
+  // On Desktop the whole of Browse fits its screen, More games and the footer on it; on a laptop they're a screen below it.
+  it.skipIf(!isFirstShare).each(["Desktop", "Laptop"] as const)("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
+    const size = SCREEN_SIZES.find((each) => each.name === screenName)!;
+    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+    try {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      await send("Page.enable");
+      await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: 1, mobile: false });
+      const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
+      let askedRequestId: string | null = null, onAsked = () => {};
+      chrome.listen(sessionId, (method: string, params: { requestId: string }) => { if (method === "Fetch.requestPaused") { askedRequestId = params.requestId; onAsked(); } });
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/games?page=2", requestStage: "Request" }] });
+      await send("Page.navigate", { url: `${sites!.site}/games` });
+      await loaded;
+      // Once its script is watching, and a watcher of the same reach has had its first answer: an old Load more would be pressed by now, and busy.
+      const isNear = await evaluate(`(async () => {
+        while (!window.zaismaLoadMore) await new Promise((done) => requestAnimationFrame(done));
+        const holder = document.querySelector("[data-loads-on-scroll]");
+        const isNear = await new Promise((done) => new IntersectionObserver((entries, observer) => { observer.disconnect(); done(entries[0].isIntersecting); }, { rootMargin: "100% 0px" }).observe(holder));
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        return isNear;
+      })()`);
+      expect(isNear).toBe(true);
+      expect(await evaluate(`document.querySelector("[data-loads-on-scroll] a").getAttribute("aria-busy")`)).toBe(null);
+      expect(askedRequestId).toBe(null);
+      const asked = new Promise<void>((done) => { onAsked = done; });
+      await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 100, y: 100, deltaX: 0, deltaY: 100 });
+      await asked;
+      await send("Fetch.continueRequest", { requestId: askedRequestId });
+      const coverCount = await evaluate(`(async () => {
+        const count = () => document.querySelectorAll("#browse-games > *, #browse-other-games > *").length;
+        while (count() <= 48) await new Promise((done) => requestAnimationFrame(done));
+        return count();
+      })()`);
+      expect(coverCount).toBeGreaterThan(48);
+    } finally {
+      await chrome.close();
+    }
+  }, 300_000);
+
   describe("controls that arrive while Tab goes round", () => {
     // New controls added the way the next page of a long list arrives: past what the check counted when it started.
     const addArrivals = `(count, label, list) => { for (let index = 0; index < count; index++) { const control = document.createElement("button"); control.type = "button"; control.textContent = label + " " + index; list.append(control); } }`;
