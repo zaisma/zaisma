@@ -1,0 +1,10 @@
+{
+  "title": "Monster Truck Stunt Racing Game 3D",
+  "description": "",
+  "pictures": [],
+  "is_honest": false,
+  "expected": {
+    "title": "search_words_in_title"
+  },
+  "why": "Genre words and \"Game 3D\" list what it is instead of naming it."
+}

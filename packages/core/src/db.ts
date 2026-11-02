@@ -51,7 +51,7 @@ export async function createGame(
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
     id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, own_server_urls: "[]", owner_id: ownerId ?? null, cloud_saves_enabled: 1, account_offer_enabled: 1, deleted_account_erase_enabled: 1, friend_joins_enabled: 1, performance_measuring_enabled: 1, monthly_budget_cents: null, quick_joined_at_ms: null, game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null,
-    visibility: visibility ?? "listed", devices: "", genres: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: randomKey(32), is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null, listing_checked_at_ms: null, glass_tint_color: null, refund_policy: null, refund_policy_text: null, own_payment_categories: "[]", purchase_delivery: "game", full_game_item_name: null, demo_game_id: null, live_version_match_update_mode: "next_match", live_version_published_at_ms: null, has_live_version_game_file_changes: 1, created_at_ms: now(), updated_at_ms: now(),
+    visibility: visibility ?? "listed", devices: "", genres: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", minimum_player_age_years: 13, first_published_at_ms: null, big_update_at_ms: null, recently_updated_at_ms: null, entry_signing_key: randomKey(32), is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null, listing_checked_at_ms: null, glass_tint_color: null, refund_policy: null, refund_policy_text: null, own_payment_categories: "[]", purchase_delivery: "game", full_game_item_name: null, demo_game_id: null, live_version_match_update_mode: "next_match", live_version_published_at_ms: null, has_live_version_game_file_changes: 1, created_at_ms: now(), updated_at_ms: now(),
   };
   game.listing_check_requested_at_ms = game.created_at_ms;
   await database
@@ -86,11 +86,11 @@ export async function setReviewStatus(database: D1Database, id: string, reviewSt
 
 export async function createVersion(
   database: D1Database,
-  version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean; matchUpdateMode?: MatchUpdateMode },
+  version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean; matchUpdateMode?: MatchUpdateMode; isBigUpdate?: boolean },
 ): Promise<void> {
   await database
-    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, match_update_mode, created_at_ms, scan_queued_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?, ?, ?)")
-    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, version.matchUpdateMode ?? "next_match", now(), now())
+    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, match_update_mode, is_big_update, created_at_ms, scan_queued_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?, ?, ?, ?)")
+    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, version.matchUpdateMode ?? "next_match", version.isBigUpdate === true ? 1 : 0, now(), now())
     .run();
 }
 
@@ -123,15 +123,23 @@ export async function saveScan(database: D1Database, versionId: string, scanStat
  * Make a version the one players get, with when running matches get it (matchUpdateMode, by default the
  * version's own, as a publish-later or publish-when-approved set it). A removed or held game stays hidden.
  */
+/** A game moves up Browse's Recently updated at most once in this many days, counting from its first release. */
+export const RECENTLY_UPDATED_MOVE_DAYS = 30;
+
 export async function publishVersion(database: D1Database, version: Version, matchUpdateMode: MatchUpdateMode = version.match_update_mode ?? "next_match"): Promise<void> {
   const publishedAtMs = now();
+  // The game first, while the version still says whether it has ever been live: only a marked big update on a version that never has counts, so a rollback, a republish or a report's re-approval never does.
+  const isNews = "first_published_at_ms IS NOT NULL AND (SELECT is_big_update = 1 AND published_at_ms IS NULL FROM versions WHERE id = ?2)";
   await database.batch([
-    database.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?, scheduled_publish_at_ms = NULL, match_update_mode = 'next_match' WHERE id = ?").bind(publishedAtMs, version.id),
     database
       .prepare(
-        "UPDATE games SET live_version_id = ?, live_version_match_update_mode = ?, live_version_published_at_ms = ?, review_status = CASE WHEN review_status IN ('removed', 'held') THEN review_status ELSE 'live' END, updated_at_ms = ? WHERE id = ?",
+        `UPDATE games SET live_version_id = ?2, live_version_match_update_mode = ?3, live_version_published_at_ms = ?1, first_published_at_ms = COALESCE(first_published_at_ms, ?1),
+           big_update_at_ms = CASE WHEN ${isNews} THEN ?1 ELSE big_update_at_ms END,
+           recently_updated_at_ms = CASE WHEN ${isNews} AND COALESCE(recently_updated_at_ms, first_published_at_ms) <= ?1 - ?4 THEN ?1 ELSE recently_updated_at_ms END,
+           review_status = CASE WHEN review_status IN ('removed', 'held') THEN review_status ELSE 'live' END, updated_at_ms = ?1 WHERE id = ?5`,
       )
-      .bind(version.id, matchUpdateMode, publishedAtMs, publishedAtMs, version.game_id),
+      .bind(publishedAtMs, version.id, matchUpdateMode, RECENTLY_UPDATED_MOVE_DAYS * 86_400_000, version.game_id),
+    database.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?1, first_published_at_ms = COALESCE(first_published_at_ms, ?1), scheduled_publish_at_ms = NULL, match_update_mode = 'next_match' WHERE id = ?2").bind(publishedAtMs, version.id),
   ]);
 }
 
