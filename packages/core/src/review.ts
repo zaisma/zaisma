@@ -280,7 +280,7 @@ export const REVIEW_CODES = {
   image_matching_off: { meaning: "Image matching isn't connected, so a person at Zaisma approves each version.", messageForPeople: "Image matching isn't connected here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   image_matching_failed: { meaning: "Image matching couldn't check every picture and video, so a person at Zaisma looks first.", messageForPeople: "Image matching couldn't check every picture and video, so a person at Zaisma looks first, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_off: { meaning: "AI review isn't set up, so a person at Zaisma approves each version.", messageForPeople: "AI review isn't set up here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
-  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so a person at Zaisma approves each version.", messageForPeople: "This month's AI reviews are used, so a person at Zaisma approves each version, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
+  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so this version went on with the fixed checks alone.", messageForPeople: "This month's AI reviews are used, so this version went on with the fixed checks alone. Nothing is held: this is a note.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", messageForPeople: "The AI review wouldn't review the game, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", messageForPeople: "The AI review didn't finish, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   daily_large_reviews_used: {
@@ -549,7 +549,7 @@ export const REVIEW_CODES = {
 export type ReviewCodeName = keyof typeof REVIEW_CODES;
 
 /** Codes whose findings are only notes (severity info), yet the developer is told: the version isn't held or rejected for them. */
-export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address"];
+export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address", "ai_review_budget_used"];
 
 /**
  * Codes on scan findings that only Zaisma sees: notes for a person (severity info), and child-safety

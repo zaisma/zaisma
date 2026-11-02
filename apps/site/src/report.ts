@@ -444,7 +444,7 @@ export async function pauseForReport(env: Env, game: Game, label: string, waitUn
   const nowMs = Date.now();
   if (!live || live.cleared_at_ms || !live.published_at_ms || live.published_at_ms < nowMs - RECENT_MS) return null;
   const before = await env.DB
-    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND ai_review_status IN ('passed', 'skipped') AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
     .bind(game.id, live.id, live.published_at_ms)
     .first<Version>();
   if (before) {

@@ -134,6 +134,7 @@ export const GAME = object({
   title: text(),
   description: text(),
   visibility: VISIBILITY,
+  visibility_after_ai_review: nullable(choice({ listed: "listed", unlisted: "unlisted" }, "The visibility the game takes once its live version's AI review passes; null when it's waiting for none.")),
   review_status: REVIEW_STATUS,
   review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
   country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open the game, on a notice from a court, regulator or police there under a law US law doesn't share; everyone else still can. [] for none."),
@@ -249,11 +250,32 @@ const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", 
 /** When running matches get a version as it goes live (match_update_mode). */
 export const MATCH_UPDATE_MODE = choice({ next_match: "running matches finish on the version they started; new ones get it (the default)", now: "every live match switches to it within seconds, in the same room; the game server may hold it until a good moment, up to 5 minutes" });
 
+const AI_REVIEW_STATUS = choice(
+  {
+    not_started: "nobody asked: only its developer can reach it",
+    waiting: "asked for, and not sent yet: a free daily review (ai_review_waiting_reason), or the next run",
+    reviewing: "with the readers or the judge",
+    passed: "it passed, or a person passed it",
+    stopped: "held or rejected: scan_status says which, and findings say why",
+    skipped: "past the review's monthly budget, it went on with the fixed checks alone",
+  },
+  "Where it stands with the AI review, which follows the fixed checks for what other people can reach.",
+);
+
 export const VERSION = object({
   id: idOf("version"),
   file_count: countOf(),
   size_bytes: countOf(),
   scan_status: SCAN_STATUS,
+  ai_review_status: AI_REVIEW_STATUS,
+  ai_review_speed: nullable(choice({ at_once: "full price, about a minute: a game's first review by a developer still earning it, or a game with many players", batch: "half price, usually under an hour" }, "How its review runs; null until one is asked for.")),
+  ai_review_requested_at: nullable(isoTime("When its review was asked for.")),
+  ai_review_finished_at: nullable(isoTime("When its review ended.")),
+  ai_review_waiting_reason: nullable(choice({ daily_large_reviews_used: "today's large reviews are used", daily_small_reviews_used: "today's small reviews are used" }, "The daily review it waits for a free one of; null when it doesn't.")),
+  usual_ai_review_duration_min: nullable(countOf("How long a review like this one usually takes, from recent real ones, not a promise: a batch can take much longer. null once its review has ended.")),
+  is_ai_review_needed_to_publish: yes("Publishing it now starts an AI review, since other people can reach the game. false for a game only its developer can reach, and once its review has ended."),
+  is_open_before_ai_review: yes("Other people may reach it before its review ends: its developer has earned that (get_access standing.publish_before_ai_review_enabled)."),
+  publish_after_ai_review_enabled: yes("Its developer chose to go live only once the review passes."),
   has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
@@ -460,6 +482,7 @@ export const STANDING = object(
   {
     is_established_developer: yes("Whether the account is established: 14 days old, 20 different returning players on its games, and nothing ruled against it in 30 days. Zaisma's own accounts are established from the start."),
     outside_links_enabled: yes("Whether the games' links to sites outside the trusted list open (for signed-in adults): once established, or at once with a card that paid Zaisma or a Stripe account that can take payments. Until then those links answer who_can_open waiting_for_standing."),
+    publish_before_ai_review_enabled: yes("Whether your versions go live before their AI review ends, with the review pending: the same facts as links to other sites. Until then what other people can reach waits for the review."),
     search_engines_enabled: yes("Whether search engines find the games (the sitemap, and no noindex on their pages): only once established. Zaisma's own lists show listed games from the first day either way."),
     returning_player_count: countOf("Different players who came back to your games on 2 days or more, each with an account at least 7 days old that played on 3 days, as the daily count last counted them. Your own account never counts."),
     minimum_returning_player_count: countOf("Returning players needed to be established: 20."),
@@ -1293,6 +1316,7 @@ export const WEBHOOK_EVENT = object({
       bug_reported: "report triage sorted a player's report as a bug (bug_report)",
       player_reported: "Zaisma passed you a report about one of your game's players: bullying, cheating or other behavior that's the game's call (player_report)",
       scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
+      ai_review_finished: "a version's AI review ended: version.ai_review_status says how, and a stop also changes scan_status and sends players back (version)",
       live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
       review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
       country_blocks_changed: "Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks)",
@@ -1625,6 +1649,7 @@ const ADMIN_GAME = object({
 const ADMIN_VERSION = object({
   id: idOf("version"),
   scan_status: SCAN_STATUS,
+  ai_review_status: AI_REVIEW_STATUS,
   has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),

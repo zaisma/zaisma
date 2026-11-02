@@ -10,6 +10,7 @@ import {
   chunkText,
   keepQuotedItems,
   reviewCostCents,
+  sha256Hex,
   type EvidenceItem,
   type EvidenceKind,
   type Finding,
@@ -132,19 +133,22 @@ ${RULES}`;
 
 const client = (apiKey: string) => new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 });
 
-const usageOf = (model: string, usage: Anthropic.Usage) => {
+const usageOf = (model: string, usage: Anthropic.Usage, isBatched: boolean) => {
   const counts = {
     inputTokenCount: usage.input_tokens,
     outputTokenCount: usage.output_tokens,
     cacheReadTokenCount: usage.cache_read_input_tokens ?? 0,
     cacheWriteTokenCount: usage.cache_creation_input_tokens ?? 0,
   };
-  return { costCents: reviewCostCents(model, counts), inputTokenCount: counts.inputTokenCount + counts.cacheReadTokenCount + counts.cacheWriteTokenCount, outputTokenCount: counts.outputTokenCount };
+  return { costCents: reviewCostCents(model, counts, isBatched), inputTokenCount: counts.inputTokenCount + counts.cacheReadTokenCount + counts.cacheWriteTokenCount, outputTokenCount: counts.outputTokenCount };
 };
 
+/** What's kept of a model's answer to read it again later: a batch's answers wait in storage until the review moves on. */
+export type StoredMessage = Pick<Anthropic.Message, "content" | "stop_reason" | "usage">;
+
 /** The answer's items, kept to the closed lists and the paths the call was given. */
-function answerOf(model: string, response: Anthropic.Message, paths: Set<string>, isPicture: boolean): ReaderAnswer {
-  const usage = usageOf(model, response.usage);
+export function answerOf(model: string, response: StoredMessage, paths: Set<string>, isPicture: boolean, isBatched = false): ReaderAnswer {
+  const usage = usageOf(model, response.usage, isBatched);
   if (response.stop_reason === "refusal") return { items: [], outcome: "declined", ...usage };
   const text = response.content.find((block) => block.type === "text")?.text ?? "";
   let parsed: { items?: { kind?: string; subject?: string; detail?: string; path?: string; quote?: string }[] };
@@ -167,8 +171,8 @@ function answerOf(model: string, response: Anthropic.Message, paths: Set<string>
 
 const attribute = (text: string) => text.replace(/["<>]/g, "");
 
-/** One reader call on a piece of the code: Haiku at effort low, answering with evidence items. */
-export const readCode: ReadCode = async (apiKey, model, chunk, readerContext) => {
+/** The request for one reader call on a piece of the code: Haiku at effort low, answering with evidence items. */
+export function codeReadRequest(model: string, chunk: CodeChunk, readerContext: ReaderContext): Anthropic.MessageCreateParamsNonStreaming {
   const manifest = [
     `Title: ${readerContext.title}`,
     `Description: ${readerContext.description || "(none)"}`,
@@ -188,18 +192,23 @@ export const readCode: ReadCode = async (apiKey, model, chunk, readerContext) =>
     })),
     { type: "text", text: "List the evidence in these files." },
   ];
-  const response = await client(apiKey).messages.create({
+  return {
     model,
     max_tokens: 16000,
     system: [{ type: "text", text: CODE_SYSTEM, cache_control: { type: "ephemeral" } }],
     output_config: { effort: "low", format: { type: "json_schema", schema: CODE_SCHEMA } },
     messages: [{ role: "user", content }],
-  });
+  };
+}
+
+/** One reader call on a piece of the code, answered now at full price. */
+export const readCode: ReadCode = async (apiKey, model, chunk, readerContext) => {
+  const response = await client(apiKey).messages.create(codeReadRequest(model, chunk, readerContext));
   return answerOf(model, response, new Set(chunk.files.map((file) => file.path)), false);
 };
 
-/** One reader call on up to readImageCountPerCall pictures, answering with content items. */
-export const readPictures: ReadPictures = async (apiKey, model, pictures) => {
+/** The request for one reader call on up to readImageCountPerCall pictures, answering with content items. */
+export function pictureReadRequest(model: string, pictures: ReaderPicture[]): Anthropic.MessageCreateParamsNonStreaming {
   const content: Anthropic.ContentBlockParam[] = [
     ...pictures.flatMap((picture): Anthropic.ContentBlockParam[] => [
       { type: "text", text: `Picture: ${picture.path}` },
@@ -207,15 +216,26 @@ export const readPictures: ReadPictures = async (apiKey, model, pictures) => {
     ]),
     { type: "text", text: "List the evidence in these pictures." },
   ];
-  const response = await client(apiKey).messages.create({
+  return {
     model,
     max_tokens: 8000,
     system: [{ type: "text", text: PICTURE_SYSTEM, cache_control: { type: "ephemeral" } }],
     output_config: { effort: "low", format: { type: "json_schema", schema: PICTURE_SCHEMA } },
     messages: [{ role: "user", content }],
-  });
+  };
+}
+
+/** One reader call on pictures, answered now at full price. */
+export const readPictures: ReadPictures = async (apiKey, model, pictures) => {
+  const response = await client(apiKey).messages.create(pictureReadRequest(model, pictures));
   return answerOf(model, response, new Set(pictures.map((picture) => picture.path)), true);
 };
+
+/**
+ * What says whose reading a shared read is (read_files): the reader model and its prompts. Either changing makes
+ * every shared read count as unread, with nobody having to remember to clear them.
+ */
+export const readerPromptSha256 = (model: string): Promise<string> => sha256Hex(new TextEncoder().encode(JSON.stringify([model, CODE_SYSTEM, PICTURE_SYSTEM])));
 
 /** A picture the readers may look at, loaded only when it's read. */
 export interface PictureFile {

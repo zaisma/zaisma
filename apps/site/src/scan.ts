@@ -38,6 +38,13 @@ import {
   type Manifest,
   type Version,
   type Game,
+  AI_REVIEW_LIMITS,
+  isAiReviewDone,
+  isAiReviewPending,
+  standingOf,
+  usualDurationMin,
+  type AiReviewSpeed,
+  type AiReviewWaitingReason,
   KEPT_VERSION_COUNT,
   LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS,
   KNOWN_IMAGE_CODE,
@@ -72,7 +79,7 @@ import {
   CHECKED_FILE_KEPT_DURATION_DAYS,
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
-import { chooseReadPictures, gatherEvidence, newReadCount, readCode, readPictures, type EarlierText, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
+import { chooseReadPictures, gatherEvidence, newReadCount, readCode, readerPromptSha256, readPictures, type EarlierText, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type EarlierHold, type JudgeVersion } from "./review-judge.ts";
 import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 import { findMatchedGame } from "./copies.ts";
@@ -87,6 +94,7 @@ import { turnOffLeakedKeys } from "./leaked-keys.ts";
 import { buildHasThreads } from "../../../packages/cli/check.mjs";
 import { recordRestoreEvent } from "./restore-events.ts";
 import { noteRulingOnGame } from "./standing.ts";
+import { anthropicBatches, batchedPass, collectEndedBatches, endedBatchVersions, forgetReviewBatches, hasRunningBatch, type ReviewBatchClient } from "./review-batches.ts";
 
 /** Most text we read for the static checks. Bigger games are held for a person. */
 const MAXIMUM_STATIC_TEXT_SIZE_BYTES = 40 * 1024 * 1024;
@@ -99,12 +107,16 @@ export const MAXIMUM_PACK_PICTURE_COUNT = 10_000;
 
 export interface ScanDeps {
   images: ImageMatcher;
+  /** Anthropic's batches; tests stand in for them. */
+  batches?: ReviewBatchClient;
   /** The AI review's readers and judge (review-readers.ts, review-judge.ts). */
   readCode: ReadCode;
   readPictures: ReadPictures;
   judge: JudgeVersion;
   /** Drafts the review precedent for a miss (review-precedents.ts); left out where nothing should call a model. */
   draft?: ReviewPrecedentDrafter;
+  /** A pass over a batch's stored answers found something unanswered, so nothing can be decided (review-batches.ts). */
+  hasMissingAnswers?: () => boolean;
 }
 
 /**
@@ -147,14 +159,20 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, in
     // An image check queued before migration 0034 says `images: true`: never run it as a full scan,
     // which could publish an older approved version. Remove once no queue can still hold one.
     const isImageRecheck = message.body.isImageRecheck === true || "images" in message.body;
+    const isAiReviewStep = message.body.isAiReviewStep === true;
     try {
-      if (recheck) await recheckVersion(env, message.body.versionId, recheck.reportId, deps);
+      if (isAiReviewStep) await moveAiReviewOn(env, message.body.versionId, deps);
+      else if (recheck) await recheckVersion(env, message.body.versionId, recheck.reportId, deps);
       else if (isImageRecheck) await recheckImages(env, message.body.versionId, recheckDeps);
       else await scanVersion(env, message.body.versionId, deps);
       message.ack();
     } catch (error) {
-      console.error(recheck ? "re-check failed" : isImageRecheck ? "image check failed" : "scan failed", message.body.versionId, error);
-      if (isImageRecheck && message.attempts >= 3) {
+      console.error(isAiReviewStep ? "AI review step failed" : recheck ? "re-check failed" : isImageRecheck ? "image check failed" : "scan failed", message.body.versionId, error);
+      if (isAiReviewStep && message.attempts >= 3) {
+        // The version stays as it is, and moveWaitingAiReviews queues it again within the hour.
+        await sendAlert(env, "An AI review step failed", `Version ${message.body.versionId}'s AI review didn't move on after three tries, and it's tried again within the hour: ${String(error)}`);
+        message.ack();
+      } else if (isImageRecheck && message.attempts >= 3) {
         // Tried again with tomorrow's batch; the version stays as it is.
         message.ack();
       } else if (recheck && message.attempts >= 3) {
@@ -179,41 +197,411 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   const game = await gameById(env.DB, version.game_id);
   if (!game) throw new Error(`No game for version ${versionId}`);
 
-  const report = await inspectVersion(env, version, game, deps);
+  const fixed = await fixedChecks(env, version, game, deps);
+  // The fixed checks let it through, so nobody waits: it goes where it's asked to, and the AI review follows only for what other people can reach.
+  if (!fixed.findings.some((finding) => finding.severity !== "info") && !version.replaced_by_version_id) {
+    const report = reportOfChecks(fixed, null, fixed.findings);
+    await saveScan(env.DB, version.id, "approved", report);
+    await approveDraft(env.DB, version.id);
+    await goWhereAsked(env, game, (await versionById(env.DB, version.id))!);
+    await queuePerformanceCheck(env, version);
+    await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
+    return report;
+  }
+
+  // Held or rejected by a fixed check: the AI review runs now, as nobody can reach it and a clear break needs no person.
+  const review = await reviewWithAi(env, version, game, reviewInputOf(fixed, undefined), deps);
+  const report = decidedReport(fixed, review, game);
   const { decision, findings, is_child_safety: isChildSafety } = report;
   await saveScan(env.DB, version.id, decision, report);
-  // A clear break, rejected with no person: a ruling against the developer (standing.ts).
-  if (decision === "rejected") await noteRulingOnGame(env, game.id);
-  // Counts toward the owner's large and small reviews a day (steps 4e and 4a3); re-checks never get here.
-  if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
-  if (report.ai && "judge_model" in report.ai && report.ai.is_small_review) await env.DB.prepare("UPDATE versions SET read_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
-  // A version the AI judge stopped may turn out to be a miss either way: draft the rulings now, so a person's call teaches the
-  // review in the same click (approving it: pass; upholding a hold: reject, so the next one like it needs no person).
-  if (decision !== "approved" && deps.draft && report.ai !== null && "judge_model" in report.ai && (report.ai.verdict === "hold" || report.ai.verdict === "reject")) {
-    await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
-    if (report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "reject" }, deps.draft);
-  }
+  await env.DB.prepare("UPDATE versions SET ai_review_status = ? WHERE id = ?").bind(decision === "approved" ? "passed" : "stopped", version.id).run();
+  await noteJudgedAndRead(env, version.id, report);
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
-    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `${version.id}\n${summarize(findings)}`);
-    const hasKnownImage = findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
-    if (hasKnownImage) {
-      await sendAlert(
-        env,
-        `URGENT: known abuse images uploaded to ${game.slug}`,
-        `${KNOWN_IMAGE_ALERT}\n\n${summarize(findings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-      );
-    } else if (isChildSafety || (decision === "held" && !isOnlyWaiting(findings) && !(await isAnotherVersionWaitingForPerson(env, version)))) {
-      await sendAlert(
-        env,
-        isChildSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
-        `${isChildSafety ? "The scan flagged possible child sexual abuse material. Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${summarize(findings)}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-      );
-    }
+    await afterStop(env, game, version, report, deps);
   }
   await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
   return report;
+}
+
+/** Counts toward the owner's large and small reviews a day (reviewWithAi's steps a3 and e); re-checks never get here. */
+async function noteJudgedAndRead(env: Env, versionId: string, report: ScanReport): Promise<void> {
+  if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, versionId).run();
+  if (report.ai && "judge_model" in report.ai && report.ai.is_small_review) await env.DB.prepare("UPDATE versions SET read_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, versionId).run();
+}
+
+/** A version the scan or the AI review stopped: the ruling, the drafted rulings for a person's click, the audit and the alert. */
+async function afterStop(env: Env, game: Game, version: Version, report: ScanReport, deps: ScanDeps): Promise<void> {
+  const { decision, findings, is_child_safety: isChildSafety } = report;
+  // A clear break, rejected with no person: a ruling against the developer (standing.ts).
+  if (decision === "rejected") await noteRulingOnGame(env, game.id);
+  // A version the AI judge stopped may turn out to be a miss either way: draft the rulings now, so a person's call teaches the
+  // review in the same click (approving it: pass; upholding a hold: reject, so the next one like it needs no person).
+  if (deps.draft && report.ai !== null && "judge_model" in report.ai && (report.ai.verdict === "hold" || report.ai.verdict === "reject")) {
+    await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
+    if (report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "reject" }, deps.draft);
+  }
+  await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `${version.id}\n${summarize(findings)}`);
+  const hasKnownImage = findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
+  if (hasKnownImage) {
+    await sendAlert(
+      env,
+      `URGENT: known abuse images uploaded to ${game.slug}`,
+      `${KNOWN_IMAGE_ALERT}\n\n${summarize(findings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+    );
+  } else if (isChildSafety || (decision === "held" && !isOnlyWaiting(findings) && !(await isAnotherVersionWaitingForPerson(env, version)))) {
+    await sendAlert(
+      env,
+      isChildSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
+      `${isChildSafety ? "The scan flagged possible child sexual abuse material. Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${summarize(findings)}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+    );
+  }
+}
+
+// --- After the fixed checks: where a version goes, and the AI review behind it -----------------------------------
+
+/** Whether a game's live version reaches anyone but its developer: anyone with its address, or the buyers of a hidden paid game. */
+const liveVersionReachesOthers = (game: Pick<Game, "visibility" | "full_game_item_name">): boolean => game.visibility === "listed" || game.visibility === "unlisted" || game.full_game_item_name !== null;
+
+/** Zaisma's own ownerless games, and developers who've earned it, may go first. */
+async function hasEarnedGoingFirst(env: Env, game: Pick<Game, "owner_id">): Promise<boolean> {
+  return !game.owner_id || (await standingOf(env.DB, game.owner_id, Date.now())).publishBeforeAiReviewEnabled;
+}
+
+/** What a game's versions' routes depend on, read once for however many versions are asked about. */
+export interface PublishFacts {
+  isEarned: boolean;
+  hasTesterLink: boolean;
+  hasKey: boolean;
+}
+
+export async function publishFacts(env: Env, game: Game): Promise<PublishFacts> {
+  const [isEarned, tester] = await Promise.all([hasEarnedGoingFirst(env, game), env.DB.prepare("SELECT 1 FROM tester_links WHERE game_id = ? AND revoked_at_ms IS NULL LIMIT 1").bind(game.id).first()]);
+  return { isEarned, hasTesterLink: Boolean(tester), hasKey: Boolean(env.ANTHROPIC_API_KEY) };
+}
+
+/**
+ * Where publishing a version goes. now: it goes live now, with the review behind it when other people can reach it.
+ * after_ai_review: players stay where they are, and it goes live once its review passes. needs_person: a review is
+ * needed and none can run here. The server's rule, whichever call or page asked.
+ */
+export function publishRouteOf(game: Pick<Game, "visibility" | "full_game_item_name">, version: Version, facts: PublishFacts): { route: "now" | "after_ai_review" | "needs_person"; needsReview: boolean; isOpenBefore: boolean } {
+  if (isAiReviewDone(version)) return { route: "now", needsReview: false, isOpenBefore: version.is_open_before_ai_review === 1 };
+  const isEarned = facts.isEarned && version.publish_after_ai_review_enabled === 0;
+  const reachesOthers = liveVersionReachesOthers(game);
+  if (!reachesOthers && !facts.hasTesterLink) return { route: "now", needsReview: false, isOpenBefore: isEarned };
+  if (!facts.hasKey) return { route: "needs_person", needsReview: false, isOpenBefore: false };
+  if (!reachesOthers || isEarned) return { route: "now", needsReview: true, isOpenBefore: isEarned };
+  return { route: "after_ai_review", needsReview: true, isOpenBefore: false };
+}
+
+export const routePublish = async (env: Env, game: Game, version: Version) => publishRouteOf(game, version, await publishFacts(env, game));
+
+/** No key here, so no AI review can run: a person approves it. */
+export async function holdForPerson(env: Env, game: Game, version: Version): Promise<void> {
+  const report = version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null;
+  const finding: Finding = { stage: "ai", severity: "hold", code: "ai_review_off", message: "AI review isn't set up, so a person has to approve this game." };
+  await saveScan(env.DB, version.id, "held", report && { ...report, decision: "held", findings: [...report.findings, finding] });
+  await env.DB.prepare("UPDATE versions SET ai_review_status = 'stopped' WHERE id = ?").bind(version.id).run();
+  await audit(env.DB, game.id, "scan-held", `${version.id}\n${finding.message}`);
+  await sendAlert(env, `${game.slug} needs review`, `${finding.message}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+}
+
+/** A version that passed the fixed checks goes where its upload asked: a draft waits, and publish_when_approved publishes the way a publish does. */
+async function goWhereAsked(env: Env, game: Game, version: Version): Promise<void> {
+  const { isOpenBefore } = await routePublish(env, game, version);
+  await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, version.id).run();
+  const newer = await env.DB.prepare("SELECT 1 FROM versions WHERE game_id = ? AND created_at_ms > ? LIMIT 1").bind(version.game_id, version.created_at_ms).first();
+  if (!version.publish_when_approved_enabled || newer) {
+    await audit(env.DB, game.id, "draft-ready", `Passed the scan: ${version.id} is ready to preview and publish${newer && version.publish_when_approved_enabled ? " (a newer version exists, so it wasn't published)" : ""}`);
+    return;
+  }
+  await publishWithReview(env, game, (await versionById(env.DB, version.id))!, "Passed the scan");
+}
+
+/** Publish as the server's rule says: now, or once the review passes. Answers which, for whoever asked. */
+export async function publishWithReview(env: Env, game: Game, version: Version, why: string, actor = "system", matchUpdateMode = version.match_update_mode): Promise<"now" | "after_ai_review" | "needs_person"> {
+  const { route, needsReview, isOpenBefore } = await routePublish(env, game, version);
+  if (route === "needs_person") {
+    await holdForPerson(env, game, version);
+    return route;
+  }
+  await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ?, publish_when_approved_enabled = ?, match_update_mode = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, route === "after_ai_review" ? 1 : version.publish_when_approved_enabled, matchUpdateMode, version.id).run();
+  if (route === "now") await publishNow(env, game, { ...version, match_update_mode: matchUpdateMode }, why, actor);
+  if (needsReview) await requestAiReview(env, game, (await versionById(env.DB, version.id))!, actor);
+  return route;
+}
+
+/** The version players get from now on, with everything that follows from it. */
+async function publishNow(env: Env, game: Game, version: Version, why: string, actor: string): Promise<void> {
+  const wasLiveVersion = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
+  await publishVersion(env.DB, version);
+  if (version.match_update_mode === "now") await updateLiveMatches(env, game, version, wasLiveVersion);
+  await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
+  await pruneVersions(env, version.game_id);
+  await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
+  await alertIfNoticeFixPublished(env, version.game_id, version.id);
+}
+
+/** How a game's next review would run: at once for a game's first review by a developer still earning it, and for a game with many players; else in a batch. */
+export async function aiReviewSpeedFor(env: Env, game: Pick<Game, "id" | "owner_id">, nowMs = Date.now()): Promise<AiReviewSpeed> {
+  if (!(await hasEarnedGoingFirst(env, game))) {
+    const passed = await env.DB.prepare("SELECT 1 FROM versions WHERE game_id = ? AND judged_at_ms IS NOT NULL AND ai_review_status = 'passed' LIMIT 1").bind(game.id).first();
+    if (!passed) return "at_once";
+  }
+  const plays = await env.DB.prepare("SELECT COALESCE(SUM(play_count), 0) AS play_count FROM play_days WHERE game_id = ? AND date >= ?").bind(game.id, new Date(nowMs - 6 * 86_400_000).toISOString().slice(0, 10)).first<{ play_count: number }>();
+  return (plays?.play_count ?? 0) >= AI_REVIEW_LIMITS.minimumAtOnceWeeklyPlayCount ? "at_once" : "batch";
+}
+
+/** How long reviews of each speed usually take, from recent real ones ("usually" rather than a promise). */
+export async function usualAiReviewDurations(env: Env, nowMs = Date.now()): Promise<Record<AiReviewSpeed, number>> {
+  const durationsOf = async (speed: AiReviewSpeed) => {
+    const { results } = await env.DB
+      .prepare("SELECT ai_review_finished_at_ms - ai_review_requested_at_ms AS duration_ms FROM versions WHERE ai_review_speed = ? AND ai_review_finished_at_ms > ? AND ai_review_requested_at_ms IS NOT NULL ORDER BY ai_review_finished_at_ms DESC LIMIT ?")
+      .bind(speed, nowMs - AI_REVIEW_LIMITS.usualDurationPeriodDays * 86_400_000, AI_REVIEW_LIMITS.usualDurationReviewCount)
+      .all<{ duration_ms: number }>();
+    return usualDurationMin(results.map((row) => row.duration_ms), speed);
+  };
+  const [atOnce, batch] = await Promise.all([durationsOf("at_once"), durationsOf("batch")]);
+  return { at_once: atOnce, batch };
+}
+
+/**
+ * Ask for a version's AI review, once: a repeat changes nothing. Only the newest is reviewed, so another version's
+ * review that's waiting or running stops, unless that version is live or scheduled.
+ */
+export async function requestAiReview(env: Env, game: Game, version: Version, actor = "system", client: ReviewBatchClient = anthropicBatches, nowMs = Date.now()): Promise<void> {
+  if (version.ai_review_status !== "not_started" || version.scan_status !== "approved") return;
+  const speed = await aiReviewSpeedFor(env, game, nowMs);
+  const { results: dropped } = await env.DB
+    .prepare(
+      `UPDATE versions SET ai_review_status = 'not_started', ai_review_speed = NULL, ai_review_requested_at_ms = NULL, ai_review_queued_at_ms = NULL, ai_review_waiting_reason = NULL, publish_when_approved_enabled = 0
+       WHERE game_id = ? AND id != ? AND ai_review_status IN ('waiting', 'reviewing') AND scheduled_publish_at_ms IS NULL AND id IS NOT (SELECT live_version_id FROM games WHERE id = ?) RETURNING id`,
+    )
+    .bind(game.id, version.id, game.id)
+    .all<{ id: string }>();
+  for (const { id } of dropped) await forgetReviewBatches(env, id, client);
+  await env.DB
+    .prepare("UPDATE versions SET ai_review_status = 'waiting', ai_review_speed = ?, ai_review_requested_at_ms = ?, ai_review_queued_at_ms = ? WHERE id = ? AND ai_review_status = 'not_started'")
+    .bind(speed, nowMs, nowMs, version.id)
+    .run();
+  await audit(env.DB, game.id, "ai-review-started", version.id, actor);
+  await env.SCAN_QUEUE.send({ versionId: version.id, isAiReviewStep: true });
+}
+
+/**
+ * Move a version's review on, one pass from the top: at once it runs through, and in a batch it answers from what's
+ * stored and sends what's missing. Nothing happens to a version whose review was dropped or has ended.
+ */
+export async function moveAiReviewOn(env: Env, versionId: string, deps: ScanDeps = scanDeps(env), nowMs = Date.now()): Promise<void> {
+  const version = await versionById(env.DB, versionId);
+  if (!version || !isAiReviewPending(version) || version.scan_status !== "approved") return;
+  const game = await gameById(env.DB, version.game_id);
+  if (!game) return;
+  const client = deps.batches ?? anthropicBatches;
+  await env.DB.prepare("UPDATE versions SET ai_review_queued_at_ms = ? WHERE id = ?").bind(nowMs, version.id).run();
+  const files = await versionFiles(env, version);
+  const { texts } = await readTexts(env, files);
+  const staticResult = staticScan(texts, hostsOf(game.own_server_urls));
+  const imageFiles = files.filter((file) => extensionOf(file.path) in IMAGE_TYPES);
+  const input: ReviewInput = { files, texts, staticEvidence: staticResult.evidence, imageFiles, hasStaticHold: false, hasKnownImage: false, isRecheck: false, reported: undefined };
+
+  if (version.ai_review_speed !== "batch") return finishAiReview(env, game, version, await reviewWithAi(env, version, game, input, deps), deps, client, nowMs);
+
+  if (await hasRunningBatch(env, version.id)) return;
+  await collectEndedBatches(env, version.id, client, nowMs);
+  const pass = await batchedPass(env, version.id, client, deps);
+  const review = await reviewWithAi(env, version, game, input, { ...deps, ...pass, areAnswersStored: true });
+  if (pass.hasMissingAnswers()) {
+    await pass.sendMissing();
+    await env.DB.prepare("UPDATE versions SET ai_review_status = 'reviewing', ai_review_waiting_reason = NULL WHERE id = ? AND ai_review_status IN ('waiting', 'reviewing')").bind(version.id).run();
+    return;
+  }
+  await finishAiReview(env, game, version, review, deps, client, nowMs);
+}
+
+/** A review's outcome: it waits for a daily review, or it's over, and the version goes on or is stopped. */
+async function finishAiReview(env: Env, game: Game, version: Version, review: ReviewOutcome, deps: ScanDeps, client: ReviewBatchClient, nowMs: number): Promise<void> {
+  if (review.waitingReason) {
+    await env.DB.prepare("UPDATE versions SET ai_review_status = 'waiting', ai_review_waiting_reason = ? WHERE id = ? AND ai_review_status IN ('waiting', 'reviewing')").bind(review.waitingReason, version.id).run();
+    return;
+  }
+  const fixed = JSON.parse(version.scan_report!) as ScanReport;
+  const report = decidedReport({ ...fixed, findings: fixed.findings }, review, game);
+  const isStopped = report.decision !== "approved";
+  const status = isStopped ? "stopped" : review.isPastBudget ? "skipped" : "passed";
+  // One claim: a pass that lost a race, or a review dropped since, changes nothing.
+  const claim = await env.DB
+    .prepare("UPDATE versions SET ai_review_status = ?, ai_review_finished_at_ms = ?, ai_review_waiting_reason = NULL, scan_status = ?, scan_report = ? WHERE id = ? AND ai_review_status IN ('waiting', 'reviewing')")
+    .bind(status, nowMs, report.decision, JSON.stringify(report), version.id)
+    .run();
+  if (!claim.meta.changes) return;
+  await noteJudgedAndRead(env, version.id, report);
+  await forgetReviewBatches(env, version.id, client);
+  const finished = (await versionById(env.DB, version.id))!;
+  if (isStopped) {
+    await afterStop(env, game, finished, report, deps);
+    await stopLiveVersion(env, game, finished, report);
+    await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
+  } else {
+    if (status === "passed") await shareReads(env, report, nowMs);
+    await afterAiReviewPassed(env, finished);
+  }
+  await tellWebhooks(env, "ai_review_finished", game.id, { versionId: version.id });
+}
+
+/** A version whose review let it through: it goes live if that's what it waited for, and the game takes the visibility it waited to take. */
+async function afterAiReviewPassed(env: Env, version: Version): Promise<void> {
+  const game = (await gameById(env.DB, version.game_id))!;
+  const newer = await env.DB.prepare("SELECT 1 FROM versions WHERE game_id = ? AND created_at_ms > ? LIMIT 1").bind(version.game_id, version.created_at_ms).first();
+  if (version.publish_when_approved_enabled === 1 && version.id !== game.live_version_id && !newer && !version.scheduled_publish_at_ms) await publishNow(env, game, version, "Passed the AI review", "system");
+  await takeVisibilityAfterReview(env, version.game_id);
+}
+
+/** A hidden game that asked to be listed or unlisted takes it once its live version may be open to others. */
+export async function takeVisibilityAfterReview(env: Env, gameId: string): Promise<void> {
+  const game = await gameById(env.DB, gameId);
+  if (!game?.visibility_after_ai_review || !game.live_version_id) return;
+  const live = await versionById(env.DB, game.live_version_id);
+  if (!live || !isAiReviewDone(live)) return;
+  await env.DB.prepare("UPDATE games SET visibility = ?, visibility_after_ai_review = NULL, updated_at_ms = ? WHERE id = ?").bind(game.visibility_after_ai_review, Date.now(), game.id).run();
+  await audit(env.DB, game.id, "visibility", `${game.visibility} to ${game.visibility_after_ai_review}, once the AI review passed`);
+}
+
+/**
+ * A stopped version players are on: they go back to the newest version whose review let it through, in running
+ * matches too. With none, the game has no live version until a fix goes live, and says why.
+ */
+export async function stopLiveVersion(env: Env, game: Game, version: Version, report: ScanReport | null): Promise<void> {
+  if (game.live_version_id !== version.id) return;
+  const before = await env.DB
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND ai_review_status IN ('passed', 'skipped') ORDER BY published_at_ms DESC LIMIT 1")
+    .bind(game.id, version.id)
+    .first<Version>();
+  const reason = stopReason(version, report);
+  if (before) {
+    await publishVersion(env.DB, before, "now");
+    await updateLiveMatches(env, game, before, version);
+    await audit(env.DB, game.id, "ai-review-rolled-back", `${version.id} was stopped; players are back on ${before.id}`, "system", reason);
+    await tellWebhooks(env, "live_version_changed", game.id, { versionId: before.id });
+    return;
+  }
+  await env.DB.prepare("UPDATE games SET live_version_id = NULL, review_status = 'pending', review_reason = ?, updated_at_ms = ? WHERE id = ?").bind(JSON.stringify(reason), Date.now(), game.id).run();
+  await audit(env.DB, game.id, "ai-review-took-down", `${version.id} was stopped, with no earlier version to go back to`, "system", reason);
+  await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id });
+  await tellWebhooks(env, "review_status_changed", game.id, {});
+}
+
+/** What a stop tells the developer on the game: its first finding that's in the list. Child safety is never described. */
+function stopReason(version: Version, report: ScanReport | null) {
+  const own = version.review_reason ? (JSON.parse(version.review_reason) as ReturnType<typeof reviewReason>) : null;
+  if (own) return own;
+  if (report?.is_child_safety) return reviewReason("needs_review");
+  const finding = report?.findings.find((candidate) => candidate.severity !== "info" && Object.hasOwn(REVIEW_CODES, candidate.code));
+  return finding ? reviewReason(finding.code as keyof typeof REVIEW_CODES, finding.message) : reviewReason("needs_review");
+}
+
+/**
+ * Only a version that passed shares what its readers found (read_files), so nobody gets a clean read of a file
+ * from a version that was stopped and then sends that file alone. Never a child-safety item's file, and never when
+ * the evidence hit its cap, since some of a file's items could be missing.
+ */
+async function shareReads(env: Env, report: ScanReport, nowMs: number): Promise<void> {
+  if (!report.read_file_sha256s?.length || !report.ai || !("reader_model" in report.ai)) return;
+  const evidence = report.evidence ?? [];
+  if (evidence.length >= REVIEW_LIMITS.maximumEvidenceItemCount) return;
+  const prompt = await readerPromptSha256(report.ai.reader_model);
+  const itemsBySha = new Map<string, EvidenceItem[]>();
+  for (const evidenceItem of evidence) {
+    if (evidenceItem.source !== "reader") continue;
+    itemsBySha.set(evidenceItem.file_sha256, [...(itemsBySha.get(evidenceItem.file_sha256) ?? []), evidenceItem]);
+  }
+  const rows: { sha256: string; items: string }[] = [];
+  for (const sha256 of report.read_file_sha256s) {
+    const items = itemsBySha.get(sha256) ?? [];
+    if (items.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety")) continue;
+    const stored = JSON.stringify(items);
+    if (stored.length <= AI_REVIEW_LIMITS.maximumReadFileRowSizeBytes) rows.push({ sha256, items: stored });
+  }
+  for (let index = 0; index < rows.length; index += 100) {
+    await env.DB.batch(rows.slice(index, index + 100).map((row) => env.DB.prepare("INSERT OR IGNORE INTO read_files (file_sha256, reader_prompt_sha256, evidence_items, read_at_ms) VALUES (?, ?, ?, ?)").bind(row.sha256, prompt, row.items, nowMs)));
+  }
+}
+
+/** What a version that passed read, from any developer's, for the files this version has too. */
+async function sharedReads(env: Env, model: string, shas: string[]): Promise<{ evidence: EvidenceItem[]; readFileSha256s: string[] }> {
+  const prompt = await readerPromptSha256(model);
+  const evidence: EvidenceItem[] = [];
+  const readFileSha256s: string[] = [];
+  for (let index = 0; index < shas.length; index += 500) {
+    const { results } = await env.DB
+      .prepare("SELECT file_sha256, evidence_items FROM read_files WHERE reader_prompt_sha256 = ? AND file_sha256 IN (SELECT value FROM json_each(?))")
+      .bind(prompt, JSON.stringify(shas.slice(index, index + 500)))
+      .all<{ file_sha256: string; evidence_items: string }>();
+    for (const row of results) {
+      readFileSha256s.push(row.file_sha256);
+      evidence.push(...(JSON.parse(row.evidence_items) as EvidenceItem[]));
+    }
+  }
+  return { evidence, readFileSha256s };
+}
+
+/**
+ * Every 5 minutes: batches that ended move their reviews on; a review waiting for a daily review goes once one
+ * frees up, oldest first, at most 50 a run; a review no job moved in an hour is queued again; and a scheduled
+ * release's review starts in time for it.
+ */
+export async function moveWaitingAiReviews(env: Env, deps: Pick<ScanDeps, "batches"> = {}, nowMs = Date.now()): Promise<number> {
+  const client = deps.batches ?? anthropicBatches;
+  const queued = new Set(await endedBatchVersions(env, client, nowMs));
+
+  const { results } = await env.DB
+    .prepare(
+      `SELECT versions.id, games.owner_id, versions.ai_review_waiting_reason FROM versions JOIN games ON games.id = versions.game_id
+       WHERE versions.ai_review_status = 'waiting' AND versions.ai_review_waiting_reason IS NOT NULL ORDER BY versions.ai_review_requested_at_ms LIMIT 200`,
+    )
+    .all<{ id: string; owner_id: string | null; ai_review_waiting_reason: AiReviewWaitingReason }>();
+  const freeByOwnerAndKind = new Map<string, number>();
+  const limitsByOwner = new Map<string, PlanLimits>();
+  for (const waiting of results) {
+    if (queued.size >= 50) break;
+    const isSmall = waiting.ai_review_waiting_reason === "daily_small_reviews_used";
+    const key = `${waiting.owner_id ?? ""}\n${isSmall ? "small" : "large"}`;
+    if (!freeByOwnerAndKind.has(key)) {
+      if (waiting.owner_id && !limitsByOwner.has(waiting.owner_id)) limitsByOwner.set(waiting.owner_id, await limitsFor(env.DB, waiting.owner_id, nowMs));
+      const limits = waiting.owner_id ? limitsByOwner.get(waiting.owner_id)! : null;
+      const freeReviewCount = !limits
+        ? Infinity
+        : isSmall
+          ? limits.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id!, nowMs))
+          : limits.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id!, nowMs));
+      freeByOwnerAndKind.set(key, freeReviewCount);
+    }
+    if (freeByOwnerAndKind.get(key)! <= 0) continue;
+    freeByOwnerAndKind.set(key, freeByOwnerAndKind.get(key)! - 1);
+    queued.add(waiting.id);
+  }
+
+  const { results: stale } = await env.DB
+    .prepare("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND ai_review_waiting_reason IS NULL AND ai_review_queued_at_ms < ? AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id AND review_batches.ended_at_ms IS NULL) LIMIT 50")
+    .bind(nowMs - AI_REVIEW_LIMITS.staleQueuedDurationMin * 60_000)
+    .all<{ id: string }>();
+  for (const { id } of stale) queued.add(id);
+
+  const ids = [...queued];
+  for (let index = 0; index < ids.length; index += 100) await env.SCAN_QUEUE.sendBatch(ids.slice(index, index + 100).map((versionId) => ({ body: { versionId, isAiReviewStep: true as const } })));
+  await env.DB.prepare("DELETE FROM read_files WHERE read_at_ms < ?").bind(nowMs - AI_REVIEW_LIMITS.readFileKeptDurationDays * 86_400_000).run();
+
+  const { results: scheduled } = await env.DB
+    .prepare("SELECT * FROM versions WHERE scheduled_publish_at_ms IS NOT NULL AND scheduled_publish_at_ms <= ? AND ai_review_status = 'not_started' AND scan_status = 'approved' LIMIT 50")
+    .bind(nowMs + AI_REVIEW_LIMITS.scheduledStartBeforeDurationHours * 3_600_000)
+    .all<Version>();
+  for (const version of scheduled) {
+    const game = await gameById(env.DB, version.game_id);
+    if (game && (await routePublish(env, game, version)).needsReview) await requestAiReview(env, game, version, "system", client, nowMs);
+  }
+  return ids.length;
 }
 
 /** The judge ran for this report: it counts as one of the owner's judged reviews. */
@@ -245,12 +633,20 @@ async function isAnotherVersionWaitingForPerson(env: Env, version: Version): Pro
 export const KNOWN_IMAGE_ALERT =
   "Image matching (Arachnid Shield or PhotoDNA, named on each finding) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
 
-/**
- * Every check on a version's files, deciding but changing nothing: the scan saves and acts on the
- * result, and a re-check after a report (triage.ts) only compares it. `reported` is what a player
- * reported, passed to the AI reviewer as something to look into.
- */
-export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = scanDeps(env), reported?: string): Promise<ScanReport> {
+/** What the fixed checks found in a version's files, and what the review needs next. */
+interface FixedChecks {
+  files: StoredFile[];
+  texts: { path: string; text: string; sha256: string }[];
+  findings: Finding[];
+  staticResult: ReturnType<typeof staticScan>;
+  imageFiles: StoredFile[];
+  images: MediaMatchResult;
+  hasKnownImage: boolean;
+  matchedGame: Awaited<ReturnType<typeof findMatchedGame>>;
+}
+
+/** Zaisma's fixed checks on a version's files: every upload passes them, and any can stop it. `isRecheck`: a re-check after a report isn't compared with other games. */
+async function fixedChecks(env: Env, version: Version, game: Game, deps: ScanDeps, isRecheck = false): Promise<FixedChecks> {
   // 1. Collect the files: under the version's prefix (zip uploads) or from its manifest (file-by-file uploads).
   const files = await versionFiles(env, version);
   const findings: Finding[] = [];
@@ -271,7 +667,6 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   if (env.VT_API_KEY) findings.push(...(await virusTotal(env, files)));
 
   // 2b. A re-upload of another developer's game waits for a person; the developer isn't told which game.
-  const isRecheck = reported !== undefined;
   const matchedGame = isRecheck ? null : await findMatchedGame(env, game, files);
   if (matchedGame?.isBannedOwner) {
     findings.push({ stage: "static", severity: "hold", code: "matches_banned_account_files", message: REVIEW_CODES.matches_banned_account_files.meaning });
@@ -285,34 +680,69 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   const images = await matchMedia(env, files, texts, disguised, deps.images);
   findings.push(...images.findings);
   const hasKnownImage = images.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
+  return { files, texts, findings, staticResult, imageFiles, images, hasKnownImage, matchedGame };
+}
 
-  // 4. AI review: the checks' evidence and the readers', then one judge, within the monthly budget. Never with
-  // pictures that matched known abuse material. `reviewCase` in review-set.ts mirrors steps 2 and 4b, 4c and 4f;
-  // keep them in step (test/site/review-set.test.ts checks).
-  const review = await reviewWithAi(env, version, game, { files, texts, staticEvidence: staticResult.evidence, imageFiles, hasStaticHold: staticResult.findings.some((finding) => finding.severity !== "info"), hasKnownImage, isRecheck, reported }, deps);
-  findings.push(...review.findings);
-  const isChildSafety = hasKnownImage || review.isChildSafety;
+/** What the review needs from the fixed checks. `reviewCase` in review-set.ts mirrors its steps 2 and 4b, 4c and 4f; keep them in step (test/site/review-set.test.ts checks). */
+const reviewInputOf = (fixed: FixedChecks, reported: string | undefined): ReviewInput => ({
+  files: fixed.files,
+  texts: fixed.texts,
+  staticEvidence: fixed.staticResult.evidence,
+  imageFiles: fixed.imageFiles,
+  hasStaticHold: fixed.staticResult.findings.some((finding) => finding.severity !== "info"),
+  hasKnownImage: fixed.hasKnownImage,
+  isRecheck: reported !== undefined,
+  reported,
+});
 
-  // 5. Decide. Lifelike gore plays in games for 16 and up: the finding stays as info there.
+/** The fixed checks and any review as a scan report. */
+function reportOfChecks(fixed: FixedChecks, review: ReviewOutcome | null, findings: Finding[]): ScanReport {
+  return {
+    finished_at_ms: Date.now(),
+    decision: decide(findings),
+    findings,
+    outside_hosts: fixed.staticResult.outsideHosts,
+    images: { provider: fixed.images.provider, is_connected: fixed.images.isConnected, checked_media_count: fixed.images.checkedMediaCount, reused_media_count: fixed.images.reusedMediaCount },
+    ai: review?.ai ?? null,
+    is_child_safety: fixed.hasKnownImage || (review?.isChildSafety ?? false),
+    // What the check finds as needs_threads: the unpacked texts, and every file's path (a coi-serviceworker).
+    has_threads: buildHasThreads([...fixed.texts.map(({ path, text }) => ({ path, contentText: text })), ...fixed.files.map(({ path }) => ({ path, contentText: null }))]),
+    ...(review?.evidence ? { evidence: review.evidence, read_file_sha256s: review.readFileSha256s } : {}),
+    ...(fixed.matchedGame ? { matched_game: { game_id: fixed.matchedGame.gameId, matched_file_count: fixed.matchedGame.matchedFileCount, compared_file_count: fixed.matchedGame.comparedFileCount } } : {}),
+  };
+}
+
+/**
+ * The verdict on a version, from the fixed checks' report or findings and the review: any reject wins, then any hold.
+ * Lifelike gore plays in games for 16 and up: the finding stays as info there. Child-safety signals are held (never
+ * deleted) so they can be reported.
+ */
+function decidedReport(fixed: FixedChecks | ScanReport, review: ReviewOutcome, game: Game): ScanReport {
+  const findings = [...fixed.findings, ...review.findings];
   if (game.minimum_player_age_years >= LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS) {
     for (const finding of findings) if (finding.code === "ai_lifelike_gore") finding.severity = "info";
   }
-  // Child-safety signals are held (never deleted) so they can be reported.
-  let decision = decide(findings);
-  if (isChildSafety) decision = "held";
-  return {
-    finished_at_ms: Date.now(),
-    decision,
-    findings,
-    outside_hosts: staticResult.outsideHosts,
-    images: { provider: images.provider, is_connected: images.isConnected, checked_media_count: images.checkedMediaCount, reused_media_count: images.reusedMediaCount },
-    ai: review.ai,
-    is_child_safety: isChildSafety,
-    // What the check finds as needs_threads: the unpacked texts, and every file's path (a coi-serviceworker).
-    has_threads: buildHasThreads([...texts.map(({ path, text }) => ({ path, contentText: text })), ...files.map(({ path }) => ({ path, contentText: null }))]),
-    ...(review.evidence ? { evidence: review.evidence, read_file_sha256s: review.readFileSha256s } : {}),
-    ...(matchedGame ? { matched_game: { game_id: matchedGame.gameId, matched_file_count: matchedGame.matchedFileCount, compared_file_count: matchedGame.comparedFileCount } } : {}),
-  };
+  const report: ScanReport =
+    "staticResult" in fixed
+      ? reportOfChecks(fixed, review, findings)
+      : {
+          ...fixed,
+          finished_at_ms: Date.now(),
+          findings,
+          ai: review.ai,
+          is_child_safety: fixed.is_child_safety || review.isChildSafety,
+          ...(review.evidence ? { evidence: review.evidence, read_file_sha256s: review.readFileSha256s } : {}),
+        };
+  return { ...report, decision: report.is_child_safety ? "held" : decide(findings) };
+}
+
+/**
+ * Every check on a version's files, deciding but changing nothing: a re-check after a report (triage.ts) only
+ * compares the result. `reported` is what a player reported, passed to the AI reviewer as something to look into.
+ */
+export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = scanDeps(env), reported?: string): Promise<ScanReport> {
+  const fixed = await fixedChecks(env, version, game, deps, reported !== undefined);
+  return decidedReport(fixed, await reviewWithAi(env, version, game, reviewInputOf(fixed, reported), deps), game);
 }
 
 interface ReviewInput {
@@ -333,17 +763,22 @@ interface ReviewOutcome {
   isChildSafety: boolean;
   evidence?: EvidenceItem[];
   readFileSha256s?: string[];
+  /** The review waits for a free daily review of this kind, and decides nothing yet. */
+  waitingReason?: AiReviewWaitingReason;
+  /** Past the monthly budget: the version goes on with the fixed checks alone. */
+  isPastBudget?: boolean;
 }
 
 /**
- * Step 4 of a scan: (a) the budget, (a2) a version a newer one replaced isn't reviewed, (a3) the owner's small
+ * The AI review: (a) the budget, past which the version goes on with the fixed checks alone, (a2) a version a newer one replaced isn't reviewed, (a3) the owner's small
  * reviews a day, before anything is read, (b) the readers, reusing what an earlier version's readers read in
  * files that haven't changed, (c) only items whose quotes are in the files, (d) a tweak of a version that passed
  * reuses its verdict, (e) the owner's large reviews a day, (f) the judge, checking a fix against the hold it
  * answers. A re-check after a report always reads afresh with the report in mind and always runs the judge,
- * and never counts toward the day.
+ * and never counts toward the day. Past a daily limit the review waits and decides nothing. Over stored answers
+ * (deps.areAnswersStored), what they cost was counted when they were collected.
  */
-async function reviewWithAi(env: Env, version: Version, game: Game, input: ReviewInput, deps: ScanDeps): Promise<ReviewOutcome> {
+async function reviewWithAi(env: Env, version: Version, game: Game, input: ReviewInput, deps: ScanDeps & { areAnswersStored?: true }): Promise<ReviewOutcome> {
   const models = { judge_model: env.REVIEW_JUDGE_MODEL, reader_model: env.REVIEW_READER_MODEL };
   const skipped = (summary: string): ReviewAi => ({ ...models, verdict: "skipped", reused_from_version_id: null, summary, cost_cents: 0, input_token_count: 0, output_token_count: 0 });
   if (input.hasKnownImage) return { ai: skipped("Not sent for AI review: image matching found known abuse material."), findings: [], isChildSafety: false };
@@ -353,22 +788,27 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   // (a) The review's own monthly budget, in cents.
   const budgetCents = Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) || 0;
   if ((await aiUsage(env.DB)).review_cost_cents >= budgetCents) {
-    return { ai: skipped("Monthly AI review budget used up."), findings: [{ stage: "ai", severity: "hold", code: "ai_review_budget_used", message: "This month's AI review budget is used up, so a person has to approve this game." }], isChildSafety: false };
+    return { ai: skipped("Monthly AI review budget used up."), findings: [{ stage: "ai", severity: "info", code: "ai_review_budget_used", message: REVIEW_CODES.ai_review_budget_used.meaning }], isChildSafety: false, isPastBudget: true };
   }
   // (a2) Replaced by a newer version while it waited: its files still had every check above, but the AI skips it.
   if (!input.isRecheck && version.replaced_by_version_id) {
     return { ai: skipped("Replaced by a newer version before it was reviewed."), findings: [{ stage: "ai", severity: "hold", code: "version_replaced", message: REVIEW_CODES.version_replaced.meaning }], isChildSafety: false };
   }
-  await addAiUsage(env.DB, 0, 0, "scans");
+  if (!deps.areAnswersStored) await addAiUsage(env.DB, 0, 0, "scans");
 
   // (a3) The owner's small reviews in the last 24 hours, counted only when the readers would read something new.
   const earlier = input.isRecheck ? null : await previousEvidence(env, version);
-  const previous = earlier && { evidence: earlier.evidence, readFileSha256s: earlier.readFileSha256s, texts: await previousTexts(env, earlier.version, input.texts) };
   const pictures = await picturesToRead(env, input.imageFiles);
+  // What any version that passed already read of these files, whoever sent it: never read twice. A re-check reads everything.
+  const shared = input.isRecheck ? null : await sharedReads(env, env.REVIEW_READER_MODEL, [...new Set([...input.texts.map((file) => file.sha256), ...pictures.map((picture) => picture.sha256)])]);
+  const previous =
+    earlier || shared?.readFileSha256s.length
+      ? { evidence: [...(earlier?.evidence ?? []), ...(shared?.evidence ?? [])], readFileSha256s: [...new Set([...(earlier?.readFileSha256s ?? []), ...(shared?.readFileSha256s ?? [])])], texts: earlier ? await previousTexts(env, earlier.version, input.texts) : new Map<string, EarlierText>() }
+      : null;
   const isSmallReview = !input.isRecheck && newReadCount({ texts: input.texts, pictures, previous }) > 0;
   const plan = game.owner_id ? await planFor(env.DB, game.owner_id) : "free";
   if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumSmallReviewsPerDay) {
-    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: dailyReviewMeaning("daily_small_reviews_used", plan) }], isChildSafety: false };
+    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [], isChildSafety: false, waitingReason: "daily_small_reviews_used" };
   }
 
   // (b) Read, and (c) keep only items whose quotes are in the files (gatherEvidence does both).
@@ -382,8 +822,9 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
       previous,
     },
     deps,
-    (costCents) => addReviewUsage(env.DB, costCents),
+    (costCents) => (deps.areAnswersStored ? Promise.resolve() : addReviewUsage(env.DB, costCents)),
   );
+  if (deps.hasMissingAnswers?.()) return { ai: skipped("Waiting for its batch."), findings: [], isChildSafety: false };
   const findings = [...gathered.findings];
   const read = { evidence: gathered.items, readFileSha256s: gathered.readFileSha256s };
   let cost = { cost_cents: gathered.costCents, input_token_count: gathered.inputTokenCount, output_token_count: gathered.outputTokenCount, ...(isSmallReview ? { is_small_review: true } : {}) };
@@ -403,8 +844,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     // (e) The owner's large reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
     if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= PLAN_LIMITS[plan].maximumLargeReviewsPerDay) {
       await alertReviewBudget(env, budgetCents);
-      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: dailyReviewMeaning("daily_large_reviews_used", plan) });
-      return { ai: { ...skipped("Waiting for one of the developer's daily large reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read };
+      return { ai: { ...skipped("Waiting for one of the developer's daily large reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read, waitingReason: "daily_large_reviews_used" };
     }
   }
 
@@ -422,7 +862,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     reviewPrecedents,
     ...(earlierHold ? { earlierHold } : {}),
   });
-  await addReviewUsage(env.DB, answer.costCents);
+  if (!deps.areAnswersStored) await addReviewUsage(env.DB, answer.costCents);
   await alertReviewBudget(env, budgetCents);
   cost = { ...cost, cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
   findings.push(...answer.findings);
@@ -591,48 +1031,8 @@ async function alertReviewBudget(env: Env, budgetCents: number): Promise<void> {
   await sendAlert(
     env,
     `AI review budget at ${REVIEW_LIMITS.budgetAlertPct}%`,
-    `The AI review has used ${dollars(usage.review_cost_cents)} of this month's ${dollars(budgetCents)} (AI_REVIEW_MONTHLY_BUDGET_CENTS). Past it, new versions wait for a person until next month, or until the budget is raised.`,
+    `The AI review has used ${dollars(usage.review_cost_cents)} of this month's ${dollars(budgetCents)} (AI_REVIEW_MONTHLY_BUDGET_CENTS). Past it, new versions go on with the fixed checks alone until next month, or until the budget is raised.`,
   );
-}
-
-/**
- * Versions held only until their owner had a free large or small review: once one of that kind frees up, oldest
- * first, they're scanned again by themselves (every 5 minutes, at most 50 a run). Their reading is reused, so a
- * version that waited for a large review reads nothing new. One a newer version replaced isn't scanned again.
- */
-export async function rescanWaiting(env: Env, nowMs = Date.now()): Promise<number> {
-  const { results } = await env.DB
-    .prepare(
-      `SELECT versions.id, games.owner_id, (SELECT json_extract(json_each.value, '$.code') FROM json_each(versions.scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') IN ('daily_large_reviews_used', 'daily_small_reviews_used')) AS waiting_code
-       FROM versions JOIN games ON games.id = versions.game_id
-       WHERE versions.scan_status = 'held' AND versions.replaced_by_version_id IS NULL AND EXISTS (SELECT 1 FROM json_each(versions.scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') IN ('daily_large_reviews_used', 'daily_small_reviews_used'))
-       ORDER BY versions.created_at_ms LIMIT 200`,
-    )
-    .all<{ id: string; owner_id: string | null; waiting_code: "daily_large_reviews_used" | "daily_small_reviews_used" }>();
-  const freeByOwnerAndKind = new Map<string, number>();
-  const limitsByOwner = new Map<string, PlanLimits>();
-  const queued: string[] = [];
-  for (const waiting of results) {
-    if (queued.length >= 50) break;
-    const isSmall = waiting.waiting_code === "daily_small_reviews_used";
-    const key = `${waiting.owner_id ?? ""}\n${isSmall ? "small" : "large"}`;
-    if (!freeByOwnerAndKind.has(key)) {
-      if (waiting.owner_id && !limitsByOwner.has(waiting.owner_id)) limitsByOwner.set(waiting.owner_id, await limitsFor(env.DB, waiting.owner_id, nowMs));
-      const limits = waiting.owner_id ? limitsByOwner.get(waiting.owner_id)! : null;
-      const freeReviewCount = !limits
-        ? Infinity
-        : isSmall
-          ? limits.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id!, nowMs))
-          : limits.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id!, nowMs));
-      freeByOwnerAndKind.set(key, freeReviewCount);
-    }
-    if (freeByOwnerAndKind.get(key)! <= 0) continue;
-    freeByOwnerAndKind.set(key, freeByOwnerAndKind.get(key)! - 1);
-    queued.push(waiting.id);
-  }
-  for (const versionId of queued) await env.DB.prepare("UPDATE versions SET scan_status = 'scanning', scan_queued_at_ms = ? WHERE id = ? AND scan_status = 'held'").bind(nowMs, versionId).run();
-  for (let index = 0; index < queued.length; index += 100) await env.SCAN_QUEUE.sendBatch(queued.slice(index, index + 100).map((versionId) => ({ body: { versionId } })));
-  return queued.length;
 }
 
 /** A version's code files, read in full and hashed, and any that are really pictures or videos under a code file's name. */
@@ -1035,28 +1435,24 @@ export async function versionFiles(env: Env, version: Version): Promise<StoredFi
 }
 
 /**
- * A version passed review (the scan or a person). Admin uploads and versions sent with
- * "publish when approved" go live; developers' drafts get a private preview link and wait.
+ * A person passed a version, or a change to the game did: its review is over. Versions sent with "publish when
+ * approved" go live; developers' drafts get a private preview link and wait.
  */
 export async function passVersion(env: Env, version: Version, why: string, actor = "system"): Promise<void> {
+  await env.DB.prepare("UPDATE versions SET ai_review_status = 'passed', ai_review_waiting_reason = NULL WHERE id = ?").bind(version.id).run();
   // Only the game's newest version goes live by itself, so an old approval never rolls the game back.
   const newer = await env.DB.prepare("SELECT 1 FROM versions WHERE game_id = ? AND created_at_ms > ? LIMIT 1").bind(version.game_id, version.created_at_ms).first();
   if (version.publish_when_approved_enabled && newer) {
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish (a newer version exists, so it wasn't published)`, actor);
   } else if (version.publish_when_approved_enabled) {
-    const game = await gameById(env.DB, version.game_id);
-    const wasLiveVersion = game?.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
-    await publishVersion(env.DB, version);
-    if (game && version.match_update_mode === "now") await updateLiveMatches(env, game, version, wasLiveVersion);
-    await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
-    await pruneVersions(env, version.game_id);
-    await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
-    await alertIfNoticeFixPublished(env, version.game_id, version.id);
+    const game = (await gameById(env.DB, version.game_id))!;
+    await publishNow(env, game, version, why, actor);
   } else {
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish`, actor);
   }
+  await takeVisibilityAfterReview(env, version.game_id);
   await queuePerformanceCheck(env, version);
 }
 
@@ -1106,7 +1502,9 @@ export async function pruneVersions(env: Env, gameId: string): Promise<void> {
   // A version a tester link picked stays while the link is on, besides the ones kept for rolling back.
   const { results: picked } = await env.DB.prepare("SELECT picked_version_id FROM tester_links WHERE game_id = ? AND revoked_at_ms IS NULL AND version_choice = 'picked'").bind(gameId).all<{ picked_version_id: string }>();
   const pickedIds = new Set(picked.map((link) => link.picked_version_id));
-  const oldVersions = results.filter((version) => version.id !== game?.live_version_id).slice(KEPT_VERSION_COUNT).filter((version) => !pickedIds.has(version.id));
+  // So does the newest whose review let it through: it's where players go back to if the live one is stopped.
+  const newestReviewedId = results.find(isAiReviewDone)?.id;
+  const oldVersions = results.filter((version) => version.id !== game?.live_version_id).slice(KEPT_VERSION_COUNT).filter((version) => !pickedIds.has(version.id) && version.id !== newestReviewedId);
   for (const oldVersion of oldVersions) await deleteVersion(env, oldVersion);
 }
 

@@ -153,6 +153,7 @@ const COMMANDS = {
     flags: {
       game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
+      "after-review": { about: "With --publish-when-approved: go live only once the AI review passes, for a developer who could go first" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
       "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
@@ -172,10 +173,12 @@ const COMMANDS = {
     about: "Publish a version that passed, or roll back to an older one",
     arguments: [{ name: "slug" }, { name: "version_id" }],
     flags: {
+      "after-review": { about: "Go live only once the AI review passes, for a developer who could go first" },
       "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' },
       "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
+  "ai-review": { about: "Start a version's AI review without publishing it, ahead of a launch", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
   unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
   visibility: { about: "Set who can see a game: everyone (listed), people with the link (unlisted), or only you and tester links (private, draft)", arguments: [{ name: "slug" }, { name: "visibility", choices: VISIBILITIES }], flags: {} },
   "allowed-hosts": {
@@ -1187,7 +1190,7 @@ async function sendVersion(slug, fixedFiles, flags) {
   );
   if (todo.length && !isJson) process.stdout.write("\n");
 
-  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}) });
+  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["after-review"] === true ? { publish_after_ai_review_enabled: true } : {}), ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}) });
   const versionId = answer.version.id;
   say(`Version ${versionId} is being scanned. This usually takes under a minute…`);
 
@@ -2153,15 +2156,23 @@ async function run({ command, values, flags, globalFlags, rest }) {
     const { slug, version_id: versionId } = values;
     const scheduledPublishAt = flags["scheduled-publish-at"] === undefined ? undefined : checkPublishTime(flags["scheduled-publish-at"]);
     const matchUpdateMode = flags["match-update-mode"];
-    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}) };
+    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}), ...(flags["after-review"] === true ? { publish_after_ai_review_enabled: true } : {}) };
     const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, Object.keys(publishBody).length ? publishBody : undefined);
     if (isJson) return printAnswer(answer);
     const { game, version } = answer;
     if (scheduledPublishAt) console.log(`Version ${versionId} will go live at ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
-    else {
-      console.log(`Version ${versionId} is live at ${game.page_url}${matchUpdateMode === "now" ? "; running matches switch to it within seconds" : ""}`);
+    else if (!version.is_live) {
+      console.log(`Version ${versionId} goes live once its AI review passes${version.usual_ai_review_duration_min === null ? "" : `, usually in about ${version.usual_ai_review_duration_min} minutes`}.`);
+    } else {
+      console.log(`Version ${versionId} is live at ${game.page_url}${matchUpdateMode === "now" ? "; running matches switch to it within seconds" : ""}${version.usual_ai_review_duration_min === null ? "" : `, with its AI review pending (usually about ${version.usual_ai_review_duration_min} minutes)`}`);
       if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it to everyone with: zaisma visibility ${slug} listed`);
     }
+    return EXIT_CODES.done;
+  }
+  if (command === "ai-review") {
+    const answer = await api("POST", `/games/${values.slug}/versions/${values.version_id}/ai-review`);
+    if (isJson) return printAnswer(answer);
+    console.log(answer.version.usual_ai_review_duration_min === null ? `Version ${values.version_id}'s AI review has ended: ${answer.version.ai_review_status}.` : `Version ${values.version_id}'s AI review is on its way. It usually takes about ${answer.version.usual_ai_review_duration_min} minutes.`);
     return EXIT_CODES.done;
   }
   if (command === "unschedule") {

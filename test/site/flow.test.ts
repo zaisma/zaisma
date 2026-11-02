@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONTENT_RULES, CONTENT_RULE_DETAILS, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
-import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, moveWaitingAiReviews, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { gatherEvidence, type CodeChunk, type ReadCode } from "../../apps/site/src/review-readers.ts";
@@ -413,11 +413,11 @@ describe("the evidence-first review", () => {
     expect(waiting.scan_status).toBe("held");
     expect(JSON.parse(waiting.scan_report!).findings.map((finding: { code: string }) => finding.code)).toEqual(["daily_large_reviews_used"]);
     expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
-    expect(await rescanWaiting(testEnv)).toBe(0);
+    expect(await moveWaitingAiReviews(testEnv)).toBe(0);
 
     // A day later the reviews free up: the cron queues it, and its scan reuses the reading and judges it.
     await env.DB.prepare("UPDATE versions SET judged_at_ms = judged_at_ms - ? WHERE judged_at_ms IS NOT NULL").bind(25 * 60 * 60 * 1000).run();
-    expect(await rescanWaiting(testEnv)).toBe(1);
+    expect(await moveWaitingAiReviews(testEnv)).toBe(1);
     expect((await versionById(env.DB, versions[5]!))!.scan_status).toBe("scanning");
     const readerCalls = { readerCallCount: 0, judgeCallCount: 0 };
     const report = await scanVersion(testEnv, versions[5]!, { images: connected, ...countingReaders(readerCalls) });
@@ -668,7 +668,7 @@ describe("re-uploads checked against their hold", () => {
     expect(replaced.replaced_by_version_id).toBe(second);
     expect((await heldVersions(env.DB)).map((version) => version.id)).not.toContain(first);
     await env.DB.prepare("UPDATE versions SET judged_at_ms = judged_at_ms - ? WHERE judged_at_ms IS NOT NULL").bind(25 * 60 * 60 * 1000).run();
-    expect(await rescanWaiting(testEnv)).toBe(0);
+    expect(await moveWaitingAiReviews(testEnv)).toBe(0);
 
     // A person approving it anyway: a draft, never live over the newer version.
     await passVersion(testEnv, replaced, "Approved by a person");

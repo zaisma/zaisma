@@ -20,7 +20,8 @@ const INSTRUCTIONS = `Zaisma hosts browser games: a game is a folder with an ind
 How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
-3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
+3. Every version is scanned, usually in under a minute: malware, known images and Zaisma's own file checks. get_version shows the result. A held version waits for a person, usually within a day. Passed versions get a private preview link, which opens only for the developer until an AI review lets the version through; a developer's AI tests with play-locally until then, or starts the review with start_ai_review.
+3b. The AI review follows for what other people can reach. A game only its developer can reach never gets one. publish_version on a game others can reach starts it, and is_ai_review_needed_to_publish and usual_ai_review_duration_min on the version say so first: tell the developer how long it usually takes before publishing, never as a promise. A developer who has earned it (get_access standing.publish_before_ai_review_enabled) goes live straight away with the review pending, or with publish_after_ai_review_enabled only once it passes; anyone else stays off until it passes. A stop sends players back to the last version that passed. The ai_review_finished webhook says when it ends. Each developer has daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro); past them it waits for a free one, with ai_review_waiting_reason saying which.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
 
 To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
@@ -417,6 +418,7 @@ export const TOOLS: Tool[] = [
           },
           patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
           publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan; that's publishing, so it needs a key with version_access publish" },
+          publish_after_ai_review_enabled: { type: "boolean", description: "With publish_when_approved: go live only once the AI review passes, for a developer who could go first." },
           match_update_mode: { ...{ type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" }, description: "With publish_when_approved: when running matches get it, next_match (the default) or now" },
         },
         ["slug", "files"],
@@ -498,12 +500,22 @@ export const TOOLS: Tool[] = [
       'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")\n' +
       'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")',
     inputSchema: object(
-      { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
+      { slug, version_id: versionId, publish_after_ai_review_enabled: { type: "boolean", description: "Go live only once the AI review passes, for a developer who could go first. Everyone else waits for it anyway." }, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time. Its AI review starts by itself up to a day ahead when other people can reach the game.", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
       ["slug", "version_id"],
     ),
     outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode"])),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode", "publish_after_ai_review_enabled"])),
+  },
+  {
+    name: "start_ai_review",
+    title: "Start a version's AI review",
+    description:
+      "Start a version's AI review without publishing it, so it's done ahead of a launch or a tester link. A version only its developer can reach needs none. Asked again, it answers where the review stands. usual_ai_review_duration_min says how long it usually takes, not a promise: a batch can take much longer. get_version or the ai_review_finished webhook says when it ends.",
+    inputSchema: object({ slug, version_id: versionId }, ["slug", "version_id"]),
+    outputSchema: answer({ version: VERSION, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/ai-review`),
   },
   {
     name: "cancel_scheduled_publish",

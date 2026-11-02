@@ -1,6 +1,6 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
 import { deleteOldShaderChecks } from "./shader-check.ts";
-import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -9,10 +9,8 @@ import { deleteOldLogs } from "./logs-api.ts";
 import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
-import { deleteVersion, pruneVersions } from "./scan.ts";
+import { deleteVersion, publishWithReview, routePublish } from "./scan.ts";
 import { tellWebhooks } from "./webhooks.ts";
-import { alertIfNoticeFixPublished } from "./notices.ts";
-import { updateLiveMatches } from "./match-updates.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
@@ -28,14 +26,10 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
         await audit(env.DB, version.game_id, "publish-dropped", `${version.id} shows lifelike gore and the game is for everyone 13 and up, so it wasn't published at its scheduled time.`);
         continue;
       }
-      const wasLiveVersion = game?.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
-      await publishVersion(env.DB, version);
-      if (game && version.match_update_mode === "now") await updateLiveMatches(env, game, version, wasLiveVersion);
-      await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
-      await pruneVersions(env, version.game_id);
-      await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
-      await alertIfNoticeFixPublished(env, version.game_id, version.id);
-      publishedCount++;
+      if (!game) continue;
+      // Still earning it and its review isn't done: it goes live on a later run, once that lets it through.
+      if ((await routePublish(env, game, version)).route === "after_ai_review") continue;
+      if ((await publishWithReview(env, game, version, "At its scheduled time")) === "now") publishedCount++;
     } else {
       await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
       await audit(env.DB, version.game_id, "publish-dropped", `${version.id} didn't pass review, so it wasn't published at its scheduled time`);

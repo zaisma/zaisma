@@ -143,6 +143,27 @@ export const MAXIMUM_JUDGE_ATTEMPT_COUNT = 3;
  */
 export const judgeVersion: JudgeVersion = async (apiKey, model, brief) => {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 });
+  const usage = { costCents: 0, inputTokenCount: 0, outputTokenCount: 0 };
+  let declinedAttemptCount = 0;
+  let response: Anthropic.Message;
+  do {
+    response = await client.messages.create(judgeRequest(model, brief));
+    const counts = {
+      inputTokenCount: response.usage.input_tokens,
+      outputTokenCount: response.usage.output_tokens,
+      cacheReadTokenCount: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokenCount: response.usage.cache_creation_input_tokens ?? 0,
+    };
+    usage.costCents += reviewCostCents(model, counts);
+    usage.inputTokenCount += counts.inputTokenCount + counts.cacheReadTokenCount + counts.cacheWriteTokenCount;
+    usage.outputTokenCount += counts.outputTokenCount;
+    if (response.stop_reason === "refusal") declinedAttemptCount++;
+  } while (response.stop_reason === "refusal" && declinedAttemptCount < MAXIMUM_JUDGE_ATTEMPT_COUNT);
+  return judgeAnswerOf(response, brief, { declinedAttemptCount, ...usage });
+};
+
+/** The judge's request: the rules cached, and the brief as numbered JSON. */
+export function judgeRequest(model: string, brief: JudgeBrief): Anthropic.MessageCreateParamsNonStreaming {
   const carried = new Set(brief.earlierHold?.carriedItemNumbers ?? []);
   const numbered = brief.items.map((evidenceItem, index) =>
     JSON.stringify({ number: index + 1, source: evidenceItem.source, kind: evidenceItem.kind, subject: evidenceItem.subject, detail: evidenceItem.detail, path: evidenceItem.path, quote: evidenceItem.quote, ...(brief.earlierHold ? { is_new: !carried.has(index + 1) } : {}) }),
@@ -167,30 +188,17 @@ export const judgeVersion: JudgeVersion = async (apiKey, model, brief) => {
     { type: "text", text: "Judge this game from the evidence and give your verdict." },
   ];
 
-  const usage = { costCents: 0, inputTokenCount: 0, outputTokenCount: 0 };
-  let declinedAttemptCount = 0;
-  let response: Anthropic.Message;
-  do {
-    response = await client.messages.create({
-      model,
-      max_tokens: 16000,
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-      output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
-      messages: [{ role: "user", content }],
-    });
-    const counts = {
-      inputTokenCount: response.usage.input_tokens,
-      outputTokenCount: response.usage.output_tokens,
-      cacheReadTokenCount: response.usage.cache_read_input_tokens ?? 0,
-      cacheWriteTokenCount: response.usage.cache_creation_input_tokens ?? 0,
-    };
-    usage.costCents += reviewCostCents(model, counts);
-    usage.inputTokenCount += counts.inputTokenCount + counts.cacheReadTokenCount + counts.cacheWriteTokenCount;
-    usage.outputTokenCount += counts.outputTokenCount;
-    if (response.stop_reason === "refusal") declinedAttemptCount++;
-  } while (response.stop_reason === "refusal" && declinedAttemptCount < MAXIMUM_JUDGE_ATTEMPT_COUNT);
-  const tries = { declinedAttemptCount, ...usage };
+  return {
+    model,
+    max_tokens: 16000,
+    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
+    messages: [{ role: "user", content }],
+  };
+}
 
+/** What the judge's last answer says, with what its tries used. A batched answer comes through here too; only a declined one is asked again, at full price. */
+export function judgeAnswerOf(response: Pick<Anthropic.Message, "content" | "stop_reason">, brief: JudgeBrief, tries: Pick<JudgeAnswer, "declinedAttemptCount" | "costCents" | "inputTokenCount" | "outputTokenCount">): JudgeAnswer {
   // Declined every time: the content itself keeps tripping a safeguard, so a person must look.
   if (response.stop_reason === "refusal") {
     return { verdict: "hold", summary: "The AI judge declined to review this content.", findings: [{ stage: "ai", severity: "hold", code: "ai_review_declined", message: "The AI judge declined this content. Review it by hand." }], isChildSafety: false, followedReviewPrecedentNumbers: [], ...tries };

@@ -5,6 +5,8 @@ import {
   gameAddress,
   gameById,
   limitsFor,
+  ACCESS_PASS_DURATION_MS,
+  createAccessGrant,
   randomKey,
   reportFromObservations,
   versionById,
@@ -15,7 +17,6 @@ import {
 } from "@zaisma/core";
 import { assetHeadSizes, audioDurationSec, findAssetNotes, imageSizePx, type AssetFile } from "../../../packages/cli/performance.mjs";
 import { gameUrl, type Env } from "./env.ts";
-import { previewLinkToken } from "./preview-links.ts";
 import { versionFiles } from "./scan.ts";
 
 /**
@@ -90,8 +91,10 @@ export async function checkVersion(env: Env, versionId: string, run: ChromeRun =
   // A version published straight away never got a preview key.
   await env.DB.prepare("UPDATE versions SET preview_link_key = COALESCE(preview_link_key, ?) WHERE id = ?").bind(randomKey(32), versionId).run();
   version = (await versionById(env.DB, versionId))!;
-  const preview = previewLinkToken(version)!;
-  const observations = await run(env, `${env.SITE_ORIGIN}/p/${preview.token}`, gameUrl(env, gameAddress(game.slug, "preview")));
+  // Its own grant, for the preview address: a preview link waits for its developer's sign-in until the AI review ends.
+  const gameBaseUrl = gameUrl(env, gameAddress(game.slug, "preview"));
+  const grantKey = await createAccessGrant(env.DB, { gameId: game.id, addressKind: "preview", versionId: version.id, expiresAtMs: Date.now() + ACCESS_PASS_DURATION_MS });
+  const observations = await run(env, `${gameBaseUrl}_zaisma/enter?grant=${grantKey}`, gameBaseUrl);
   const report = reportFromObservations(observations, findAssetNotes(await assetFiles(env, version), { isDrawnWithGpu: observations.isDrawnWithGpu }));
   const { start_files: startFiles, ...shown } = report;
   await env.DB.prepare("UPDATE performance_checks SET check_status = 'checked', report = ?, start_files = ?, checked_at_ms = ? WHERE version_id = ?")

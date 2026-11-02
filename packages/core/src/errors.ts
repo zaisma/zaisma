@@ -118,6 +118,7 @@ export const ERROR_CODES = {
   files_missing: { httpStatus: 409, meaning: "Some of the version's files haven't been sent yet.", messageForPeople: "Some of the version's files haven't arrived yet. Finish the upload." },
   bad_patch_notes: { httpStatus: 400, meaning: "patch_notes isn't text of up to 2,000 characters.", messageForPeople: "Patch notes are up to 2,000 characters." },
   bad_publish_when_approved: { httpStatus: 400, meaning: "publish_when_approved isn't true or false.", messageForPeople: "Publishing when it passes is on or off." },
+  bad_publish_after_ai_review_enabled: { httpStatus: 400, meaning: "publish_after_ai_review_enabled isn't true or false, or it came with nothing to publish.", messageForPeople: "Going live only once the AI review passes applies to a version being published." },
   bad_match_update_mode: { httpStatus: 400, meaning: "match_update_mode isn't next_match or now, or it came without publish_when_approved.", messageForPeople: "Running matches update at the next match or now, and only when the version publishes as it passes." },
   version_limit: { httpStatus: 429, meaning: "The game has had 20 versions in the last day (100 with Zaisma Pro).", messageForPeople: "The game had 20 versions in the last day, or 100 with Zaisma Pro. More free up through the day." },
   no_content_length: { httpStatus: 411, meaning: "A file was sent without a Content-Length header.", messageForPeople: "A file came without its size. Upload it again." },

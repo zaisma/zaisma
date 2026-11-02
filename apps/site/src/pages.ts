@@ -41,6 +41,8 @@ import {
   PERFORMANCE_CHECK_LIMITS,
   testerLinkOpened,
   testerLinkVersion,
+  testerLinkWaitingVersion,
+  isAiReviewDone,
   versionById,
   type ContentRule,
   type DeviceKind,
@@ -203,6 +205,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const countryCode = requestCountryCode(request);
   if (isBlockedInCountry(game, countryCode)) return glassMessage(env, "This game isn't available in your country", `A legal notice under your country's law (${countryName(countryCode!)}) blocks it here. It's still available everywhere else.`, 451);
   const testerVersion = tester ? await testerLinkVersion(env.DB, game, tester) : null;
+  if (tester && !testerVersion && (await testerLinkWaitingVersion(env.DB, game, tester))) return glassMessage(env, "This game is being reviewed", "This link opens once its AI review passes. Try it again later.", 404);
   if (tester && !testerVersion) return glassMessage(env, "Nothing to play yet", "The version this link opens isn't there yet: the developer hasn't published one, or it was deleted. Try the link again later.", 404);
   const isClosed = isClosedTo(viewer, game);
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
@@ -637,13 +640,20 @@ export async function testerEnter(env: Env, token: string, request: Request): Pr
  * full page at the game's fixed preview address, through a one-use grant, so the game domain's
  * address never holds the link's key.
  */
-export async function previewPage(env: Env, token: string): Promise<Response> {
+export async function previewPage(request: Request, env: Env, token: string): Promise<Response> {
   const read = readPreviewLinkToken(token);
   const version = read ? await versionById(env.DB, read.versionId) : null;
   const expiresAtMs = version ? checkPreviewLinkToken(token, version) : null;
   const game = version && expiresAtMs ? await env.DB.prepare("SELECT * FROM games WHERE id = ?").bind(version.game_id).first<Game>() : null;
   if (!version || !expiresAtMs || !game) return glassMessage(env, "This preview link doesn't work", "Preview links last a day, and the developer can turn them off. Get a fresh one from the dashboard or the API.", 404);
   if (!canOpen(game)) return glassMessage(env, game.review_status === "removed" ? "This game was removed" : "This game is being reviewed", "Its previews are closed too.", game.review_status === "removed" ? 410 : 404);
+  // Until its AI review lets it through, only its developer reaches it: no link makes it a page for anyone else (Julius, Nov 2, 2026).
+  if (!isAiReviewDone(version) && game.owner_id) {
+    const { account } = await viewerOf(request, env);
+    if (!account) return new Response(null, { status: 302, headers: { Location: `/signin?next=${encodeURIComponent(`/p/${token}`)}`, "Cache-Control": "no-store", "X-Robots-Tag": "noindex" } });
+    const isDeveloper = await env.DB.prepare("SELECT 1 FROM owners WHERE id = ? AND account_id = ?").bind(game.owner_id, account.id).first();
+    if (!isDeveloper) return glassMessage(env, "This game is being reviewed", "Its preview opens for its developer until the AI review passes.", 404);
+  }
   const grantKey = await createAccessGrant(env.DB, { gameId: game.id, addressKind: "preview", versionId: version.id, expiresAtMs });
   return new Response(null, { status: 302, headers: { Location: enterUrl(env, game.slug, "preview", grantKey, ""), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex" } });
 }
