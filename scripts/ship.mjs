@@ -37,7 +37,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, wr
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NIGHTLY_SWEEP_WORKFLOW, applyEnginesProof, applyNightlySweep, checkState, enginesBaseCommits, judgeCheckedCode, latestSweep, recheckOf, sameCodeCommits, sweepFailedPages, sweepRunTitle } from "./ship-github-check.mjs";
-import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
+import { CHECK_GAME_SLUG, CHECK_GAME_URL, PUBLISHED_RUN_STATUS, PUBLISH_CLI_WORKFLOW_URL, PUBLISH_GAME_SERVER_WORKFLOW_URL, ROOMS_URL, SITE_URL, checkBuckets, checkPackageOnNpm, checkSecurityAddresses, checkUrl, publishedKeyCount, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 import { INTERRUPTED_EXIT_CODE, INTERRUPTED_LINE_START, deployWorkers, liveVersionIdOf, readShipProgress, runThroughInterruptions, writeShipProgress } from "./ship-resume.mjs";
 import { missingShipTokenHelp, useShipToken } from "./ship-token.mjs";
@@ -547,9 +547,11 @@ async function checkLiveSite() {
   const securityChecks = [...bucketResults, ...securityResults];
   return { checks, cliResult, gameServerResult, securityChecks };
 }
-// The status of a publish workflow's run for this commit, or null; read without blocking, since other checks may still run.
+// The status of a publish workflow's run for this commit (PUBLISHED_RUN_STATUS once it passed), or null; read without
+// blocking, since other checks may still run.
 function readPublishRunStatus(workflowUrl) {
-  const commandArguments = ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", basename(workflowUrl), "--commit", commitSha, "--limit", "1", "--json", "status", "--jq", ".[0].status // empty"];
+  const passedStatus = `.[0] | if .status == "completed" and .conclusion == "success" then "${PUBLISHED_RUN_STATUS}" else .status end // empty`;
+  const commandArguments = ["run", "list", "--repo", GITHUB_REPOSITORY, "--workflow", basename(workflowUrl), "--commit", commitSha, "--limit", "1", "--json", "status,conclusion", "--jq", passedStatus];
   return new Promise((resolve) => execFile("gh", commandArguments, { encoding: "utf8" }, (error, stdout) => resolve(error ? null : stdout.trim() || null)));
 }
 let liveSite;
