@@ -38,7 +38,7 @@ A background is your game's world behind Zaisma's glass, on the home and your ga
 
 ## Titles
 
-A title names the game. No tags (`tag_in_title`): a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. "+1 Speed Run", "Wrangler 2x" and "Free Fall" are names, so they're fine. No famous names you don't own (`famous_name`), and no fake rewards (`fake_reward`). Patch notes are where you say what's new.
+A title names the game. No tags (`tag_in_title`): a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. "+1 Speed Run", "Wrangler 2x" and "Free Fall" are names, so they're fine. No list of what the game is (`search_words_in_title`): "Car Mechanic Simulator" is a name, however long, and "Neon Rush: Racing Drift Car Driving Simulator" isn't; the description and genres say what it is, and search finds those too. No famous names you don't own (`famous_name`), and no fake rewards (`fake_reward`). Patch notes are where you say what's new.
 
 ## What happens
 

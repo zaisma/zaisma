@@ -129,6 +129,7 @@ interface VersionJson {
   scan_status: "scanning" | "held" | "approved" | "rejected";
   is_live: boolean;
   patch_notes: string;
+  is_big_update: boolean;
   preview_url: string | null;
   preview_url_expires_at: string | null;
   published_at: string | null;
@@ -366,8 +367,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const [, id, what] = versionPath;
       // "Update running games now": live matches switch now instead of at their next match.
       const matchUpdate = field("match_update_mode") === "now" ? { match_update_mode: "now" } : {};
-      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, matchUpdate);
-      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate });
+      // A version that has never been live says what changed and whether it's a big update; left off, it's a quiet patch.
+      const mark = { ...(form.has("patch_notes") ? { patch_notes: field("patch_notes") } : {}), ...(field("is_big_update") === "true" ? { is_big_update: true } : {}) };
+      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, { ...matchUpdate, ...mark });
+      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate, ...mark });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
       return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
     }
@@ -878,11 +881,15 @@ ${removed ? "" : html`<form class="row make-tester" method="post" action="/dashb
 function uploadPanel(slug: string): Raw {
   return html`<form class="drop bevel" id="drop" data-slug="${slug}">
 <p><strong>Upload a new version.</strong> Drop your game's folder here, or <label class="pick">choose it<input type="file" id="folder" webkitdirectory multiple hidden></label>. It needs an index.html at the top.</p>
-<div class="row"><input name="notes" id="notes" maxlength="2000" placeholder="What changed (optional, shown with the update)" aria-label="What changed"><label class="check"><input type="checkbox" id="auto"> Publish when it passes</label></div>
+<div class="row"><input name="notes" id="notes" maxlength="2000" placeholder="What changed (optional, shown with the update)" aria-label="What changed"><label class="check"><input type="checkbox" id="auto"> Publish when it passes</label><label class="check" title="With Publish when it passes. Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" id="big"> Big update: tell players with the Updated tag</label></div>
 <p class="hint" id="upload-status" role="status" aria-live="polite">Only new and changed files are sent. Files over 95 MB go through <code>npx @zaisma/cli upload</code>.</p>
 </form>
 ${scriptTags(UPLOAD_SCRIPT)}`;
 }
+
+/** What a publish of a version that has never been live asks: what changed, and whether it's a big update, off until the developer says so. */
+const bigUpdateFields = (version: VersionJson): Raw =>
+  html`<input class="publish-notes" name="patch_notes" maxlength="2000" value="${version.patch_notes}" placeholder="What changed, shown in the game's Updates" aria-label="What changed"><label class="check" title="Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" name="is_big_update" value="true"${version.is_big_update ? " checked" : ""}> Big update: tell players with the Updated tag</label>`;
 
 function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   const action = (what: string) => `/dashboard/${slug}/versions/${version.id}/${what}`;
@@ -893,9 +900,9 @@ function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   if (version.scan_status === "approved" && !version.is_live) {
     acts = html`<div class="row">
 ${version.preview_url ? html`<a class="btn ghost" href="${version.preview_url}" target="_blank" rel="noopener" title="For you and your AI: each link works for a day">Preview</a>` : ""}
-<form class="row" method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
+<form class="row" method="post" action="${action("publish")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
 ${version.preview_url ? html`<details class="later"><summary>Preview links</summary><form class="row" method="post" action="${action("end-previews")}">${sectionField(section)}<span class="muted">Each preview link is for you and your AI and works for a day. Shared one too widely? Turn them all off; Preview gets a fresh one.</span><button class="btn ghost" type="submit">Turn off preview links</button></form></details>` : ""}
-${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
+${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
@@ -907,7 +914,7 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   const findings = isHeldBack ? version.findings : [];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
-${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
+${version.patch_notes && !(version.scan_status === "approved" && !version.published_at) ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
 ${isReplaced ? html`<p class="muted">Replaced by a newer version</p>` : ""}
 ${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
 ${findings.length
@@ -1125,7 +1132,7 @@ type FindingPlace = "images" | "background" | "details" | "message";
 const FINDING_PLACES: Partial<Record<ReviewCodeName, FindingPlace>> = {
   image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", famous_name: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
   text_on_background: "background", overlay_on_background: "background", famous_name_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
-  unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details",
+  unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details", search_words_in_title: "details",
   matches_another_developers_game: "message", matches_banned_account_files: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
   ai_private_details_or_threats: "message", ai_protection_dodged: "message", ai_real_money_gambling: "message", ai_paid_random_rewards: "message", ai_coin_price_without_real_price: "message",
   ai_free_text_chat: "message", ai_disallowed_crypto: "message", ai_other: "message", ai_concern: "message", rejected_by_zaisma: "message", taken_down: "message",
@@ -1455,6 +1462,7 @@ const STYLES = `
 .drop .row input[name=notes]{flex:1;min-width:200px}
 .drop .hint{margin:12px 0 0}
 .pick{display:inline;color:var(--text);text-decoration:underline;cursor:pointer;font-size:inherit}
+.publish-notes{flex:1 1 100%}
 .check{display:inline-flex;flex-direction:row;align-items:center;gap:8px;min-height:44px;color:var(--text-2);font-size:15px}
 .check input{min-height:0;width:18px;height:18px;accent-color:#c9cace}
 .track{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
@@ -1799,7 +1807,7 @@ const plan=await api("POST","/games/"+slug+"/uploads",{files:list});const seen=n
 const total=todo.reduce((n,f)=>n+f.file.size,0);let sent=0;const mb=n=>(n/1048576).toFixed(1)+" MB";
 const queue=[...todo];await Promise.all(Array.from({length:4},async()=>{for(let f=queue.shift();f;f=queue.shift()){await api("PUT","/files/"+f.sha256,f.file,true);sent+=f.file.size;say("Sending "+todo.length+" new or changed files… "+mb(sent)+" of "+mb(total))}}));
 say("Making the version…");
-await api("POST","/games/"+slug+"/versions",{files:list,patch_notes:document.getElementById("notes").value,publish_when_approved:document.getElementById("auto").checked});
+await api("POST","/games/"+slug+"/versions",{files:list,patch_notes:document.getElementById("notes").value,publish_when_approved:document.getElementById("auto").checked,...(document.getElementById("big").checked?{is_big_update:true}:{})});
 location.href=location.pathname+"?done=uploaded"}catch(e){say(e.message);status.classList.add("error")}finally{busy=false}}
 input.addEventListener("change",()=>{status.classList.remove("error");upload([...input.files].map(f=>({file:f,path:f.webkitRelativePath||f.name})))});
 form.addEventListener("submit",e=>e.preventDefault());

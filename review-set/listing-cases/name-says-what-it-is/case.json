@@ -1,0 +1,10 @@
+{
+  "title": "Cat Cafe Manager",
+  "description": "",
+  "pictures": [],
+  "is_honest": true,
+  "expected": {
+    "title": "fine"
+  },
+  "why": "A name that says what the game is is still a name."
+}

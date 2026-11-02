@@ -133,7 +133,7 @@ beforeAll(async () => {
   const live = (await gameBySlug(env.DB, liveSlug))!;
   const liveVersionId = newId("version");
   await createVersion(env.DB, { id: liveVersionId, gameId: live.id, r2Prefix: "games/sv/live", fileCount: 1, sizeBytes: 1 });
-  await env.DB.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ? WHERE id = ?").bind(Date.now(), liveVersionId).run();
+  await env.DB.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?1, first_published_at_ms = ?1 WHERE id = ?2").bind(Date.now(), liveVersionId).run();
   await env.DB.prepare("UPDATE games SET review_status = 'live', visibility = 'listed', live_version_id = ? WHERE id = ?").bind(liveVersionId, live.id).run();
   // A file the developer has sent, for new versions.
   const bytes = new TextEncoder().encode("<!doctype html><p>stored values</p>");
@@ -195,6 +195,12 @@ const DOORS: Record<string, Door> = {
   "game_items.title api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM(value, "") }),
   "game_items.description api:PUT /games/:slug/items/:item_name": (value, mark) => api(`/games/${gameSlug}/items/item-${mark}`, { method: "PUT", body: ITEM("Cape", value) }),
   "games.refund_policy_text api:PATCH /games/:slug/purchase-settings": (value) => api(`/games/${gameSlug}/purchase-settings`, { method: "PATCH", body: { refund_policy: "own_words", refund_policy_text: value } }),
+  "versions.patch_notes api:POST /games/:slug/versions/:version_id/publish": async (value) => {
+    // A version that has never been live, published later so the game's live one stays.
+    const versionId = `version_door${crypto.randomUUID().replaceAll("-", "")}`;
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) SELECT ?, id, 'x', 1, 1, 'approved', 1 FROM games WHERE slug = ?").bind(versionId, gameSlug).run();
+    return api(`/games/${gameSlug}/versions/${versionId}/publish`, { body: { patch_notes: value, scheduled_publish_at: new Date(Date.now() + 86_400_000).toISOString() } });
+  },
   "versions.patch_notes api:POST /games/:slug/versions": (value) => api(`/games/${gameSlug}/versions`, { body: { files: [{ path: "index.html", sha256: storedFile.sha256, size_bytes: storedFile.sizeBytes }], patch_notes: value } }),
   "tester_links.name api:POST /games/:slug/testers": (value) => api(`/games/${gameSlug}/testers`, { body: { name: value } }),
   "tester_links.name api:PATCH /games/:slug/testers/:tester_id": (value) => api(`/games/${gameSlug}/testers/${testerId}`, { method: "PATCH", body: { name: value } }),
