@@ -86,6 +86,7 @@ import {
   needsLifelikeGoreAge,
   testerLinkVersion,
   testerLinkWaitingVersion,
+  dailyReviewMeaning,
   isAiReviewDone,
   type AiReviewSpeed,
   toManifest,
@@ -1131,7 +1132,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const { multiplayer_mode: multiplayerMode, game_server_allowed_hosts: allowedHosts, own_server_urls: ownServerUrls, links, ...asked } = change;
     // What other people can reach waits for the review: a hidden game takes this visibility once its live version's review lets it through.
     const reviewForVisibility = asked.visibility ? await visibilityRoute(env, game, asked.visibility) : null;
-    const details = reviewForVisibility?.route === "now" || !reviewForVisibility ? asked : (({ visibility: _waits, ...others }) => others)(asked);
+    const details = reviewForVisibility?.route === "now" || !reviewForVisibility ? asked : { ...asked, visibility: undefined };
     if (asked.title !== undefined && asked.title !== game.title) await refuseZaismaInTitle(env, asked.title, game.owner_id);
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
     if (changesMultiplayer && game.multiplayer_mode === "built-in") {
@@ -1656,10 +1657,10 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const matchUpdateMode = readMatchUpdateMode(body.match_update_mode);
     const mark = readPublishMark(body, game, version);
     await env.DB.prepare("UPDATE versions SET is_big_update = ?, patch_notes = ? WHERE id = ?").bind(mark.isBigUpdate, mark.patchNotes, version.id).run();
-    const publishAfter = readPublishAfterAiReview(body, version);
-    if (publishAfter !== version.publish_after_ai_review_enabled) await env.DB.prepare("UPDATE versions SET publish_after_ai_review_enabled = ? WHERE id = ?").bind(publishAfter, version.id).run();
-    const toPublish = { ...version, is_big_update: mark.isBigUpdate, patch_notes: mark.patchNotes, publish_after_ai_review_enabled: publishAfter };
-    const { route, needsReview, isOpenBefore } = await routePublish(env, game, toPublish);
+    const publishAfterAiReviewEnabled = readPublishAfterAiReview(body, version);
+    if (publishAfterAiReviewEnabled !== version.publish_after_ai_review_enabled) await env.DB.prepare("UPDATE versions SET publish_after_ai_review_enabled = ? WHERE id = ?").bind(publishAfterAiReviewEnabled, version.id).run();
+    const toPublish = { ...version, is_big_update: mark.isBigUpdate, patch_notes: mark.patchNotes, publish_after_ai_review_enabled: publishAfterAiReviewEnabled };
+    const { route, isReviewNeeded, isOpenBefore } = await routePublish(env, game, toPublish);
     // Other people can reach the game and the developer is still earning going first, or chose not to: it goes live once its review passes, with its mark.
     if (route !== "now") {
       await publishWithReview(env, game, toPublish, "Published", caller.actor, matchUpdateMode);
@@ -1679,13 +1680,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id }, caller.waitUntil);
     await alertIfNoticeFixPublished(env, game.id, version.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
-    if (needsReview) await requestAiReview(env, published, (await versionById(env.DB, version.id))!, caller.actor);
+    if (isReviewNeeded) await requestAiReview(env, published, (await versionById(env.DB, version.id))!, caller.actor);
     const isHidden = published.visibility === "draft" || published.visibility === "private";
     const hasScreenshot = isHidden && Boolean(await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'screenshot' AND review_status != 'rejected' LIMIT 1").bind(game.id).first());
     const publishedAnswer = await versionAnswer(env, published, (await versionById(env.DB, version.id))!);
     const nextSteps: NextStep[] = isHidden
-      ? [...(needsReview ? aiReviewSteps(game, publishedAnswer) : []), { tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
-      : needsReview
+      ? [...(isReviewNeeded ? aiReviewSteps(game, publishedAnswer) : []), { tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
+      : isReviewNeeded
         ? aiReviewSteps(game, publishedAnswer)
         : [];
     return [{ game: await gameJson(env, published), version: publishedAnswer, next_steps: nextSteps }];
@@ -1763,7 +1764,7 @@ function readMatchUpdateMode(given: unknown): MatchUpdateMode {
 /** What asking for a visibility does with a live version whose review hasn't let it through. A hidden visibility, or a game with nothing live, is plain: a publish decides later. */
 async function visibilityRoute(env: Env, game: Game, visibility: Game["visibility"]) {
   const live = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
-  if (!live || (visibility !== "listed" && visibility !== "unlisted")) return { route: "now" as const, needsReview: false, isOpenBefore: false, live: null };
+  if (!live || (visibility !== "listed" && visibility !== "unlisted")) return { route: "now" as const, isReviewNeeded: false, isOpenBefore: false, live: null };
   return { ...(await routePublish(env, { ...game, visibility }, live)), live };
 }
 
@@ -1774,8 +1775,8 @@ async function applyVisibilityRoute(env: Env, game: Game, visibility: Game["visi
   if (!routed.live) return [];
   await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(routed.isOpenBefore ? 1 : 0, routed.live.id).run();
   if (routed.route === "needs_person") await holdForPerson(env, game, routed.live);
-  if (routed.needsReview) await requestAiReview(env, game, routed.live, actor);
-  if (!routed.needsReview) return [];
+  if (routed.isReviewNeeded) await requestAiReview(env, game, routed.live, actor);
+  if (!routed.isReviewNeeded) return [];
   const answer = await versionAnswer(env, game, (await versionById(env.DB, routed.live.id))!);
   if (answer.usual_ai_review_duration_min === null) return [];
   const words = isWaiting ? `The game stays ${game.visibility} and becomes ${visibility} once its live version's AI review passes` : "The live version's AI review is pending";
@@ -1802,7 +1803,7 @@ async function goreVersionPlayersCanReach(env: Env, game: Game): Promise<Version
     if (live) reachable.push(live);
   }
   for (const link of await testerLinks(env.DB, game.id)) {
-    const opened = await testerLinkVersion(env.DB, game, link);
+    const opened = (await testerLinkVersion(env.DB, game, link)) ?? (await testerLinkWaitingVersion(env.DB, game, link));
     if (opened) reachable.push(opened);
   }
   return reachable.find((version) => needsLifelikeGoreAge(version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null)) ?? null;
@@ -2286,9 +2287,9 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
 async function reviewForTesterLink(env: Env, game: Game, link: TesterLink, actor: string): Promise<void> {
   const waiting = await testerLinkWaitingVersion(env.DB, game, link);
   if (!waiting) return;
-  const { needsReview, isOpenBefore } = await routePublish(env, game, waiting);
+  const { isReviewNeeded, isOpenBefore } = await routePublish(env, game, waiting);
   await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, waiting.id).run();
-  if (needsReview) await requestAiReview(env, game, (await versionById(env.DB, waiting.id))!, actor);
+  if (isReviewNeeded) await requestAiReview(env, game, (await versionById(env.DB, waiting.id))!, actor);
 }
 
 function readTesterName(given: unknown): string {
@@ -2624,14 +2625,15 @@ export async function versionAnswer(env: Env, game: Game, version: Version) {
 /** What a game's versions' AI review answers need, read once for all of them; null when every review has ended. */
 async function aiReviewFacts(env: Env, game: Game, versions: Version[]): Promise<AiReviewFacts | null> {
   if (versions.every((version) => isAiReviewDone(version) || version.ai_review_status === "stopped")) return null;
-  const [publish, speed, usualDurationsMin] = await Promise.all([publishFacts(env, game), aiReviewSpeedFor(env, game), usualAiReviewDurations(env)]);
-  return { publish, speed, usualDurationsMin };
+  const [publish, speed, usualDurationsMin, plan] = await Promise.all([publishFacts(env, game), aiReviewSpeedFor(env, game), usualAiReviewDurations(env), game.owner_id ? planFor(env.DB, game.owner_id) : ("free" as const)]);
+  return { publish, speed, usualDurationsMin, plan };
 }
 
 interface AiReviewFacts {
   publish: PublishFacts;
   speed: AiReviewSpeed;
   usualDurationsMin: Record<AiReviewSpeed, number>;
+  plan: PlanKind;
 }
 
 /** How a version started in Chrome: null for zip versions and versions from before it ran. */
@@ -2667,7 +2669,7 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     ai_review_finished_at: iso(version.ai_review_finished_at_ms),
     ai_review_waiting_reason: version.ai_review_waiting_reason,
     usual_ai_review_duration_min: isReviewOpen ? aiReview.usualDurationsMin[version.ai_review_speed ?? aiReview.speed] : null,
-    is_ai_review_needed_to_publish: isReviewOpen && version.ai_review_status === "not_started" && publishRouteOf(game, version, aiReview.publish).needsReview,
+    is_ai_review_needed_to_publish: isReviewOpen && version.ai_review_status === "not_started" && publishRouteOf(game, version, aiReview.publish).isReviewNeeded,
     is_open_before_ai_review: version.is_open_before_ai_review === 1,
     publish_after_ai_review_enabled: version.publish_after_ai_review_enabled === 1,
     has_threads: hasThreads(report),
@@ -2683,10 +2685,17 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: findingsFor(report),
+    findings: [...findingsFor(report), ...(isReviewOpen ? waitingFindingsFor(version, aiReview.plan) : [])],
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
+}
+
+/** What a review waiting for a free daily review tells the developer, with the limit that's theirs. A note: nothing is held. */
+function waitingFindingsFor(version: Version, plan: PlanKind) {
+  const code = version.ai_review_waiting_reason;
+  if (!code) return [];
+  return [{ code, severity: "info" as const, message: dailyReviewMeaning(code, plan), content_rule: null, path: null, fix: REVIEW_CODES[code].fix, message_for_people: REVIEW_CODES[code].messageForPeople }];
 }
 
 /** A person's or a report's decision about a version: a report paused this update, or a person rejected it. */

@@ -246,7 +246,7 @@ export interface ModelUsage {
 }
 
 /** What Anthropic charges for a batched call, as a share of its price. */
-const BATCH_PRICE_SHARE = 0.5;
+const BATCH_PRICE_PCT = 50;
 
 /** What a call cost in US cents. A model not in the table is priced as Opus, so a new one never looks cheap. */
 export function reviewCostCents(model: string, usage: ModelUsage, isBatched = false): number {
@@ -254,6 +254,6 @@ export function reviewCostCents(model: string, usage: ModelUsage, isBatched = fa
   return (
     ((usage.inputTokenCount * prices.inputCents + usage.cacheWriteTokenCount * prices.inputCents * 1.25 + usage.cacheReadTokenCount * prices.cacheReadCents + usage.outputTokenCount * prices.outputCents) /
       1_000_000) *
-    (isBatched ? BATCH_PRICE_SHARE : 1)
+    (isBatched ? BATCH_PRICE_PCT / 100 : 1)
   );
 }

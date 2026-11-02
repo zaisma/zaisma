@@ -949,7 +949,7 @@ ${findings.length
         )}</ul></div>`
       : ""}
 ${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
-${reviewLine}${version.findings.filter((finding) => finding.code === "ai_review_budget_used").map((finding) => html`<p class="muted">${finding.message_for_people}</p>`)}${scheduled}${acts}
+${reviewLine}${version.findings.filter((finding) => finding.code === "ai_review_budget_used" || finding.code === version.ai_review_waiting_reason).map((finding) => html`<p class="muted">${finding.message_for_people}</p>`)}${scheduled}${acts}
 </li>`;
 }
 

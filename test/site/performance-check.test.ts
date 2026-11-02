@@ -58,7 +58,7 @@ async function passedVersion(slug: string, files: Record<string, Uint8Array> = {
 const sawGame =
   (fields: Partial<PerformanceObservations> = {}): ChromeRun =>
   async (_env, pageUrl, gameBaseUrl) => {
-    expect(pageUrl).toMatch(/^https:\/\/zaisma\.test\/p\/version_/);
+    expect(pageUrl).toMatch(/--preview\/_zaisma\/enter\?grant=[a-z0-9]{32}$/);
     const openedAtMs = 5_000_000;
     return {
       browserVersion: "HeadlessChrome/128.0.6613.84",

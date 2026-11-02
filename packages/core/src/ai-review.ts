@@ -59,10 +59,10 @@ export const isAiReviewPending = (version: Pick<Version, "ai_review_status">): b
 /** The share-th percentile of a list of durations, in whole minutes: at_once rounds up to the minute, batch up to its step. */
 export function usualDurationMin(durationsMs: number[], speed: AiReviewSpeed): number {
   if (durationsMs.length < AI_REVIEW_LIMITS.minimumUsualDurationReviewCount) return speed === "batch" ? AI_REVIEW_LIMITS.defaultBatchDurationMin : AI_REVIEW_LIMITS.defaultAtOnceDurationMin;
-  const sorted = [...durationsMs].sort((first, second) => first - second);
+  const sorted = [...durationsMs].sort((firstMs, secondMs) => firstMs - secondMs);
   const atShareMs = sorted[Math.min(sorted.length - 1, Math.ceil((sorted.length * AI_REVIEW_LIMITS.usualDurationPct) / 100) - 1)]!;
-  const step = speed === "batch" ? AI_REVIEW_LIMITS.batchDurationStepMin : 1;
-  return Math.max(step, Math.ceil(atShareMs / 60_000 / step) * step);
+  const stepMin = speed === "batch" ? AI_REVIEW_LIMITS.batchDurationStepMin : 1;
+  return Math.max(stepMin, Math.ceil(atShareMs / 60_000 / stepMin) * stepMin);
 }
 
 /** A duration as a page says it: "a minute", "about 40 minutes", "about 2 hours". */

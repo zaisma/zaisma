@@ -20,20 +20,20 @@ export interface ReviewBatchClient {
 }
 
 export interface BatchRequest {
-  custom_id: string;
-  params: Anthropic.MessageCreateParamsNonStreaming;
+  customId: string;
+  messageRequest: Anthropic.MessageCreateParamsNonStreaming;
 }
 
 /** A batch's answer to one request: its message, or null when it errored, expired or was canceled. */
 export interface BatchResult {
-  custom_id: string;
+  customId: string;
   model: string | null;
   message: StoredMessage | null;
 }
 
 export const anthropicBatches: ReviewBatchClient = {
   async create(apiKey, requests) {
-    return (await new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 }).messages.batches.create({ requests })).id;
+    return (await new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 }).messages.batches.create({ requests: requests.map((request) => ({ custom_id: request.customId, params: request.messageRequest })) })).id;
   },
   async isEnded(apiKey, batchId) {
     return (await new Anthropic({ apiKey, maxRetries: 2 }).messages.batches.retrieve(batchId)).processing_status === "ended";
@@ -41,7 +41,7 @@ export const anthropicBatches: ReviewBatchClient = {
   async *results(apiKey, batchId) {
     for await (const entry of await new Anthropic({ apiKey, maxRetries: 2, timeout: 300_000 }).messages.batches.results(batchId)) {
       const message = entry.result.type === "succeeded" ? entry.result.message : null;
-      yield { custom_id: entry.custom_id, model: message?.model ?? null, message: message && { content: message.content, stop_reason: message.stop_reason, usage: message.usage } };
+      yield { customId: entry.custom_id, model: message?.model ?? null, message: message && { content: message.content, stop_reason: message.stop_reason, usage: message.usage } };
     }
   },
   async cancel(apiKey, batchId) {
@@ -90,9 +90,9 @@ export async function collectEndedBatches(env: Env, versionId: string, client: R
   const answers = await storedAnswers(env, versionId);
   let costCents = 0;
   for (const batch of batches) {
-    for await (const result of client.results(env.ANTHROPIC_API_KEY ?? "", batch.anthropic_batch_id)) {
-      answers.messages[result.custom_id] = result.message;
-      if (result.message && result.model) costCents += reviewCostCents(result.model, usageCounts(result.message), true);
+    for await (const answered of client.results(env.ANTHROPIC_API_KEY ?? "", batch.anthropic_batch_id)) {
+      answers.messages[answered.customId] = answered.message;
+      if (answered.message && answered.model) costCents += reviewCostCents(answered.model, usageCounts(answered.message), true);
     }
   }
   await putAnswers(env, versionId, answers);
@@ -143,16 +143,16 @@ export async function batchedPass(env: Env, versionId: string, client: ReviewBat
     });
     return sends;
   };
-  const ask = async (customId: string, params: Anthropic.MessageCreateParamsNonStreaming) => {
+  const ask = async (customId: string, messageRequest: Anthropic.MessageCreateParamsNonStreaming) => {
     wasMissing = true;
-    const sizeBytes = JSON.stringify(params).length;
+    const sizeBytes = JSON.stringify(messageRequest).length;
     if (waiting.length && waitingSizeBytes + sizeBytes > AI_REVIEW_LIMITS.maximumBatchSizeBytes) {
       const full = waiting;
       waiting = [];
       waitingSizeBytes = 0;
       await send(full);
     }
-    waiting.push({ custom_id: customId, params });
+    waiting.push({ customId, messageRequest });
     waitingSizeBytes += sizeBytes;
   };
   const noAnswer: ReaderAnswer = { items: [], outcome: "read", costCents: 0, inputTokenCount: 0, outputTokenCount: 0 };

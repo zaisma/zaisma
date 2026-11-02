@@ -8,7 +8,6 @@ import {
   addReviewUsage,
   aiUsage,
   currentMonth,
-  dailyReviewMeaning,
   FIXABLE_FINDING_CODES,
   isSameItem,
   isTweak,
@@ -286,14 +285,14 @@ export async function publishFacts(env: Env, game: Game): Promise<PublishFacts> 
  * after_ai_review: players stay where they are, and it goes live once its review passes. needs_person: a review is
  * needed and none can run here. The server's rule, whichever call or page asked.
  */
-export function publishRouteOf(game: Pick<Game, "visibility" | "full_game_item_name">, version: Version, facts: PublishFacts): { route: "now" | "after_ai_review" | "needs_person"; needsReview: boolean; isOpenBefore: boolean } {
-  if (isAiReviewDone(version)) return { route: "now", needsReview: false, isOpenBefore: version.is_open_before_ai_review === 1 };
+export function publishRouteOf(game: Pick<Game, "visibility" | "full_game_item_name">, version: Version, facts: PublishFacts): { route: "now" | "after_ai_review" | "needs_person"; isReviewNeeded: boolean; isOpenBefore: boolean } {
+  if (isAiReviewDone(version)) return { route: "now", isReviewNeeded: false, isOpenBefore: version.is_open_before_ai_review === 1 };
   const isEarned = facts.isEarned && version.publish_after_ai_review_enabled === 0;
   const reachesOthers = liveVersionReachesOthers(game);
-  if (!reachesOthers && !facts.hasTesterLink) return { route: "now", needsReview: false, isOpenBefore: isEarned };
-  if (!facts.hasKey) return { route: "needs_person", needsReview: false, isOpenBefore: false };
-  if (!reachesOthers || isEarned) return { route: "now", needsReview: true, isOpenBefore: isEarned };
-  return { route: "after_ai_review", needsReview: true, isOpenBefore: false };
+  if (!reachesOthers && !facts.hasTesterLink) return { route: "now", isReviewNeeded: false, isOpenBefore: isEarned };
+  if (!facts.hasKey) return { route: "needs_person", isReviewNeeded: false, isOpenBefore: false };
+  if (!reachesOthers || isEarned) return { route: "now", isReviewNeeded: true, isOpenBefore: isEarned };
+  return { route: "after_ai_review", isReviewNeeded: true, isOpenBefore: false };
 }
 
 export const routePublish = async (env: Env, game: Game, version: Version) => publishRouteOf(game, version, await publishFacts(env, game));
@@ -322,14 +321,14 @@ async function goWhereAsked(env: Env, game: Game, version: Version): Promise<voi
 
 /** Publish as the server's rule says: now, or once the review passes. Answers which, for whoever asked. */
 export async function publishWithReview(env: Env, game: Game, version: Version, why: string, actor = "system", matchUpdateMode = version.match_update_mode): Promise<"now" | "after_ai_review" | "needs_person"> {
-  const { route, needsReview, isOpenBefore } = await routePublish(env, game, version);
+  const { route, isReviewNeeded, isOpenBefore } = await routePublish(env, game, version);
   if (route === "needs_person") {
     await holdForPerson(env, game, version);
     return route;
   }
   await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ?, publish_when_approved_enabled = ?, match_update_mode = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, route === "after_ai_review" ? 1 : version.publish_when_approved_enabled, matchUpdateMode, version.id).run();
   if (route === "now") await publishNow(env, game, { ...version, match_update_mode: matchUpdateMode }, why, actor);
-  if (needsReview) await requestAiReview(env, game, (await versionById(env.DB, version.id))!, actor);
+  if (isReviewNeeded) await requestAiReview(env, game, (await versionById(env.DB, version.id))!, actor);
   return route;
 }
 
@@ -363,8 +362,8 @@ export async function usualAiReviewDurations(env: Env, nowMs = Date.now()): Prom
       .all<{ duration_ms: number }>();
     return usualDurationMin(results.map((row) => row.duration_ms), speed);
   };
-  const [atOnce, batch] = await Promise.all([durationsOf("at_once"), durationsOf("batch")]);
-  return { at_once: atOnce, batch };
+  const [atOnceDurationMin, batchDurationMin] = await Promise.all([durationsOf("at_once"), durationsOf("batch")]);
+  return { at_once: atOnceDurationMin, batch: batchDurationMin };
 }
 
 /**
@@ -412,7 +411,7 @@ export async function moveAiReviewOn(env: Env, versionId: string, deps: ScanDeps
   if (await hasRunningBatch(env, version.id)) return;
   await collectEndedBatches(env, version.id, client, nowMs);
   const pass = await batchedPass(env, version.id, client, deps);
-  const review = await reviewWithAi(env, version, game, input, { ...deps, ...pass, areAnswersStored: true });
+  const review = await reviewWithAi(env, version, game, input, { ...deps, ...pass, hasStoredAnswers: true });
   if (pass.hasMissingAnswers()) {
     await pass.sendMissing();
     await env.DB.prepare("UPDATE versions SET ai_review_status = 'reviewing', ai_review_waiting_reason = NULL WHERE id = ? AND ai_review_status IN ('waiting', 'reviewing')").bind(version.id).run();
@@ -599,7 +598,7 @@ export async function moveWaitingAiReviews(env: Env, deps: Pick<ScanDeps, "batch
     .all<Version>();
   for (const version of scheduled) {
     const game = await gameById(env.DB, version.game_id);
-    if (game && (await routePublish(env, game, version)).needsReview) await requestAiReview(env, game, version, "system", client, nowMs);
+    if (game && (await routePublish(env, game, version)).isReviewNeeded) await requestAiReview(env, game, version, "system", client, nowMs);
   }
   return ids.length;
 }
@@ -776,9 +775,9 @@ interface ReviewOutcome {
  * reuses its verdict, (e) the owner's large reviews a day, (f) the judge, checking a fix against the hold it
  * answers. A re-check after a report always reads afresh with the report in mind and always runs the judge,
  * and never counts toward the day. Past a daily limit the review waits and decides nothing. Over stored answers
- * (deps.areAnswersStored), what they cost was counted when they were collected.
+ * (deps.hasStoredAnswers), what they cost was counted when they were collected.
  */
-async function reviewWithAi(env: Env, version: Version, game: Game, input: ReviewInput, deps: ScanDeps & { areAnswersStored?: true }): Promise<ReviewOutcome> {
+async function reviewWithAi(env: Env, version: Version, game: Game, input: ReviewInput, deps: ScanDeps & { hasStoredAnswers?: true }): Promise<ReviewOutcome> {
   const models = { judge_model: env.REVIEW_JUDGE_MODEL, reader_model: env.REVIEW_READER_MODEL };
   const skipped = (summary: string): ReviewAi => ({ ...models, verdict: "skipped", reused_from_version_id: null, summary, cost_cents: 0, input_token_count: 0, output_token_count: 0 });
   if (input.hasKnownImage) return { ai: skipped("Not sent for AI review: image matching found known abuse material."), findings: [], isChildSafety: false };
@@ -794,7 +793,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   if (!input.isRecheck && version.replaced_by_version_id) {
     return { ai: skipped("Replaced by a newer version before it was reviewed."), findings: [{ stage: "ai", severity: "hold", code: "version_replaced", message: REVIEW_CODES.version_replaced.meaning }], isChildSafety: false };
   }
-  if (!deps.areAnswersStored) await addAiUsage(env.DB, 0, 0, "scans");
+  if (!deps.hasStoredAnswers) await addAiUsage(env.DB, 0, 0, "scans");
 
   // (a3) The owner's small reviews in the last 24 hours, counted only when the readers would read something new.
   const earlier = input.isRecheck ? null : await previousEvidence(env, version);
@@ -822,7 +821,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
       previous,
     },
     deps,
-    (costCents) => (deps.areAnswersStored ? Promise.resolve() : addReviewUsage(env.DB, costCents)),
+    (costCents) => (deps.hasStoredAnswers ? Promise.resolve() : addReviewUsage(env.DB, costCents)),
   );
   if (deps.hasMissingAnswers?.()) return { ai: skipped("Waiting for its batch."), findings: [], isChildSafety: false };
   const findings = [...gathered.findings];
@@ -862,7 +861,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     reviewPrecedents,
     ...(earlierHold ? { earlierHold } : {}),
   });
-  if (!deps.areAnswersStored) await addReviewUsage(env.DB, answer.costCents);
+  if (!deps.hasStoredAnswers) await addReviewUsage(env.DB, answer.costCents);
   await alertReviewBudget(env, budgetCents);
   cost = { ...cost, cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
   findings.push(...answer.findings);

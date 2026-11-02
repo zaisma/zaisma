@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONTENT_RULES, CONTENT_RULE_DETAILS, KNOWN_IMAGE_CODE, PLAN_LIMITS, REVIEW_LIMITS, arachnidShield, blobKey, createGame, createVersion, gameById, gameBySlug, heldVersions, manifestKey, newId, notConnected, sha256Hex, versionById, type EvidenceItem, type ImageMatcher, type Manifest, type ScanJob, type ScanReport } from "@zaisma/core";
-import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, moveWaitingAiReviews, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { versionAnswer } from "../../apps/site/src/developer.ts";
+import { handleScanBatch, imageMatcher, moveAiReviewOn, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, moveWaitingAiReviews, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
-import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { gatherEvidence, type CodeChunk, type ReadCode } from "../../apps/site/src/review-readers.ts";
 import { judgeVersion, settle, type JudgeBrief, type JudgeVersion } from "../../apps/site/src/review-judge.ts";
 import { CLEAN_GAME, makeZip, minifiedBundle } from "../helpers.ts";
@@ -52,11 +53,18 @@ async function uploadAndScan(files: Record<string, string | Uint8Array>, deps: S
   const res = await upload(files, slug);
   expect(res.status).toBe(201);
   const body = (await res.json()) as { versionId: string; gameId: string };
-  const report = await scanVersion(testEnv, body.versionId, deps);
+  const report = await reviewedScan(testEnv, body.versionId, deps);
   return { ...body, report };
 }
 
+/** What the API says about a version waiting for a free daily review. */
+async function waitingFinding(gameId: string, versionId: string) {
+  const answer = await versionAnswer(testEnv, (await gameById(env.DB, gameId))!, (await versionById(env.DB, versionId))!);
+  return answer.findings.find((finding) => finding.code === "daily_large_reviews_used" || finding.code === "daily_small_reviews_used");
+}
+
 beforeEach(async () => {
+  await env.DB.prepare("DELETE FROM read_files").run();
   sent = [];
   await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage;");
   const all = await env.GAMES.list();
@@ -159,13 +167,14 @@ describe("scan and publish", () => {
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
   });
 
-  it("holds games without calling the AI once the monthly budget is used", async () => {
-    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents) VALUES (?, 10000)").bind(new Date().toISOString().slice(0, 7)).run();
+  it("goes on with the fixed checks alone, without calling the AI, once the monthly budget is used", async () => {
+    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents) VALUES (?, 2000)").bind(new Date().toISOString().slice(0, 7)).run();
     const calls = { judgeCallCount: 0 };
-    const { report } = await uploadAndScan(CLEAN_GAME, { images: connected, ...countedAiSays(calls) });
+    const { report, versionId } = await uploadAndScan(CLEAN_GAME, { images: connected, ...countedAiSays(calls) });
     expect(calls.judgeCallCount).toBe(0);
-    expect(report.decision).toBe("held");
+    expect(report.decision).toBe("approved");
     expect(report.findings.map((f) => f.code)).toContain("ai_review_budget_used");
+    expect((await versionById(env.DB, versionId))!.ai_review_status).toBe("skipped");
   });
 
   it("lets the admin approve a held game", async () => {
@@ -397,7 +406,7 @@ describe("the evidence-first review", () => {
     expect(report.evidence?.map((item) => item.kind)).toEqual(["content"]);
   });
 
-  it("holds an owner's 6th judged version in a day without an alert, and judges it once a review frees up", async () => {
+  it("waits with an owner's 6th judged version in a day, with no alert, and judges it once a review frees up", async () => {
     await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_daily', 'person', 1)").run();
     const calls = { judgeCallCount: 0 };
     const versions: string[] = [];
@@ -405,32 +414,29 @@ describe("the evidence-first review", () => {
       const uploaded = await upload(CLEAN_GAME, `daily-${index}`);
       const { versionId, gameId } = (await uploaded.json()) as { versionId: string; gameId: string };
       await env.DB.prepare("UPDATE games SET owner_id = 'owner_daily' WHERE id = ?").bind(gameId).run();
-      await scanVersion(testEnv, versionId, { images: connected, ...countedAiSays(calls) });
+      await reviewedScan(testEnv, versionId, { images: connected, ...countedAiSays(calls) });
       versions.push(versionId);
     }
     expect(calls.judgeCallCount).toBe(5);
-    const waiting = (await versionById(env.DB, versions[5]!))!;
-    expect(waiting.scan_status).toBe("held");
-    expect(JSON.parse(waiting.scan_report!).findings.map((finding: { code: string }) => finding.code)).toEqual(["daily_large_reviews_used"]);
+    expect(await versionById(env.DB, versions[5]!)).toMatchObject({ scan_status: "approved", ai_review_status: "waiting", ai_review_waiting_reason: "daily_large_reviews_used" });
     expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
     expect(await moveWaitingAiReviews(testEnv)).toBe(0);
 
-    // A day later the reviews free up: the cron queues it, and its scan reuses the reading and judges it.
+    // A day later the reviews free up: the cron queues it, and its next pass reuses the reading and judges it.
     await env.DB.prepare("UPDATE versions SET judged_at_ms = judged_at_ms - ? WHERE judged_at_ms IS NOT NULL").bind(25 * 60 * 60 * 1000).run();
     expect(await moveWaitingAiReviews(testEnv)).toBe(1);
-    expect((await versionById(env.DB, versions[5]!))!.scan_status).toBe("scanning");
     const readerCalls = { readerCallCount: 0, judgeCallCount: 0 };
-    const report = await scanVersion(testEnv, versions[5]!, { images: connected, ...countingReaders(readerCalls) });
-    expect(report.decision).toBe("approved");
+    await moveAiReviewOn(testEnv, versions[5]!, { images: connected, ...countingReaders(readerCalls) });
+    expect(await versionById(env.DB, versions[5]!)).toMatchObject({ scan_status: "approved", ai_review_status: "passed", ai_review_waiting_reason: null });
     expect(readerCalls).toEqual({ readerCallCount: 0, judgeCallCount: 1 });
   });
 
-  it("stops at the monthly budget, and tells Julius once a month at 80%", async () => {
-    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents) VALUES (?, 7999)").bind(month()).run();
+  it("goes on past the monthly budget, and tells Julius once a month at 80%", async () => {
+    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents) VALUES (?, 1599)").bind(month()).run();
     await uploadAndScan(CLEAN_GAME, { images: connected, ...aiSays("pass") }, "budget-one");
     await uploadAndScan(CLEAN_GAME, { images: connected, ...aiSays("pass") }, "budget-two");
     expect(alerts.filter((line) => line.startsWith("[alert] AI review budget"))).toEqual(["[alert] AI review budget at 80%"]);
-    await env.DB.prepare("UPDATE ai_usage SET review_cost_cents = 10000").run();
+    await env.DB.prepare("UPDATE ai_usage SET review_cost_cents = 2000").run();
     const { report } = await uploadAndScan(CLEAN_GAME, { images: connected, ...aiSays("pass") }, "budget-three");
     expect(report.findings.map((finding) => finding.code)).toContain("ai_review_budget_used");
   });
@@ -570,11 +576,11 @@ describe("re-uploads checked against their hold", () => {
       const game = await createGame(env.DB, { slug: `ember-keep-${index}`, title: "Ember Keep", description: "Hold the keep." });
       const briefs: JudgeBrief[] = [];
       const deps: ScanDeps = { images: connected, readCode: readsFlags({ readerCallCount: 0 }), readPictures: seesNothing, judge: judgeFinds(briefs, (brief) => (brief.earlierHold ? [fixFinding] : [{ code: "ai_lifelike_gore", path: "gore.js" }])) };
-      const held = await scanVersion(testEnv, await filesVersion(game.id, HELD_FOR_GORE), deps);
+      const held = await reviewedScan(testEnv, await filesVersion(game.id, HELD_FOR_GORE), deps);
       expect(held.decision).toBe("held");
       expect(briefs[0]!.earlierHold).toBeUndefined();
 
-      const fixed = await scanVersion(testEnv, await filesVersion(game.id, FIXED), deps);
+      const fixed = await reviewedScan(testEnv, await filesVersion(game.id, FIXED), deps);
       const brief = briefs[1]!;
       expect(brief.earlierHold).toMatchObject({ findings: [{ code: "ai_lifelike_gore", path: "gore.js" }], addedPaths: ["chat.js"], changedPaths: ["gore.js"], removedPaths: [] });
       expect(brief.earlierHold!.carriedItemNumbers).toEqual([brief.items.findIndex((evidenceItem) => evidenceItem.path === "game.js") + 1]);
@@ -583,26 +589,28 @@ describe("re-uploads checked against their hold", () => {
     }
   });
 
-  it("holds a version unread past 30 small reviews a day, and lets one with nothing new to read through", async () => {
+  it("waits unread with a version past 30 small reviews a day, and lets one with nothing new to read through", async () => {
     await env.DB.prepare("INSERT OR IGNORE INTO owners (id, kind, created_at_ms) VALUES ('owner_small', 'person', 1)").run();
     const game = await createGame(env.DB, { slug: "small-reviews", title: "Small Reviews", description: "A test.", ownerId: "owner_small" });
     const calls = { readerCallCount: 0 };
     const deps: ScanDeps = { images: connected, readCode: readsFlags(calls), readPictures: seesNothing, judge: judgeSays("pass") };
     const first = await filesVersion(game.id, CLEAN_GAME);
-    await scanVersion(testEnv, first, deps);
+    await reviewedScan(testEnv, first, deps);
     expect((await versionById(env.DB, first))!.read_at_ms).toBeGreaterThan(0);
     for (let index = 1; index < PLAN_LIMITS.free.maximumSmallReviewsPerDay; index++) {
       await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, read_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
     }
     const readerCallCount = calls.readerCallCount;
 
-    const same = await scanVersion(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
+    const same = await reviewedScan(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
     expect(same.decision).toBe("approved");
 
-    const changed = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
-    expect(changed.findings.map((finding) => finding.code)).toEqual(["daily_small_reviews_used"]);
+    const changedId = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" });
+    const changed = await reviewedScan(testEnv, changedId, deps);
+    expect(changed.findings).toEqual([]);
     expect(changed.evidence).toBeUndefined();
-    expect(changed.findings[0]!.message).toContain("Zaisma Pro has 100 small reviews a day.");
+    expect((await waitingFinding(game.id, changedId))?.code).toBe("daily_small_reviews_used");
+    expect((await waitingFinding(game.id, changedId))?.message).toContain("Zaisma Pro has 100 small reviews a day.");
     expect(calls.readerCallCount).toBe(readerCallCount);
     expect(alerts.filter((line) => line.includes("needs review"))).toEqual([]);
   });
@@ -612,18 +620,20 @@ describe("re-uploads checked against their hold", () => {
     const game = await createGame(env.DB, { slug: "pro-small-reviews", title: "Pro Small Reviews", description: "A test.", ownerId: "owner_pro_small" });
     const calls = { readerCallCount: 0 };
     const deps: ScanDeps = { images: connected, readCode: readsFlags(calls), readPictures: seesNothing, judge: judgeSays("pass") };
-    await scanVersion(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
+    await reviewedScan(testEnv, await filesVersion(game.id, CLEAN_GAME), deps);
     const readRows = async (count: number) => {
       for (let index = 0; index < count; index++) {
         await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, read_at_ms) VALUES (?, ?, 'none', 0, 0, 'rejected', 1, ?)").bind(newId("version"), game.id, Date.now()).run();
       }
     };
     await readRows(PLAN_LIMITS.free.maximumSmallReviewsPerDay);
-    const withinPro = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
+    const withinPro = await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 1;" }), deps);
     expect(withinPro.findings.map((finding) => finding.code)).not.toContain("daily_small_reviews_used");
     await readRows(PLAN_LIMITS.pro.maximumSmallReviewsPerDay);
-    const overPro = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 2;" }), deps);
-    expect(overPro.findings.find((finding) => finding.code === "daily_small_reviews_used")?.message).not.toContain("Zaisma Pro");
+    const overProId = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 2;" });
+    await reviewedScan(testEnv, overProId, deps);
+    expect((await waitingFinding(game.id, overProId))?.code).toBe("daily_small_reviews_used");
+    expect((await waitingFinding(game.id, overProId))?.message).not.toContain("Zaisma Pro");
   });
 
   it("gives a developer with Zaisma Pro 20 large reviews a day, and names Pro only to one without it", async () => {
@@ -639,17 +649,21 @@ describe("re-uploads checked against their hold", () => {
     const deps: ScanDeps = { images: connected, ...aiSays("pass") };
 
     await judgedRows(proGame.id, PLAN_LIMITS.free.maximumLargeReviewsPerDay);
-    const withinPro = await scanVersion(testEnv, await filesVersion(proGame.id, CLEAN_GAME), deps);
+    const withinPro = await reviewedScan(testEnv, await filesVersion(proGame.id, CLEAN_GAME), deps);
     expect(withinPro.findings.map((finding) => finding.code)).not.toContain("daily_large_reviews_used");
 
     await judgedRows(proGame.id, PLAN_LIMITS.pro.maximumLargeReviewsPerDay);
     const otherProGame = await createGame(env.DB, { slug: "pro-reviews-two", title: "Pro Reviews Two", description: "A test.", ownerId: "owner_pro" });
-    const overPro = (await scanVersion(testEnv, await filesVersion(otherProGame.id, CLEAN_GAME), deps)).findings.find((finding) => finding.code === "daily_large_reviews_used");
+    const overProId = await filesVersion(otherProGame.id, CLEAN_GAME);
+    await reviewedScan(testEnv, overProId, deps);
+    const overPro = await waitingFinding(otherProGame.id, overProId);
     expect(overPro?.message).toContain("20 large reviews");
     expect(overPro?.message).not.toContain("Zaisma Pro");
 
     await judgedRows(freeGame.id, PLAN_LIMITS.free.maximumLargeReviewsPerDay);
-    const overFree = (await scanVersion(testEnv, await filesVersion(freeGame.id, CLEAN_GAME), deps)).findings.find((finding) => finding.code === "daily_large_reviews_used");
+    const overFreeId = await filesVersion(freeGame.id, CLEAN_GAME);
+    await reviewedScan(testEnv, overFreeId, deps);
+    const overFree = await waitingFinding(freeGame.id, overFreeId);
     expect(overFree?.message).toContain("5 large reviews");
     expect(overFree?.message).toContain("Zaisma Pro has 20 large reviews a day.");
   });
@@ -662,10 +676,12 @@ describe("re-uploads checked against their hold", () => {
     }
     const deps: ScanDeps = { images: connected, ...aiSays("pass") };
     const first = await filesVersion(game.id, CLEAN_GAME);
-    expect((await scanVersion(testEnv, first, deps)).findings.map((finding) => finding.code)).toEqual(["daily_large_reviews_used"]);
+    await reviewedScan(testEnv, first, deps);
+    expect((await versionById(env.DB, first))!.ai_review_waiting_reason).toBe("daily_large_reviews_used");
     const second = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 2;" });
+    await scanVersion(testEnv, second, deps);
     const replaced = (await versionById(env.DB, first))!;
-    expect(replaced.replaced_by_version_id).toBe(second);
+    expect(replaced).toMatchObject({ ai_review_status: "not_started", ai_review_waiting_reason: null, publish_when_approved_enabled: 0 });
     expect((await heldVersions(env.DB)).map((version) => version.id)).not.toContain(first);
     await env.DB.prepare("UPDATE versions SET judged_at_ms = judged_at_ms - ? WHERE judged_at_ms IS NOT NULL").bind(25 * 60 * 60 * 1000).run();
     expect(await moveWaitingAiReviews(testEnv)).toBe(0);
@@ -677,7 +693,7 @@ describe("re-uploads checked against their hold", () => {
 
     // Child safety stays in the queue.
     const flagged = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 3;" });
-    await scanVersion(testEnv, flagged, { images: connected, ...aiSays("hold", true) });
+    await reviewedScan(testEnv, flagged, { images: connected, ...aiSays("hold", true) });
     await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 4;" });
     expect((await versionById(env.DB, flagged))!.replaced_by_version_id).toBeNull();
   });
@@ -685,14 +701,14 @@ describe("re-uploads checked against their hold", () => {
   it("emails needs review once per game in the queue, and URGENT every time", async () => {
     const game = await createGame(env.DB, { slug: "one-email", title: "One Email", description: "A test." });
     const first = await filesVersion(game.id, CLEAN_GAME);
-    await scanVersion(testEnv, first, { images: connected, ...aiSays("hold") });
+    await reviewedScan(testEnv, first, { images: connected, ...aiSays("hold") });
     expect(alerts.filter((line) => line.includes("one-email needs review"))).toHaveLength(1);
     const second = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 5;" });
     expect((await versionById(env.DB, first))!.replaced_by_version_id).toBe(second);
-    expect((await scanVersion(testEnv, second, { images: connected, ...aiSays("hold") })).decision).toBe("held");
+    expect((await reviewedScan(testEnv, second, { images: connected, ...aiSays("hold") })).decision).toBe("held");
     expect(alerts.filter((line) => line.includes("one-email needs review"))).toHaveLength(1);
     const third = await filesVersion(game.id, { ...CLEAN_GAME, "game.js": "let score = 6;" });
-    await scanVersion(testEnv, third, { images: connected, ...aiSays("hold", true) });
+    await reviewedScan(testEnv, third, { images: connected, ...aiSays("hold", true) });
     expect(alerts.filter((line) => line.includes("URGENT child-safety flag on one-email"))).toHaveLength(1);
   });
 
@@ -705,14 +721,14 @@ describe("re-uploads checked against their hold", () => {
       const sentChunks: CodeChunk[] = [];
       const reads = readsFlags({ readerCallCount: 0 });
       const deps: ScanDeps = { images: connected, readCode: async (...input) => (sentChunks.push(input[2]), reads(...input)), readPictures: seesNothing, judge: judgeSays("pass") };
-      const first = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(bundle) }), deps);
+      const first = await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(bundle) }), deps);
       expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["lifelike_gore", "real_people"]);
 
       // One string changed in the middle, and the gore flag edited away near the end.
       sentChunks.length = 0;
       const changed = withFlags(`${bundle.slice(0, 300_000)}"a new string"${bundle.slice(300_014)}`).replace('flag("lifelike_gore");', 'flag("allowed_content");');
       const changedSha256 = await sha256Hex(new TextEncoder().encode(changed));
-      const second = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": changed }), deps);
+      const second = await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": changed }), deps);
       const sentParts = sentChunks.flatMap((chunk) => chunk.files).filter((file) => file.path === "bundle.js");
       expect(sentParts.length).toBeGreaterThan(0);
       expect(sentParts.every((file) => file.isChangedOnly)).toBe(true);
@@ -725,7 +741,7 @@ describe("re-uploads checked against their hold", () => {
 
       // A file mostly rewritten is read whole.
       sentChunks.length = 0;
-      await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(minifiedBundle(1_000_000, 9)) }), deps);
+      await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(minifiedBundle(1_000_000, 9)) }), deps);
       const wholeParts = sentChunks.flatMap((chunk) => chunk.files).filter((file) => file.path === "bundle.js");
       expect(wholeParts.some((file) => file.isChangedOnly)).toBe(false);
       expect(wholeParts.reduce((characterCount, file) => characterCount + file.text.length, 0)).toBeGreaterThan(1_000_000);
@@ -754,9 +770,9 @@ describe("re-uploads checked against their hold", () => {
         const files = { "index.html": CLEAN_GAME["index.html"], "known.js": known, "unknown.js": "let unknown = 1;", "failing.js": failing };
         const deps: ScanDeps = { images: connected, ...aiSays("pass") };
 
-        await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        await reviewedScan(scanEnv, await filesVersion(game.id, files), deps);
         expect(lookedUp).toHaveLength(4);
-        const second = await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        const second = await reviewedScan(scanEnv, await filesVersion(game.id, files), deps);
         expect(lookedUp.slice(4)).toEqual([await shaOf(failing)]);
         expect(second.findings.map((finding) => finding.code)).toContain("antivirus_unavailable");
         const rows = await env.DB.prepare("SELECT sha256, malicious_engine_count FROM antivirus_lookups").all<{ sha256: string; malicious_engine_count: number | null }>();
@@ -769,7 +785,7 @@ describe("re-uploads checked against their hold", () => {
         // A day later the not-known file is looked up again; the known one waits out its week.
         await env.DB.prepare("UPDATE antivirus_lookups SET looked_up_at_ms = looked_up_at_ms - ?").bind(25 * 60 * 60 * 1000).run();
         lookedUp.length = 0;
-        await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        await reviewedScan(scanEnv, await filesVersion(game.id, files), deps);
         expect(lookedUp.sort()).toEqual([await shaOf(failing), await shaOf("let unknown = 1;"), await shaOf(CLEAN_GAME["index.html"])].sort());
       } finally {
         globalThis.fetch = realFetch;

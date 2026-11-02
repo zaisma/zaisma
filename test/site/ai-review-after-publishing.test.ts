@@ -1,7 +1,7 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_REVIEW_LIMITS, blobKey, createAccount, createApiKey, createGame, createVersion, gameById, manifestKey, newId, personOwner, sha256Hex, testerLinkVersion, addTesterLink, usualDurationMin, versionById, type Finding, type Manifest } from "@zaisma/core";
-import { moveAiReviewOn, moveWaitingAiReviews, publishWithReview, requestAiReview, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { AI_REVIEW_LIMITS, blobKey, createAccount, createApiKey, createGame, createVersion, currentMonth, gameById, manifestKey, newId, personOwner, sha256Hex, testerLinkVersion, addTesterLink, usualDurationMin, versionById, type Finding, type Manifest } from "@zaisma/core";
+import { aiReviewSpeedFor, moveAiReviewOn, moveWaitingAiReviews, publishWithReview, requestAiReview, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { publishDue } from "../../apps/site/src/cleanup.ts";
 import { previewLinkToken } from "../../apps/site/src/preview-links.ts";
 import type { BatchRequest, BatchResult, ReviewBatchClient } from "../../apps/site/src/review-batches.ts";
@@ -34,7 +34,7 @@ function batches(answer: (request: BatchRequest) => BatchResult["message"]) {
     create: async (_key, requests) => (made.push({ id: `batch_${made.length}`, requests, isEnded: false, isCanceled: false }), made.at(-1)!.id),
     isEnded: async (_key, id) => made.find((batch) => batch.id === id)!.isEnded,
     results: async function* (_key, id) {
-      for (const request of made.find((batch) => batch.id === id)!.requests) yield { custom_id: request.custom_id, model: request.params.model, message: answer(request) };
+      for (const request of made.find((batch) => batch.id === id)!.requests) yield { customId: request.customId, model: request.messageRequest.model, message: answer(request) };
     },
     cancel: async (_key, id) => void (made.find((batch) => batch.id === id)!.isCanceled = true),
   };
@@ -42,7 +42,7 @@ function batches(answer: (request: BatchRequest) => BatchResult["message"]) {
 }
 const usage = { input_tokens: 1_000_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } as BatchResult["message"] extends infer M ? (M extends { usage: infer U } ? U : never) : never;
 const toMessage = (body: unknown) => ({ content: [{ type: "text", text: JSON.stringify(body), citations: null }], stop_reason: "end_turn", usage }) as NonNullable<BatchResult["message"]>;
-const passingAnswer = (request: BatchRequest) => (String(request.params.model).includes("sonnet") ? toMessage({ verdict: "pass", summary: "A game.", has_sexual_content_involving_minors: false, followed_ruling_numbers: [], findings: [] }) : toMessage({ items: [] }));
+const passingAnswer = (request: BatchRequest) => (String(request.messageRequest.model).includes("sonnet") ? toMessage({ verdict: "pass", summary: "A game.", has_sexual_content_involving_minors: false, followed_ruling_numbers: [], findings: [] }) : toMessage({ items: [] }));
 
 async function uploaded(gameId: string, files: Record<string, string>, publish = true): Promise<string> {
   const versionId = newId("version");
@@ -124,10 +124,9 @@ describe("after the fixed checks", () => {
   it("reviews a game with many players at once", async () => {
     await earn();
     const game = await makeGame("big-game");
-    await env.DB.prepare("INSERT INTO play_days (game_id, date, started_play_count, play_count, player_count, new_player_count, play_duration_sec) VALUES (?, ?, 0, ?, 0, 0, 0)").bind(game.id, new Date().toISOString().slice(0, 10), AI_REVIEW_LIMITS.minimumAtOnceWeeklyPlayCount).run();
-    const version = await uploaded(game.id, CLEAN_GAME);
-    await scanVersion(testEnv, version, deps());
-    expect((await row(version)).ai_review_speed).toBe("at_once");
+    await env.DB.prepare("INSERT INTO play_days (game_id, date, started_play_count, play_count, player_count, new_player_count, play_duration_sec) VALUES (?, '2026-10-26', 0, ?, 0, 0, 0)").bind(game.id, AI_REVIEW_LIMITS.minimumAtOnceWeeklyPlayCount).run();
+    expect(await aiReviewSpeedFor(testEnv, game, Date.parse("2026-10-26T12:00:00Z"))).toBe("at_once");
+    expect(await aiReviewSpeedFor(testEnv, game, Date.parse("2026-11-26T12:00:00Z"))).toBe("batch");
   });
 
   it("treats the buyers of a hidden paid game as other people", async () => {
@@ -185,7 +184,7 @@ describe("batches", () => {
   it("asks directly what a batch couldn't answer, once", async () => {
     await earn();
     const game = await makeGame("batch-fails");
-    const { client, endAll } = batches((request) => (String(request.params.model).includes("sonnet") ? passingAnswer(request) : null));
+    const { client, endAll } = batches((request) => (String(request.messageRequest.model).includes("sonnet") ? passingAnswer(request) : null));
     const version = await uploaded(game.id, CLEAN_GAME);
     await scanVersion(testEnv, version, deps());
     const batched = deps("pass", { batches: client });
@@ -207,32 +206,20 @@ describe("batches", () => {
     const game = await makeGame("only-newest");
     const { client, made } = batches(passingAnswer);
     const first = await uploaded(game.id, CLEAN_GAME);
+    await env.DB.prepare("UPDATE versions SET publish_after_ai_review_enabled = 1 WHERE id = ?").bind(first).run();
     await scanVersion(testEnv, first, deps());
     await moveAiReviewOn(testEnv, first, deps("pass", { batches: client }));
     expect(made.length).toBe(1);
-    const second = await uploaded(game.id, { ...CLEAN_GAME, "game.js": "let speed = 3;" });
-    await env.DB.prepare("UPDATE versions SET publish_when_approved_enabled = 1 WHERE id = ?").bind(second).run();
-    // A newer upload going live: the older one is no longer live, so its review stops.
-    const withClient = await scanVersionUsing(second, client);
-    expect(withClient).toBe("waiting");
-    expect((await row(first)).ai_review_status).toBe("not_started");
+    const second = await uploaded(game.id, { ...CLEAN_GAME, "game.js": "let speed = 3;" }, false);
+    await scanVersion(testEnv, second, deps());
+    await requestAiReview(testEnv, (await gameById(env.DB, game.id))!, await row(second), "system", client);
+    expect((await row(second)).ai_review_status).toBe("waiting");
+    expect(await row(first)).toMatchObject({ ai_review_status: "not_started", publish_when_approved_enabled: 0 });
     expect(made[0]!.isCanceled).toBe(true);
     await moveAiReviewOn(testEnv, first, deps("pass", { batches: client }));
     expect((await row(first)).ai_review_status).toBe("not_started");
   });
 });
-
-/** Scans a version, with its review asked for through this batch client. */
-async function scanVersionUsing(versionId: string, client: ReviewBatchClient): Promise<string> {
-  const spy = vi.fn();
-  void spy;
-  await scanVersion(testEnv, versionId, deps("pass", { batches: client }));
-  // requestAiReview in the scan uses the real client's cancel only with a key and a running batch: ask again through the stand-in.
-  const version = await row(versionId);
-  const game = (await gameById(env.DB, version.game_id))!;
-  await requestAiReview(testEnv, game, version, "system", client);
-  return (await row(versionId)).ai_review_status;
-}
 
 describe("a stop", () => {
   it("rolls players back to the last version that passed, with the reason on the version", async () => {
@@ -242,6 +229,8 @@ describe("a stop", () => {
     await scanVersion(testEnv, good, deps());
     await env.DB.prepare("UPDATE versions SET ai_review_speed = 'at_once' WHERE id = ?").bind(good).run();
     await moveAiReviewOn(testEnv, good, deps());
+    // No judged version to be a tweak of, so the judge is asked.
+    await env.DB.prepare("UPDATE versions SET judged_at_ms = NULL WHERE id = ?").bind(good).run();
     const bad = await uploaded(game.id, { ...CLEAN_GAME, "game.js": "let cheat = 1;" });
     await scanVersion(testEnv, bad, deps());
     expect(await liveOf(game.id)).toBe(bad);
@@ -276,7 +265,7 @@ describe("a stop", () => {
 
 describe("past the budget", () => {
   it("goes on with the fixed checks alone, and nobody waits for a person", async () => {
-    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents, review_call_count) VALUES (?, 2000, 1)").bind(new Date().toISOString().slice(0, 7)).run();
+    await env.DB.prepare("INSERT INTO ai_usage (month, review_cost_cents, review_call_count) VALUES (?, 2000, 1)").bind(currentMonth()).run();
     const game = await makeGame("past-budget");
     const version = await uploaded(game.id, CLEAN_GAME);
     await scanVersion(testEnv, version, deps());

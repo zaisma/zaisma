@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { KNOWN_IMAGE_CODE, gameBySlug, versionById, type ImageMatcher, type Report, type Triage } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { recheckVersion, triageReports, type TriageAnswer, type TriageDeps, type TriageInput } from "../../apps/site/src/triage.ts";
-import { judgeSays, passingScanDeps } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, passingScanDeps } from "./scan-stubs.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
 
 const LOCAL = "http://localhost";
@@ -23,7 +23,7 @@ async function liveGame(daysOld = 30) {
   form.set("description", "A test.");
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId, gameId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string; gameId: string };
-  await scanVersion(testEnv, versionId, scanSays("pass"));
+  await reviewedScan(testEnv, versionId, scanSays("pass"));
   await env.DB.prepare("UPDATE versions SET published_at_ms = ? WHERE id = ?").bind(Date.now() - daysOld * DAY, versionId).run();
   return { versionId, gameId };
 }
