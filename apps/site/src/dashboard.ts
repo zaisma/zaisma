@@ -889,7 +889,7 @@ ${scriptTags(UPLOAD_SCRIPT)}`;
 
 /** What a publish of a version that has never been live asks: what changed, and whether it's a big update, off until the developer says so. */
 const bigUpdateFields = (version: VersionJson): Raw =>
-  html`<input name="patch_notes" maxlength="2000" value="${version.patch_notes}" placeholder="What changed, shown in the game's Updates" aria-label="What changed"><label class="check" title="Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" name="is_big_update" value="true"${version.is_big_update ? " checked" : ""}> Big update: tell players with the Updated tag</label>`;
+  html`<input class="publish-notes" name="patch_notes" maxlength="2000" value="${version.patch_notes}" placeholder="What changed, shown in the game's Updates" aria-label="What changed"><label class="check" title="Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" name="is_big_update" value="true"${version.is_big_update ? " checked" : ""}> Big update: tell players with the Updated tag</label>`;
 
 function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   const action = (what: string) => `/dashboard/${slug}/versions/${version.id}/${what}`;
@@ -914,7 +914,7 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   const findings = isHeldBack ? version.findings : [];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
-${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
+${version.patch_notes && !(version.scan_status === "approved" && !version.published_at) ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
 ${isReplaced ? html`<p class="muted">Replaced by a newer version</p>` : ""}
 ${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
 ${findings.length
@@ -1462,6 +1462,7 @@ const STYLES = `
 .drop .row input[name=notes]{flex:1;min-width:200px}
 .drop .hint{margin:12px 0 0}
 .pick{display:inline;color:var(--text);text-decoration:underline;cursor:pointer;font-size:inherit}
+.publish-notes{flex:1 1 100%}
 .check{display:inline-flex;flex-direction:row;align-items:center;gap:8px;min-height:44px;color:var(--text-2);font-size:15px}
 .check input{min-height:0;width:18px;height:18px;accent-color:#c9cace}
 .track{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
