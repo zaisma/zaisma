@@ -28,11 +28,11 @@ const LOAD_TIME_LIMIT_MS = 30_000;
 const SLOW_3G = { offline: false, latency: 2000, downloadThroughput: 50 * 1024, uploadThroughput: 50 * 1024 };
 
 /** One page: { url, title, console_errors, text, evaluated, picture_path, timing }, text, evaluated, picture_path and timing null unless asked for. */
-export async function probePage({ chromePath, url, signInSite = null, account = null, widthPx = 1280, heightPx = 800, theme = "light", isText = false, expression = null, picturePath = null, isSlow = false }) {
+export async function probePage({ chromePath, url, account = null, widthPx = 1280, heightPx = 800, theme = "light", isText = false, expression = null, picturePath = null, isSlow = false }) {
   const chrome = await openChrome(chromePath, "zaisma-page-probe-");
   try {
     const { browserContextId } = await chrome.send("Target.createBrowserContext");
-    if (account) await signIn(chrome, browserContextId, signInSite ?? new URL(url).origin, account);
+    if (account) await signIn(chrome, browserContextId, new URL(url).origin, account);
     const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId, newWindow: true });
     const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
     const send = (method, params = {}) => chrome.send(method, params, sessionId);
@@ -75,6 +75,11 @@ export async function probePage({ chromePath, url, signInSite = null, account = 
   }
 }
 
+/** The page a path or an address means: a path is on the preview's own site, an address is as it is. Signing in happens at the page's own origin. */
+export function probeUrl(argument, previewSite) {
+  return argument.startsWith("/") ? `${previewSite}${argument}` : argument;
+}
+
 /** When the page first painted and loaded, in ms from its start, and its largest paint: what --slow reports. */
 const TIMING = `(() => { const navigation = performance.getEntriesByType("navigation")[0], paint = performance.getEntriesByName("first-contentful-paint")[0]; return { first_paint_ms: paint ? Math.round(paint.startTime) : null, load_ms: navigation ? Math.round(navigation.loadEventEnd) : null }; })()`;
 
@@ -96,17 +101,15 @@ async function main() {
   const [widthPx, heightPx] = size.split("x").map(Number);
   if (!/^\d+x\d+$/.test(size) || widthPx < 200 || heightPx < 200) stop("--size takes a width and height in pixels, at least 200 each, like --size 320x667.", isJson);
   let url = loose[0];
-  let signInSite = null;
   if (url.startsWith("/")) {
     const sites = previewSites({ isStarting: false });
     if (!sites) stop("This checkout's preview isn't running: npm run preview:start starts it, or give a whole address.", isJson);
-    url = `${sites.site}${url}`;
-    signInSite = sites.signInSite;
+    url = probeUrl(url, sites.site);
   } else if (!/^https?:\/\//.test(url)) stop(`${url} is neither a path (/design/example) nor an address (http://localhost:8800/design/example).`, isJson);
   const chromePath = await chromeToRun();
   if (!chromePath) stop("No Chrome here, and Chrome for Testing couldn't be fetched: set CHROME_PATH to a Chrome.", isJson);
   const picturePath = valueOf("--picture") ? resolve(valueOf("--picture")) : null;
-  const answer = await probePage({ chromePath, url, signInSite, account: valueOf("--account"), widthPx, heightPx, theme: args.includes("--dark") ? "dark" : "light", isText: args.includes("--text"), expression: valueOf("--evaluate"), picturePath, isSlow: args.includes("--slow") });
+  const answer = await probePage({ chromePath, url, account: valueOf("--account"), widthPx, heightPx, theme: args.includes("--dark") ? "dark" : "light", isText: args.includes("--text"), expression: valueOf("--evaluate"), picturePath, isSlow: args.includes("--slow") });
   if (isJson) console.log(JSON.stringify(answer, null, 2));
   else {
     console.log(`${answer.title || "(no title)"}\n${answer.url}`);
