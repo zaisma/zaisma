@@ -67,7 +67,7 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
     title: "Real people",
     test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
     explanation:
-      "Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
+      "Zaisma acts on it when someone reports the game, since a game's files can't show whether a person is real. Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that is gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
@@ -123,8 +123,14 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
  * Oct 18, 2026), and whether a claim about a real person is true isn't Zaisma's to judge.
  */
 export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation"];
+/**
+ * Rules Zaisma acts on only when someone reports the game: the review judges only what a stranger could prove from
+ * a game's files alone (Julius, Nov 2, 2026), and no file shows whether a person is real. On a report, the files are
+ * read for the lines it's about, and a person decides.
+ */
+export const REPORT_ONLY_CONTENT_RULES: readonly ContentRule[] = ["real_people"];
 /** The rules the review looks for, in the page's order. */
-export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule));
+export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule) && !REPORT_ONLY_CONTENT_RULES.includes(rule));
 /**
  * What other platforms often ban that's fine on Zaisma, so developers and their AI don't hedge: the
  * rules page lists it, and the AI review and report triage treat it as fine.

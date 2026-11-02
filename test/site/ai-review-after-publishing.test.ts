@@ -1,8 +1,10 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_REVIEW_LIMITS, blobKey, createAccount, createApiKey, createGame, createVersion, currentMonth, gameById, manifestKey, newId, personOwner, sha256Hex, testerLinkVersion, addTesterLink, usualDurationMin, versionById, type Finding, type Manifest } from "@zaisma/core";
+import { AI_REVIEW_LIMITS, blobKey, createAccount, createApiKey, createGame, createVersion, currentMonth, gameById, manifestKey, newId, personOwner, sha256Hex, testerLinkVersion, addTesterLink, createReport, usualDurationMin, versionById, type Finding, type Manifest } from "@zaisma/core";
 import { aiReviewSpeedFor, moveAiReviewOn, moveWaitingAiReviews, publishWithReview, requestAiReview, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { publishDue } from "../../apps/site/src/cleanup.ts";
+import { recheckVersion } from "../../apps/site/src/triage.ts";
+import type { JudgeBrief } from "../../apps/site/src/review-judge.ts";
 import { previewLinkToken } from "../../apps/site/src/preview-links.ts";
 import type { BatchRequest, BatchResult, ReviewBatchClient } from "../../apps/site/src/review-batches.ts";
 import { readerPromptSha256 } from "../../apps/site/src/review-readers.ts";
@@ -67,7 +69,7 @@ const liveOf = async (gameId: string) => (await gameById(env.DB, gameId))!.live_
 beforeEach(async () => {
   judgeCallCount = 0;
   readerCallCount = 0;
-  for (const statement of ["DELETE FROM read_files", "DELETE FROM review_batches", "DELETE FROM tester_links", "DELETE FROM api_keys", "DELETE FROM audit_log", "DELETE FROM performance_checks", "DELETE FROM versions", "UPDATE games SET live_version_id = NULL, owner_id = NULL", "DELETE FROM games", "DELETE FROM owner_cards", "DELETE FROM owners WHERE id = 'owner_review'", "DELETE FROM ai_usage"]) await env.DB.prepare(statement).run();
+  for (const statement of ["DELETE FROM reports", "DELETE FROM read_files", "DELETE FROM review_batches", "DELETE FROM tester_links", "DELETE FROM api_keys", "DELETE FROM audit_log", "DELETE FROM performance_checks", "DELETE FROM versions", "UPDATE games SET live_version_id = NULL, owner_id = NULL", "DELETE FROM games", "DELETE FROM owner_cards", "DELETE FROM owners WHERE id = 'owner_review'", "DELETE FROM ai_usage"]) await env.DB.prepare(statement).run();
   await env.DB.prepare("INSERT INTO owners (id, kind, created_at_ms) VALUES (?, 'person', 1)").bind(OWNER).run();
 });
 
@@ -260,6 +262,47 @@ describe("a stop", () => {
     const fixed = (await gameById(env.DB, game.id))!;
     expect(fixed.live_version_id).toBe(fix);
     expect(fixed.review_reason).toBeNull();
+  });
+});
+
+describe("what the files can't prove", () => {
+  const addressLine = (): ScanDeps["readCode"] => async (_key, _model, chunk) => ({
+    items: [{ kind: "content" as const, subject: "real_people", detail: "An address.", path: chunk.files[0]!.path, quote: chunk.files[0]!.text.slice(0, 12) }],
+    outcome: "read",
+    costCents: 0,
+    inputTokenCount: 0,
+    outputTokenCount: 0,
+  });
+
+  it("keeps a real-people line from the judge and from what's shared, and the version passes", async () => {
+    const game = await makeGame("names-an-address");
+    const version = await uploaded(game.id, CLEAN_GAME);
+    await scanVersion(testEnv, version, deps());
+    const briefs: JudgeBrief[] = [];
+    await moveAiReviewOn(testEnv, version, { ...deps(), readCode: addressLine(), judge: async (key, model, brief) => (briefs.push(brief), judgeSays("pass")(key, model, brief)) });
+    expect(briefs[0]!.items.map((evidenceItem) => evidenceItem.subject)).not.toContain("real_people");
+    expect((await row(version)).ai_review_status).toBe("passed");
+    const shared = await env.DB.prepare("SELECT evidence_items FROM read_files").all<{ evidence_items: string }>();
+    expect(shared.results.some((sharedRead) => sharedRead.evidence_items.includes("real_people"))).toBe(false);
+  });
+
+  it("sends a real-people report's lines to a person, pausing and dismissing nothing", async () => {
+    const game = await makeGame("reported-address");
+    const version = await uploaded(game.id, CLEAN_GAME);
+    await scanVersion(testEnv, version, deps());
+    await moveAiReviewOn(testEnv, version, deps());
+    await createReport(env.DB, { gameId: game.id, reason: "real_people", playerText: "shows where my teacher lives" });
+    const report = (await env.DB.prepare("SELECT id FROM reports WHERE game_id = ?").bind(game.id).first<{ id: string }>())!;
+    await recheckVersion(testEnv, version, report.id, deps("reject", { readCode: addressLine() }));
+    const stored = (await env.DB.prepare("SELECT triage FROM reports WHERE id = ?").bind(report.id).first<{ triage: string }>())!;
+    const triage = JSON.parse(stored.triage) as { recommendation: string; recheck: { findings: string[] } };
+    expect(triage.recommendation).toBe("person");
+    expect(triage.recheck.findings.join()).toContain("An address.");
+    expect(await gameById(env.DB, game.id)).toMatchObject({ live_version_id: version, review_status: "live" });
+
+    await recheckVersion(testEnv, version, report.id, deps());
+    const noLines = (await env.DB.prepare("SELECT triage FROM reports WHERE id = ?").bind(report.id).first<{ triage: string }>())!;
+    expect((JSON.parse(noLines.triage) as { recommendation: string }).recommendation).toBe("person");
   });
 });
 

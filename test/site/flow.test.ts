@@ -563,8 +563,8 @@ describe("re-uploads checked against their hold", () => {
     };
     return { ...settle(parsed, brief.items, brief.earlierHold), followedReviewPrecedentNumbers: [], declinedAttemptCount: 0, costCents: 1, inputTokenCount: 10, outputTokenCount: 1 };
   };
-  const HELD_FOR_GORE = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("real_people");', "gore.js": 'flag("lifelike_gore");' };
-  const FIXED = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("real_people");', "gore.js": "// Stylized sparks.", "chat.js": 'flag("faked_plays");' };
+  const HELD_FOR_GORE = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("crypto");', "gore.js": 'flag("lifelike_gore");' };
+  const FIXED = { "index.html": CLEAN_GAME["index.html"], "game.js": 'flag("crypto");', "gore.js": "// Stylized sparks.", "chat.js": 'flag("faked_plays");' };
 
   it("checks a fix against its hold: what the held version already had stays passed, except malware", async () => {
     const cases: { fixFinding: JudgeFinding; decision: ScanReport["decision"] }[] = [
@@ -714,7 +714,7 @@ describe("re-uploads checked against their hold", () => {
 
   describe("readers read only what changed in a file", () => {
     const bundle = minifiedBundle(1_000_000);
-    const withFlags = (text: string) => `flag("real_people");${text.slice(0, 600_000)}flag("lifelike_gore");${text.slice(600_000)}`;
+    const withFlags = (text: string) => `flag("crypto");${text.slice(0, 600_000)}flag("lifelike_gore");${text.slice(600_000)}`;
 
     it("reads only the changed regions of a big file, keeping earlier items still quoted in it", async () => {
       const game = await createGame(env.DB, { slug: "big-bundle", title: "Big Bundle", description: "A test." });
@@ -722,7 +722,7 @@ describe("re-uploads checked against their hold", () => {
       const reads = readsFlags({ readerCallCount: 0 });
       const deps: ScanDeps = { images: connected, readCode: async (...input) => (sentChunks.push(input[2]), reads(...input)), readPictures: seesNothing, judge: judgeSays("pass") };
       const first = await reviewedScan(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(bundle) }), deps);
-      expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["lifelike_gore", "real_people"]);
+      expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["lifelike_gore", "crypto"]);
 
       // One string changed in the middle, and the gore flag edited away near the end.
       sentChunks.length = 0;
@@ -734,7 +734,7 @@ describe("re-uploads checked against their hold", () => {
       expect(sentParts.every((file) => file.isChangedOnly)).toBe(true);
       expect(sentParts.reduce((characterCount, file) => characterCount + file.text.length, 0)).toBeLessThan(changed.length / 10);
       expect(second.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => [evidenceItem.subject, evidenceItem.file_sha256])).toEqual(
-        expect.arrayContaining([["real_people", changedSha256], ["allowed_content", changedSha256]]),
+        expect.arrayContaining([["crypto", changedSha256], ["allowed_content", changedSha256]]),
       );
       expect(second.evidence!.some((evidenceItem) => evidenceItem.subject === "lifelike_gore")).toBe(false);
       expect(second.read_file_sha256s).toContain(changedSha256);

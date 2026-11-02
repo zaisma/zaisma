@@ -8,6 +8,7 @@ import {
   PRO_REFUND_LIMITS,
   ALLOWED_CONTENT_TITLES,
   NOTICE_ONLY_CONTENT_RULES,
+  REPORT_ONLY_CONTENT_RULES,
   REVIEWED_CONTENT_RULES,
   fullGameOwner,
   itemsOf,
@@ -766,7 +767,7 @@ const ruleRow = (rule: ContentRule): ListRow => {
     detail: ruleDetails.test,
     fold: { id: rule, body: stack({
       items: [
-        { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${NOTICE_ONLY_CONTENT_RULES.includes(rule) && ruleDetails.explanation ? ` ${ruleDetails.explanation}` : ""}</p>` },
+        { kind: "words", markup: html`<p>${CONTENT_RULES[rule]}${(NOTICE_ONLY_CONTENT_RULES.includes(rule) || REPORT_ONLY_CONTENT_RULES.includes(rule)) && ruleDetails.explanation ? ` ${ruleDetails.explanation}` : ""}</p>` },
         { kind: "words", markup: details({ arrangement: "across", details: [{ label: "Fine", text: sentence(ruleDetails.fine) }, { label: "Not fine", text: sentence(ruleDetails.notFine) }] }) },
       ],
     }) },
@@ -785,8 +786,13 @@ function contentRulesBody(): Raw {
       ]),
       pane("The lines", [
         { kind: "words", markup: html`<h2>The lines</h2>` },
-        { kind: "words", markup: html`<p>Every version is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
+        { kind: "words", markup: html`<p>Every version other people can reach is checked against each rule's test. A version that meets one is rejected, with the rule, what was found and how to fix it.</p>` },
         { kind: "block", markup: listRows({ label: "The lines", whenEmpty: NO_EMPTY_NOTE, rows: REVIEWED_CONTENT_RULES.map(ruleRow) }) },
+      ]),
+      pane("Only when reported", [
+        { kind: "words", markup: html`<h2>Only when reported</h2>` },
+        { kind: "words", markup: html`<p>A game's files can't show whether a person is real, so the check doesn't judge this. Use the Report button on the game's page: a person at Zaisma reads the lines it's about and decides.</p>` },
+        { kind: "block", markup: listRows({ label: "Only when reported", whenEmpty: NO_EMPTY_NOTE, rows: REPORT_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("Only on a notice", [
         { kind: "words", markup: html`<h2>Only on a notice</h2>` },

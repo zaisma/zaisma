@@ -210,8 +210,8 @@ describe("report triage", () => {
 
   it("asks a person when the check finds something new that isn't clear-cut", async () => {
     const { versionId } = await liveGame();
-    await send({ reason: "real_people", details: "a phone number on the walls" });
-    await triageReports(testEnv, ai({ severity: "normal", category: "real_people", recommendation: "recheck" }).deps);
+    await send({ reason: "sexual", details: "a nude poster on the walls" });
+    await triageReports(testEnv, ai({ severity: "normal", category: "sexual", recommendation: "recheck" }).deps);
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("hold"));
     const [r] = await reports();
     expect(r!.severity_index).toBe(2);
@@ -446,13 +446,15 @@ describe("report triage and review precedents", () => {
     const { versionId } = await liveGame();
     const seen: unknown[] = [];
     const draftReviewPrecedent = async (_key: string, _model: string, source: unknown) => (seen.push(source), { costCents: 0.5, draft: { title: "Private address in a level", applies_when: "A level shows a street address of a real private person.", why: "Players could find them.", case_title: "Level text", case_description: "A level.", case_index_html: "<p>[address placeholder]</p>" } });
-    await send({ reason: "real_people", details: "a boss shows where my teacher lives" });
-    await triageReports(testEnv, { ...ai({ severity: "high", category: "real_people", summary: "A real address." }).deps, draftReviewPrecedent });
+    await send({ reason: "sexual", details: "a boss is drawn nude" });
+    await triageReports(testEnv, { ...ai({ severity: "high", category: "sexual", summary: "A nude boss." }).deps, draftReviewPrecedent });
     const rows = (await env.DB.prepare("SELECT * FROM review_precedents").all<{ decision: string; content_rule: string; from_version_id: string; from_report_group_id: string; review_precedent_status: string }>()).results;
     const [report] = await reports();
-    expect(rows).toMatchObject([{ decision: "reject", content_rule: "real_people", from_version_id: versionId, from_report_group_id: report!.id, review_precedent_status: "proposed" }]);
+    expect(rows).toMatchObject([{ decision: "reject", content_rule: "sexual", from_version_id: versionId, from_report_group_id: report!.id, review_precedent_status: "proposed" }]);
 
-    // A bug, copyright and another kind of category don't draft one.
+    // A bug, copyright, real people (the review doesn't judge either) and another kind of category don't draft one.
+    await send({ reason: "real_people", details: "a boss shows where my teacher lives" });
+    await triageReports(testEnv, { ...ai({ severity: "high", category: "real_people" }).deps, draftReviewPrecedent });
     await send({ reason: "other", details: "freezes" });
     await triageReports(testEnv, { ...ai({ category: "broken", recommendation: "bug" }).deps, draftReviewPrecedent });
     await send({ reason: "copyright", details: "uses a song" });

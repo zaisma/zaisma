@@ -825,9 +825,11 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   );
   if (deps.hasMissingAnswers?.()) return { ai: skipped("Waiting for its batch."), findings: [], isChildSafety: false };
   const findings = [...gathered.findings];
-  const read = { evidence: gathered.items, readFileSha256s: gathered.readFileSha256s };
+  // Whether a person is real can't be proved from the files, so the judge never reads these. Only a re-check after a report keeps them, for a person to read.
+  const judgedItems = gathered.items.filter((evidenceItem) => evidenceItem.subject !== "real_people");
+  const read = { evidence: input.isRecheck ? gathered.items : judgedItems, readFileSha256s: gathered.readFileSha256s };
   let cost = { cost_cents: gathered.costCents, input_token_count: gathered.inputTokenCount, output_token_count: gathered.outputTokenCount, ...(isSmallReview ? { is_small_review: true } : {}) };
-  const hasChildSafetyItem = gathered.items.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety");
+  const hasChildSafetyItem = judgedItems.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety");
 
   if (!input.isRecheck) {
     // (d) A tweak: nothing new in the evidence since the game's last judged version that passed.
@@ -835,7 +837,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
       const baseline = await tweakBaseline(env, game.id, version.id);
       const judged = baseline?.version;
       const judgedEvidence = baseline?.report.evidence;
-      if (judged && judgedEvidence && isTweak(gathered.items, judgedEvidence, baseline.isHeld)) {
+      if (judged && judgedEvidence && isTweak(judgedItems, judgedEvidence, baseline.isHeld)) {
         await alertReviewBudget(env, budgetCents);
         return { ai: { ...models, verdict: "reused", reused_from_version_id: judged.id, summary: baseline.isHeld ? "Takes out what held the version before and adds nothing new in the evidence, so it passes." : "A tweak of a version that passed: nothing new in the evidence, so its verdict stands.", ...cost }, findings, isChildSafety: false, ...read };
       }
@@ -850,12 +852,12 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   // (f) The judge, which reads the review precedents in force, and the hold this version answers, if any.
   const reviewPrecedents = await activeReviewPrecedents(env.DB);
   const held = input.isRecheck ? null : await heldBaseline(env, version);
-  const earlierHold = held ? await earlierHoldOf(env, held, version, gathered.items) : undefined;
+  const earlierHold = held ? await earlierHoldOf(env, held, version, judgedItems) : undefined;
   const answer = await deps.judge(env.ANTHROPIC_API_KEY, env.REVIEW_JUDGE_MODEL, {
     title: game.title,
     description: game.description,
     fileCount: input.files.length,
-    items: gathered.items,
+    items: judgedItems,
     pictures: gathered.flaggedPictures,
     ...(input.reported !== undefined ? { reported: input.reported } : {}),
     reviewPrecedents,

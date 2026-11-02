@@ -27,8 +27,7 @@ import {
   type ReportSeverity,
   type ScanReport,
   type Triage,
-  type Version,
-} from "@zaisma/core";
+  type Version, REPORT_ONLY_CONTENT_RULES } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { pauseForReport } from "./report.ts";
@@ -185,7 +184,7 @@ async function triageOne(env: Env, report: Report, deps: Required<Pick<TriageDep
   if (outcome.isBugReport && outcome.severityIndex > 0 && report.player_text) await tellWebhooks(env, "bug_reported", game.id, { bugReport: { ...report, triage: JSON.stringify(outcome.triage) } });
   // A report about a content rule on a game the AI passed may be a miss: draft the ruling now, so taking the game down can teach the review in the same click.
   const category = outcome.triage.category;
-  if (deps.draftReviewPrecedent && report.version_id && !report.player_id && isContentRule(category) && category !== "copyright" && category !== "child_safety" && outcome.severityIndex !== SEVERITY.child_safety) {
+  if (deps.draftReviewPrecedent && report.version_id && !report.player_id && isContentRule(category) && category !== "copyright" && category !== "child_safety" && !REPORT_ONLY_CONTENT_RULES.includes(category) && outcome.severityIndex !== SEVERITY.child_safety) {
     await draftMiss(env, { versionId: report.version_id, decision: "reject", reportGroupId: outcome.reportGroupId ?? report.id, reason: outcome.triage.summary, contentRule: category }, deps.draftReviewPrecedent);
   }
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
@@ -522,6 +521,17 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
   const triage: Triage = report.triage ? JSON.parse(report.triage) : { is_by_ai: false, category: report.reason as ReportReason, summary: "", recommendation: "person", why: "", ai_actions: [] };
 
   const recheckReport = await inspectVersion(env, version, game, deps, `${reportLabel(report)}${report.player_text ? `: "${report.player_text.slice(0, 500)}"` : ""}`);
+  // Whether someone is real isn't in the files: the lines go to a person, who decides. Nothing is paused or dismissed by itself.
+  const reportOnlyRule = [report.reason, triage.category].find((rule) => (REPORT_ONLY_CONTENT_RULES as readonly string[]).includes(rule));
+  if (reportOnlyRule) {
+    const lines = (recheckReport.evidence ?? []).filter((evidenceItem) => evidenceItem.subject === reportOnlyRule).map((evidenceItem) => `${evidenceItem.path}: “${evidenceItem.quote}” ${evidenceItem.detail}`.trim());
+    triage.recheck = { recheck_status: "done", scan_status: recheckReport.decision, summary: recheckReport.ai?.summary ?? "", findings: lines };
+    triage.ai_actions = triage.ai_actions.map((action) => (action === CHECKING ? "Checked the game's files again" : action));
+    triage.recommendation = "person";
+    triage.why = lines.length ? "The files have the lines listed here. Only a person can say whether they're about someone real." : "The re-check found no such lines in the game's files. A person looks anyway: the report may be about something the files don't show.";
+    await env.DB.prepare("UPDATE reports SET triage = ? WHERE id = ?").bind(JSON.stringify(triage), report.id).run();
+    return;
+  }
   // What the first scan already knew about (a person approved the version with it) isn't news.
   const first: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
   const known = new Set(first?.findings.map((finding) => finding.code));
