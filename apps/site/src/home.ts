@@ -35,10 +35,12 @@ export interface ShowGame {
   cover_picture: ShownPicture | null;
   /** The square cover phones show instead, if the developer added one. */
   square: string | null;
-  /** When the version players get now went live. */
-  published_at_ms: number | null;
-  /** When the game first went live. */
+  /** When the game first went live; it never moves. */
   first_published_at_ms: number | null;
+  /** The last marked big update: the Updated tag and Continue playing's Recently updated. */
+  big_update_at_ms: number | null;
+  /** Where Browse's Recently updated places it; null is first_published_at_ms. */
+  recently_updated_at_ms: number | null;
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
@@ -76,19 +78,17 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     .prepare(
       `SELECT games.id, games.slug, games.title, games.description, games.owner_id, games.devices, games.controls, games.screen_orientation, games.genres, games.play_modes, games.multiplayer_mode, games.account_requirement, games.glass_tint_color, games.full_game_item_name,
          ${FULL_GAME_ITEM_SQL},
-         accounts.username AS developer, versions.published_at_ms,
-         (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
+         accounts.username AS developer, games.first_published_at_ms, games.big_update_at_ms, games.recently_updated_at_ms,
          ${newestPictureJsonSql("cover", "games.id")} AS cover,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square
        FROM games
        LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN accounts ON accounts.id = owners.account_id
-       LEFT JOIN versions ON versions.id = games.live_version_id
        WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? AND ${SHOWN_IN_LISTS_SQL} AND ${NOT_BLOCKED_IN_COUNTRY_SQL}
-       ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
+       ORDER BY COALESCE(games.recently_updated_at_ms, games.first_published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, countryCode, maximumGameCount)
-    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; controls: string; screen_orientation: string; genres: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; full_game_item_name: string | null; full_game_item: string | null; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>(),
+    .all<{ id: string; slug: string; title: string; description: string; owner_id: string | null; devices: string; controls: string; screen_orientation: string; genres: string; play_modes: string; multiplayer_mode: MultiplayerMode; account_requirement: Game["account_requirement"]; glass_tint_color: string | null; full_game_item_name: string | null; full_game_item: string | null; developer: string | null; first_published_at_ms: number | null; big_update_at_ms: number | null; recently_updated_at_ms: number | null; cover: string | null; square: string | null }>(),
     playingNowCounts(env),
   ]);
   return results.map((row) => {
@@ -103,8 +103,9 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     cover: row.cover ? `/img/${(JSON.parse(row.cover) as { id: string }).id}` : null,
     cover_picture: pictureFromJson(row.cover),
     square: row.square ? `/img/${row.square}` : null,
-    published_at_ms: row.published_at_ms,
     first_published_at_ms: row.first_published_at_ms,
+    big_update_at_ms: row.big_update_at_ms,
+    recently_updated_at_ms: row.recently_updated_at_ms,
     modes: playerLine(playModes, row.multiplayer_mode !== "none"),
     devices: row.devices ? row.devices.split(",") : [],
     controls: row.controls ? row.controls.split(",") : [],
@@ -260,8 +261,8 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}): Raw =>
-  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds) }, ...loading });
+const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}, isUpdated = false): Raw =>
+  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds), isUpdated }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -282,7 +283,7 @@ function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]
 }
 
 /** What of each game the home's script needs: Continue playing's covers, the background behind the cover pointed at and the devices it puts first. */
-const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "published_at_ms", "playing_now_player_count", "glass_tint_color", "background", "devices"] as const;
+const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "big_update_at_ms", "playing_now_player_count", "glass_tint_color", "background", "devices"] as const;
 
 export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.
@@ -334,7 +335,11 @@ export async function home(env: Env, request: Request): Promise<Response> {
     trackId: "track-continue",
     title: "Continue playing",
     sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
-    items: playedGames.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })),
+    // A big update since the account last played it: Updated, from the first paint.
+    items: playedGames.map((game) => {
+      const playedAtMs = accountPlayed.find((entry) => entry.slug === game.slug)?.played_at_ms;
+      return { kind: "block" as const, markup: coverOf(game, ownedGameIds, {}, Boolean(playedAtMs && game.big_update_at_ms && game.big_update_at_ms > playedAtMs)) };
+    }),
   });
   const body = games.length
     ? html`<div id="home-games">${glassPane({

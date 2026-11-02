@@ -154,6 +154,7 @@ const COMMANDS = {
       game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
       "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
       "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
+      "big-update": { hasValue: false, about: "With --publish-when-approved and --patch-notes: mark it a big update; left out, it goes live as a quiet patch" },
       "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "With --publish-when-approved: when running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
@@ -173,6 +174,8 @@ const COMMANDS = {
     arguments: [{ name: "slug" }, { name: "version_id" }],
     flags: {
       "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' },
+      "big-update": { hasValue: false, about: "Mark it a big update, which must say what's new; left out, it's a quiet patch" },
+      "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, in place of what it was uploaded with; only for a version that has never been live" },
       "match-update-mode": { hasValue: true, choices: MATCH_UPDATE_MODES, about: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room)" },
     },
   },
@@ -1184,7 +1187,7 @@ async function sendVersion(slug, fixedFiles, flags) {
   );
   if (todo.length && !isJson) process.stdout.write("\n");
 
-  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}) });
+  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true, ...(flags["match-update-mode"] !== undefined ? { match_update_mode: flags["match-update-mode"] } : {}), ...(flags["big-update"] === true ? { is_big_update: true } : {}) });
   const versionId = answer.version.id;
   say(`Version ${versionId} is being scanned. This usually takes under a minute…`);
 
@@ -2150,7 +2153,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
     const { slug, version_id: versionId } = values;
     const scheduledPublishAt = flags["scheduled-publish-at"] === undefined ? undefined : checkPublishTime(flags["scheduled-publish-at"]);
     const matchUpdateMode = flags["match-update-mode"];
-    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}) };
+    const publishBody = { ...(scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : {}), ...(matchUpdateMode !== undefined ? { match_update_mode: matchUpdateMode } : {}), ...(flags["big-update"] === true ? { is_big_update: true } : {}), ...(flags["patch-notes"] !== undefined ? { patch_notes: flags["patch-notes"] } : {}) };
     const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, Object.keys(publishBody).length ? publishBody : undefined);
     if (isJson) return printAnswer(answer);
     const { game, version } = answer;

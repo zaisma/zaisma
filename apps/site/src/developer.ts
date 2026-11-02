@@ -172,6 +172,7 @@ import {
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
   checkShownText,
+  titleNamesZaisma,
   type ShownTextOptions,
   hasThreads,
   ITEM_FIELDS,
@@ -658,13 +659,14 @@ export const API_ROUTES: readonly ApiRoute[] = [
         // Going live by itself is publishing, so it needs what publishing needs, not just upload.
         publish_when_approved: needsToo("version_access", "publish", "the version waits as a draft with a preview link, and the developer publishes it"),
         match_update_mode: plain,
+        is_big_update: plain,
       },
       maximumSizeBytes: 4 * 1024 * 1024,
     },
   }),
   call({ method: "GET", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes"), isOptional: true } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/preview-links", reaches: "game", access: needs("version_access", "upload"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
@@ -982,6 +984,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/games" && method === "POST") {
     const body = checked.body;
     const title = shownTextOrThrow(body.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
+    await refuseZaismaInTitle(env, title, caller.ownerId);
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
@@ -1131,6 +1134,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       }
     }
     const { multiplayer_mode: multiplayerMode, game_server_allowed_hosts: allowedHosts, own_server_urls: ownServerUrls, links, ...details } = change;
+    if (details.title !== undefined && details.title !== game.title) await refuseZaismaInTitle(env, details.title, game.owner_id);
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
     if (changesMultiplayer && game.multiplayer_mode === "built-in") {
       throw new ApiError("built_in_server", { message: "This game runs a game server built into Zaisma, which only Zaisma changes.", field: "multiplayer_mode", fix: "Leave multiplayer_mode out, or ask Zaisma with message_zaisma to change it." });
@@ -1567,6 +1571,14 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     }
     const uploadMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
     const patchNotes = body.patch_notes === undefined ? "" : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
+    if (body.is_big_update !== undefined && (typeof body.is_big_update !== "boolean" || body.publish_when_approved !== true)) {
+      throw new ApiError("bad_is_big_update", {
+        message: typeof body.is_big_update !== "boolean" ? "is_big_update isn't true or false." : "is_big_update came without publish_when_approved true, so there's no publish for it to apply to.",
+        field: "is_big_update",
+        fix: "Send true with publish_when_approved true, or give it to publish_version when you publish.",
+      });
+    }
+    if (body.is_big_update === true && !patchNotes) throw bigUpdateNeedsNotes();
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
@@ -1590,6 +1602,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       patchNotes,
       publishWhenApprovedEnabled: body.publish_when_approved === true,
       matchUpdateMode: uploadMatchUpdateMode,
+      isBigUpdate: body.is_big_update === true,
     });
     await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await logCallerEvent(env, caller, "version_uploaded", { gameId: game.id, versionId });
@@ -1622,7 +1635,8 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw notApproved(game, version);
     const scheduledMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
-    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ?, match_update_mode = ? WHERE id = ?").bind(scheduledAtMs, scheduledMatchUpdateMode, version.id).run();
+    const scheduledMark = readPublishMark(body, game, version);
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ?, match_update_mode = ?, is_big_update = ?, patch_notes = ? WHERE id = ?").bind(scheduledAtMs, scheduledMatchUpdateMode, scheduledMark.isBigUpdate, scheduledMark.patchNotes, version.id).run();
     await audit(env.DB, game.id, "publish-scheduled", `${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
@@ -1630,7 +1644,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
-    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL, is_big_update = CASE WHEN published_at_ms IS NULL THEN 0 ELSE is_big_update END WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
     return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
@@ -1649,7 +1663,9 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     if (version.scan_status !== "approved") throw notApproved(game, version);
     ageMustAllowVersion(game, version, "version_id");
     const matchUpdateMode = readMatchUpdateMode(body.match_update_mode);
+    const mark = readPublishMark(body, game, version);
     const wasLiveVersion = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
+    await env.DB.prepare("UPDATE versions SET is_big_update = ?, patch_notes = ? WHERE id = ?").bind(mark.isBigUpdate, mark.patchNotes, version.id).run();
     await publishVersion(env.DB, version, matchUpdateMode);
     if (matchUpdateMode === "now") await updateLiveMatches(env, game, version, wasLiveVersion, caller.waitUntil);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
@@ -1667,6 +1683,40 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   }
 
   throw badMethod(method, new URL(request.url).pathname);
+}
+
+const bigUpdateNeedsNotes = () => new ApiError("big_update_needs_patch_notes", { message: "This big update has no patch_notes, and a big update must say what's new.", field: "patch_notes", fix: "Send patch_notes with what's new, or leave is_big_update out to publish it as a quiet patch." });
+
+/**
+ * What a publish says about a version: a quiet patch unless is_big_update is true, with new patch_notes if it gives them. A version that
+ * has been live keeps its own of both, and can't be marked: only a first time live is news. Sending the same mark again on the live version
+ * passes, so a retried publish isn't refused. The answers are as stored, 0 or 1 for the mark.
+ */
+function readPublishMark(body: Record<string, unknown>, game: Game, version: Version): { isBigUpdate: number; patchNotes: string } {
+  if (body.is_big_update !== undefined && typeof body.is_big_update !== "boolean") {
+    throw new ApiError("bad_is_big_update", { message: "is_big_update isn't true or false.", field: "is_big_update", fix: "Send true for a big update, or leave it out for a quiet patch." });
+  }
+  const givenNotes = body.patch_notes === undefined ? undefined : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
+  if (version.published_at_ms !== null) {
+    if (givenNotes !== undefined && givenNotes !== version.patch_notes) {
+      throw new ApiError("bad_patch_notes", { message: "This version has been live, so it keeps its patch_notes.", field: "patch_notes", fix: "Leave patch_notes out to roll back to it, or upload a new version with the new notes." });
+    }
+    if (body.is_big_update === true && !(version.id === game.live_version_id && version.is_big_update === 1)) {
+      throw new ApiError("big_update_already_live", { message: "This version has been live, and only a version going live for the first time can be a big update.", field: "is_big_update", fix: "Leave is_big_update out to roll back to it, or upload a new version and mark that." });
+    }
+    return { isBigUpdate: version.is_big_update, patchNotes: version.patch_notes };
+  }
+  const patchNotes = givenNotes ?? version.patch_notes;
+  if (body.is_big_update === true && !patchNotes) throw bigUpdateNeedsNotes();
+  return { isBigUpdate: body.is_big_update === true ? 1 : 0, patchNotes };
+}
+
+/** The whole word "Zaisma" in a title, unless the game is on one of Zaisma's own accounts. */
+async function refuseZaismaInTitle(env: Env, title: string, ownerId: string | null): Promise<void> {
+  if (!titleNamesZaisma(title)) return;
+  const owner = ownerId ? await env.DB.prepare("SELECT is_zaisma_account FROM owners WHERE id = ?").bind(ownerId).first<{ is_zaisma_account: number }>() : null;
+  if (owner?.is_zaisma_account === 1) return;
+  throw new ApiError("title_names_zaisma", { message: `The title ${JSON.stringify(title)} holds the word Zaisma, which only Zaisma's own games can use.`, field: "title", fix: 'Give the game a title of its own without the word Zaisma. A longer word holding it, like "Zaismatic", is fine.' });
 }
 
 /** match_update_mode as given: next_match when it's left out, and bad_match_update_mode for anything but the two. */
@@ -2537,6 +2587,8 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     preview_url: preview ? `${env.SITE_ORIGIN}/p/${preview.token}` : null,
     preview_url_expires_at: preview ? iso(preview.expiresAtMs) : null,
     published_at: iso(version.published_at_ms),
+    first_published_at: iso(version.first_published_at_ms),
+    is_big_update: version.is_big_update === 1,
     scheduled_publish_at: iso(version.scheduled_publish_at_ms),
     // How running matches get it when it goes live by itself (publish later, or publish when approved).
     match_update_mode: version.match_update_mode ?? "next_match",
@@ -2718,6 +2770,10 @@ export async function gameJson(env: Env, game: Game) {
     demo_game_slug: game.demo_game_id ? ((await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(game.demo_game_id).first<{ slug: string }>())?.slug ?? null) : null,
     refund_policy: game.refund_policy,
     refund_policy_text: game.refund_policy_text,
+    first_published_at: iso(game.first_published_at_ms),
+    big_update_at: iso(game.big_update_at_ms),
+    // Where Browse's Recently updated places it: a marked big update moves it at most once every 30 days.
+    recently_updated_at: iso(game.recently_updated_at_ms ?? game.first_published_at_ms),
     updated_at: iso(game.updated_at_ms),
   };
 }

@@ -32,7 +32,7 @@ beforeAll(async () => {
   for (const [index, slug] of LIVE_SLUGS.entries()) {
     const game = await createGame(env.DB, { slug, title: `Home ${slug}`, description: `About ${slug}.`, ownerId: owner.id, visibility: "listed" });
     await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, patch_notes, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', '', ?, 0)").bind(`v-home-${slug}`, game.id, `games/${slug}/v1`, now - index * DAY_MS).run();
-    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ? WHERE id = ?").bind(`v-home-${slug}`, game.id).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ?, first_published_at_ms = ? WHERE id = ?").bind(`v-home-${slug}`, now - index * DAY_MS, game.id).run();
     // The first ten games all have players this week, the earlier ones more (five providers, so no one network is capped).
     for (const [providerIndex, asn] of [7922, 3320, 5089, 2856, 701].entries()) {
       await env.DB.prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES (?, ?, ?, ?)").bind(game.id, day(1), asn, 30 - index + providerIndex).run();
@@ -54,6 +54,15 @@ describe("the home page", () => {
     const { text } = await homePage();
     expect(text).not.toContain('class="grid"');
     expect(text).toMatch(/<a class="shell tertiary-btn" href="\/games"[^>]*>[\s\S]*?All games/);
+  });
+
+  it("marks a played game Updated only for a big update since, never for a publish", async () => {
+    const { HOME_SCRIPT } = await import("../../apps/site/src/home-script.ts");
+    expect(HOME_SCRIPT.sourceText).toContain("game.big_update_at_ms > at");
+    expect(HOME_SCRIPT.sourceText).not.toContain("published_at_ms");
+    const text = await (await SELF.fetch(`${SITE}/`)).text();
+    expect(text).toContain("big_update_at_ms");
+    expect(text).not.toContain("published_at_ms");
   });
 
   it("lists Popular, then Trending and New when they have games, after Continue playing", async () => {

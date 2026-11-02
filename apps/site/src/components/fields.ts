@@ -79,9 +79,10 @@ export interface SearchFieldOptions {
    * Left out, it's a plain search.
    */
   suggestionsUrl?: string;
-  /** The gallery's fixed states: focused, or open with the list these suggestions make, its first row picked. */
+  /** The gallery's fixed states: focused, or open with the list these suggestions make, nothing picked until shownActiveRowIndex says so. */
   state?: "is-focused" | "is-open";
   shownSuggestions?: SearchSuggestions;
+  shownActiveRowIndex?: number;
 }
 
 /** What a search's suggestionsUrl answers, as JSON: up to three ways to finish what's typed, most likely first, and up to three games it finds. */
@@ -113,12 +114,13 @@ const suggestionRows = (id: string, typed: string, suggestions: SearchSuggestion
 export function searchField(options: SearchFieldOptions): ControlMarkup {
   const id = options.id ?? `find-${options.name}`;
   const isOpen = options.state === "is-open" && Boolean(options.shownSuggestions);
-  const firstFinish = isOpen ? options.shownSuggestions?.finishes[0] : undefined;
+  const activeRowIndex = options.shownActiveRowIndex ?? -1;
+  const firstFinish = isOpen ? options.shownSuggestions?.finishes[Math.max(activeRowIndex, 0)] : undefined;
   const typedFinish = firstFinish && options.searchText && firstFinish.toLowerCase().startsWith(options.searchText.toLowerCase()) ? firstFinish.slice(options.searchText.length) : "";
   const suggests = options.suggestionsUrl !== undefined || isOpen;
-  const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen ? html` aria-activedescendant="${id}-row-0"` : ""}` : "";
+  const combobox = suggests ? html` role="combobox" aria-autocomplete="both" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${isOpen && activeRowIndex >= 0 ? html` aria-activedescendant="${id}-row-${activeRowIndex}"` : ""}` : "";
   const list = suggests
-    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
+    ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, activeRowIndex) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
   return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
@@ -405,9 +407,10 @@ export const FIELD_SCRIPT = `/* fields */(function () {
 
 /**
  * A search's finishes and games as you type (form.find[data-suggest]): it asks its suggestionsUrl a moment after typing stops and lists up
- * to three finishes, then up to three games, in a select field's list under it. Up and down move the white slab through them, as does the
- * pointer; on a finish, the rest of it shows quietly after what's typed. Tab takes the finish and waits; Enter takes it and searches, or on
- * a game opens it; Esc closes the list. Each finish taken is typed in as far as the page is concerned (an input event).
+ * to three finishes, then up to three games, in a select field's list under it. Nothing is picked until up and down or the pointer move the
+ * white slab onto a row, so Enter searches what's typed; on a finish, Enter takes it and searches, and on a game opens it. The rest of the
+ * finish you're on, or of the first while you're on none, shows quietly after what's typed, and Tab takes it and waits; Esc closes the list.
+ * Each finish taken is typed in as far as the page is concerned (an input event).
  */
 export const SEARCH_SCRIPT = `/* search finishes */(function () {
   // It asks once typing pauses this long, so a word typed quickly asks once, not for every letter.
@@ -424,7 +427,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     function isOpen() { return float.isOpen(); }
     // The rest of the finish you're on, after what's typed, while what's typed is all in view.
     function showFinish() {
-      var row = isOpen() && rows[active], typed = input.value, finish = row && row.getAttribute("data-finish");
+      var row = isOpen() && (rows[active] || rows[0]), typed = input.value, finish = row && row.getAttribute("data-finish");
       var fits = finish && typed && finish.length > typed.length && finish.toLowerCase().indexOf(typed.toLowerCase()) === 0 && input.scrollLeft < 1;
       typedPart.textContent = fits ? typed : ""; restPart.textContent = fits ? finish.slice(typed.length) : "";
     }
@@ -488,7 +491,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
         next.concat(nextGames).forEach(function (row, rowIndex) { row.id = id + "-row-" + rowIndex; });
       }
       rows = next.concat(nextGames);
-      if (rows.length && document.activeElement === input) { show(); setActive(0); } else { setActive(-1); hide(); }
+      if (rows.length && document.activeElement === input) { show(); setActive(-1); } else { setActive(-1); hide(); }
     }
     function ask() {
       var typed = input.value.trim();
@@ -502,9 +505,9 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
         .catch(function () {});
     }
     // A finish taken goes in as if typed, so whatever follows what's typed (its finishes, the Clear button) follows it too.
-    function take() { var row = rows[active]; if (!row || !row.hasAttribute("data-finish")) return; input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    function take() { var row = rows[active] || rows[0]; if (!row || !row.hasAttribute("data-finish")) return; input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
     function go() {
-      var row = rows[active];
+      var row = isOpen() && rows[active];
       if (row && row.tagName === "A") { location.href = row.href; return; }
       if (row) { input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
       clearTimeout(timer); if (asking) asking.abort(); hide();
@@ -521,9 +524,9 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       if (key === "ArrowDown" || key === "ArrowUp") {
         event.preventDefault();
         if (!isOpen()) { if (rows.length) { show(); setActive(0); } else ask(); return; }
-        setActive((active + (key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length);
+        setActive(active < 0 ? (key === "ArrowDown" ? 0 : rows.length - 1) : (active + (key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length);
       } else if (key === "Tab" && !event.shiftKey && isOpen() && restPart.textContent) { event.preventDefault(); take(); }
-      else if (key === "Enter" && isOpen() && active >= 0) { event.preventDefault(); go(); }
+      else if (key === "Enter") { event.preventDefault(); go(); }
       else if (key === "Escape" && isOpen()) { event.preventDefault(); hide(); }
     });
     input.addEventListener("focusout", function () { setTimeout(function () { if (document.activeElement !== input) hide(); }, 0); });
@@ -947,8 +950,8 @@ component({
 .find:has(input:placeholder-shown) > .tertiary-btn { display: none; }
 .find:not(:has(input:placeholder-shown)) { --search-end-room: var(--control-height); }
 /* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on catches the
-   light, and when it's a finish, the rest of it shows after what's typed, quieter, in the field itself: Tab takes it, Enter takes it and
-   searches. On a game, Enter opens the game. */
+   light, and the rest of its finish, or of the first while you're on none, shows after what's typed, quieter, in the field itself: Tab takes
+   it. Enter searches what's typed, or on a row takes its finish and searches, or opens its game. */
 .find-finish { position: absolute; z-index: 2; inset: 0 var(--search-end-room) 0 calc(var(--pad-inside-words) + 34px); display: flex; align-items: center; overflow: hidden; white-space: pre; pointer-events: none;
   font: 500 1.125rem var(--display); color: var(--muted); }
 .find-finish > .find-typed { visibility: hidden; }
@@ -978,8 +981,13 @@ component({
       markup: html`<div style="width:min(460px,100%)">${searchField({ id: "example-find-try", action: "#search-field", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/design/examples/search-suggestions" })}</div>`,
     },
     {
-      label: "Open: the first finish in the field",
+      label: "Open: nothing picked, the first finish waiting in the field",
       markup: html`<div style="width:min(460px,100%);min-height:22rem">${searchField({ id: "example-find-open", action: "#search-field", name: "search_text", searchText: "ash", placeholder: "Search games", label: "Search games", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") })}</div>`,
+      isStill: true,
+    },
+    {
+      label: "Open: a row picked with the arrows or the pointer",
+      markup: html`<div style="width:min(460px,100%);min-height:22rem">${searchField({ id: "example-find-picked", action: "#search-field", name: "search_text", searchText: "ash", placeholder: "Search games", label: "Search games", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash"), shownActiveRowIndex: 0 })}</div>`,
       isStill: true,
     },
   ],

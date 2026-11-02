@@ -163,6 +163,9 @@ export const GAME = object({
   refund_policy_text: nullable(text("The refund policy in the developer's own words, with refund_policy own_words; null otherwise.")),
   full_game_item_name: nullable(text("The permanent content item a player must own to play; null: free to play.")),
   demo_game_slug: nullable(text("Another of the developer's games, free to play, that the page links as Play the demo; null: none.")),
+  first_published_at: nullable(isoTime("When the game first went live; it never moves. null until then.")),
+  big_update_at: nullable(isoTime("The last marked big update (is_big_update on a publish): the Updated tag and the game page's Updated fact. null for none.")),
+  recently_updated_at: nullable(isoTime("Where Browse's Recently updated places the game: its first release, moved by a marked big update at most once every 30 days. null until it's live.")),
   updated_at: isoTime(),
 });
 
@@ -260,6 +263,8 @@ export const VERSION = object({
   preview_url: nullable(url("A private link to play this version, for the developer and their AI, once it's approved. A fresh one comes every time; each works for a day.")),
   preview_url_expires_at: nullable(isoTime("When this preview_url stops working: at least a day from now.")),
   published_at: nullable(isoTime("When it last went live.")),
+  first_published_at: nullable(isoTime("When it first went live; a rollback doesn't move it. The game page's Updates tab shows its notes under this date.")),
+  is_big_update: yes("The developer marked it a big update. It counts as news only when it goes live for the first time, on a game already released."),
   scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
   match_update_mode: MATCH_UPDATE_MODE,
   created_at: isoTime(),

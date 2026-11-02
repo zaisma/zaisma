@@ -1,0 +1,10 @@
+{
+  "title": "Tomb of Emperors: The Second Age",
+  "description": "",
+  "pictures": [],
+  "is_honest": true,
+  "expected": {
+    "title": "fine"
+  },
+  "why": "A subtitle that names a part of the story isn't a list."
+}

@@ -481,6 +481,13 @@ export const REVIEW_CODES = {
     fix: `Send a cover built around something players meet in the game with add_image, or add a screenshot that shows it. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
     hasOwnMessage: true,
   },
+  search_words_in_title: {
+    meaning: "The title lists what the game is instead of naming it: \"Neon Rush: Racing Drift Car Driving Simulator\". A name that says what its game is, however long, is fine: \"Car Mechanic Simulator\".",
+    messageForPeople: "The title lists what the game is instead of naming it. Write the name alone in the game's details; the description and genres say what it is.",
+    contentRule: null,
+    fix: `Send the game's name alone with update_game; the description and genres say what it is, and search finds those too. ${BACK_ON_LISTS} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
   tag_in_title: {
     meaning: "The title carries a tag instead of only naming the game: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. \"+1\" and \"2x\" are fine.",
     messageForPeople: "The title carries a tag, like [UPDATE], an emoji or FREE, instead of only the game's name. Write the name alone in the game's details; patch notes say what's new.",

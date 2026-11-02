@@ -604,6 +604,8 @@ seedStandingNow();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
+// Search and updates, again this run: names to search, a quiet patch and a big update.
+seedSearchAndUpdates();
 // Country blocks, again this run: Night Drive in the United States, where the preview's own requests come from (its 451 page,
 // and the home leaves it out), and Four in a Row in the United Kingdom, which still plays here (its dashboard's alert).
 const countryBlock = (countryCode, words) =>
@@ -710,6 +712,11 @@ Zaisma preview is running. Nothing here touches the live site.
                   and two files that could be smaller, under "2 notes"; each engine sample's under /dashboard/<sample>/versions;
                   versions past the account's 20 runs today say so). On ${SITE}/g/texture-tour its first files download before Play.
   Preview links   ${SITE}/dashboard/rocket-lab/versions  (Preview on the unpublished build: a fresh link for a day; Preview links to turn them off)
+  Best match      ${SITE}/games?search_text=ember  (the exact name first, then word starts, then inside a word); ?search_text=embr  (the closest title);
+                  ?search_text=racing  (a genre word: no exact place); ?search_text=a  (the game named A behind real games); ${SITE}/games  (the daily shuffle)
+  Big updates     ${SITE}/dashboard/rocket-lab/versions  (Publish with What changed and the Big update switch);
+                  ${SITE}/g/tiny-farm  (the Updated fact), ${SITE}/g/shard-dodge  (a quiet patch in Updates), ${SITE}/  (as Preview_Studio: Updated on Tiny Farm)
+  Title rules     ${SITE}/dashboard/search-word-list  (off lists for a title that lists what the game is); as New_Studio, the word Zaisma in its game's title is refused
   Your games      ${SITE}/dashboard
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
@@ -1895,6 +1902,29 @@ function seedPlayingNow() {
       `INSERT OR REPLACE INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player) SELECT 'play_ticket_preview${slug.replaceAll("-", "")}${i}', id, ${now}, ${now}, '${new Date(now).toISOString().slice(0, 10)}', 0, 0 FROM games WHERE slug = '${slug}'`);
   const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2), ...tickets("cave-crew", 12), ...tickets("four-in-a-row", 3)];
   runSql(sql.join("; "));
+}
+
+/**
+ * For Best match: a game named A with no players, two named Ember, names around it and a title that lists what the game is. For updates: Shard
+ * Dodge has a quiet patch in its Updates, and Tiny Farm a big update since Preview_Studio last played it. Games copied by SQL get their release
+ * date here, as a publish would give them.
+ */
+function seedSearchAndUpdates() {
+  const now = Date.now();
+  const games = [["search-a", "A", 0], ["search-aa", "Aa", 0], ["search-ember", "Ember", 40], ["search-ember-too", "Ember", 4], ["search-ember-court", "Ember Court", 30], ["search-embers", "Embers of the Deep", 20], ["search-remembered", "Remembered Shores", 50], ["search-word-list", "Neon Rush: Racing Drift Car Driving Simulator", 0]];
+  const wordListReason = JSON.stringify({ code: "search_words_in_title", message: "The title lists what the game is instead of naming it: \"Racing Drift Car Driving Simulator\".", content_rule: null, fix: "Send the game's name alone with update_game." }).replace(/'/g, "''");
+  runSql(
+    [
+      ...games.map(([slug, title]) => `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms) SELECT 'game_${slug.replaceAll("-", "")}', '${slug}', '${title.replace(/'/g, "''")}', '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms FROM games WHERE slug = 'night-drive'`),
+      ...games.flatMap(([slug, , playerCount]) => (playerCount ? [7922, 3320, 5089, 2856, 701].map((asn) => `INSERT OR REPLACE INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES ('game_${slug.replaceAll("-", "")}', date('now', '-1 days'), ${asn}, ${playerCount})`) : [])),
+      `UPDATE games SET title_listing_reason = '${wordListReason}' WHERE slug = 'search-word-list'`,
+      "UPDATE games SET first_published_at_ms = COALESCE(first_published_at_ms, created_at_ms) WHERE live_version_id IS NOT NULL",
+      `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, kind, patch_notes, publish_when_approved_enabled, published_at_ms, first_published_at_ms) SELECT 'version_previewquietpatch01', id, 'manifests/version_previewquietpatch01', 1, 1000, 'approved', ${now - 86_400_000}, 'files', 'Fixed the jump on ladders.', 0, ${now - 86_400_000}, ${now - 86_400_000} FROM games WHERE slug = 'shard-dodge'`,
+      `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, kind, patch_notes, publish_when_approved_enabled, published_at_ms, first_published_at_ms, is_big_update) SELECT 'version_previewbigupdate01', id, 'manifests/version_previewbigupdate01', 1, 1000, 'approved', ${now - 2 * 86_400_000}, 'files', 'Three new farms and a harvest festival.', 0, ${now - 2 * 86_400_000}, ${now - 2 * 86_400_000}, 1 FROM games WHERE slug = 'tiny-farm'`,
+      `UPDATE games SET big_update_at_ms = ${now - 2 * 86_400_000} WHERE slug = 'tiny-farm'`,
+      `INSERT OR REPLACE INTO played (account_id, game_id, played_at_ms) SELECT accounts.id, games.id, ${now - 3 * 86_400_000} FROM accounts, games WHERE accounts.username = 'Preview_Studio' AND games.slug = 'tiny-farm'`,
+    ].join("; "),
+  );
 }
 
 /** A browser of its own, from this address: answers a function that posts as it. */
