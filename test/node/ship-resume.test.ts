@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,6 +15,8 @@ import {
   waitForNetwork,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-resume.mjs";
+// @ts-expect-error: a plain JavaScript script without types
+import { dockerForShip } from "../../scripts/photodna-sdk.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /** scripts/ship-resume.mjs: how npm run ship gets through a Mac that slept, Wi-Fi that dropped, or a ship that was killed. */
@@ -217,5 +219,103 @@ describe("deployWorkers", () => {
     expect(JSON.parse(readFileSync(progressPath, "utf8")).commit_sha).toBe(newCommitSha);
     writeFileSync(progressPath, "{ half written");
     expect(readShipProgress(progressPath, COMMIT_SHA)).toEqual({ commit_sha: COMMIT_SHA, version_ids: {}, applied_migrations: [] });
+  });
+});
+
+describe("the Colima a ship started", () => {
+  let folder = "";
+  let markerFile = "";
+  beforeEach(() => {
+    folder = temporaryFolder("ship-colima-");
+    markerFile = join(folder, "colima-started");
+  });
+  afterEach(() => rmSync(folder, { recursive: true, force: true }));
+
+  /** A machine: whether Docker answers (colima start makes it, colima stop ends it), and each colima command. */
+  const machine = (isDockerUp: boolean, { canStop = true } = {}) => {
+    const state = { isDockerUp, colimaCalls: [] as string[] };
+    const runs = (command: string, commandArguments: string[]) => {
+      if (command === "colima") {
+        state.colimaCalls.push(commandArguments[0]!);
+        if (commandArguments[0] === "stop" && !canStop) return false;
+        state.isDockerUp = commandArguments[0] === "start";
+        return true;
+      }
+      return commandArguments[0] === "buildx" || state.isDockerUp;
+    };
+    return { state, runs };
+  };
+
+  it("stops it when this ship started it, once, after a pass or a failure", () => {
+    const { state, runs } = machine(false);
+    const docker = dockerForShip({ markerFile, runs });
+    expect(docker.ensure()).toBeNull();
+    expect(existsSync(markerFile)).toBe(true);
+    docker.stopIfStarted();
+    docker.stopIfStarted();
+    expect(state.colimaCalls).toEqual(["start", "stop"]);
+    expect(existsSync(markerFile)).toBe(false);
+  });
+  it("leaves it alone when it was already running, even after starting it again for a retry", () => {
+    const { state, runs } = machine(true);
+    const docker = dockerForShip({ markerFile, runs });
+    expect(docker.ensure()).toBeNull();
+    state.isDockerUp = false;
+    expect(docker.ensure()).toBeNull();
+    docker.stopIfStarted();
+    expect(state.colimaCalls).toEqual(["start"]);
+    expect(existsSync(markerFile)).toBe(false);
+  });
+  it("still stops it after this ship has to start it again when the Mac slept", () => {
+    const { state, runs } = machine(false);
+    const docker = dockerForShip({ markerFile, runs });
+    docker.ensure();
+    state.isDockerUp = false;
+    docker.ensure();
+    docker.stopIfStarted();
+    expect(state.colimaCalls).toEqual(["start", "start", "stop"]);
+  });
+  it("has the run after an interruption start it again and stop it, as that run's own", () => {
+    const { state, runs } = machine(false);
+    const interrupted = dockerForShip({ markerFile, runs });
+    interrupted.ensure();
+    interrupted.stopIfStarted();
+    const pickedUp = dockerForShip({ markerFile, runs });
+    expect(pickedUp.ensure()).toBeNull();
+    pickedUp.stopIfStarted();
+    expect(state.colimaCalls).toEqual(["start", "stop", "start", "stop"]);
+    expect(state.isDockerUp).toBe(false);
+  });
+  it("has the next ship stop what a ship that was killed left running", () => {
+    const { state, runs } = machine(false);
+    dockerForShip({ markerFile, runs }).ensure();
+    const next = dockerForShip({ markerFile, runs });
+    expect(next.ensure()).toBeNull();
+    next.stopIfStarted();
+    expect(state.colimaCalls).toEqual(["start", "stop"]);
+    expect(existsSync(markerFile)).toBe(false);
+  });
+  it("keeps the marker when it won't stop, and says so, so the next ship tries again", () => {
+    const { state, runs } = machine(false, { canStop: false });
+    const said: string[] = [];
+    const docker = dockerForShip({ markerFile, runs, say: (line: string) => said.push(line) });
+    docker.ensure();
+    docker.stopIfStarted();
+    expect(said.at(-1)).toMatch(/Colima didn't stop/);
+    expect(existsSync(markerFile)).toBe(true);
+    expect(state.isDockerUp).toBe(true);
+  });
+  it("does nothing on a dry run, which never asks for Docker", () => {
+    writeFileSync(markerFile, "left by a killed ship");
+    const { state, runs } = machine(true);
+    dockerForShip({ markerFile, runs }).stopIfStarted();
+    expect(state.colimaCalls).toEqual([]);
+  });
+  it("is stopped by ship.mjs before its last line, on every way out", () => {
+    const ship = readFileSync(join(ROOT, "scripts/ship.mjs"), "utf8");
+    for (const start of ["const finish = (status, summary, exitCode) => {", "function finishInterrupted(label) {"]) expect(ship.slice(ship.indexOf(start)).split("say();")[0]).toContain("shipDocker.stopIfStarted();");
+    expect(ship).toContain('process.on("exit", () => shipDocker.stopIfStarted());');
+    expect(ship).toContain('worker === "photodna" ? shipDocker.ensure() : null');
+    expect(ship).not.toContain("ensureDocker");
   });
 });

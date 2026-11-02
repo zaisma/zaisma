@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { ERROR_LINE_COUNT, formatGithubResult, formatResult, judgeCheckRuns, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport, splitTestFiles } from "../../scripts/check.mjs";
+import { ERROR_LINE_COUNT, formatGithubResult, formatResult, judgeCheckRuns, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport, runTestsThatFit, splitTestFiles } from "../../scripts/check.mjs";
 
 /** scripts/check.mjs: how it reads vitest's and tsc's output and what it prints. */
 
@@ -61,6 +61,56 @@ describe("splitTestFiles", () => {
   });
 });
 
+describe("runTestsThatFit", () => {
+  const NODE = "test/node/a.test.ts";
+  const CONTRACT = "test/contracts/b.test.ts";
+  const OWN = "test/site/own.test.ts";
+  const OTHER = "test/site/other.test.ts";
+  const report = { testResults: [] };
+  const refused = { output: "Error: no_room_for_tests: previews and test runs take 3.0 GB", report: null };
+  /** vitest as each run answers it, in order; and the files each was given. */
+  const vitest = (...answers: object[]) => {
+    const calls: string[][] = [];
+    return { calls, run: async (files: string[]) => (calls.push(files), answers[calls.length - 1]) };
+  };
+  it("runs what's here when it fits, leaving only the other Workers files", async () => {
+    const { run, calls } = vitest({ output: "", report });
+    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
+    expect(calls).toEqual([[NODE, OWN]]);
+  });
+  it("runs the Node files alone when its own Workers files have no room", async () => {
+    const { run, calls } = vitest(refused, { output: "", report });
+    expect(await runTestsThatFit({ here: [NODE, CONTRACT, OWN], testFiles: [NODE, CONTRACT, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
+    expect(calls).toEqual([[NODE, CONTRACT, OWN], [NODE, CONTRACT]]);
+  });
+  it("runs no tests when the Node files have no room either, and names each of them, straight away", async () => {
+    const { run, calls } = vitest(refused, refused);
+    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [NODE, OWN, OTHER], leftForMemory: [NODE, OWN] });
+    expect(calls).toHaveLength(2);
+    const nodeOnly = vitest(refused);
+    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: nodeOnly.run })).toEqual({ failures: [], leftToGithub: [NODE], leftForMemory: [NODE] });
+    expect(nodeOnly.calls).toHaveLength(1);
+  });
+  it("never runs vitest with no files, which would run them all", async () => {
+    const { run, calls } = vitest(refused);
+    expect(await runTestsThatFit({ here: [OWN], testFiles: [OWN], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN], leftForMemory: [OWN] });
+    expect(calls).toHaveLength(1);
+    const none = vitest();
+    expect(await runTestsThatFit({ here: [], testFiles: [OTHER], runVitest: none.run })).toEqual({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
+    expect(none.calls).toEqual([]);
+  });
+  it("names its own Workers files as left for memory when another Workers run took the machine", async () => {
+    const { run } = vitest({ output: "", report });
+    expect(await runTestsThatFit({ here: [NODE], normallyHere: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
+  });
+  it("fails on a vitest that ended for any other reason, and on a test that prints those words but ran", async () => {
+    const { run } = vitest({ output: "config broke", report: null });
+    expect((await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: run })).failures).toEqual([{ file: "vitest", test_name: null, error: "config broke" }]);
+    const printed = vitest({ output: "no_room_for_tests", report });
+    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: printed.run })).toEqual({ failures: [], leftToGithub: [], leftForMemory: [] });
+  });
+});
+
 describe("formatResult", () => {
   const empty = { test_failures: [], typecheck_failures: [], layout_failures: [], left_to_github: [], notes: [], is_pass: true };
   it("ends on PASS when nothing failed", () => {
@@ -72,6 +122,18 @@ describe("formatResult", () => {
   });
   it("says how many Workers files went to GitHub and how to read their result", () => {
     expect(formatResult({ ...empty, left_to_github: ["test/site/a.test.ts"] })).toBe("Left to GitHub's check: 1 Workers test file(s). Push, and read npm run check -- --pr <number>.\nPASS");
+  });
+  it("names what no room in memory left out, in its last line, on a pass and a failure", () => {
+    const forMemory = ["test/node/a.test.ts", "test/site/own.test.ts"];
+    const text = formatResult({ ...empty, left_to_github: [...forMemory, "test/site/other.test.ts"], left_to_github_for_memory: forMemory });
+    expect(text.split("\n")[0]).toBe("Left to GitHub's check: 1 Workers test file(s). Push, and read npm run check -- --pr <number>.");
+    expect(text).toContain("No room in the memory cap");
+    expect(text.split("\n").at(-1)).toBe("PASS, without 2 test file(s) that didn't run here, left to GitHub's check: test/node/a.test.ts, test/site/own.test.ts");
+    expect(formatResult({ ...empty, is_pass: false, left_to_github: forMemory, left_to_github_for_memory: forMemory }).split("\n").at(-1)).toMatch(/^FAIL, without 2 test file/);
+  });
+  it("names five files in its last line, and how to see the rest", () => {
+    const forMemory = Array.from({ length: 7 }, (_, i) => `test/node/${i}.test.ts`);
+    expect(formatResult({ ...empty, left_to_github: forMemory, left_to_github_for_memory: forMemory }).split("\n").at(-1)).toMatch(/4\.test\.ts and 2 more \(--json lists them\)$/);
   });
 });
 
