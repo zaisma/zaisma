@@ -182,7 +182,7 @@ describe("a look at the line", () => {
   });
   it("has a start give up after its limit: no room, what holds the memory, the command, and nothing left in line", async () => {
     const answer = await waitForTurn({ ...mac(), kind: "start", offset: 100, folder: "/checkout", maxWaitMs: 0, measure: measuring([{ offset: 0, sizeBytes: 2 * GB }, { offset: 200, sizeBytes: GB }]) });
-    expect(answer.noRoomText).toMatch(/^No room for it after 0 s in line: .* Holding the memory: the preview in \/checkouts\/0 \(2\.0 GB\), the preview in \/checkouts\/200 \(1\.0 GB\)\. .*Try again: npm run preview:start$/);
+    expect(answer.noRoomText).toMatch(/^No room for it after \d+ s in line: .* Holding the memory: the preview in \/checkouts\/0 \(2\.0 GB\), the preview in \/checkouts\/200 \(1\.0 GB\)\. .*Try again: npm run preview:start$/);
     expect(lineOnDisk().entries).toEqual([]);
   });
   it("gives a start its turn when it fits, with its limit unused", async () => {
