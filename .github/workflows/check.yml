@@ -192,6 +192,14 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
+      # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
+      # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
+      - id: miniflare
+        run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
       # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
       - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
@@ -230,6 +238,14 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci --no-audit --no-fund
+      # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
+      # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
+      - id: miniflare
+        run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       # The fast lane's WebTransport packages are an optional peer of the game server, which npm ci leaves out:
       # installed here, at the versions it names, so the runner's fast-lane tests run instead of skipping.
       - run: npm install --no-save --no-audit --no-fund $(node -p "Object.entries(require('./packages/game-server/package.json').peerDependencies).map(([name, version]) => name + '@' + version).join(' ')")
@@ -301,6 +317,14 @@ jobs:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
       - run: npm ci --no-audit --no-fund
+      # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
+      # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
+      - id: miniflare
+        run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       - run: npm run preview:start -- --reset --engines-only
       - run: npm run engines:play
       - if: failure()
