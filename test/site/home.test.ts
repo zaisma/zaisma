@@ -58,8 +58,8 @@ describe("the home page", () => {
 
   it("marks a played game Updated only for a big update since, never for a publish", async () => {
     const { HOME_SCRIPT } = await import("../../apps/site/src/home-script.ts");
-    expect(HOME_SCRIPT).toContain("game.big_update_at_ms > at");
-    expect(HOME_SCRIPT).not.toContain("published_at_ms");
+    expect(HOME_SCRIPT.sourceText).toContain("game.big_update_at_ms > at");
+    expect(HOME_SCRIPT.sourceText).not.toContain("published_at_ms");
     const text = await (await SELF.fetch(`${SITE}/`)).text();
     expect(text).toContain("big_update_at_ms");
     expect(text).not.toContain("published_at_ms");
