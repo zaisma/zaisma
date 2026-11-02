@@ -350,6 +350,10 @@ jobs:
       - run: npm run engines:play
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+      - if: failure()
+        run: |
+          grep -ihE "browser|chrome" .wrangler/preview-run/preview.log .wrangler/preview/servers.log | head -n 40 || true
+          find ~/.cache/.wrangler -maxdepth 4 2>/dev/null | head -n 20 || true
       # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
       - id: browser-installed
         if: always() && steps.browser-cache.outputs.cache-hit != 'true'
