@@ -710,7 +710,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   ?search_text=racing  (a genre word: no exact place); ?search_text=a  (the game named A behind real games); ${SITE}/games  (the daily shuffle)
   Big updates     ${SITE}/dashboard/rocket-lab/versions  (Publish with What changed and the Big update switch);
                   ${SITE}/g/tiny-farm  (the Updated fact), ${SITE}/g/shard-dodge  (a quiet patch in Updates), ${SITE}/  (as Preview_Studio: Updated on Tiny Farm)
-  Title rules     ${SITE}/dashboard/search-word-list  (off lists for a title that lists what the game is; as Moss_Runner the word Zaisma is refused)
+  Title rules     ${SITE}/dashboard/search-word-list  (off lists for a title that lists what the game is); as New_Studio, the word Zaisma in its game's title is refused
   Your games      ${SITE}/dashboard
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
