@@ -279,8 +279,8 @@ describe("releasing a hold the review got wrong", () => {
     // Five judged reviews today: a sixth version waits for a free one.
     const sixth = await upload("refund-6");
     await env.DB.prepare("UPDATE games SET owner_id = 'owner_refund' WHERE id = ?").bind(sixth.gameId).run();
-    const waiting = await reviewedScan(testEnv, sixth.versionId, holdsFor());
-    expect(waiting.findings.map((finding) => finding.code)).toEqual(["daily_large_reviews_used"]);
+    await reviewedScan(testEnv, sixth.versionId, holdsFor());
+    expect(await env.DB.prepare("SELECT ai_review_status, ai_review_waiting_reason FROM versions WHERE id = ?").bind(sixth.versionId).first()).toEqual({ ai_review_status: "waiting", ai_review_waiting_reason: "daily_large_reviews_used" });
     // A person releases one of the five: the review was wrong, so it's given back.
     await post(`/admin/versions/${versions[0]}/approve`);
     const seventh = await upload("refund-7");
