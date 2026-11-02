@@ -878,7 +878,7 @@ export const TOOLS: Tool[] = [
     title: "Delete a version",
     description:
       "Deletes one version for good, and frees the files no other version has at once. Not for a version that's live, set to publish, picked by a tester link (version_in_use), being scanned (still_scanning) or kept for a person at Zaisma (kept_for_review). get_storage lists the ones that can go. Ask the developer first: it can't be rolled back to afterwards.",
-    inputSchema: { ...object({ slug, version_id: { type: "string", description: "A version's ID, from get_game or get_storage." } }, ["slug", "version_id"]), examples: [{ slug: "sky-hopper", version_id: "version_abc123" }] },
+    inputSchema: { ...object({ slug, version_id: versionId }, ["slug", "version_id"]), examples: [{ slug: "sky-hopper", version_id: "version_abc123" }] },
     outputSchema: DELETED_WITH_STORAGE,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}`),
