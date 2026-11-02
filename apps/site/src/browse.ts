@@ -501,9 +501,9 @@ function swap(next) {
   });
   there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
 }
-function show(href, isNewEntry, isSearch, reopenedGroupName) {
+function show(href, isNewEntry, isSearch, reopenedGroupName, slideLanded) {
   const asked = ++latest;
-  fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)).then((text) => {
+  Promise.all([fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)), slideLanded]).then(([text]) => {
     if (asked !== latest) return;
     const page = new DOMParser().parseFromString(text, "text/html"), next = page.getElementById("browse");
     if (!next) return;
@@ -515,7 +515,8 @@ function show(href, isNewEntry, isSearch, reopenedGroupName) {
     if (typeof reopenedGroupName === "string") reopenFilter(reopenedGroupName);
   }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
-// A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
+// A sort or a genre: its tab slides at once, and the grid follows when the page's games have come and the slab has landed. The slide runs
+// on the page's one thread and drawing a grid of covers holds that thread longer than the slide lasts, so a grid drawn on the way stops the slab.
 browse.addEventListener("click", (event) => {
   const tab = event.target.closest && event.target.closest(".tab-switch > a[href]");
   if (!tab || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -525,7 +526,9 @@ browse.addEventListener("click", (event) => {
   sw.querySelectorAll(":scope > a").forEach((each) => each.removeAttribute("aria-current"));
   tab.setAttribute("aria-current", "page");
   if (sw.pickTab) sw.pickTab(tab);
-  show(tab.getAttribute("href"), "push");
+  const slab = sw.querySelector(".switch-slab");
+  const slideMs = slab && !matchMedia("(prefers-reduced-motion: reduce)").matches ? parseFloat(getComputedStyle(slab).getPropertyValue("--slide-ms")) || 0 : 0;
+  show(tab.getAttribute("href"), "push", false, undefined, new Promise((landed) => setTimeout(landed, slideMs)));
 });
 // A filter picked or taken away: the pane is drawn again in place, its menu and tags with it. The open menu floats outside the pane (in
 // the page's top layer), so its picks are heard on the whole page; picked there, the menu opens again at once on its ways, the way just
