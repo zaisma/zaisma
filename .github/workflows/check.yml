@@ -196,7 +196,8 @@ jobs:
       # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
       - id: miniflare
         run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - id: browser-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
@@ -215,6 +216,15 @@ jobs:
         with:
           name: flaky-tests-${{ matrix.shard }}
           path: flaky_tests.json
+      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
+      - id: browser-installed
+        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
+        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: always() && steps.browser-installed.outputs.installed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   # The test files a pull request adds or changes, ten runs one after another: most flaky tests show before the merge queue.
   # rerun.yml's fifty runs stay for proving a flaky test's fix.
@@ -242,7 +252,8 @@ jobs:
       # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
       - id: miniflare
         run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - id: browser-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
@@ -260,6 +271,15 @@ jobs:
             if ! npx vitest run $CHANGED_TEST_FILES; then echo "::error::Run $run of 10 failed: a test this pull request adds or changes is flaky or failing."; exit 1; fi
             echo "::endgroup::"
           done
+      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
+      - id: browser-installed
+        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
+        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: always() && steps.browser-installed.outputs.installed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   typecheck:
     name: Typecheck
@@ -321,7 +341,8 @@ jobs:
       # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
       - id: miniflare
         run: echo "version=$(node -p "require('miniflare/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - id: browser-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
@@ -329,6 +350,15 @@ jobs:
       - run: npm run engines:play
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+      # Saved as soon as a download succeeded, even when a later step failed: a cache saved only after a whole job passes never gets seeded.
+      - id: browser-installed
+        if: always() && steps.browser-cache.outputs.cache-hit != 'true'
+        run: echo "installed=$(compgen -G "$HOME/.cache/.wrangler/chrome/*/chrome-linux64/chrome" >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: always() && steps.browser-installed.outputs.installed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/.wrangler
+          key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
 
   # The preview's full test data, made once when there's no snapshot of it from the same files (What changed), for the Layout check.
   seed:
