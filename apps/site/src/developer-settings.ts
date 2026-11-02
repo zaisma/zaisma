@@ -403,8 +403,16 @@ const shownGigabytes = (sizeBytes: number) => Number((sizeBytes / 1024 ** 3).toF
 function storageItems({ storage }: Settings): LayoutItem[] {
   const budgetCents = storage.monthly_storage_budget_cents;
   const boughtSizeBytes = storage.maximum_stored_size_bytes - storage.included_size_bytes;
+  const stored = `${storageSizeText(storage.stored_size_bytes)} of ${storageSizeText(storage.maximum_stored_size_bytes)}`;
   const included = `${storageSizeText(storage.included_size_bytes)} included`;
-  const storedWords = budgetCents === null ? `${included}. Past it, uploads stop until you delete something or set a budget.` : boughtSizeBytes > 0 ? `${included}, and credit buys ${storageSizeText(boughtSizeBytes)} more. ${dollars(storage.spent_this_month_cents)} spent this month.` : `${included}. Add credit: your ${dollars(budgetCents)} budget has none to draw from.`;
+  const isOver = storage.stored_size_bytes > storage.maximum_stored_size_bytes;
+  const storedWords = isOver
+    ? `${stored}. Everything stays, and new uploads must fit: delete old versions or games${budgetCents === null ? ", or set a budget" : ", or add credit"}.`
+    : budgetCents === null
+      ? `${stored}. Past it, uploads stop until you delete something or set a budget.`
+      : boughtSizeBytes > 0
+        ? `${stored}: ${included}, and credit buys ${storageSizeText(boughtSizeBytes)} more. ${dollars(storage.spent_this_month_cents)} spent this month.`
+        : `${stored}. Add credit: your ${dollars(budgetCents)} budget has none to draw from.`;
   const raises = storage.allowance_kind === "new" ? `${storageSizeText(STORAGE_ALLOWANCES.established.includedSizeBytes)} once your account is established or a card has paid Zaisma.` : undefined;
   const midnight = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   return [
@@ -415,7 +423,7 @@ function storageItems({ storage }: Settings): LayoutItem[] {
         label: "Storage",
         rows: [
           { title: "Stored", detail: storedWords, secondDetail: raises, meter: { label: "Stored", usedNumber: shownGigabytes(storage.stored_size_bytes), limitNumber: shownGigabytes(storage.maximum_stored_size_bytes), unit: "GB" }, action: budgetCents === null ? opens("Set budget", "storage-budget") : [opens("Change budget", "storage-budget"), more("Storage budget", "storage-budget-more")] },
-          { title: "New data today", detail: "Files you already store don't count.", meter: { label: "New data today", usedNumber: shownGigabytes(storage.new_data_today_size_bytes), limitNumber: shownGigabytes(storage.maximum_new_data_size_bytes), unit: "GB", resetDate: midnight } },
+          { title: "New data today", detail: `${storageSizeText(storage.new_data_today_size_bytes)} of ${storageSizeText(storage.maximum_new_data_size_bytes)}. Resets at midnight UTC. Files you already store don't count.`, meter: { label: "New data today", usedNumber: shownGigabytes(storage.new_data_today_size_bytes), limitNumber: shownGigabytes(storage.maximum_new_data_size_bytes), unit: "GB", resetDate: midnight } },
         ],
       }),
     ),
