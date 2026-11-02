@@ -443,6 +443,7 @@ async function gamesPage(env: Env, call: Call, account: Account | null, error?: 
     { can_publish: boolean },
     { unseen_security_alerts: UnseenSecurityAlert[] },
   ];
+  const { storage: { unpaid_files_delete_at: unpaidFilesDeleteAt } } = (await call("GET", "/storage")) as { storage: { unpaid_files_delete_at: string | null } };
   // Games that need attention first, the most urgent first (a kind this page doesn't know after the known ones); the rest keep the API's order, last changed first.
   const urgency = (game: { alerts: GameAlertJson[] }) => (game.alerts.length ? Math.min(...game.alerts.map((alert) => GAME_ALERT_KINDS.indexOf(alert.kind as GameAlertKind) >>> 0)) : Infinity);
   const games = [...listedGames].sort((first, second) => urgency(first) - urgency(second));
@@ -460,6 +461,7 @@ ${notice({ error })}
 ${securityAlertsBox(unseenSecurityAlerts, "/dashboard")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed: false, backTo: "/dashboard" }) : ""}
 ${doneWords ? html`<p class="done" role="status">${doneWords}</p>` : ""}
+${unpaidFilesDeleteAt ? html`<p class="error" role="alert">Your account is past its storage limit. On ${new Date(unpaidFilesDeleteAt).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, Zaisma deletes what's past it. Live versions stay. <a href="/dashboard/settings#hosting">See your storage</a></p>` : ""}
 ${unreadTopicCount ? html`<p class="done" role="status">Zaisma replied to ${unreadTopicCount === 1 ? "one of your forum topics" : `${unreadTopicCount} of your forum topics`}. <a href="/forum?tab=yours">Read ${unreadTopicCount === 1 ? "it" : "them"}</a></p>` : ""}
 ${canPublish
       ? ""

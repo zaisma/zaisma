@@ -10,6 +10,7 @@ import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
+import { judgeUnpaidStorage } from "./unpaid-storage.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -107,6 +108,7 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   // Files no version uses, after a day's grace for uploads still in progress. While files are still
   // moving to new names (file_moves), a version's file list may not be where it looks, so they wait.
   const isMovingFiles = (await env.DB.prepare("SELECT 1 AS is_found FROM file_moves LIMIT 1").first()) !== null;
+  if (!isMovingFiles) await judgeUnpaidStorage(env, nowMs);
   const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, nowMs - DAY_MS, nowMs);
 
   const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE has_picture = 1 AND report_status != 'open' AND closed_at_ms < ? LIMIT 1000").bind(nowMs - 30 * DAY_MS).all<{ id: string }>();

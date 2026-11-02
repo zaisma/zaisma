@@ -4,6 +4,7 @@ import { addCreditEntry, blobKey, createAccount, createApiKey, gameBySlug, notCo
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { chargeStorage } from "../../apps/site/src/hosting-job.ts";
 import { MAXIMUM_PACK_PICTURE_COUNT, ScanContinues, matchMedia, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { judgeUnpaidStorage } from "../../apps/site/src/unpaid-storage.ts";
 import { letPublish } from "../helpers.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 
@@ -259,6 +260,95 @@ describe("a storage budget", () => {
     await env.DB.prepare("UPDATE owners SET monthly_storage_budget_cents = 1000, stored_size_bytes = ? WHERE id = ?").bind(9 * GB, ownerId).run();
     await chargeStorage(env, Date.UTC(2026, 10, 3, 3));
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM owner_storage_months").first()).toEqual({ row_count: 0 });
+  });
+});
+
+describe("storage past the limit with nothing paying for it", () => {
+  const clock = (ownerColumn: string) => env.DB.prepare(`SELECT ${ownerColumn} AS value FROM owners WHERE id = ?`).bind(ownerId).first<{ value: number | null }>().then((row) => row!.value);
+  const passed = async (text: string) => {
+    const version = await push({ "index.html": text });
+    await scanVersion(testEnv, version, pass);
+    return version;
+  };
+  /** Each file counts 6 GB, so a few versions take an account past 10 GB. */
+  const makeFilesBig = async () => {
+    await env.DB.prepare("UPDATE blobs SET size_bytes = ?").bind(6 * GB).run();
+    await env.DB.prepare("UPDATE owners SET stored_size_bytes = (SELECT COUNT(*) FROM blob_owners WHERE owner_id = owners.id) * ?").bind(6 * GB).run();
+  };
+
+  it("starts a clock, warns before its end, then deletes drafts and the oldest versions only until it fits, live kept", async () => {
+    const draft = await passed("<p>draft</p>");
+    const older = await passed("<p>older</p>");
+    await api(`/games/hop/versions/${older}/publish`, { body: {} });
+    const newer = await passed("<p>newer</p>");
+    await api(`/games/hop/versions/${newer}/publish`, { body: {} });
+    const live = await passed("<p>live</p>");
+    await api(`/games/hop/versions/${live}/publish`, { body: {} });
+    await makeFilesBig();
+
+    const startMs = Date.now();
+    await judgeUnpaidStorage(env, startMs);
+    expect(await clock("storage_unpaid_since_ms")).toBe(startMs);
+    expect((await storage()).unpaid_files_delete_at).toBe(new Date(startMs + 14 * DAY_MS).toISOString());
+    expect(await clock("storage_unpaid_warned_at_ms")).toBeNull();
+
+    await judgeUnpaidStorage(env, startMs + 11 * DAY_MS);
+    expect(await clock("storage_unpaid_warned_at_ms")).toBe(startMs + 11 * DAY_MS);
+    expect(await versionById(env.DB, draft)).not.toBeNull();
+
+    await judgeUnpaidStorage(env, startMs + 14 * DAY_MS);
+    expect(await versionById(env.DB, draft)).toBeNull();
+    expect(await versionById(env.DB, older)).toBeNull();
+    expect(await versionById(env.DB, newer)).toBeNull();
+    expect(await versionById(env.DB, live)).not.toBeNull();
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBe(live);
+    expect((await storage()).stored_size_bytes).toBe(6 * GB);
+    // It fits now, so the next day's run stops the clock.
+    await judgeUnpaidStorage(env, startMs + 15 * DAY_MS);
+    expect(await clock("storage_unpaid_since_ms")).toBeNull();
+  });
+
+  it("stops the delete there when only a live version is left, and keeps what a person needs", async () => {
+    const kept = await passed("<p>kept</p>");
+    await env.DB.prepare("UPDATE versions SET report_held_at_ms = 1 WHERE id = ?").bind(kept).run();
+    const live = await passed("<p>live</p>");
+    await api(`/games/hop/versions/${live}/publish`, { body: {} });
+    await makeFilesBig();
+    const startMs = Date.now();
+    await judgeUnpaidStorage(env, startMs);
+    await judgeUnpaidStorage(env, startMs + 14 * DAY_MS);
+    expect(await versionById(env.DB, kept)).not.toBeNull();
+    expect(await versionById(env.DB, live)).not.toBeNull();
+    expect((await storage()).unpaid_files_delete_at).toBeNull();
+  });
+
+  it("doesn't start while Stripe tries a renewal, a card's plan is failing, a ruling's wait runs or a ban stands", async () => {
+    const startMs = Date.now();
+    await setStored(12 * GB);
+    await env.DB.prepare("UPDATE owners SET stripe_subscription_id = 'sub_1', pro_until_ms = ? WHERE id = ?").bind(startMs - 1000, ownerId).run();
+    await judgeUnpaidStorage(env, startMs);
+    expect(await clock("storage_unpaid_since_ms")).toBeNull();
+    await env.DB.prepare("UPDATE owners SET stripe_subscription_id = NULL, credit_plan_status = 'payment_failing' WHERE id = ?").bind(ownerId).run();
+    await judgeUnpaidStorage(env, startMs);
+    expect(await clock("storage_unpaid_since_ms")).toBeNull();
+    await env.DB.prepare("UPDATE owners SET credit_plan_status = NULL, last_ruling_at_ms = ? WHERE id = ?").bind(startMs - DAY_MS, ownerId).run();
+    await judgeUnpaidStorage(env, startMs);
+    expect(await clock("storage_unpaid_since_ms")).toBeNull();
+    await env.DB.prepare("UPDATE owners SET last_ruling_at_ms = NULL WHERE id = ?").bind(ownerId).run();
+    await judgeUnpaidStorage(env, startMs);
+    expect(await clock("storage_unpaid_since_ms")).toBe(startMs);
+  });
+
+  it("stops the clock once credit and a budget cover it", async () => {
+    const startMs = Date.now();
+    await setStored(12 * GB);
+    await judgeUnpaidStorage(env, startMs);
+    expect((await storage()).unpaid_files_delete_at).not.toBeNull();
+    await env.DB.prepare("UPDATE owners SET monthly_storage_budget_cents = 1000 WHERE id = ?").bind(ownerId).run();
+    await addCredit(1000);
+    expect((await storage()).unpaid_files_delete_at).toBeNull();
+    await judgeUnpaidStorage(env, startMs + DAY_MS);
+    expect(await clock("storage_unpaid_since_ms")).toBeNull();
   });
 });
 

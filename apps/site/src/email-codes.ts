@@ -261,7 +261,7 @@ export function waitEndsText(ms: number): string {
 }
 
 /** The hosting emails a developer gets (hosting-job.ts, stripe-events.ts): a game's meter, and their credit. */
-export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up", "credit_plan_payment_failed", "credit_plan_stopped"] as const;
+export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up", "credit_plan_payment_failed", "credit_plan_stopped", "storage_unpaid", "storage_deleting_soon"] as const;
 export type HostingEmailKind = (typeof HOSTING_EMAIL_KINDS)[number];
 
 /** What a hosting email says: the game and month for a game's, amounts in cents for credit's. */
@@ -277,6 +277,10 @@ export interface HostingEmailDetails {
   balanceCents?: number;
   /** For credit_plan_stopped: Stripe gave up on a declined renewal, rather than the plan being cancelled on Link. */
   hasPaymentFailed?: boolean;
+  /** For the storage emails: "12.4 GB", "10 GB" and "Nov 16". */
+  storedText?: string;
+  maximumStoredText?: string;
+  deletesOnText?: string;
 }
 
 /** Cents as dollars, like $3.40 or $20. */
@@ -304,6 +308,13 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
           details.pausedReason === "budget_used" ? `Raise its budget at ${settings} to start it again now.` : details.pausedReason === "credit_used" ? `Add credit at ${settings} to start it again now.` : `It starts again on ${details.resetsOnText}, or now if you add credit and give it a budget at ${settings}.`;
         return [`${game}'s hosting is paused`, `${game}'s hosting is paused: ${why}. No new matches start, and running ones get an hour to finish.`, next];
       }
+      case "storage_unpaid":
+      case "storage_deleting_soon":
+        return [
+          kind === "storage_unpaid" ? "Your Zaisma account is past its storage limit" : `Zaisma deletes what's past your storage limit on ${details.deletesOnText}`,
+          `Your account stores ${details.storedText} of the ${details.maximumStoredText} it can. On ${details.deletesOnText}, Zaisma deletes what's past that: files no version uses, then drafts, then your oldest versions. Live versions stay.`,
+          `To keep them, delete what you don't need, set a storage budget with credit, or start Zaisma Pro at ${settings}.`,
+        ];
       case "credit_low":
         return ["Your Zaisma credit is low", `You have ${dollars(details.balanceCents ?? 0)} of hosting credit left. When it's used, your games with a budget pause until you add more.`, `Add credit at ${settings}.`];
       case "credit_used_up":

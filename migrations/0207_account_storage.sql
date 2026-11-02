@@ -4,6 +4,9 @@
 -- while a released blob_owners row keeps saying who sent the file first, for copies.
 ALTER TABLE owners ADD COLUMN stored_size_bytes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE owners ADD COLUMN monthly_storage_budget_cents INTEGER;
+-- When an account's money for what's past its limit stopped, and when it heard the delete was days away: 14 days on, what isn't live goes.
+ALTER TABLE owners ADD COLUMN storage_unpaid_since_ms INTEGER;
+ALTER TABLE owners ADD COLUMN storage_unpaid_warned_at_ms INTEGER;
 ALTER TABLE blob_owners ADD COLUMN released_at_ms INTEGER;
 ALTER TABLE owned_blobs ADD COLUMN released_at_ms INTEGER;
 

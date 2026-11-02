@@ -51,15 +51,18 @@ interface DeletableVersion {
   created_at_ms: number;
 }
 
-/** The owner's biggest versions that can be deleted: not in use, and not kept for a person at Zaisma. */
+/** A version of the owner's games that can be deleted: not in use, and not kept for a person at Zaisma. */
+export const DELETABLE_VERSION_SQL = `(games.live_version_id IS NULL OR games.live_version_id != versions.id) AND versions.scan_status != 'scanning' AND versions.scheduled_publish_at_ms IS NULL
+       AND NOT EXISTS (SELECT 1 FROM tester_links WHERE tester_links.game_id = games.id AND tester_links.revoked_at_ms IS NULL AND tester_links.version_choice = 'picked' AND tester_links.picked_version_id = versions.id)
+       AND NOT ${versionKeptSql("versions")}`;
+
+/** The owner's biggest versions that can be deleted. */
 async function deletableVersions(env: Env, ownerId: string, gameSlugs: string[] | null): Promise<DeletableVersion[]> {
   const inKeysGames = gameSlugs ? `AND games.slug IN (${gameSlugs.map(() => "?").join(",")})` : "";
   const { results } = await env.DB.prepare(
     `SELECT games.slug AS game_slug, versions.id AS version_id, versions.size_bytes, versions.created_at_ms
      FROM versions JOIN games ON games.id = versions.game_id
-     WHERE games.owner_id = ? ${inKeysGames} AND (games.live_version_id IS NULL OR games.live_version_id != versions.id) AND versions.scan_status != 'scanning' AND versions.scheduled_publish_at_ms IS NULL
-       AND NOT EXISTS (SELECT 1 FROM tester_links WHERE tester_links.game_id = games.id AND tester_links.revoked_at_ms IS NULL AND tester_links.version_choice = 'picked' AND tester_links.picked_version_id = versions.id)
-       AND NOT ${versionKeptSql("versions")}
+     WHERE games.owner_id = ? ${inKeysGames} AND ${DELETABLE_VERSION_SQL}
      ORDER BY versions.size_bytes DESC LIMIT ?`,
   )
     .bind(ownerId, ...(gameSlugs ?? []), DELETABLE_VERSION_COUNT)
@@ -78,6 +81,7 @@ export async function storageAnswer(env: Env, ownerId: string, gameSlugs: string
     new_data_today_size_bytes: storage.newDataTodaySizeBytes,
     maximum_new_data_size_bytes: storage.maximumNewDataSizeBytes,
     monthly_storage_budget_cents: storage.monthlyStorageBudgetCents,
+    unpaid_files_delete_at: iso(storage.unpaidFilesDeleteAtMs),
     spent_this_month_cents: month.charged_cents,
     price_per_gigabyte_month_cents: STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS,
     deletable_versions: versions.map((version) => ({ game_slug: version.game_slug, version_id: version.version_id, size_bytes: version.size_bytes, created_at: iso(version.created_at_ms) })),
@@ -132,13 +136,13 @@ export async function reserveOrRefuse(env: Env, ownerId: string, sizeBytes: numb
   });
 }
 
-interface OwnerFiles {
+export interface OwnerFiles {
   shared: Set<string>;
   owned: Set<string>;
 }
 
 /** The files these versions' lists use, or null when one of the lists can't be read. */
-async function filesOfVersions(env: Env, versionIds: string[]): Promise<OwnerFiles | null> {
+export async function filesOfVersions(env: Env, versionIds: string[]): Promise<OwnerFiles | null> {
   const files: OwnerFiles = { shared: new Set(), owned: new Set() };
   for (const versionId of versionIds) {
     const stored = await env.GAMES.get(manifestKey(versionId));
@@ -152,7 +156,7 @@ const filesVersionIdsWhere = async (env: Env, where: string, id: string) =>
   (await env.DB.prepare(`SELECT versions.id FROM versions JOIN games ON games.id = versions.game_id WHERE versions.kind = 'files' AND ${where}`).bind(id).all<{ id: string }>()).results.map((row) => row.id);
 
 /** Stops counting the given files once no version of the owner's uses them, then sets what the owner stores from its rows. */
-async function releaseFiles(env: Env, ownerId: string, dropped: OwnerFiles, nowMs = Date.now()): Promise<void> {
+export async function releaseFiles(env: Env, ownerId: string, dropped: OwnerFiles, nowMs = Date.now()): Promise<void> {
   const used = await filesOfVersions(env, await filesVersionIdsWhere(env, "games.owner_id = ?", ownerId));
   if (!used) return; // The daily cleanup sets it right once every list can be read.
   const statements: D1PreparedStatement[] = [];

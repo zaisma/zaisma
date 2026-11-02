@@ -717,11 +717,12 @@ export const PRO = object({
 const STORAGE_FIELDS = object({
   stored_size_bytes: countOf("Everything the account stores now, in bytes: drafts and old versions too, and a file shared between versions counts once."),
   included_size_bytes: countOf("What it stores with no storage budget, in bytes, by allowance_kind."),
-  maximum_stored_size_bytes: countOf("What it can hold now, in bytes: what's included, and what its budget and credit buy. Over it, it keeps everything; new uploads must fit."),
+  maximum_stored_size_bytes: countOf("What it can hold now, in bytes: what's included, and what its budget and credit buy. Over it, new uploads must fit, and unpaid_files_delete_at says when what isn't live goes."),
   allowance_kind: choice({ new: "a new account", established: "an established account (get_access, standing)", paid_by_card: "a card paid Zaisma", pro: "Zaisma Pro" }, "What sets what's included."),
   new_data_today_size_bytes: countOf("New data it sent today, from UTC midnight, in bytes, whether or not it became a version."),
   maximum_new_data_size_bytes: countOf("New data it can send in a day, in bytes. Files it already stores don't count."),
   monthly_storage_budget_cents: nullable(countOf("What it may draw from credit each month for storage past what's included, in cents (1000 is $10); null: none, so uploads stop at what's included.")),
+  unpaid_files_delete_at: nullable(isoTime("When what's past the limit is deleted because nothing pays for it: files no version uses, then drafts, then the oldest versions, until it fits. Live versions stay. Setting a budget with credit, starting Pro or deleting enough stops it. null when nothing is due.")),
   spent_this_month_cents: countOf("What storage drew from credit this month, in cents."),
   price_per_gigabyte_month_cents: countOf("What a GB past what's included costs from credit each month, in cents."),
   deletable_versions: describe(

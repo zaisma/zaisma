@@ -407,12 +407,13 @@ function storageItems({ storage }: Settings): LayoutItem[] {
   const included = `${storageSizeText(storage.included_size_bytes)} included`;
   const isOver = storage.stored_size_bytes > storage.maximum_stored_size_bytes;
   const storedWords = isOver
-    ? `${stored}. Everything stays, and new uploads must fit: delete old versions or games${budgetCents === null ? ", or set a budget" : ", or add credit"}.`
+    ? `${stored}. New uploads must fit: delete old versions or games${budgetCents === null ? ", or set a budget" : ", or add credit"}.`
     : budgetCents === null
       ? `${stored}. Past it, uploads stop until you delete something or set a budget.`
       : boughtSizeBytes > 0
         ? `${stored}: ${included}, and credit buys ${storageSizeText(boughtSizeBytes)} more. ${dollars(storage.spent_this_month_cents)} spent this month.`
         : `${stored}. Add credit: your ${dollars(budgetCents)} budget has none to draw from.`;
+  const deleteWords = storage.unpaid_files_delete_at ? `On ${shownDate(storage.unpaid_files_delete_at)}, Zaisma deletes what's past your limit: files no version uses, then drafts, then your oldest versions. Live versions stay.` : undefined;
   const raises = storage.allowance_kind === "new" ? `${storageSizeText(STORAGE_ALLOWANCES.established.includedSizeBytes)} once your account is established or a card has paid Zaisma.` : undefined;
   const midnight = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   return [
@@ -422,7 +423,7 @@ function storageItems({ storage }: Settings): LayoutItem[] {
         whenEmpty: NO_EMPTY_NOTE,
         label: "Storage",
         rows: [
-          { title: "Stored", detail: storedWords, secondDetail: raises, meter: { label: "Stored", usedNumber: shownGigabytes(storage.stored_size_bytes), limitNumber: shownGigabytes(storage.maximum_stored_size_bytes), unit: "GB" }, action: budgetCents === null ? opens("Set budget", "storage-budget") : [opens("Change budget", "storage-budget"), more("Storage budget", "storage-budget-more")] },
+          { title: "Stored", detail: storedWords, secondDetail: deleteWords ?? raises, meter: { label: "Stored", usedNumber: shownGigabytes(storage.stored_size_bytes), limitNumber: shownGigabytes(storage.maximum_stored_size_bytes), unit: "GB" }, action: budgetCents === null ? opens("Set budget", "storage-budget") : [opens("Change budget", "storage-budget"), more("Storage budget", "storage-budget-more")] },
           { title: "New data today", detail: `${storageSizeText(storage.new_data_today_size_bytes)} of ${storageSizeText(storage.maximum_new_data_size_bytes)}. Resets at midnight UTC. Files you already store don't count.`, meter: { label: "New data today", usedNumber: shownGigabytes(storage.new_data_today_size_bytes), limitNumber: shownGigabytes(storage.maximum_new_data_size_bytes), unit: "GB", resetDate: midnight } },
         ],
       }),
@@ -447,7 +448,7 @@ function storageItems({ storage }: Settings): LayoutItem[] {
       ? []
       : [
           layer(dropdown({ id: "storage-budget-more", label: "Storage budget", items: [{ label: "Turn off storage budget", icon: "pause", confirmSheetId: "storage-budget-off" }] })),
-          layer(askSheet("storage-budget-off", "Turn off the storage budget?", "Everything stays. Nothing more is charged, and uploads must fit in what's included.", `${PAGE}/storage/budget-off`, "Turn off")),
+          layer(askSheet("storage-budget-off", "Turn off the storage budget?", "Nothing more is charged. Uploads must fit in what's included, and 14 days later what's past it and isn't live goes.", `${PAGE}/storage/budget-off`, "Turn off")),
         ]),
   ];
 }

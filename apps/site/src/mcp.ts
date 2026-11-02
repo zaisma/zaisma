@@ -853,7 +853,7 @@ export const TOOLS: Tool[] = [
     name: "get_storage",
     title: "My storage",
     description:
-      "What the developer's account stores and can store. A game can be any size: the limits are the account's storage and its new data a day. A new account stores 10 GB and sends 10 GB of new data a day; established or paid by card, 50 GB and 25 GB; Zaisma Pro, 500 GB and 100 GB. Everything stored counts, drafts and old versions too; a file shared between versions counts once. Answers what's stored, what can be, today's new data, the storage budget and the biggest versions delete_version can delete now.",
+      "What the developer's account stores and can store. A game can be any size: the limits are the account's storage and its new data a day. A new account stores 10 GB and sends 10 GB of new data a day; established or paid by card, 50 GB and 25 GB; Zaisma Pro, 500 GB and 100 GB. Everything stored counts, drafts and old versions too; a file shared between versions counts once. Answers what's stored, what can be, today's new data, the storage budget, the biggest versions delete_version can delete now, and unpaid_files_delete_at: when what's past the limit goes because nothing pays for it, live versions kept.",
     inputSchema: object({}),
     outputSchema: STORAGE,
     annotations: read,
@@ -863,7 +863,7 @@ export const TOOLS: Tool[] = [
     name: "set_storage_budget",
     title: "Set my storage budget",
     description:
-      "Set what the account may draw from credit each month for storage past what's included, at 12¢ per GB a month, or null to stop. $10 of budget and credit buys room for about 83 GB. Nothing is ever deleted: when credit runs out, uploads just stop fitting. A first or higher budget answers confirmation_needed: give the developer confirm_url, where they approve with a passkey tap. Off or lower works at once. Ask the developer first.\n" +
+      "Set what the account may draw from credit each month for storage past what's included, at 12¢ per GB a month, or null to stop. $10 of budget and credit buys room for about 83 GB. When credit runs out, uploads stop fitting, and 14 days later what isn't live goes until the account fits. A first or higher budget answers confirmation_needed: give the developer confirm_url, where they approve with a passkey tap. Off or lower works at once. Ask the developer first.\n" +
       'Not: { "monthly_storage_budget_cents": 10 } (that\'s 10 cents: cents, not dollars, so $10 is 1000)',
     inputSchema: {
       ...object({ monthly_storage_budget_cents: { type: ["integer", "null"], minimum: 100, maximum: 1000000, description: "Cents a month: 1000 is $10. null: no budget." } }, ["monthly_storage_budget_cents"]),
@@ -915,7 +915,7 @@ export const TOOLS: Tool[] = [
   {
     name: "cancel_pro",
     title: "Cancel Zaisma Pro",
-    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back; everything stored stays, and only new uploads must fit. resume_pro takes the cancelling back before then. Ask the developer first.",
+    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back: new uploads must fit, and 14 days later what's past the limit and isn't live goes. resume_pro takes the cancelling back before then. Ask the developer first.",
     inputSchema: object({}),
     outputSchema: PRO_CHANGED,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

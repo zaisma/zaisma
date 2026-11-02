@@ -6,7 +6,8 @@ import { standingOf } from "./standing.ts";
  * What an account stores and sends (docs/DECISIONS.md, "Storage is limited per account, not per game"): a game can be
  * any size, and cost sits in what an account keeps and how fast it adds to it. Each account has an allowance by its
  * standing and plan. Past it, an account with a monthly storage budget buys room from credit; without one, uploads
- * stop at the allowance. An account over its limit keeps everything it has: only new uploads must fit.
+ * stop at the allowance. An account over its limit keeps its live versions; new uploads must fit, and once its money has
+ * stopped for 14 days what isn't live goes until it fits (unpaid-storage.ts).
  */
 
 const GIGABYTE_SIZE_BYTES = 1024 ** 3;
@@ -31,6 +32,10 @@ export const STORAGE_ALLOWANCES: Record<StorageAllowanceKind, StorageAllowance> 
 /** What a GB past the allowance costs from credit each month. */
 export const STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS = 12;
 
+/** Days an account's storage past its limit stays unpaid before what isn't live is deleted, and how long before that it hears again. */
+export const UNPAID_STORAGE_KEPT_DURATION_DAYS = 14;
+export const UNPAID_STORAGE_WARNING_DURATION_DAYS = 3;
+
 /** The highest monthly storage budget, in cents: $10,000, the credit plan's highest level. */
 export const MAXIMUM_MONTHLY_STORAGE_BUDGET_CENTS = 1_000_000;
 
@@ -50,6 +55,8 @@ export interface Storage {
   newDataTodaySizeBytes: number;
   maximumNewDataSizeBytes: number;
   monthlyStorageBudgetCents: number | null;
+  /** When what's past the limit goes (unpaid-storage.ts), while it's over, unpaid and that's still ahead. */
+  unpaidFilesDeleteAtMs: number | null;
 }
 
 export async function storageAllowanceKindOf(database: D1Database, ownerId: string, nowMs: number): Promise<StorageAllowanceKind> {
@@ -62,16 +69,20 @@ export async function storageOf(database: D1Database, ownerId: string, nowMs = D
   const [allowanceKind, credit, row, today] = await Promise.all([
     storageAllowanceKindOf(database, ownerId, nowMs),
     creditOf(database, ownerId),
-    database.prepare("SELECT stored_size_bytes, monthly_storage_budget_cents FROM owners WHERE id = ?").bind(ownerId).first<{ stored_size_bytes: number; monthly_storage_budget_cents: number | null }>(),
+    database.prepare("SELECT stored_size_bytes, monthly_storage_budget_cents, storage_unpaid_since_ms FROM owners WHERE id = ?").bind(ownerId).first<{ stored_size_bytes: number; monthly_storage_budget_cents: number | null; storage_unpaid_since_ms: number | null }>(),
     database.prepare("SELECT new_data_size_bytes FROM owner_new_data_days WHERE owner_id = ? AND date = ?").bind(ownerId, utcDateOf(nowMs)).first<{ new_data_size_bytes: number }>(),
   ]);
   const allowance = STORAGE_ALLOWANCES[allowanceKind];
   const monthlyStorageBudgetCents = row?.monthly_storage_budget_cents ?? null;
+  const storedSizeBytes = row?.stored_size_bytes ?? 0;
+  const maximumStoredSizeBytes = allowance.includedSizeBytes + boughtSizeBytes(monthlyStorageBudgetCents, credit.balanceCents);
+  const deleteAtMs = row?.storage_unpaid_since_ms ? row.storage_unpaid_since_ms + UNPAID_STORAGE_KEPT_DURATION_DAYS * 86_400_000 : null;
   return {
-    storedSizeBytes: row?.stored_size_bytes ?? 0,
+    storedSizeBytes,
     allowanceKind,
     includedSizeBytes: allowance.includedSizeBytes,
-    maximumStoredSizeBytes: allowance.includedSizeBytes + boughtSizeBytes(monthlyStorageBudgetCents, credit.balanceCents),
+    maximumStoredSizeBytes,
+    unpaidFilesDeleteAtMs: deleteAtMs !== null && deleteAtMs > nowMs && storedSizeBytes > maximumStoredSizeBytes ? deleteAtMs : null,
     newDataTodaySizeBytes: today?.new_data_size_bytes ?? 0,
     maximumNewDataSizeBytes: allowance.maximumNewDataSizeBytes,
     monthlyStorageBudgetCents,
