@@ -584,7 +584,7 @@ export async function moveWaitingAiReviews(env: Env, deps: Pick<ScanDeps, "batch
   }
 
   const { results: stale } = await env.DB
-    .prepare("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND ai_review_waiting_reason IS NULL AND ai_review_queued_at_ms < ? AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id AND review_batches.ended_at_ms IS NULL) LIMIT 50")
+    .prepare("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND ai_review_queued_at_ms < ? AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id AND review_batches.ended_at_ms IS NULL) LIMIT 50")
     .bind(nowMs - AI_REVIEW_LIMITS.staleQueuedDurationMin * 60_000)
     .all<{ id: string }>();
   for (const { id } of stale) queued.add(id);

@@ -1654,6 +1654,8 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     const wasLiveVersion = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
     await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, version.id).run();
     await publishVersion(env.DB, version, matchUpdateMode);
+    // This publish is the newest word: a version still waiting to go live once its review passes no longer does.
+    await env.DB.prepare("UPDATE versions SET publish_when_approved_enabled = 0 WHERE game_id = ? AND id != ? AND ai_review_status IN ('waiting', 'reviewing')").bind(game.id, version.id).run();
     if (matchUpdateMode === "now") await updateLiveMatches(env, game, version, wasLiveVersion, caller.waitUntil);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
     await logCallerEvent(env, caller, version.published_at_ms ? "version_rolled_back" : "version_published", { gameId: game.id, versionId: version.id });
