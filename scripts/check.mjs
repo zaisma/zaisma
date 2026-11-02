@@ -16,8 +16,9 @@
 //                                    same lines (its tests, its typecheck errors, or the last lines of the step that failed)
 //   npm run check -- --commit <sha>  the same for one commit
 //
-// While a preview is awake on this machine, the Workers tests can't fit beside it (scripts/preview/memory.mjs): this runs the Node
-// tests and lists its own Workers files as left_to_github too. Last line: PASS or FAIL (or PENDING, for --pr and --commit).
+// Test runs never wait for memory (scripts/preview/memory.mjs): when its own Workers files don't fit this runs the Node tests alone, and
+// when those don't either it runs no tests, listing each file that didn't run here as left_to_github and left_to_github_for_memory. Last
+// line: PASS or FAIL, naming what that left out of it (or PENDING, for --pr and --commit).
 // Exit status: 0 PASS, 1 FAIL, 2 a refusal, 3 PENDING.
 import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -26,17 +27,18 @@ import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { ROOT, affectedChecks, changedPathsSince } from "./affected-tests.mjs";
-import { LINE_DIRECTORY, isAlive, readLine } from "./preview/memory.mjs";
+import { LINE_DIRECTORY, NO_ROOM_FOR_TESTS, isAlive, readLine } from "./preview/memory.mjs";
 import { GITHUB_CHECK_NAME } from "./ship-github-check.mjs";
 
 export const ERROR_LINE_COUNT = 15;
-const WORKERS_TESTS_WHILE_PREVIEW_AWAKE = "workers_tests_while_preview_awake";
 const GITHUB_REPOSITORY = "zaisma/zaisma";
 const FAILED_CONCLUSIONS = ["failure", "timed_out", "cancelled", "action_required", "startup_failure"];
 // Test files that run on plain Node, light enough for this machine; every other project's run in the Workers runtime.
 const NODE_TEST_FILE = /^test\/(node|layout|contracts)\//;
 // Files at once for the change's own Workers test files here: each takes about 0.9 GB.
 const OWN_WORKERS_WORKER_COUNT = 2;
+// How many files a last line names; --json lists them all.
+const NAMED_FILE_COUNT = 5;
 
 /**
  * Which of the reached test files run here and which are left to GitHub's check: the Node ones and the change's own Workers test
@@ -94,15 +96,43 @@ export function pagesForChangedFiles(changedPaths, pagePaths, sourceOf = () => "
   return [...new Set([...named, ...galleryPaths.filter((galleryPath) => pagePaths.includes(galleryPath))])];
 }
 
-/** The text a run prints: PASS or FAIL with each failure, ending on that word. */
+/**
+ * The tests that run here, going by what fits now: every file in here, then only the Node ones when the Workers ones have no room,
+ * then none. Never waits (scripts/preview/memory.mjs). runVitest(files, env) answers { output, report }. Answers the failures, and
+ * which files went to GitHub: leftToGithub all that didn't run here, leftForMemory those of them only for lack of memory.
+ */
+export async function runTestsThatFit({ here, testFiles, normallyHere = here, runVitest }) {
+  const isRefused = (run) => !run.report && run.output.includes(NO_ROOM_FOR_TESTS);
+  const nodeFiles = here.filter((path) => NODE_TEST_FILE.test(path));
+  let ranHere = here;
+  let run = here.length ? await runVitest(here, here.length > nodeFiles.length ? { TEST_WORKER_COUNT: String(OWN_WORKERS_WORKER_COUNT) } : {}) : null;
+  if (run && isRefused(run) && here.length > nodeFiles.length) {
+    ranHere = nodeFiles;
+    run = nodeFiles.length ? await runVitest(nodeFiles, {}) : null;
+  }
+  if (run && isRefused(run)) {
+    ranHere = [];
+    run = null;
+  }
+  const left = { leftToGithub: testFiles.filter((path) => !ranHere.includes(path)), leftForMemory: normallyHere.filter((path) => !ranHere.includes(path)) };
+  if (!run) return { failures: [], ...left };
+  if (!run.report) return { failures: [{ file: "vitest", test_name: null, error: firstLines(run.output) }], ...left };
+  return { failures: parseVitestReport(run.report), ...left };
+}
+
+/** The text a run prints: PASS or FAIL with each failure, ending on that word and what the memory left out of it. */
 export function formatResult(result) {
   const lines = [];
   for (const failure of result.test_failures) lines.push(`TEST ${failure.file}${failure.test_name ? ` > ${failure.test_name}` : ""}`, ...failure.error.split("\n").map((text) => `  ${text}`));
   for (const failure of result.typecheck_failures) lines.push(`TYPE ${failure.file}:${failure.line}: ${failure.message}`);
   for (const failure of result.layout_failures) lines.push(`LAYOUT ${failure}`);
-  if (result.left_to_github.length) lines.push(`Left to GitHub's check: ${result.left_to_github.length} Workers test file(s). Push, and read npm run check -- --pr <number>.`);
+  const forMemory = result.left_to_github_for_memory ?? [];
+  const others = result.left_to_github.length - forMemory.length;
+  if (others) lines.push(`Left to GitHub's check: ${others} Workers test file(s). Push, and read npm run check -- --pr <number>.`);
   for (const note of result.notes) lines.push(note);
-  lines.push(result.is_pass ? "PASS" : "FAIL");
+  const namedText = `${forMemory.slice(0, NAMED_FILE_COUNT).join(", ")}${forMemory.length > NAMED_FILE_COUNT ? ` and ${forMemory.length - NAMED_FILE_COUNT} more (--json lists them)` : ""}`;
+  if (forMemory.length) lines.push("No room in the memory cap for these tests, and test runs never wait for it: push, and read npm run check -- --pr <number>. npm run preview:list shows what holds the memory.");
+  lines.push(`${result.is_pass ? "PASS" : "FAIL"}${forMemory.length ? `, without ${forMemory.length} test file(s) that didn't run here, left to GitHub's check: ${namedText}` : ""}`);
   return lines.join("\n");
 }
 
@@ -297,18 +327,7 @@ export async function check({ base = "origin/main" } = {}) {
   const notes = [];
   const testFiles = affected.test_files.map((test) => test.path);
   const split = splitTestFiles(testFiles, changedPaths, { isWorkersRunGoing: isWorkersRunGoing() });
-  const testsRun = (async () => {
-    if (!split.here.length) return { failures: [], leftToGithub: split.leftToGithub };
-    const hasWorkersFiles = split.here.some((path) => !NODE_TEST_FILE.test(path));
-    let run = await runVitest(split.here, hasWorkersFiles ? { TEST_WORKER_COUNT: String(OWN_WORKERS_WORKER_COUNT) } : {});
-    let leftToGithub = split.leftToGithub;
-    if (run.output.includes(WORKERS_TESTS_WHILE_PREVIEW_AWAKE)) {
-      leftToGithub = testFiles.filter((path) => !NODE_TEST_FILE.test(path));
-      run = await runVitest(testFiles.filter((path) => NODE_TEST_FILE.test(path)));
-    }
-    if (!run.report) return { failures: [{ file: "vitest", test_name: null, error: firstLines(run.output) }], leftToGithub };
-    return { failures: parseVitestReport(run.report), leftToGithub };
-  })();
+  const testsRun = runTestsThatFit({ here: split.here, testFiles, normallyHere: splitTestFiles(testFiles, changedPaths).here, runVitest });
   const typecheckRun = run("npx", ["tsc", "--noEmit"]).then(({ status, output }) => {
     const failures = parseTypecheck(output);
     return status !== 0 && !failures.length ? [{ file: "tsc", line: 0, message: firstLines(output) }] : failures;
@@ -324,6 +343,7 @@ export async function check({ base = "origin/main" } = {}) {
     typecheck_failures: typecheckFailures,
     layout_failures: layoutFailures,
     left_to_github: tests.leftToGithub,
+    left_to_github_for_memory: tests.leftForMemory,
     notes,
   };
   return { ...result, is_pass: !tests.failures.length && !typecheckFailures.length && !layoutFailures.length };

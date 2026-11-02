@@ -8,6 +8,8 @@
 //                                        Over the memory cap on every preview on this machine (memory.mjs): it
 //                                        waits in line, says its place and why, and starts by itself when there's
 //                                        room. Its place is kept when this command ends; run it again to follow it.
+//                                        After 11 minutes in line it gives up, leaves the line and answers that there
+//                                        was no room, what holds the memory and the command to try again.
 //                                        --engines-only seeds only the engine samples (what npm run engines:play
 //                                        plays, for GitHub's Engine exports jobs, each ENGINE_SAMPLE_SHARD's share
 //                                        of them) instead of all the test data.
@@ -24,7 +26,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, wr
 import net from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, nextTurn, OFFSETS, placeText, readLine, sizeText, testRunSizeBytes, waitingInOrder, withLock, WORKERS_TEST_FILE_SIZE_BYTES, writeLine } from "./memory.mjs";
+import { capSourceText, DEFAULT_AWAKE_SIZE_BYTES, durationText, isAlive, leaveLine, LINE_DIRECTORY, listeners, measurePreviews, memoryCap, memoryHoldersText, nextTurn, NO_ROOM_LINE_START, OFFSETS, placeText, readLine, sizeText, START_WAIT_LIMIT_MS, testRunSizeBytes, waitingInOrder, withLock, WORKERS_TEST_FILE_SIZE_BYTES, writeLine } from "./memory.mjs";
 import { serveOnTailnet, stopServingOnTailnet, tailnetHost } from "./phone.mjs";
 import { PASSWORD, SIGN_INS } from "./sign-ins.mjs";
 
@@ -37,7 +39,7 @@ const PAGES = join(RUN, "pages.txt");
 const SEEDED = join(ROOT, ".wrangler/preview/seeded");
 // run.mjs prints this once everything is up and the test data is in.
 const READY_LINE = "Zaisma preview is running.";
-// From its turn in the line for memory: the wait in line has no limit.
+// From its turn in the line for memory: the wait in line has its own limit (START_WAIT_LIMIT_MS, memory.mjs).
 const READY_TIMEOUT_MS = 9 * 60_000;
 // Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
 const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 8803, 9340, 9341, 9342].map((port) => port + offset);
@@ -147,15 +149,24 @@ async function follow(pid, offset, fromLast) {
     // Its progress lines, up to the banner (which pages.txt keeps).
     const upTo = text.includes(READY_LINE) ? text.indexOf(READY_LINE) : text.lastIndexOf("\n") + 1;
     if (upTo > shownLength) {
-      for (const line of text.slice(shownLength, upTo).split("\n")) if (line.trim()) console.log(`  ${line.trim()}`);
+      // A start that gave up says so once, below.
+      for (const line of text.slice(shownLength, upTo).split("\n")) if (line.trim() && !line.startsWith(NO_ROOM_LINE_START)) console.log(`  ${line.trim()}`);
       shownLength = upTo;
     }
     if (text.includes(READY_LINE) && (await answers(siteFor(offset)))) break;
     if (!isAlive(pid)) {
       await stop();
+      const noRoomLine = text.split("\n").find((line) => line.startsWith(NO_ROOM_LINE_START));
+      if (noRoomLine) fail(noRoomLine);
       fail("The preview stopped while starting.", text);
     }
-    if (isWaitingInLine(pid)) clockStartedAtMs = Date.now();
+    const waitingEntry = readLine().entries.find((entry) => entry.pid === pid && entry.turn_given_at_ms === null);
+    if (waitingEntry) clockStartedAtMs = Date.now();
+    // A wake has no limit of its own (someone opened a page, and it opens once there's room), but this command does.
+    if (waitingEntry?.kind === "wake" && Date.now() - waitingEntry.asked_at_ms >= START_WAIT_LIMIT_MS) {
+      const entries = readLine().entries.filter((entry) => isAlive(entry.pid));
+      fail(`No room to wake it after ${durationText(Date.now() - waitingEntry.asked_at_ms)} in line. Holding the memory: ${memoryHoldersText({ ...measurePreviews(entries), ownOffset: offset })}. It stays asleep and first in line, and wakes by itself when there's room. See it: npm run preview:list`);
+    }
     if (Date.now() - clockStartedAtMs > READY_TIMEOUT_MS) {
       await stop();
       fail(`The preview wasn't ready ${READY_TIMEOUT_MS / 60_000} minutes after it started, so it was stopped.`, text);
@@ -243,7 +254,7 @@ function list() {
   console.log(`\nAll together: ${sizeText(usedBytes)}${keptBytes ? `, and ${sizeText(keptBytes)} kept for previews starting or waking and test runs growing` : ""}, ${capText}.`);
   if (cap.capBytes) console.log(`The cap: PREVIEW_MEMORY_CAP_BYTES for one shell, or { "memory_cap_bytes": … } in ${join(LINE_DIRECTORY, "settings.json")} for this machine.`);
   if (!waiting.length) return;
-  console.log(`\nWaiting in line for memory, each starting by itself when there's room (an awake preview takes about ${sizeText(awakeSizeBytes)} here, a test run ${sizeText(testRunSizeBytes(1))} and ${sizeText(WORKERS_TEST_FILE_SIZE_BYTES)} more for each Workers file at once):\n`);
+  console.log(`\nWaiting in line for memory, each starting by itself when there's room or, for a start, giving up after ${durationText(START_WAIT_LIMIT_MS)} (an awake preview takes about ${sizeText(awakeSizeBytes)} here, a test run ${sizeText(testRunSizeBytes(1))} and ${sizeText(WORKERS_TEST_FILE_SIZE_BYTES)} more for each Workers file at once):\n`);
   for (const [index, entry] of waiting.entries()) {
     const askedText = `asked ${durationText(Date.now() - entry.asked_at_ms)} ago`;
     if (entry.kind === "test") {
@@ -352,7 +363,7 @@ Admin pages (${site}/admin) need no sign-in here. Email codes: ${addressFor(8795
 
 Every test page and state, with what it shows: ${show(PAGES)}
 Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
-It sleeps after 30 minutes with nobody looking, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
+It sleeps after 30 minutes with nobody looking, or 10 when something waits in line for memory, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
 Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset   Every preview on this machine: npm run preview:list`);
 }
 
