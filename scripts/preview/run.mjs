@@ -783,6 +783,9 @@ Zaisma preview is running. Nothing here touches the live site.
   Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
   Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
+  Storage         ${SITE}/dashboard/settings#hosting  (the Storage rows: as Quiet_Builder, new and nearly full, with what raises it; as Many_Things, over what it can store, with no budget and the day what's past it is deleted, which Your games says too; as Moss_Runner, buying room with a $10 budget, $1.23 spent this month; as Preview_Studio, Pro's 500 GB)
+  Pro's limits    ${SITE}/dashboard/settings#pro  (as Quiet_Builder: storage, new data and checks by plan, and the line that reviews and versions are the same)
+  Delete          ${SITE}/dashboard/tiny-farm/versions  (as Preview_Studio: Delete under a version that isn't in use), ${SITE}/dashboard/arena/details#delete  (Delete this game, with its link name typed in)
   Credit plan     ${SITE}/dashboard/settings#hosting  (as Key_Maker: the monthly plan's row, back to $40 on the 1st, which pays $12.40 so far, with Change level and Stop plan; as Moss_Runner: its card declined; as Preview_Studio: Start a monthly plan and its sheet)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
@@ -2277,6 +2280,24 @@ function seedDeveloperSettings() {
           `UPDATE owners SET credit_plan_subscription_id = 'sub_preview_credit_plan_declined', credit_plan_refill_level_cents = 2500, credit_plan_status = 'payment_failing', credit_plan_started_at_ms = ${now - 40 * 86400_000}, credit_plan_event_at_ms = ${now - 86400_000} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Moss_Runner')`,
           `UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL WHERE id = ${owner}`,
         ]),
+    // Storage: Quiet_Builder is new and nearly full, Many_Things is over what it can store, and Moss_Runner buys room with a budget.
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewquietbuilder', 'person', id, ${now} FROM accounts WHERE username = 'Quiet_Builder'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmanythings', 'person', id, ${now} FROM accounts WHERE username = 'Many_Things'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner'`,
+    ...[["Quiet_Builder", 9.6, 8.2, "NULL", 0], ["Many_Things", 12.4, 0.4, "NULL", 0], ["Moss_Runner", 40, 2.5, 1000, 2500]].flatMap(([username, storedGigabytes, todayGigabytes, budgetCents, balanceCents]) => {
+      const previewOwner = `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
+      // A real row for the size, so deleting something here recounts to the same number instead of to nothing.
+      const previewSha256 = Buffer.from(username).toString("hex").padEnd(64, "0");
+      return [
+        `INSERT OR REPLACE INTO blobs (sha256, size_bytes, created_at_ms) VALUES ('${previewSha256}', ${Math.round(storedGigabytes * 1024 ** 3)}, ${now})`,
+        `INSERT OR REPLACE INTO blob_owners (owner_id, sha256, created_at_ms) VALUES (${previewOwner}, '${previewSha256}', ${now})`,
+        `UPDATE owners SET stored_size_bytes = ${Math.round(storedGigabytes * 1024 ** 3)}, monthly_storage_budget_cents = ${budgetCents}${balanceCents ? `, credit_balance_cents = ${balanceCents}` : ""} WHERE id = ${previewOwner}`,
+        `INSERT INTO owner_new_data_days (owner_id, date, new_data_size_bytes) VALUES (${previewOwner}, '${new Date(now).toISOString().slice(0, 10)}', ${Math.round(todayGigabytes * 1024 ** 3)}) ON CONFLICT (owner_id, date) DO UPDATE SET new_data_size_bytes = excluded.new_data_size_bytes`,
+      ];
+    }),
+    `UPDATE owners SET storage_unpaid_since_ms = ${now - 3 * 86400_000} WHERE id = (SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Many_Things')`,
+    `INSERT INTO owner_storage_months (owner_id, month_start_date, used_cents, charged_cents, last_counted_date) VALUES ((SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Moss_Runner'), '${new Date(now).toISOString().slice(0, 8)}01', 123.4, 123, '${new Date(now).toISOString().slice(0, 10)}') ON CONFLICT (owner_id, month_start_date) DO UPDATE SET charged_cents = 123`,
+    `INSERT OR REPLACE INTO credit_entries (id, owner_id, entry_kind, amount_cents, created_at_ms) SELECT 'credit_entry_previewstorage', owners.id, 'storage_charge', -123, ${now - 3600_000} FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Moss_Runner'`,
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,

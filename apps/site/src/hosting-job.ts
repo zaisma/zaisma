@@ -5,6 +5,7 @@ import {
   NEARLY_USED_PCT,
   addCreditEntry,
   addHostingCharge,
+  addStorageCharge,
   addWrittenOff,
   creditOf,
   gameHostingMonth,
@@ -12,6 +13,10 @@ import {
   isCreditLow,
   monthStartDateOf,
   nextMonthStartDate,
+  ownerStorageMonth,
+  storageDayCents,
+  storageOf,
+  utcDateOf,
   type Credit,
   type HostingAlertKind,
   type PausedReason,
@@ -73,6 +78,47 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
       await judgeGame(env, game, owners, nowMs);
     } catch (error) {
       console.error("Hosting job: a game failed", game.id, error);
+    }
+  }
+  if (isHourly) await chargeStorage(env, nowMs);
+}
+
+/**
+ * Once a UTC day, what each account with a storage budget keeps past its allowance: a day of its price, drawn from
+ * credit in whole cents (the fraction carried), never past its budget or the balance. What's past either is written
+ * off, and nothing is deleted: the account's uploads just stop fitting (storage.ts). The account's row is the claim, so a day counts once.
+ */
+export async function chargeStorage(env: Env, nowMs: number): Promise<void> {
+  const today = utcDateOf(nowMs);
+  const monthStartDate = monthStartDateOf(nowMs);
+  const { results: owners } = await env.DB.prepare("SELECT id FROM owners WHERE monthly_storage_budget_cents IS NOT NULL AND stored_size_bytes > 0").all<{ id: string }>();
+  for (const { id: ownerId } of owners) {
+    try {
+      const storage = await storageOf(env.DB, ownerId, nowMs);
+      const pastAllowanceSizeBytes = storage.storedSizeBytes - storage.includedSizeBytes;
+      if (pastAllowanceSizeBytes <= 0 || storage.monthlyStorageBudgetCents === null) continue;
+      const counted = await env.DB
+        .prepare(
+          `INSERT INTO owner_storage_months (owner_id, month_start_date, used_cents, last_counted_date) VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT (owner_id, month_start_date) DO UPDATE SET used_cents = used_cents + excluded.used_cents, last_counted_date = excluded.last_counted_date WHERE last_counted_date < excluded.last_counted_date`,
+        )
+        .bind(ownerId, monthStartDate, storageDayCents(pastAllowanceSizeBytes, nowMs), today)
+        .run();
+      if (!counted.meta.changes) continue;
+      const month = await ownerStorageMonth(env.DB, ownerId, monthStartDate);
+      const credit = await creditOf(env.DB, ownerId);
+      const owedCents = Math.max(0, Math.floor(month.used_cents) - month.charged_cents - month.written_off_cents);
+      const chargeableCents = Math.max(0, Math.min(owedCents, storage.monthlyStorageBudgetCents - month.charged_cents, credit.balanceCents));
+      if (chargeableCents > 0 && (await addStorageCharge(env.DB, { ownerId, amountCents: chargeableCents, monthStartDate, monthChargedCents: month.charged_cents, nowMs }))) {
+        await tellCreditLow(env, ownerId, { ...credit, balanceCents: credit.balanceCents - chargeableCents }, credit.balanceCents, nowMs);
+      }
+      const writtenOffCents = owedCents - chargeableCents;
+      if (writtenOffCents > 0) {
+        await env.DB.prepare("UPDATE owner_storage_months SET written_off_cents = written_off_cents + ? WHERE owner_id = ? AND month_start_date = ?").bind(writtenOffCents, ownerId, monthStartDate).run();
+        await addWrittenOff(env.DB, { ownerId, gameId: null, amountCents: writtenOffCents, nowMs });
+      }
+    } catch (error) {
+      console.error("Hosting job: an account's storage failed", ownerId, error);
     }
   }
 }

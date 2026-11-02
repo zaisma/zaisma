@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PLAN_LIMITS, REVIEW_LIMITS, PRO_PRICE_CENTS_PER_MONTH, checkUploadList, dailyReviewMeaning, planOf, withProSize } from "@zaisma/core";
+import { FILE_LIMITS, PLAN_LIMITS, REVIEW_LIMITS, PRO_PRICE_CENTS_PER_MONTH, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, boughtSizeBytes, checkUploadList, dailyReviewMeaning, planOf, storageDayCents, storageSizeText } from "@zaisma/core";
 
 describe("a developer's plan", () => {
   it("is Pro until the end of the period Stripe said was paid, then free", () => {
@@ -9,32 +9,45 @@ describe("a developer's plan", () => {
     expect(planOf({ pro_until_ms: 2000 }, 3000)).toBe("free");
   });
 
-  it("keeps the free daily review limits in review-evidence.ts the same as PLAN_LIMITS.free (that file can't change without a paid review-set run, and nothing reads them)", () => {
-    expect(REVIEW_LIMITS.maximumLargeReviewsPerDay).toBe(PLAN_LIMITS.free.maximumLargeReviewsPerDay);
-    expect(REVIEW_LIMITS.maximumSmallReviewsPerDay).toBe(PLAN_LIMITS.free.maximumSmallReviewsPerDay);
+  it("says the same review numbers as review-evidence.ts, where every developer's limits are", () => {
+    expect(dailyReviewMeaning("daily_large_reviews_used")).toContain(`${REVIEW_LIMITS.maximumLargeReviewsPerDay} large reviews`);
+    expect(dailyReviewMeaning("daily_small_reviews_used")).toContain(`${REVIEW_LIMITS.maximumSmallReviewsPerDay} small reviews`);
+    expect(dailyReviewMeaning("daily_small_reviews_used")).not.toContain("Pro");
   });
 
-  it("has the limits Pro was priced with", () => {
+  it("sells what the calls say, at the price they say", () => {
+    const gb = 1024 ** 3;
     expect(PRO_PRICE_CENTS_PER_MONTH).toBe(1000);
-    expect(PLAN_LIMITS.free).toEqual({ maximumLargeReviewsPerDay: 5, maximumSmallReviewsPerDay: 30, maximumDailyCheckCount: 20, maximumVersionsPerDay: 20, maximumGameSizeBytes: 2 * 1024 ** 3 });
-    expect(PLAN_LIMITS.pro).toEqual({ maximumLargeReviewsPerDay: 20, maximumSmallReviewsPerDay: 100, maximumDailyCheckCount: 60, maximumVersionsPerDay: 100, maximumGameSizeBytes: 10 * 1024 ** 3 });
+    expect(PLAN_LIMITS.free).toEqual({ maximumDailyCheckCount: 20 });
+    expect(PLAN_LIMITS.pro).toEqual({ maximumDailyCheckCount: 60 });
+    expect(FILE_LIMITS.maximumVersionsPerDay).toBe(100);
+    expect(STORAGE_ALLOWANCES.new).toEqual({ includedSizeBytes: 10 * gb, maximumNewDataSizeBytes: 10 * gb });
+    expect(STORAGE_ALLOWANCES.established).toEqual({ includedSizeBytes: 50 * gb, maximumNewDataSizeBytes: 25 * gb });
+    expect(STORAGE_ALLOWANCES.paid_by_card).toEqual(STORAGE_ALLOWANCES.established);
+    expect(STORAGE_ALLOWANCES.pro).toEqual({ includedSizeBytes: 500 * gb, maximumNewDataSizeBytes: 100 * gb });
   });
 
-  it("mentions Pro once, only to a developer who doesn't have it", () => {
-    expect(dailyReviewMeaning("daily_large_reviews_used", "free")).toContain("5 large reviews");
-    expect(dailyReviewMeaning("daily_large_reviews_used", "free")).toContain("Zaisma Pro has 20 large reviews a day.");
-    expect(dailyReviewMeaning("daily_small_reviews_used", "pro")).toContain("100 small reviews");
-    expect(dailyReviewMeaning("daily_small_reviews_used", "pro")).not.toContain("Zaisma Pro");
-    expect(withProSize("free")).toBe("2 GB (10 GB with Zaisma Pro)");
-    expect(withProSize("pro")).toBe("10 GB");
+  it("never prices stored data under twice what it costs Zaisma, about 3 cents per GB a month", () => {
+    expect(STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS).toBeGreaterThanOrEqual(2 * 3);
   });
 
-  it("checks a game's size against the plan, saying Pro's size on the free plan", () => {
+  it("buys room with the smaller of the budget and the balance", () => {
+    const gb = 1024 ** 3;
+    expect(boughtSizeBytes(null, 5000)).toBe(0);
+    expect(boughtSizeBytes(1200, 5000)).toBe(100 * gb);
+    expect(boughtSizeBytes(5000, 120)).toBe(10 * gb);
+    expect(boughtSizeBytes(5000, 0)).toBe(0);
+  });
+
+  it("shares a month's price over the month's days", () => {
+    expect(storageDayCents(30 * 1024 ** 3, Date.UTC(2026, 10, 2))).toBeCloseTo(12); // 30 GB at 12 cents, a 30-day month, a day.
+    expect(storageSizeText(1.5 * 1024 ** 3)).toBe("1.5 GB");
+    expect(storageSizeText(640 * 1024 ** 2)).toBe("640 MB");
+  });
+
+  it("takes a game of any size: only a file's size and the file count have limits", () => {
     const hash = "a".repeat(64);
-    const filesOf = (count: number) => [{ path: "index.html", sha256: hash, size_bytes: 1 }, ...Array.from({ length: count }, (_, i) => ({ path: `data${i}.json`, sha256: hash, size_bytes: 450 * 1024 ** 2 }))];
-    expect(() => checkUploadList(filesOf(7))).toThrow(/the limit is 2 GB \(10 GB with Zaisma Pro\)/);
-    expect(checkUploadList(filesOf(7), "pro")).toHaveLength(8);
-    expect(checkUploadList(filesOf(22), "pro")).toHaveLength(23);
-    expect(() => checkUploadList(filesOf(25), "pro")).toThrow(/the limit is 10 GB\./);
+    const files = [{ path: "index.html", sha256: hash, size_bytes: 1 }, ...Array.from({ length: 200 }, (_, i) => ({ path: `data${i}.json`, sha256: hash, size_bytes: FILE_LIMITS.maximumFileSizeBytes }))];
+    expect(checkUploadList(files)).toHaveLength(201);
   });
 });

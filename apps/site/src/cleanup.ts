@@ -1,6 +1,6 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
 import { deleteOldShaderChecks } from "./shader-check.ts";
-import { ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { recountStoredSizeStatement, utcDateOf, ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, versionById, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -10,6 +10,7 @@ import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
+import { judgeUnpaidStorage } from "./unpaid-storage.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 import { updateLiveMatches } from "./match-updates.ts";
@@ -102,10 +103,13 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
     await audit(env.DB, draft.game_id, "draft-deleted", `${draft.id} was never published, so it was deleted after 30 days`);
   }
 
+  // New data's days: only today's and yesterday's matter.
+  await env.DB.prepare("DELETE FROM owner_new_data_days WHERE date < ?").bind(utcDateOf(nowMs - DAY_MS)).run();
   // Files no version uses, after a day's grace for uploads still in progress. While files are still
   // moving to new names (file_moves), a version's file list may not be where it looks, so they wait.
   const isMovingFiles = (await env.DB.prepare("SELECT 1 AS is_found FROM file_moves LIMIT 1").first()) !== null;
-  const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, nowMs - DAY_MS);
+  if (!isMovingFiles) await judgeUnpaidStorage(env, nowMs);
+  const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, nowMs - DAY_MS, nowMs);
 
   const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE has_picture = 1 AND report_status != 'open' AND closed_at_ms < ? LIMIT 1000").bind(nowMs - 30 * DAY_MS).all<{ id: string }>();
   if (pictures.length) {
@@ -170,17 +174,37 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };
 }
 
-/** Deletes shared and owned files older than the cutoff that no version's file list uses, and answers their keys. */
-async function deleteUnusedFiles(env: Env, cutoffMs: number): Promise<string[]> {
+/**
+ * Stops counting the files no version of their owner's uses, then deletes the ones nobody holds any more, and answers
+ * their keys. A file sent in the last day stays, and an owner who sent anything since yesterday keeps all theirs, so
+ * a game too big for one day's new data goes up over several days. A shared file's row stays once released: it still
+ * says who sent the file first, for copies.
+ */
+async function deleteUnusedFiles(env: Env, cutoffMs: number, nowMs: number): Promise<string[]> {
   const used = new Set<string>();
-  const { results: versions } = await env.DB.prepare("SELECT id FROM versions WHERE kind = 'files'").all<{ id: string }>();
+  const usedByOwner = new Set<string>();
+  const { results: versions } = await env.DB.prepare("SELECT versions.id, games.owner_id FROM versions JOIN games ON games.id = versions.game_id WHERE versions.kind = 'files'").all<{ id: string; owner_id: string | null }>();
   for (const version of versions) {
     const stored = await env.GAMES.get(manifestKey(version.id));
     if (!stored) continue;
-    for (const file of Object.values(((await stored.json()) as Manifest).files)) used.add(file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : blobKey(file.sha256));
+    for (const file of Object.values(((await stored.json()) as Manifest).files)) {
+      used.add(file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : blobKey(file.sha256));
+      if (version.owner_id) usedByOwner.add(file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : `${version.owner_id}/${file.sha256}`);
+    }
   }
-  const { results: shared } = await env.DB.prepare("SELECT sha256 FROM blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ sha256: string }>();
-  const { results: owned } = await env.DB.prepare("SELECT owner_id, sha256 FROM owned_blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ owner_id: string; sha256: string }>();
+  const yesterday = utcDateOf(nowMs - DAY_MS);
+  const isSending = "EXISTS (SELECT 1 FROM owner_new_data_days WHERE owner_new_data_days.owner_id = held.owner_id AND owner_new_data_days.date >= ?)";
+  const { results: heldShared } = await env.DB.prepare(`SELECT owner_id, sha256 FROM blob_owners held WHERE released_at_ms IS NULL AND created_at_ms < ? AND NOT ${isSending}`).bind(cutoffMs, yesterday).all<{ owner_id: string; sha256: string }>();
+  const { results: heldOwned } = await env.DB.prepare(`SELECT owner_id, sha256 FROM owned_blobs held WHERE released_at_ms IS NULL AND created_at_ms < ? AND NOT ${isSending}`).bind(cutoffMs, yesterday).all<{ owner_id: string; sha256: string }>();
+  const releases = [
+    ...heldShared.filter((blob) => !usedByOwner.has(`${blob.owner_id}/${blob.sha256}`)).map((blob) => env.DB.prepare("UPDATE blob_owners SET released_at_ms = ? WHERE owner_id = ? AND sha256 = ?").bind(nowMs, blob.owner_id, blob.sha256)),
+    ...heldOwned.filter((blob) => !usedByOwner.has(ownedBlobKey(blob.owner_id, blob.sha256))).map((blob) => env.DB.prepare("UPDATE owned_blobs SET released_at_ms = ? WHERE owner_id = ? AND sha256 = ?").bind(nowMs, blob.owner_id, blob.sha256)),
+    recountStoredSizeStatement(env.DB),
+  ];
+  for (let i = 0; i < releases.length; i += 100) await env.DB.batch(releases.slice(i, i + 100));
+
+  const { results: shared } = await env.DB.prepare("SELECT sha256 FROM blobs WHERE created_at_ms < ? AND NOT EXISTS (SELECT 1 FROM blob_owners WHERE blob_owners.sha256 = blobs.sha256 AND blob_owners.released_at_ms IS NULL)").bind(cutoffMs).all<{ sha256: string }>();
+  const { results: owned } = await env.DB.prepare("SELECT owner_id, sha256 FROM owned_blobs WHERE released_at_ms IS NOT NULL").all<{ owner_id: string; sha256: string }>();
   const unusedShared = shared.filter((blob) => !used.has(blobKey(blob.sha256)));
   const unusedOwned = owned.filter((blob) => !used.has(ownedBlobKey(blob.owner_id, blob.sha256)));
   const keys = [...unusedShared.map((blob) => blobKey(blob.sha256)), ...unusedOwned.map((blob) => ownedBlobKey(blob.owner_id, blob.sha256))];
