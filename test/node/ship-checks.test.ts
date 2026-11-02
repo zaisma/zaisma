@@ -11,6 +11,7 @@ import {
   bucketNames,
   checkBuckets,
   checkPackageOnNpm,
+  PUBLISHED_RUN_STATUS,
   checkSecurityAddresses,
   checkUrl,
   firstPaintHashSources,
@@ -317,7 +318,7 @@ describe("checkPackageOnNpm", () => {
   it("keeps waiting past waitSec while the publish workflow's run is still queued or running, and says so", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
     const readPublishRunStatus = vi.fn().mockResolvedValue("queued");
-    const result = await checkPackageOnNpm("@zaisma/game-server", "1.13.0", serverWorkflow, { waitSec: 0.001, runningWaitSec: 0.02, pollSec: 0, readPublishRunStatus });
+    const result = await checkPackageOnNpm("@zaisma/game-server", "1.13.0", serverWorkflow, { waitSec: 0.001, longestWaitSec: 0.02, pollSec: 0, readPublishRunStatus });
     expect(readPublishRunStatus).toHaveBeenCalled();
     expect(result).toMatchObject({ isPass: false, isChecked: true });
     expect(result.note).toBe(`@zaisma/game-server 1.13.0 still publishing after 0 min (its run is queued): see ${serverWorkflow}`);
@@ -326,14 +327,26 @@ describe("checkPackageOnNpm", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
     for (const status of ["completed", null]) {
       const readPublishRunStatus = vi.fn().mockResolvedValue(status);
-      const result = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.001, runningWaitSec: 60, pollSec: 0, readPublishRunStatus });
+      const result = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.001, longestWaitSec: 60, pollSec: 0, readPublishRunStatus });
       expect(readPublishRunStatus).toHaveBeenCalledTimes(1);
       expect(result.note).toBe(`@zaisma/cli 0.9.1 not on npm after 0 min: see ${cliWorkflow}`);
     }
   });
+  it("keeps waiting past waitSec while npm processes a version its run published, and says so", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404)));
+    const readPublishRunStatus = vi.fn().mockResolvedValue(PUBLISHED_RUN_STATUS);
+    const result = await checkPackageOnNpm("@zaisma/game-server", "1.17.0", serverWorkflow, { waitSec: 0.001, longestWaitSec: 0.02, pollSec: 0, readPublishRunStatus });
+    expect(readPublishRunStatus).toHaveBeenCalled();
+    expect(result.note).toBe(`@zaisma/game-server 1.17.0 published by its run but npm still isn't serving it after 0 min: see ${serverWorkflow}`);
+  });
+  it("finds the version npm served after its run published it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(answer(404)).mockResolvedValueOnce(answer(404)).mockResolvedValue(answer(200)));
+    const waited = await checkPackageOnNpm("@zaisma/game-server", "1.17.0", serverWorkflow, { waitSec: 0.000001, longestWaitSec: 60, pollSec: 0, readPublishRunStatus: async () => PUBLISHED_RUN_STATUS });
+    expect(waited.isPass).toBe(true);
+  });
   it("finds the version that came while the run was still going", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(answer(404)).mockResolvedValueOnce(answer(404)).mockResolvedValue(answer(200)));
-    const waited = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.000001, runningWaitSec: 60, pollSec: 0, readPublishRunStatus: async () => "in_progress" });
+    const waited = await checkPackageOnNpm("@zaisma/cli", "0.9.1", cliWorkflow, { waitSec: 0.000001, longestWaitSec: 60, pollSec: 0, readPublishRunStatus: async () => "in_progress" });
     expect(waited.isPass).toBe(true);
   });
 });

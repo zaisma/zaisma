@@ -33,9 +33,12 @@ export const PUBLISH_CLI_WORKFLOW_URL = "https://github.com/zaisma/zaisma/action
 export const PUBLISH_GAME_SERVER_WORKFLOW_URL = "https://github.com/zaisma/zaisma/actions/workflows/publish-game-server.yml";
 export const PUBLISH_WAIT_SEC = 600;
 // Past PUBLISH_WAIT_SEC the wait goes on only while the publish workflow's run for the commit is still queued or running
-// (GitHub's runners have kept one queued for 14 minutes), up to this.
-export const PUBLISH_RUNNING_WAIT_SEC = 1800;
+// (GitHub's runners have kept one queued for 14 minutes), or has published and npm is still processing the version
+// (npm has taken 26 minutes to serve one after its run passed), up to this.
+export const PUBLISH_LONGEST_WAIT_SEC = 2700;
 export const PUBLISH_RUNNING_STATUSES = ["queued", "in_progress", "waiting", "pending", "requested"];
+// What readPublishRunStatus answers for a run that finished and passed: its publish reached npm, which serves it once processed.
+export const PUBLISHED_RUN_STATUS = "published";
 export const PUBLISH_POLL_SEC = 15;
 export const REQUEST_TIMEOUT_MS = 15_000;
 export const ATTEMPT_COUNT = 4;
@@ -322,9 +325,9 @@ export async function checkSecurityAddresses({ zaismaKey, attemptCount = ATTEMPT
 /**
  * Waits for npm to have a package's version, which its publish workflow (workflowUrl) puts there from main.
  * readPublishRunStatus answers the status of that workflow's run for the shipped commit ("queued", "in_progress",
- * "completed", …) or null when there's none to read.
+ * "completed", …), PUBLISHED_RUN_STATUS once it finished and passed, or null when there's none to read.
  */
-export async function checkPackageOnNpm(packageName, version, workflowUrl, { waitSec = PUBLISH_WAIT_SEC, runningWaitSec = PUBLISH_RUNNING_WAIT_SEC, pollSec = PUBLISH_POLL_SEC, readPublishRunStatus = async () => null } = {}) {
+export async function checkPackageOnNpm(packageName, version, workflowUrl, { waitSec = PUBLISH_WAIT_SEC, longestWaitSec = PUBLISH_LONGEST_WAIT_SEC, pollSec = PUBLISH_POLL_SEC, readPublishRunStatus = async () => null } = {}) {
   const name = `${packageName} on npm`;
   const started = Date.now();
   let runStatus = null;
@@ -335,15 +338,16 @@ export async function checkPackageOnNpm(packageName, version, workflowUrl, { wai
     } catch {}
     const waitedMs = Date.now() - started;
     if (waitedMs >= waitSec * 1000) {
-      if (waitSec === 0 || waitedMs >= runningWaitSec * 1000) break;
+      if (waitSec === 0 || waitedMs >= longestWaitSec * 1000) break;
       runStatus = await readPublishRunStatus().catch(() => null);
-      if (!PUBLISH_RUNNING_STATUSES.includes(runStatus)) break;
+      if (!PUBLISH_RUNNING_STATUSES.includes(runStatus) && runStatus !== PUBLISHED_RUN_STATUS) break;
     }
     await wait(pollSec * 1000);
   }
   const waitedMin = Math.round((Date.now() - started) / 60_000);
   let note = `${packageName} ${version} not on npm after ${waitedMin} min: see ${workflowUrl}`;
   if (waitSec === 0) note = `${packageName} ${version} not on npm yet (its publish workflow puts it there from main)`;
+  else if (runStatus === PUBLISHED_RUN_STATUS) note = `${packageName} ${version} published by its run but npm still isn't serving it after ${waitedMin} min: see ${workflowUrl}`;
   else if (PUBLISH_RUNNING_STATUSES.includes(runStatus)) note = `${packageName} ${version} still publishing after ${waitedMin} min (its run is ${runStatus.replace("_", " ")}): see ${workflowUrl}`;
   return { name, isPass: false, isSecurity: false, isChecked: true, note };
 }
