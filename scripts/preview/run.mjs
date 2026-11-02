@@ -21,7 +21,7 @@ import { LATER_MARKER, MATCH_MARKER, startFakeShield } from "./fake-shield.mjs";
 import { startFakeSite } from "./fake-site.mjs";
 import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
-import { finishTurn, noteMemoryFreed, waitForTurn } from "./memory.mjs";
+import { finishTurn, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -308,7 +308,8 @@ function writeConfig(name, config) {
 // Asleep when nobody's looked (Julius, Oct 23, 2026): after IDLE_MINUTES with no request but the preview's own (its jobs'
 // ticks and test data), the servers and the feedback server stop, and only this process stays, holding the ports. The next
 // request wakes them: a page a browser opens gets a short "Waking the preview…" page that loads the real one once they're
-// up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps.
+// up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps. While something waits in the line
+// for memory it's 10 minutes, for the preview nobody has looked at for longest (Julius, Nov 2, 2026; memory.mjs, previewToSleep).
 const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 30);
 let lastVisitAtMs = Date.now();
 let serversProcess = null;
@@ -321,7 +322,7 @@ let lineText = "";
 const isAwake = () => serversProcess !== null && wakingUp === null;
 const wakingPage = () => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Waking the preview…</title>
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#16191d;color:#eceef0;font:15px/1.5 system-ui,sans-serif">
-<div style="max-width:40em;padding:16px"><p>Waking the preview… it slept after ${IDLE_MINUTES} minutes with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
+<div style="max-width:40em;padding:16px"><p>Waking the preview… it slept with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
 <script>(async()=>{for(;;){try{await fetch(location.href,{method:"HEAD",cache:"no-store"});break}catch{}await new Promise(r=>setTimeout(r,1000))}location.reload()})()</script>`;
 
 /** Starts the servers (and the feedback server), and resolves once they answer. */
@@ -367,8 +368,8 @@ async function startServers() {
 }
 
 /** Stops the servers and the feedback server, until the next request. */
-async function sleep() {
-  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${IDLE_MINUTES} minutes. Opening one wakes it.`);
+async function sleep({ isMakingRoom = false } = {}) {
+  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${Math.round((Date.now() - lastVisitAtMs) / 60_000)} minutes${isMakingRoom ? ", and something waits in line for its memory" : ""}. Opening one wakes it.`);
   testPlayers.isPaused = true;
   const stopped = [serversProcess, feedbackProcess].map((child) => new Promise((done) => (child.exitCode !== null ? done() : (child.once("exit", done), child.kill()))));
   serversProcess = feedbackProcess = null;
@@ -452,8 +453,12 @@ async function waitFor(url) {
 }
 
 // Its turn in the line for memory comes first (memory.mjs): a start that would take every preview on this machine over
-// the cap waits here, holding no port yet, and says its place.
-const { waitedMs } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT) });
+// the cap waits here, holding no port yet, and says its place. It gives up after START_WAIT_LIMIT_MS, and background.mjs answers with what it says.
+const { waitedMs, noRoomText } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT), maxWaitMs: START_WAIT_LIMIT_MS });
+if (noRoomText) {
+  console.log(noRoomText);
+  process.exit(1);
+}
 // The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
 if (waitedMs) {
   const isFree = (port, address) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, address, function () { this.close(() => resolve(true)); }));
@@ -519,7 +524,8 @@ if (IDLE_MINUTES > 0)
   setInterval(() => {
     if (!isAwake()) return;
     noteVisits();
-    if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) void sleep();
+    if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) return void sleep();
+    isTurnToSleep({ offset: OFFSET, lastVisitAtMs }).then((isTurn) => isTurn && isAwake() && sleep({ isMakingRoom: true })).catch(() => {});
   }, 15_000);
 if (ENGINES_ONLY) {
   const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));

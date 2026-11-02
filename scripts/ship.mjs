@@ -42,7 +42,7 @@ import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 import { INTERRUPTED_EXIT_CODE, INTERRUPTED_LINE_START, deployWorkers, liveVersionIdOf, readShipProgress, runThroughInterruptions, writeShipProgress } from "./ship-resume.mjs";
 import { missingShipTokenHelp, useShipToken } from "./ship-token.mjs";
 // Microsoft's PhotoDNA SDK (Julius's machine only) and Docker, for the photodna Worker's container.
-import { ensureDocker, placePhotoDnaSdk } from "./photodna-sdk.mjs";
+import { dockerForShip, placePhotoDnaSdk } from "./photodna-sdk.mjs";
 
 // Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
 const WORKERS = ["rooms", "games", "photodna", "compress", "site"];
@@ -75,6 +75,7 @@ function git(folder, gitArguments) {
 
 const say = (line = "") => process.stdout.write(`${line}\n`);
 const finish = (status, summary, exitCode) => {
+  shipDocker.stopIfStarted();
   say();
   say(`SHIP ${status} ${summary}`);
   process.exit(exitCode);
@@ -87,11 +88,15 @@ const shipCopy = join(mainCheckout, ".claude", "ship");
 const lastShipFile = join(gitFolder, "zaisma-ship-last.json");
 const progressFile = join(gitFolder, "zaisma-ship-progress.json");
 const logFolder = join(gitFolder, "zaisma-ship-logs");
+// Started here only when it's stopped, and stopped again when this ship ends, however it ends: before the last line when it can say one.
+const shipDocker = dockerForShip({ markerFile: join(gitFolder, "zaisma-ship-colima-started"), say });
+process.on("exit", () => shipDocker.stopIfStarted());
 
 // The commit being shipped, once it's known: an interrupted ship names it and what of it is live.
 let shippingSha = null;
 function finishInterrupted(label) {
   const liveWorkers = shippingSha ? Object.keys(readShipProgress(progressFile, shippingSha).version_ids) : [];
+  shipDocker.stopIfStarted();
   say();
   say(`${INTERRUPTED_LINE_START} ${shippingSha ? `${shippingSha.slice(0, 7)}: ` : ""}the network stayed away while ${label}; ${liveWorkers.length ? `${liveWorkers.join(", ")} deployed` : "nothing deployed"}. Nothing failed: npm run ship again picks up where this one stopped.`);
   process.exit(INTERRUPTED_EXIT_CODE);
@@ -168,6 +173,7 @@ if (!isInShipCopy) {
 }
 
 // From here on this is main's copy of the script, running in the clean copy.
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(130));
 const commitSha = git(shipCopy, ["rev-parse", "HEAD"]);
 shippingSha = commitSha;
 const shortSha = commitSha.slice(0, 7);
@@ -468,7 +474,7 @@ const gameServerVersion = JSON.parse(readFileSync(join(shipCopy, "packages/game-
 const photoDnaSdkProblem = placePhotoDnaSdk(shipCopy);
 if (photoDnaSdkProblem) finish("FAIL", `${shortSha}: PhotoDNA's SDK: ${photoDnaSdkProblem}; nothing deployed.`, 1);
 
-const dockerProblem = isDryRun ? null : ensureDocker();
+const dockerProblem = isDryRun ? null : shipDocker.ensure();
 if (dockerProblem) finish("FAIL", `${shortSha}: ${dockerProblem}; nothing deployed.`, 1);
 
 if (isDryRun) {
@@ -502,7 +508,7 @@ await deployWorkers({
     const started = Date.now();
     const deployMessage = `${shortSha} ${commitSubject}`.slice(0, 100);
     // Docker can stop while the Mac sleeps: photodna's container needs it started again before another try.
-    const beforeRetry = () => (worker === "photodna" ? ensureDocker() : null);
+    const beforeRetry = () => (worker === "photodna" ? shipDocker.ensure() : null);
     const result = await runOnline(`deploying ${worker}`, wranglerBin, ["deploy", "--tag", shortSha, "--message", deployMessage], { cwd: join(shipCopy, "apps", worker), env: workerEnvironment }, { beforeRetry });
     writeFileSync(join(logFolder, `${worker}.log`), result.output);
     if (result.exitCode !== 0) {

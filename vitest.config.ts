@@ -7,9 +7,9 @@ import { BalancedShardSequencer } from "./test/shards.ts";
 import { memoryCap, waitForTestTurn } from "./scripts/preview/memory.mjs";
 
 // A test run's turn in the line for memory, before any file runs (scripts/preview/memory.mjs): on a Mac, test runs and previews share
-// one memory budget across every checkout, and a run that doesn't fit waits in line and starts by itself (npm run test:list shows the
-// line). It runs as many files at once as fit, up to TEST_WORKER_COUNT (4 without it): a Workers file's runtime takes about 0.9 GB.
-// On GitHub's runners there's no line, and TEST_WORKER_COUNT is the count (2 without it). Listing tests never waits. Vitest reads this
+// one memory budget across every checkout, and a run that doesn't fit ends at once with no_room_for_tests, leaving its tests to GitHub's
+// check (npm run test:list shows what holds the memory). It runs as many files at once as fit, up to TEST_WORKER_COUNT (4 without it): a Workers file's runtime takes about 0.9 GB.
+// On GitHub's runners there's no line, and TEST_WORKER_COUNT is the count (2 without it). Listing tests never asks. Vitest reads this
 // file once for each project, in the same process, so the run asks once.
 const turns = globalThis as { zaismaTestTurn?: Promise<{ workerCount: number }> };
 turns.zaismaTestTurn ??= process.argv.includes("list") ? Promise.resolve({ workerCount: 1 }) : waitForTestTurn({ requestedWorkerCount: Number(process.env.TEST_WORKER_COUNT) || (memoryCap().capBytes ? 4 : 2), isNodeOnly: isNodeOnlyRun(process.argv) });
