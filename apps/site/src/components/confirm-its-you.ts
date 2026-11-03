@@ -227,7 +227,8 @@ component({
 .sheet.is-compact .confirm-face > .sheet-title { font: var(--type-section); }
 /* Its face starts at a pane's margin from the top, beside Close rather than under its row: the head (Close alone) gives back its height and
    the gap under it. */
-.pane-parts:has(> .pane-body .confirm-body) > .pane-head { margin-bottom: calc(var(--pad-pane) - var(--pad-frame) - var(--control-height-small) - var(--gap-block-block)); }
+/* Its large icon rises beside Close; on a short screen, with no icon, its title stays below Close. */
+@media not (max-height: 30em) { .pane-parts:has(> .pane-body .confirm-body) > .pane-head { margin-bottom: calc(var(--pad-pane) - var(--pad-frame) - var(--control-height-small) - var(--gap-block-block)); } }
 /* What it asks and why, apart from the way to answer it: a block's gap between them. */
 .confirm-body [id$="-reason"] { margin-bottom: calc(var(--gap-block-block) - var(--gap-control-stack)); }
 /* What went wrong is a warning, never the runner's orange. */
