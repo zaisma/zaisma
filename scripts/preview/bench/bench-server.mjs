@@ -100,6 +100,8 @@ export function makeMirror() {
 }
 
 const jars = new Map();
+/** A jar holds one address's cookies: https names them __Host-, and a sign-in's token is that address's. */
+export const jarKeyOf = (origin, profile) => `${origin} ${profile}`;
 const mirror = makeMirror();
 
 /** Everything needed to answer a request again: a Response's body can be read once. */
@@ -108,18 +110,19 @@ const responseOf = (kept) => new Response(kept.status === 204 || kept.status ===
 
 /** A profile's jar, signing in through the site's own form the first time. A guest's starts empty. */
 async function jarOf(profile, origin, password, answer, nowMs) {
-  const known = jars.get(profile);
+  const key = jarKeyOf(origin, profile);
+  const known = jars.get(key);
   if (known) return known;
-  if (profile === GUEST_PROFILE) { jars.set(profile, []); return []; }
+  if (profile === GUEST_PROFILE) { jars.set(key, []); return []; }
   const form = new URLSearchParams({ username: profile, password, turnstile_token: "XXXX.DUMMY.TOKEN.XXXX" });
   const signedIn = await answer(new Request(`${origin}/signin`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", origin, "sec-fetch-site": "same-origin" }, body: form }));
   const jar = jarAfter([], signedIn.headers.getSetCookie(), nowMs);
-  jars.set(profile, jar);
+  jars.set(key, jar);
   return jar;
 }
 
 /** Press a profile: it starts over, as if just signed in, or as a new guest. */
-export const forgetJar = (profile) => jars.delete(profile);
+export const forgetJar = (origin, profile) => jars.delete(jarKeyOf(origin, profile));
 
 /**
  * A marked request: answered as its profile, its Set-Cookie kept in the jar, and on a page the screen's script first of all, which
@@ -136,7 +139,7 @@ export async function answerAsScreen({ request, mark, password, answer, nowMs })
     headers.set("cookie", cookieHeaderFor(request.headers.get("cookie"), jar, mark.screenName));
     const sentBack = await answer(new Request(withoutMarks(url), { method: request.method, headers, body: request.body, redirect: "manual", ...(request.body ? { duplex: "half" } : {}) }));
     const lines = sentBack.headers.getSetCookie();
-    jars.set(mark.profile, jarAfter(jars.get(mark.profile) ?? jar, lines, nowMs));
+    jars.set(jarKeyOf(url.origin, mark.profile), jarAfter(jars.get(jarKeyOf(url.origin, mark.profile)) ?? jar, lines, nowMs));
     const response = new Response(sentBack.body, sentBack);
     response.headers.delete("set-cookie");
     for (const line of lines) if (/^(__Host-)?download_started=/.test(line)) response.headers.append("set-cookie", line);
@@ -147,7 +150,7 @@ export async function answerAsScreen({ request, mark, password, answer, nowMs })
     ? responseOf(await mirror.answer({ keyText: `${mark.groupName} ${request.method} ${url.pathname}`, screenName: mark.screenName, nowMs, run: () => asked().then(keptResponse) }))
     : await asked();
   if (!(response.headers.get("content-type") ?? "").startsWith("text/html")) return response;
-  const isSignedIn = isSignedInJar(jars.get(mark.profile) ?? []);
+  const isSignedIn = isSignedInJar(jars.get(jarKeyOf(url.origin, mark.profile)) ?? []);
   const stateValue = url.searchParams.get(STATE_MARK_NAME);
   const scriptQuery = new URLSearchParams({ mark: mark.markText, signed_in: isSignedIn ? "1" : "0", ...(stateValue ? { state: stateValue } : {}) });
   const page = new Response(response.body, response);

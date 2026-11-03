@@ -77,7 +77,7 @@ async function withBench(request, environment, answerPage, answer) {
   const url = new URL(request.url);
   if (url.pathname.startsWith(BENCH_PATH)) {
     if (request.method === "POST" && url.pathname === `${BENCH_PATH}forget-profile`) {
-      forgetJar(url.searchParams.get("profile"));
+      forgetJar(url.origin, url.searchParams.get("profile"));
       return new Response(null, { status: 204 });
     }
     if (url.pathname === `${BENCH_PATH}states.js`) return new Response(setUpsScript(), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });

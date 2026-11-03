@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CHECKED_PAGES, STRESS_ACCOUNTS } from "../../apps/site/src/components/checked-pages.ts";
 import { BENCH_PLACES, CHECKED_PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
 // @ts-expect-error: a Node script with no types of its own.
-import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, makeMirror, markOf, parseMark, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
+import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, jarKeyOf, makeMirror, markOf, parseMark, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { SAFE_AREA_PX, phoneMediaText, phoneSafeAreaText } from "../../scripts/preview/bench/phone-media.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -80,6 +80,9 @@ describe("the bench's marks and cookies", () => {
     expect(cookieHeaderFor(browser, [["zaisma_session", "pin"], ["zaisma_in", "1"]], "laptop")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_session=pin; zaisma_in=1; zaisma_device_kind=computer");
     expect(cookieHeaderFor(browser, [], "phone")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_device_kind=phone");
     expect(cookieHeaderFor(browser, [], "real")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1");
+  });
+  it("keep a jar to one address, since each address names its cookies and signs its tokens itself", () => {
+    expect(jarKeyOf("http://localhost:8900", "Moss_Runner")).not.toBe(jarKeyOf("https://mac.example.ts.net:8900", "Moss_Runner"));
   });
   it("keep a Set-Cookie in the jar, and take one out when it has expired", () => {
     const nowMs = Date.parse("2026-11-03T12:00:00Z");
