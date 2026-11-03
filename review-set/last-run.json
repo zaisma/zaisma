@@ -1,6 +1,6 @@
 {
-  "fingerprint_sha256": "50a7e1586f61aee2c753e39adb9ad340397d002ddf9d493fa749800d0a659585",
-  "ran_at": "2026-11-02T23:42:22Z",
+  "fingerprint_sha256": "6bb46b222a609614f59c918b0b6028331358917e46a766dfbdd91853f282b668",
+  "ran_at": "2026-11-03T00:39:56Z",
   "model_vars": {
     "REVIEW_READER_MODEL": "claude-haiku-5-5",
     "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5"
@@ -15,11 +15,11 @@
     "inconsistent_case_count": 0,
     "private_case_count": 12,
     "is_passing": true,
-    "declined_attempt_count": 0,
+    "declined_attempt_count": 2,
     "declined_review_count": 0,
-    "cost_cents": 53.02047200000001,
-    "input_token_count": 1726617,
-    "output_token_count": 94184
+    "cost_cents": 52.96888200000001,
+    "input_token_count": 1735261,
+    "output_token_count": 89868
   },
   "cases": [
     {
@@ -100,8 +100,8 @@
       ],
       "finding_codes": [
         "ai_real_money_gambling",
-        "ai_data_collection",
-        "ai_paid_random_rewards"
+        "ai_paid_random_rewards",
+        "ai_data_collection"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -204,7 +204,7 @@
         "ai_data_collection"
       ],
       "outcome": "held_bad",
-      "declined_attempt_count": 0,
+      "declined_attempt_count": 2,
       "declined_run_count": 0
     },
     {
@@ -331,8 +331,7 @@
         "rejected"
       ],
       "finding_codes": [
-        "ai_disallowed_crypto",
-        "ai_phishing_or_scam"
+        "ai_disallowed_crypto"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
