@@ -3,8 +3,10 @@ import { monthStartDateOf } from "./hosting.ts";
 
 /**
  * Zaisma's own month: what it pays, line by
- * line, against its limit. At the limit, free games start no new rooms or relayed connections until the month resets;
- * paying games go on, and so does everything else in a free game. The amounts live in the site Worker's secrets, never
+ * line, against its limit. Games with no real players share a part of free hosting, and stop when it's gone, so a farm of
+ * empty games can't reach the games people play. At the limit, free games start no new rooms or relayed connections;
+ * past it by a set amount, everything else they run stops too, so the bill can't run on. Paying games go on. All of it
+ * ends with the month. The amounts live in the site Worker's secrets, never
  * here, since how the meter's prices relate to what they cost isn't published.
  */
 
@@ -26,15 +28,21 @@ export interface SpendingSettings {
   storageAndChecksCostCents: number;
   /** What the meter's prices really cost Zaisma, as a share of them. */
   meterCostSharePct: number;
+  /** What games with no real players share in a month, of what they really cost. */
+  unplayedGamesCostCents: number;
+  /** How far past the limit free games' servers and schedules stop too. */
+  pastLimitCeilingCents: number;
 }
 
 /** The private amounts, or null while any is missing or isn't a number above zero. */
-export function spendingSettingsOf(env: { MONTHLY_SPENDING_LIMIT_CENTS?: string; FIXED_COST_CENTS_PER_MONTH?: string; STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH?: string; METER_COST_SHARE_PCT?: string }): SpendingSettings | null {
+export function spendingSettingsOf(env: { MONTHLY_SPENDING_LIMIT_CENTS?: string; FIXED_COST_CENTS_PER_MONTH?: string; STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH?: string; METER_COST_SHARE_PCT?: string; UNPLAYED_GAMES_COST_CENTS_PER_MONTH?: string; PAST_LIMIT_CEILING_CENTS?: string }): SpendingSettings | null {
   const settings = {
     monthlyLimitCents: Number(env.MONTHLY_SPENDING_LIMIT_CENTS),
     fixedCostCents: Number(env.FIXED_COST_CENTS_PER_MONTH),
     storageAndChecksCostCents: Number(env.STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH),
     meterCostSharePct: Number(env.METER_COST_SHARE_PCT),
+    unplayedGamesCostCents: Number(env.UNPLAYED_GAMES_COST_CENTS_PER_MONTH),
+    pastLimitCeilingCents: Number(env.PAST_LIMIT_CEILING_CENTS),
   };
   return Object.values(settings).every((settingNumber) => Number.isFinite(settingNumber) && settingNumber > 0) ? settings : null;
 }
@@ -100,37 +108,9 @@ export function newSpendingAlertPcts(month: Pick<SpendingMonth, "spentCents" | "
 /** What a payment earned: what's left after its card fee. Tax isn't Zaisma's, so it's never passed in. */
 export const earnedAfterCardFeeCents = (paidCents: number) => Math.max(0, Math.floor(paidCents - (paidCents * CARD_FEE_PCT) / 100 - CARD_FEE_CENTS));
 
-/** A game with no budget, or a budget and nothing to spend: Zaisma pays for all of its hosting. A game with no owner isn't on the meter. */
-const isFreeGame = (game: { owner_id: string | null; monthly_budget_cents: number | null; credit_balance_cents: number | null }) => game.owner_id !== null && (game.monthly_budget_cents === null || (game.credit_balance_cents ?? 0) <= 0);
-
-/**
- * Whether a game can start rooms and relayed connections: its own pause (isHostingPaused), else the month's stop if
- * it's a free game. Read at the door, in one query, so a game with no meter row yet is covered and a budget or credit
- * lifts the stop for it at once. pausedAtMs is the same moment for every room, so they all end together.
- */
-export async function roomHostingOf(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ isPaused: boolean; pausedAtMs: number | null }> {
-  const row = await database
-    .prepare(
-      `SELECT games.owner_id, games.monthly_budget_cents, owners.credit_balance_cents, game_hosting_months.paused_at_ms, spending_months.free_rooms_stopped_at_ms
-       FROM games LEFT JOIN owners ON owners.id = games.owner_id
-       LEFT JOIN game_hosting_months ON game_hosting_months.game_id = games.id AND game_hosting_months.month_start_date = ?1
-       LEFT JOIN spending_months ON spending_months.month_start_date = ?1
-       WHERE games.id = ?2`,
-    )
-    .bind(monthStartDateOf(nowMs), gameId)
-    .first<{ owner_id: string | null; monthly_budget_cents: number | null; credit_balance_cents: number | null; paused_at_ms: number | null; free_rooms_stopped_at_ms: number | null }>();
-  const pausedAtMs = row?.paused_at_ms ?? (row && isFreeGame(row) ? row.free_rooms_stopped_at_ms : null) ?? null;
-  return { isPaused: pausedAtMs !== null, pausedAtMs };
-}
-
-/** When the month's stop reached this game, for what its developer sees: null when there's no stop or the game pays its way. */
-export async function freeRoomsStoppedAtMs(database: D1Database, game: { id: string; owner_id: string | null; monthly_budget_cents: number | null }, nowMs = Date.now()): Promise<number | null> {
-  const row = await database
-    .prepare("SELECT spending_months.free_rooms_stopped_at_ms, (SELECT credit_balance_cents FROM owners WHERE id = ?) AS credit_balance_cents FROM spending_months WHERE month_start_date = ?")
-    .bind(game.owner_id, monthStartDateOf(nowMs))
-    .first<{ free_rooms_stopped_at_ms: number | null; credit_balance_cents: number | null }>();
-  return row && isFreeGame({ ...game, credit_balance_cents: row.credit_balance_cents }) ? row.free_rooms_stopped_at_ms : null;
-}
+/** The month's stops, as the job last wrote them, for the hosting job to judge each game by. */
+export const spendingStopsOf = (database: D1Database, nowMs = Date.now()) =>
+  database.prepare("SELECT unplayed_games_stopped_at_ms, free_hosting_ended_at_ms FROM spending_months WHERE month_start_date = ?").bind(monthStartDateOf(nowMs)).first<{ unplayed_games_stopped_at_ms: number | null; free_hosting_ended_at_ms: number | null }>();
 
 /** The month's row, as the job last wrote it, for the admin page. */
 export const spendingMonthRow = (database: D1Database, nowMs = Date.now()) =>

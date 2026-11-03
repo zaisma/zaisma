@@ -1,5 +1,5 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
-import { ApiError, ERROR_CODES, freeRoomsStoppedAtMs, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -193,8 +193,8 @@ async function readSettings(env: Env, caller: Caller) {
   const lastMonth = new Map(credit.games.map((game) => [game.slug, game.last_month_beyond_free_cents]));
   const gameHostings: GameHosting[] = await Promise.all(
     games.results.map(async (game) => {
-      const [use, month, roomsStoppedAtMs] = await Promise.all([hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id), freeRoomsStoppedAtMs(env.DB, game)]);
-      return { game, hosting: hostingUseJson(game, use, month, roomsStoppedAtMs), lastMonthBeyondFreeCents: lastMonth.get(game.slug) ?? 0 };
+      const [use, month, stops] = await Promise.all([hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id), gameHosting(env.DB, game.id)]);
+      return { game, hosting: hostingUseJson(game, use, month, stops), lastMonthBeyondFreeCents: lastMonth.get(game.slug) ?? 0 };
     }),
   );
   return { credit, pro, storage, stripe: await stripeAccountWithBalance(env, stripeRow), webhooks, signInApps, gameHostings, games: games.results };
@@ -461,7 +461,7 @@ function gameRow(each: GameHosting): ListRow {
   const meter = hostingMeter(game.title, hosting);
   const meterWords = budgetCents === null ? `${freePct}% of this month's free hosting` : freePct >= 100 ? `Free part used · ${dollars(hosting.spent_from_credit_cents)} of its ${dollars(budgetCents)} budget` : `${freePct}% of the free part, then a ${dollars(budgetCents)} budget`;
   const pausedWords =
-    hosting.paused_reason === "budget_used" ? "This month's budget is used. Raise it to start again." : hosting.paused_reason === "credit_used" ? "Your credit ran out. Add credit to start again." : `This month's free hosting is used. It's back on ${shownDate(hosting.resets_on_date)}, or sooner with credit and a budget.`;
+    hosting.paused_reason === "budget_used" ? "This month's budget is used. Raise it to start again." : hosting.paused_reason === "credit_used" ? "Your credit ran out. Add credit to start again." : hosting.paused_reason === "no_real_players" ? `No real players yet, and games with none have used their share of free hosting. Back once real players play it, or on ${monthDay(hosting.resets_on_date)}.` : hosting.paused_reason === "free_hosting_ended" ? `Zaisma's free hosting for this month is used up across all games. It's back on ${monthDay(hosting.resets_on_date)}, or now with credit and a budget.` : `This month's free hosting is used. It's back on ${shownDate(hosting.resets_on_date)}, or sooner with credit and a budget.`;
   const budgetWords = budgetCents === null ? (each.lastMonthBeyondFreeCents > 0 ? `Last month's use past the free allowance would have cost ${dollars(each.lastMonthBeyondFreeCents)} at today's prices.` : "No budget: it stops at its free allowance.") : null;
   const isSecondAllowance = hosting.second_free_allowance_month_start_date === `${new Date().toISOString().slice(0, 7)}-01`;
   const idBase = `budget-${game.slug}`;

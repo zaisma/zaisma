@@ -1,13 +1,15 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createAccount, createGame, monthStartDateOf, personOwner, roomHostingOf, freeRoomsStoppedAtMs, addCreditEntry, type Game } from "@zaisma/core";
+import { createAccount, createGame, monthStartDateOf, personOwner, roomHostingOf, gameHosting, isHostingPaused, addCreditEntry, type Game } from "@zaisma/core";
 import { runSpendingJob } from "../../apps/site/src/spending-job.ts";
+import { runHostingJob } from "../../apps/site/src/hosting-job.ts";
+import { countTicket, issueTicket } from "../../apps/site/src/plays.ts";
 
 // The spending job (apps/site/src/spending-job.ts): Zaisma's own month against its limit, what Julius hears, and the
 // stop on free rooms it writes for the doors of rooms and the relay (roomHostingOf).
 
 // Made-up amounts: the real ones are the site Worker's secrets.
-const SECRETS = { MONTHLY_SPENDING_LIMIT_CENTS: "20000", FIXED_COST_CENTS_PER_MONTH: "6000", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "2000", METER_COST_SHARE_PCT: "50" };
+const SECRETS = { MONTHLY_SPENDING_LIMIT_CENTS: "20000", FIXED_COST_CENTS_PER_MONTH: "6000", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "2000", METER_COST_SHARE_PCT: "50", UNPLAYED_GAMES_COST_CENTS_PER_MONTH: "700", PAST_LIMIT_CEILING_CENTS: "900" };
 const testEnv = { ...env, ...SECRETS, ALERT_EMAIL: undefined, EMAIL_OUTBOX_URL: "https://outbox.test", PUSHOVER_USER_KEY: "user-key", PUSHOVER_APP_TOKEN: "app-token", PUSHOVER_URL: "https://pushover.test/messages.json" } as unknown as typeof env;
 const NOW_MS = Date.now();
 const MONTH_START_DATE = monthStartDateOf(NOW_MS);
@@ -107,6 +109,103 @@ describe("what Julius hears", () => {
   });
 });
 
+describe("games with no real players", () => {
+  const setPlayed = (hasPlayers: number) => env.DB.prepare("UPDATE game_hosting_months SET has_real_players = ? WHERE game_id = ?").bind(hasPlayers, game.id).run();
+
+  it("stop everything when their share is gone, and only they do, until they have real players", async () => {
+    const played = await createGame(env.DB, { slug: `played-${crypto.randomUUID().slice(0, 8)}`, title: "Played", description: "", ownerId, visibility: "listed" });
+    await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, has_real_players) VALUES (?, ?, 4000, 1)").bind(played.id, MONTH_START_DATE).run();
+    await setUnpaidMeterCents(1398); // Costs 699 at the secrets' share, under the 700.
+    await setPlayed(0);
+    await runSpendingJob(testEnv, NOW_MS);
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
+
+    await setUnpaidMeterCents(1400);
+    await runSpendingJob(testEnv, NOW_MS);
+    expect((await row())?.unplayed_games_stopped_at_ms).toBe(NOW_MS);
+    expect(pushes.map((push) => push.title)).toEqual(["Games with no real players stopped"]);
+    expect(await gameHosting(env.DB, game.id, NOW_MS)).toEqual({ pausedAtMs: NOW_MS, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null });
+    // The game people play goes on, and a game with a budget and credit isn't touched.
+    expect((await isHostingPaused(env.DB, played.id, NOW_MS)).isPaused).toBe(false);
+    await setPlayed(1);
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
+    await setPlayed(0);
+    await giveBudgetAndCredit();
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
+  });
+
+  it("covers a new game with no meter row", async () => {
+    await setUnpaidMeterCents(1400);
+    await setPlayed(0);
+    await runSpendingJob(testEnv, NOW_MS);
+    const empty = await createGame(env.DB, { slug: `empty-${crypto.randomUUID().slice(0, 8)}`, title: "Empty", description: "", ownerId, visibility: "listed" });
+    expect((await isHostingPaused(env.DB, empty.id, NOW_MS)).pausedReason).toBe("no_real_players");
+  });
+
+  it("are paused on the meter by the hosting job, and start again with real players", async () => {
+    await env.DB.prepare("INSERT OR REPLACE INTO spending_months (month_start_date, unplayed_games_stopped_at_ms) VALUES (?, ?)").bind(MONTH_START_DATE, NOW_MS).run();
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) VALUES (?, ?, 100)").bind(game.id, new Date(NOW_MS).toISOString().slice(0, 10)).run();
+    await runHostingJob(testEnv, NOW_MS);
+    const paused = (await env.DB.prepare("SELECT paused_reason, has_real_players FROM game_hosting_months WHERE game_id = ?").bind(game.id).first<{ paused_reason: string | null; has_real_players: number }>())!;
+    expect(paused).toEqual({ paused_reason: "no_real_players", has_real_players: 0 });
+
+    await env.DB.prepare("UPDATE game_hosting_months SET real_player_count = 2 WHERE game_id = ?").bind(game.id).run();
+    await runHostingJob(testEnv, NOW_MS);
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
+  });
+
+  it("get no second allowance yet, and keep it for when they have real players", async () => {
+    const setUse = (sec: number) => env.DB.prepare("INSERT OR REPLACE INTO room_usage (game_id, date, room_awake_duration_sec) VALUES (?, ?, ?)").bind(game.id, new Date(NOW_MS).toISOString().slice(0, 10), sec).run();
+    const grantedMonth = async () => (await env.DB.prepare("SELECT second_free_allowance_month_start_date AS month_start_date FROM games WHERE id = ?").bind(game.id).first<{ month_start_date: string | null }>())?.month_start_date;
+    await setUse(1_600_000); // 1,024 cents: past one allowance.
+    await runHostingJob(testEnv, NOW_MS);
+    expect(await grantedMonth()).toBeNull();
+    expect((await gameHosting(env.DB, game.id, NOW_MS)).pausedReason).toBe("free_used");
+
+    await env.DB.prepare("UPDATE game_hosting_months SET real_player_count = 40 WHERE game_id = ?").bind(game.id).run();
+    await runHostingJob(testEnv, NOW_MS);
+    expect(await grantedMonth()).toBe(MONTH_START_DATE);
+    expect((await gameHosting(env.DB, game.id, NOW_MS)).pausedAtMs).toBeNull();
+  });
+});
+
+describe("real players", () => {
+  const FACTS = { first: null, last: null, cfirst: null, clast: null };
+  const count = async () => (await env.DB.prepare("SELECT real_player_count FROM game_hosting_months WHERE game_id = ?").bind(game.id).first<{ real_player_count: number }>())?.real_player_count ?? 0;
+  const countedPlay = async (facts: typeof FACTS | { first: string; last: string; cfirst: string; clast: string }, network: number) => {
+    const ticket = await issueTicket(env.DB, game.id, facts, NOW_MS);
+    expect(await countTicket(env.DB, game.id, ticket, network, NOW_MS + 60_000)).toBe(true);
+  };
+
+  it("count a browser's first counted play of the month, off cloud networks", async () => {
+    await countedPlay(FACTS, 7922);
+    expect(await count()).toBe(1);
+    // Amazon's network: counted in the game's stats, not here.
+    await countedPlay(FACTS, 16509);
+    expect(await count()).toBe(1);
+    // A browser that played this month already.
+    const today = new Date(NOW_MS).toISOString().slice(0, 10);
+    await countedPlay({ first: today, last: today, cfirst: today, clast: today }, 7922);
+    expect(await count()).toBe(1);
+  });
+});
+
+describe("the ceiling past the limit", () => {
+  it("stops free games' requests and schedules too, and not paying games", async () => {
+    await setUnpaidMeterCents(24000); // The limit: only rooms stop.
+    await runSpendingJob(testEnv, NOW_MS);
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
+    expect((await roomHostingOf(env.DB, game.id, NOW_MS)).isPaused).toBe(true);
+
+    await setUnpaidMeterCents(25800); // Past it by the ceiling.
+    await runSpendingJob(testEnv, NOW_MS + 300_000);
+    expect(await gameHosting(env.DB, game.id, NOW_MS + 300_000)).toEqual({ pausedAtMs: NOW_MS + 300_000, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null });
+    expect(pushes.at(-1)!.title).toBe("Free hosting ended: past the ceiling");
+    await giveBudgetAndCredit();
+    expect((await isHostingPaused(env.DB, game.id, NOW_MS + 300_000)).isPaused).toBe(false);
+  });
+});
+
 describe("the stop", () => {
   it("reaches a free game at the limit, with one moment for all its rooms, and tells its developer once", async () => {
     await useRooms();
@@ -134,10 +233,10 @@ describe("the stop", () => {
   it("never reaches a game with a budget and credit, and lifts for one that gets them", async () => {
     await setUnpaidMeterCents(24000);
     await runSpendingJob(testEnv, NOW_MS);
-    expect(await freeRoomsStoppedAtMs(env.DB, { id: game.id, owner_id: ownerId, monthly_budget_cents: null }, NOW_MS)).toBe(NOW_MS);
+    expect((await gameHosting(env.DB, game.id, NOW_MS)).freeRoomsStoppedAtMs).toBe(NOW_MS);
     await giveBudgetAndCredit();
     expect((await roomHostingOf(env.DB, game.id, NOW_MS)).isPaused).toBe(false);
-    expect(await freeRoomsStoppedAtMs(env.DB, { id: game.id, owner_id: ownerId, monthly_budget_cents: 5000 }, NOW_MS)).toBeNull();
+    expect((await gameHosting(env.DB, game.id, NOW_MS)).freeRoomsStoppedAtMs).toBeNull();
   });
 
   it("still reaches a game with a budget and no credit", async () => {

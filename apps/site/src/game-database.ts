@@ -17,7 +17,7 @@ import {
   recordPlayerErased,
   type DatabaseRestore,
   type Game,
-  freeRoomsStoppedAtMs,
+  gameHosting,
 } from "@zaisma/core";
 import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-server/internal";
 import type { DeveloperDatabaseAnswer, StatementResult } from "../../rooms/src/database.ts";
@@ -51,7 +51,7 @@ export async function databaseRoute(env: Env, game: Game, what: string | undefin
   if (!service) throw new ApiError("database_unavailable", { message: "This Zaisma has no game databases connected.", fix: "On zaisma.com this doesn't happen; on your own Zaisma, bind the rooms Worker's GameDatabaseService as GAME_DATABASES (apps/site/wrangler.jsonc)." });
 
   if (!what) {
-    const [overviewAnswer, restores, hostingUse, hostingMonth, roomsStoppedAtMs] = await Promise.all([service.overview(game.id), recentDatabaseRestores(env.DB, game.id), hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id), freeRoomsStoppedAtMs(env.DB, game)]);
+    const [overviewAnswer, restores, hostingUse, hostingMonth, hostingStops] = await Promise.all([service.overview(game.id), recentDatabaseRestores(env.DB, game.id), hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id), gameHosting(env.DB, game.id)]);
     const overview = readAnswer(overviewAnswer, null);
     const usage = overview.usage;
     return [
@@ -65,7 +65,7 @@ export async function databaseRoute(env: Env, game: Game, what: string | undefin
           maximum_storage_size_bytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES,
         },
         // The database is on the game's one hosting meter with everything else it runs.
-        hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth, roomsStoppedAtMs),
+        hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth, hostingStops),
         restores: restores.map(restoreJson),
       },
     ];

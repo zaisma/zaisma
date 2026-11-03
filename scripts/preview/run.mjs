@@ -754,6 +754,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
   Second allowance ${SITE}/dashboard/tiny-farm/players#hosting  (filled its free hosting: a second allowance this month, once), ${SITE}/dashboard/settings#hosting  (its row)
+  No real players ${SITE}/dashboard/harbor-lights/players#hosting  (as New_Studio: paused until it has real players, or the 1st)
   Spending stop   Started with PREVIEW_SPENDING_STOP=1: ${SITE}/dashboard/cave-crew/players#hosting  (a free game: New matches can't start), ${SITE}/dashboard/arena/players#hosting  (a budget and credit: untouched)
   Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit"),
                   ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
@@ -1589,6 +1590,8 @@ async function seedHolds(api, upload, go, form) {
       // These have had their second free allowance, so one allowance is what they have. Tiny Farm is in its month of it.
       "UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug IN ('rocket-lab', 'four-in-a-row', 'cave-crew', 'star-haul', 'arena')",
       "UPDATE games SET second_free_allowance_month_start_date = date('now', 'start of month') WHERE slug = 'tiny-farm'",
+      // Harbor Lights: no real players, and games with none have used their share of free hosting.
+      "INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason, has_real_players) SELECT id, date('now', 'start of month'), 300, unixepoch('now', '-1 hours') * 1000, 'no_real_players', 0 FROM games WHERE slug = 'harbor-lights' ON CONFLICT (game_id, month_start_date) DO UPDATE SET paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason, has_real_players = 0",
       "INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 1875000 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec",
       "INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, date('now', 'start of month'), 1200 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents",
       "UPDATE games SET monthly_budget_cents = 500 WHERE slug = 'arena'",

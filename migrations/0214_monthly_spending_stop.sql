@@ -15,10 +15,35 @@ CREATE TABLE spending_months (
   earned_last_month_cents INTEGER NOT NULL DEFAULT 0,
   limit_cents INTEGER NOT NULL DEFAULT 0,
   told_pct INTEGER NOT NULL DEFAULT 0,
+  unplayed_games_cost_cents INTEGER NOT NULL DEFAULT 0,
   free_rooms_stopped_at_ms INTEGER,
+  unplayed_games_stopped_at_ms INTEGER,
+  free_hosting_ended_at_ms INTEGER,
   settings_missing_told_at_ms INTEGER,
   measured_at_ms INTEGER
 );
+
+-- Browsers with a counted play this month, off cloud networks, and whether that clears the game's bar as the job last
+-- judged it (hasRealPlayers). Only counts: no ID, no address. play_tickets remembers whether a play is a browser's first
+-- of the month, from what the browser says, as its other facts are.
+-- SQLite can't change a CHECK, so the table is made again with the two new paused reasons and every row copied.
+CREATE TABLE game_hosting_months_new (
+  game_id TEXT NOT NULL,
+  month_start_date TEXT NOT NULL,
+  used_cents REAL NOT NULL DEFAULT 0,
+  charged_cents INTEGER NOT NULL DEFAULT 0,
+  written_off_cents INTEGER NOT NULL DEFAULT 0,
+  paused_at_ms INTEGER,
+  paused_reason TEXT CHECK (paused_reason IN ('free_used', 'budget_used', 'credit_used', 'no_real_players', 'free_hosting_ended')),
+  real_player_count INTEGER NOT NULL DEFAULT 0,
+  has_real_players INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (game_id, month_start_date)
+);
+INSERT INTO game_hosting_months_new (game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason)
+  SELECT game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason FROM game_hosting_months;
+DROP TABLE game_hosting_months;
+ALTER TABLE game_hosting_months_new RENAME TO game_hosting_months;
+ALTER TABLE play_tickets ADD COLUMN is_first_play_this_month INTEGER NOT NULL DEFAULT 0;
 
 -- Money Zaisma earned that the credit ledger doesn't hold, after the card fee. A refund is a negative row. Nothing here
 -- says whose it was: only the month's total is ever read. stripe_object_id keeps an event Stripe sends twice counted once.

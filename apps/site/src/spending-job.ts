@@ -23,9 +23,16 @@ export async function runSpendingJob(env: Env, nowMs = Date.now()): Promise<void
   }
   const monthStartMs = Date.parse(`${monthStartDate}T00:00:00Z`);
   const lastMonthStartMs = Date.parse(`${monthStartDateOf(monthStartMs - 1)}T00:00:00Z`);
-  const [usage, unpaid, stored, performance, charges, earnings] = await Promise.all([
+  const [usage, unpaid, unplayed, stored, performance, charges, earnings] = await Promise.all([
     aiUsage(env.DB, monthStartDate.slice(0, 7)),
     env.DB.prepare("SELECT COALESCE(SUM(used_cents - charged_cents), 0) AS unpaid_meter_cents FROM game_hosting_months WHERE month_start_date = ?").bind(monthStartDate).first<{ unpaid_meter_cents: number }>(),
+    env.DB
+      .prepare(
+        `SELECT COALESCE(SUM(month.used_cents - month.charged_cents), 0) AS unpaid_meter_cents FROM game_hosting_months AS month JOIN games ON games.id = month.game_id JOIN owners ON owners.id = games.owner_id
+         WHERE month.month_start_date = ? AND month.has_real_players = 0 AND (games.monthly_budget_cents IS NULL OR owners.credit_balance_cents <= 0)`,
+      )
+      .bind(monthStartDate)
+      .first<{ unpaid_meter_cents: number }>(),
     env.DB.prepare("SELECT COALESCE(SUM(stored_size_bytes), 0) AS stored_size_bytes FROM owners").first<{ stored_size_bytes: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS check_count FROM performance_checks WHERE queued_at_ms >= ?").bind(monthStartMs).first<{ check_count: number }>(),
     env.DB.prepare("SELECT entry_kind, -SUM(amount_cents) AS charged_cents FROM credit_entries WHERE entry_kind IN ('hosting_charge', 'storage_charge') AND created_at_ms >= ? AND created_at_ms < ? GROUP BY entry_kind").bind(lastMonthStartMs, monthStartMs).all<{ entry_kind: string; charged_cents: number }>(),
@@ -45,17 +52,29 @@ export async function runSpendingJob(env: Env, nowMs = Date.now()): Promise<void
     lastMonthEarningsCents: earnings?.earnings_cents ?? 0,
   });
   const isAtLimit = month.spentCents >= month.limitCents;
+  const unplayedGamesCostCents = Math.ceil(((unplayed?.unpaid_meter_cents ?? 0) * settings.meterCostSharePct) / 100);
   const row = await env.DB
     .prepare(
-      `INSERT INTO spending_months (month_start_date, fixed_cost_cents, ai_cost_cents, storage_and_checks_cost_cents, free_hosting_cost_cents, spent_cents, earned_last_month_cents, limit_cents, free_rooms_stopped_at_ms, measured_at_ms)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CASE WHEN ?9 THEN ?10 END, ?10)
-       ON CONFLICT (month_start_date) DO UPDATE SET fixed_cost_cents = excluded.fixed_cost_cents, ai_cost_cents = excluded.ai_cost_cents, storage_and_checks_cost_cents = excluded.storage_and_checks_cost_cents, free_hosting_cost_cents = excluded.free_hosting_cost_cents, spent_cents = excluded.spent_cents, earned_last_month_cents = excluded.earned_last_month_cents, limit_cents = excluded.limit_cents, free_rooms_stopped_at_ms = CASE WHEN ?9 THEN COALESCE(free_rooms_stopped_at_ms, ?10) END, measured_at_ms = excluded.measured_at_ms
+      `INSERT INTO spending_months (month_start_date, fixed_cost_cents, ai_cost_cents, storage_and_checks_cost_cents, free_hosting_cost_cents, spent_cents, earned_last_month_cents, limit_cents, unplayed_games_cost_cents, free_rooms_stopped_at_ms, measured_at_ms)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?11, CASE WHEN ?9 THEN ?10 END, ?10)
+       ON CONFLICT (month_start_date) DO UPDATE SET fixed_cost_cents = excluded.fixed_cost_cents, ai_cost_cents = excluded.ai_cost_cents, storage_and_checks_cost_cents = excluded.storage_and_checks_cost_cents, free_hosting_cost_cents = excluded.free_hosting_cost_cents, spent_cents = excluded.spent_cents, earned_last_month_cents = excluded.earned_last_month_cents, limit_cents = excluded.limit_cents, unplayed_games_cost_cents = excluded.unplayed_games_cost_cents, free_rooms_stopped_at_ms = CASE WHEN ?9 THEN COALESCE(free_rooms_stopped_at_ms, ?10) END, measured_at_ms = excluded.measured_at_ms
        RETURNING told_pct, free_rooms_stopped_at_ms`,
     )
-    .bind(monthStartDate, month.fixedCostCents, month.aiCostCents, month.storageAndChecksCostCents, month.freeHostingCostCents, month.spentCents, month.earnedLastMonthCents, month.limitCents, isAtLimit ? 1 : 0, nowMs)
+    .bind(monthStartDate, month.fixedCostCents, month.aiCostCents, month.storageAndChecksCostCents, month.freeHostingCostCents, month.spentCents, month.earnedLastMonthCents, month.limitCents, isAtLimit ? 1 : 0, nowMs, unplayedGamesCostCents)
     .first<{ told_pct: number; free_rooms_stopped_at_ms: number | null }>();
   await tellJulius(env, month, monthStartDate, row?.told_pct ?? 0, nowMs);
+  await settleStop(env, monthStartDate, "unplayed_games_stopped_at_ms", unplayedGamesCostCents >= settings.unplayedGamesCostCents, "Games with no real players stopped", `They used their share of free hosting this month: ${dollars(unplayedGamesCostCents)}. Each stops until it has real players, or the 1st. Games people play go on.`, nowMs);
+  await settleStop(env, monthStartDate, "free_hosting_ended_at_ms", month.spentCents >= month.limitCents + settings.pastLimitCeilingCents, "Free hosting ended: past the ceiling", `${dollars(month.spentCents)} of ${dollars(month.limitCents)} this month. Free games' servers and schedules stop until ${resetsOnText(nowMs)}; paying games go on.`, nowMs);
   if (row?.free_rooms_stopped_at_ms != null) await tellStoppedGames(env, monthStartDate, row.free_rooms_stopped_at_ms, nowMs);
+}
+
+/** One of the month's stops, set once and pushed to Julius, or lifted when it no longer holds. The hosting job pauses the games it reaches on its next run. */
+async function settleStop(env: Env, monthStartDate: string, column: "unplayed_games_stopped_at_ms" | "free_hosting_ended_at_ms", isOn: boolean, title: string, message: string, nowMs: number): Promise<void> {
+  const changed = await env.DB
+    .prepare(`UPDATE spending_months SET ${column} = ?1 WHERE month_start_date = ?2 AND ${isOn ? `${column} IS NULL` : `${column} IS NOT NULL`}`)
+    .bind(isOn ? nowMs : null, monthStartDate)
+    .run();
+  if (isOn && changed.meta.changes) await sendPush(env, { title, message, priorityNumber: 1 });
 }
 
 /** Once a share of the limit is reached: pushed and emailed, the highest share claimed so a run going past two says both, once. */
@@ -99,5 +118,5 @@ async function tellStoppedGames(env: Env, monthStartDate: string, stoppedAtMs: n
 async function tellSettingsMissing(env: Env, monthStartDate: string, nowMs: number): Promise<void> {
   await env.DB.prepare("INSERT OR IGNORE INTO spending_months (month_start_date) VALUES (?)").bind(monthStartDate).run();
   const claimed = await env.DB.prepare("UPDATE spending_months SET settings_missing_told_at_ms = ? WHERE month_start_date = ? AND settings_missing_told_at_ms IS NULL").bind(nowMs, monthStartDate).run();
-  if (claimed.meta.changes) await sendPush(env, { title: "The monthly spending limit isn't set", message: "MONTHLY_SPENDING_LIMIT_CENTS, FIXED_COST_CENTS_PER_MONTH, STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH and METER_COST_SHARE_PCT are the site Worker's secrets. Until all four are set, nothing limits what Zaisma spends.", priorityNumber: 1 });
+  if (claimed.meta.changes) await sendPush(env, { title: "The monthly spending limit isn't set", message: "MONTHLY_SPENDING_LIMIT_CENTS, FIXED_COST_CENTS_PER_MONTH, STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH, METER_COST_SHARE_PCT, UNPLAYED_GAMES_COST_CENTS_PER_MONTH and PAST_LIMIT_CEILING_CENTS are the site Worker's secrets. Until all six are set, nothing limits what Zaisma spends.", priorityNumber: 1 });
 }

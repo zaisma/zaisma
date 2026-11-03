@@ -49,15 +49,29 @@ export const FREE_HOSTING_CENTS_PER_MONTH = 1000;
 /** A game's free allowance in a month: twice the size in the month it had its second one, the first time it filled one. */
 export const freeAllowanceCents = (secondFreeAllowanceMonthStartDate: string | null, monthStartDate: string) => (secondFreeAllowanceMonthStartDate === monthStartDate ? 2 : 1) * FREE_HOSTING_CENTS_PER_MONTH;
 
-/** Where a game's free hosting really ends this month: a game that hasn't had its second allowance has it still to come. */
-export const freeHostingEndCents = (secondFreeAllowanceMonthStartDate: string | null, monthStartDate: string) => (secondFreeAllowanceMonthStartDate === null ? 2 * FREE_HOSTING_CENTS_PER_MONTH : freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStartDate));
+/**
+ * Where a game's free hosting really ends this month: a game with real players that hasn't had its second allowance has
+ * it still to come. A game with no real players doesn't get it yet, and doesn't lose it.
+ */
+export const freeHostingEndCents = (secondFreeAllowanceMonthStartDate: string | null, monthStartDate: string, hasRealPlayersNow = true) => (secondFreeAllowanceMonthStartDate === null && hasRealPlayersNow ? 2 * FREE_HOSTING_CENTS_PER_MONTH : freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStartDate));
+
+/** The fewest browsers that make a game played. */
+export const MINIMUM_REAL_PLAYER_COUNT = 2;
+/** Past that, one browser for this much of what the game really costs Zaisma, in cents. */
+export const COST_CENTS_PER_REAL_PLAYER = 15;
+
+/** Whether a game's browsers this month (counted plays off cloud networks, and tester links') clear its bar, which rises with its use. */
+export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / COST_CENTS_PER_REAL_PLAYER));
 
 /** What a game's use is shared out as, on the meter. */
 export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
 export type HostingKind = (typeof HOSTING_KINDS)[number];
 
-/** Why a game's hosting is paused this month: its free allowance with no budget, its budget, or its developer's credit. */
-export const PAUSED_REASONS = ["free_used", "budget_used", "credit_used"] as const;
+/**
+ * Why a game's hosting is paused this month: its free allowance with no budget, its budget, its developer's credit, the
+ * share of free hosting games with no real players have (spending.ts), or the end of Zaisma's free hosting for the month.
+ */
+export const PAUSED_REASONS = ["free_used", "budget_used", "credit_used", "no_real_players", "free_hosting_ended"] as const;
 export type PausedReason = (typeof PAUSED_REASONS)[number];
 
 /** A game's raw use over a month, as room_usage adds it up. Every count but HOSTING_USE_FACTS is priced. */
@@ -261,26 +275,63 @@ export interface GameHostingMonth {
   written_off_cents: number;
   paused_at_ms: number | null;
   paused_reason: PausedReason | null;
+  /** Browsers with a counted play this month, off cloud networks, and tester links'. */
+  real_player_count: number;
+  /** Whether they clear the game's bar, as the job last judged it (hasRealPlayers). */
+  has_real_players: number;
 }
 
 /** A game's month on the meter, or nothing used yet. */
 export async function gameHostingMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<GameHostingMonth> {
   const monthStart = monthStartDateOf(nowMs);
   const row = await database.prepare("SELECT * FROM game_hosting_months WHERE game_id = ? AND month_start_date = ?").bind(gameId, monthStart).first<GameHostingMonth>();
-  return row ?? { game_id: gameId, month_start_date: monthStart, used_cents: 0, charged_cents: 0, written_off_cents: 0, paused_at_ms: null, paused_reason: null };
+  return row ?? { game_id: gameId, month_start_date: monthStart, used_cents: 0, charged_cents: 0, written_off_cents: 0, paused_at_ms: null, paused_reason: null, real_player_count: 0, has_real_players: 0 };
+}
+
+/** What stops a game this month, as its doors read it. */
+export interface GameHosting {
+  /** When everything it runs paused, null when it runs. */
+  pausedAtMs: number | null;
+  pausedReason: PausedReason | null;
+  /** When the month's limit stopped new rooms and relayed connections, for a free game; null otherwise. */
+  freeRoomsStoppedAtMs: number | null;
 }
 
 /**
- * Whether a game's hosting is paused this month: the site's hosting job is the one judge, so rooms, the relay,
- * requests and the database all read it here. A new month starts unpaused.
+ * What stops a game this month. The site's hosting and spending jobs are the judges, so rooms, the relay, requests and
+ * the database all read it here, in one query. A new month starts with nothing. A free game has no budget, or a budget
+ * and no credit: Zaisma pays for all of its hosting. Read at the door, so a game with no meter row yet is covered, and
+ * a budget with credit lifts the month's stops for it at once. A game with no owner isn't on the meter.
  */
-export async function isHostingPaused(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ isPaused: boolean; pausedAtMs: number | null; pausedReason: PausedReason | null }> {
+export async function gameHosting(database: D1Database, gameId: string, nowMs = Date.now()): Promise<GameHosting> {
   const row = await database
-    .prepare("SELECT paused_at_ms, paused_reason FROM game_hosting_months WHERE game_id = ? AND month_start_date = ?")
-    .bind(gameId, monthStartDateOf(nowMs))
-    .first<{ paused_at_ms: number | null; paused_reason: PausedReason | null }>();
-  const pausedAtMs = row?.paused_at_ms ?? null;
-  return { isPaused: pausedAtMs !== null, pausedAtMs, pausedReason: pausedAtMs !== null ? (row?.paused_reason ?? null) : null };
+    .prepare(
+      `SELECT games.owner_id, games.monthly_budget_cents, owners.credit_balance_cents, month.paused_at_ms, month.paused_reason, month.has_real_players, spending.free_rooms_stopped_at_ms, spending.unplayed_games_stopped_at_ms, spending.free_hosting_ended_at_ms
+       FROM (SELECT ?2 AS id) AS asked LEFT JOIN games ON games.id = asked.id LEFT JOIN owners ON owners.id = games.owner_id
+       LEFT JOIN game_hosting_months AS month ON month.game_id = asked.id AND month.month_start_date = ?1
+       LEFT JOIN spending_months AS spending ON spending.month_start_date = ?1`,
+    )
+    .bind(monthStartDateOf(nowMs), gameId)
+    .first<{ owner_id: string | null; monthly_budget_cents: number | null; credit_balance_cents: number | null; paused_at_ms: number | null; paused_reason: PausedReason | null; has_real_players: number | null; free_rooms_stopped_at_ms: number | null; unplayed_games_stopped_at_ms: number | null; free_hosting_ended_at_ms: number | null }>();
+  if (row?.paused_at_ms != null) return { pausedAtMs: row.paused_at_ms, pausedReason: row.paused_reason, freeRoomsStoppedAtMs: null };
+  const isFree = row?.owner_id != null && (row.monthly_budget_cents === null || (row.credit_balance_cents ?? 0) <= 0);
+  if (!row || !isFree) return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: null };
+  if (row.free_hosting_ended_at_ms !== null) return { pausedAtMs: row.free_hosting_ended_at_ms, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null };
+  if (row.unplayed_games_stopped_at_ms !== null && !row.has_real_players) return { pausedAtMs: row.unplayed_games_stopped_at_ms, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null };
+  return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: row.free_rooms_stopped_at_ms };
+}
+
+/** Whether a game's hosting is paused this month: requests, schedules and everything else it runs. */
+export async function isHostingPaused(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ isPaused: boolean; pausedAtMs: number | null; pausedReason: PausedReason | null }> {
+  const { pausedAtMs, pausedReason } = await gameHosting(database, gameId, nowMs);
+  return { isPaused: pausedAtMs !== null, pausedAtMs, pausedReason };
+}
+
+/** Whether a game can start rooms and relayed connections: its pause, or the month's limit. pausedAtMs is one moment for every room, so they end together. */
+export async function roomHostingOf(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ isPaused: boolean; pausedAtMs: number | null }> {
+  const hosting = await gameHosting(database, gameId, nowMs);
+  const pausedAtMs = hosting.pausedAtMs ?? hosting.freeRoomsStoppedAtMs;
+  return { isPaused: pausedAtMs !== null, pausedAtMs };
 }
 
 /** What a player or game server hears when a game's hosting is paused. */

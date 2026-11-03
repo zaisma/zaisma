@@ -271,7 +271,7 @@ export interface HostingEmailDetails {
   monthName?: string;
   /** "Nov 1" */
   resetsOnText?: string;
-  pausedReason?: "free_used" | "budget_used" | "credit_used";
+  pausedReason?: "free_used" | "budget_used" | "credit_used" | "no_real_players" | "free_hosting_ended";
   spentCents?: number;
   budgetCents?: number;
   balanceCents?: number;
@@ -303,9 +303,9 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
       case "hosting_budget_nearly_used":
         return [`${game} has used most of its budget`, `${game} has used ${dollars(details.spentCents ?? 0)} of its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}. When it's all used, the game pauses like at the end of its free hosting.`, `To keep it going, raise its budget at ${settings}.`];
       case "hosting_paused": {
-        const why = details.pausedReason === "budget_used" ? `it used its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}` : details.pausedReason === "credit_used" ? "your credit ran out" : "it used its free hosting this month";
+        const why = details.pausedReason === "budget_used" ? `it used its ${dollars(details.budgetCents ?? 0)} budget for ${details.monthName}` : details.pausedReason === "credit_used" ? "your credit ran out" : details.pausedReason === "no_real_players" ? "it has no real players yet, and games with none have used their share of free hosting this month" : details.pausedReason === "free_hosting_ended" ? "Zaisma's free hosting for this month is used up across all games" : "it used its free hosting this month";
         const next =
-          details.pausedReason === "budget_used" ? `Raise its budget at ${settings} to start it again now.` : details.pausedReason === "credit_used" ? `Add credit at ${settings} to start it again now.` : `It starts again on ${details.resetsOnText}, or now if you add credit and give it a budget at ${settings}.`;
+          details.pausedReason === "budget_used" ? `Raise its budget at ${settings} to start it again now.` : details.pausedReason === "credit_used" ? `Add credit at ${settings} to start it again now.` : details.pausedReason === "no_real_players" ? `It starts again once real players play it, or on ${details.resetsOnText}. Share its link: a minute of play from a real browser counts, and tester links do too.` : `It starts again on ${details.resetsOnText}, or now if you add credit and give it a budget at ${settings}.`;
         return [`${game}'s hosting is paused`, `${game}'s hosting is paused: ${why}. No new matches start, and running ones get an hour to finish.`, next];
       }
       case "free_rooms_stopped":

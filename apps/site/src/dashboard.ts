@@ -768,7 +768,11 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
       ? "This month's budget is used: raise it to start again."
       : use.paused_reason === "credit_used"
         ? "Your credit ran out: add credit to start again."
-        : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
+        : use.paused_reason === "no_real_players"
+          ? `It has no real players yet, and games with none have used their share of free hosting. It's back once real players play it, or on ${resetDay}.`
+          : use.paused_reason === "free_hosting_ended"
+            ? `Zaisma's free hosting for this month is used up across all games. It's back on ${resetDay}, or sooner with credit and a budget.`
+            : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
   const paused = use.is_paused
     ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
@@ -1354,7 +1358,7 @@ interface Stats {
     free_rooms_stopped_at: string | null;
     shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
-    paused_reason: "free_used" | "budget_used" | "credit_used" | null;
+    paused_reason: "free_used" | "budget_used" | "credit_used" | "no_real_players" | "free_hosting_ended" | null;
     monthly_budget_cents: number | null;
     spent_from_credit_cents: number;
     request_count: number;

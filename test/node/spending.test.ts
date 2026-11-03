@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { STORED_PER_BYTE_MONTH_CENTS, earnedAfterCardFeeCents, newSpendingAlertPcts, spendingMonthOf, spendingSettingsOf, type SpendingFacts } from "../../packages/core/src/spending.ts";
-import { FREE_HOSTING_CENTS_PER_MONTH, freeAllowanceCents, freeHostingEndCents, freeUsedPct } from "../../packages/core/src/hosting.ts";
+import { FREE_HOSTING_CENTS_PER_MONTH, freeAllowanceCents, freeHostingEndCents, freeUsedPct, hasRealPlayers } from "../../packages/core/src/hosting.ts";
 
 // Zaisma's own month (packages/core/src/spending.ts) and the one-time grace on the free allowance (hosting.ts).
 
 // Made-up amounts: the real ones are the site Worker's secrets.
-const SETTINGS = { monthlyLimitCents: 20000, fixedCostCents: 6000, storageAndChecksCostCents: 2000, meterCostSharePct: 50 };
+const SETTINGS = { monthlyLimitCents: 20000, fixedCostCents: 6000, storageAndChecksCostCents: 2000, meterCostSharePct: 50, unplayedGamesCostCents: 700, pastLimitCeilingCents: 900 };
 const NO_FACTS: SpendingFacts = { reviewCostCents: 0, aiInputTokenCount: 0, aiOutputTokenCount: 0, aiModel: "claude-haiku-5-5", storedSizeBytes: 0, performanceCheckCount: 0, unpaidMeterCents: 0, lastMonthHostingChargedCents: 0, lastMonthStorageChargedCents: 0, lastMonthEarningsCents: 0 };
 const month = (facts: Partial<SpendingFacts>) => spendingMonthOf(SETTINGS, { ...NO_FACTS, ...facts });
 
@@ -53,7 +53,7 @@ describe("what a month spends and may", () => {
   });
 
   it("has no settings until all four are numbers above zero", () => {
-    const secrets = { MONTHLY_SPENDING_LIMIT_CENTS: "20000", FIXED_COST_CENTS_PER_MONTH: "6000", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "2000", METER_COST_SHARE_PCT: "50" };
+    const secrets = { MONTHLY_SPENDING_LIMIT_CENTS: "20000", FIXED_COST_CENTS_PER_MONTH: "6000", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "2000", METER_COST_SHARE_PCT: "50", UNPLAYED_GAMES_COST_CENTS_PER_MONTH: "700", PAST_LIMIT_CEILING_CENTS: "900" };
     expect(spendingSettingsOf(secrets)).toEqual(SETTINGS);
     expect(spendingSettingsOf({ ...secrets, METER_COST_SHARE_PCT: undefined })).toBeNull();
     expect(spendingSettingsOf({ ...secrets, MONTHLY_SPENDING_LIMIT_CENTS: "lots" })).toBeNull();
@@ -75,8 +75,23 @@ describe("the one-time grace", () => {
     expect(freeHostingEndCents("2026-10-01", THIS_MONTH)).toBe(FREE_HOSTING_CENTS_PER_MONTH);
   });
 
+  it("waits for real players, and isn't lost", () => {
+    expect(freeHostingEndCents(null, THIS_MONTH, false)).toBe(FREE_HOSTING_CENTS_PER_MONTH);
+    expect(freeHostingEndCents(null, THIS_MONTH, true)).toBe(2 * FREE_HOSTING_CENTS_PER_MONTH);
+  });
+
   it("measures the percentage against the month's allowance", () => {
     expect(freeUsedPct(1000)).toBe(100);
     expect(freeUsedPct(1000, 2000)).toBe(50);
+  });
+});
+
+describe("real players", () => {
+  // At a made-up 50% share, a meter of 1,000 cents costs 500, so 15 cents a browser asks for 34.
+  it("asks for at least 2 browsers, and more as a game uses more", () => {
+    expect(hasRealPlayers(1, 0, 50)).toBe(false);
+    expect(hasRealPlayers(2, 0, 50)).toBe(true);
+    expect(hasRealPlayers(33, 1000, 50)).toBe(false);
+    expect(hasRealPlayers(34, 1000, 50)).toBe(true);
   });
 });
