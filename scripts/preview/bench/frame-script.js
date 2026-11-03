@@ -153,6 +153,8 @@
   addEventListener("input", (event) => { if (isOurs(event)) say({ kind: "input", path: pathOf(event.target), text: event.target.value, isChecked: event.target.checked }); }, true);
   addEventListener("change", (event) => { if (isOurs(event) && /^(checkbox|radio)$|^select/.test(event.target.type)) say({ kind: "input", path: pathOf(event.target), text: event.target.value, isChecked: event.target.checked }); }, true);
   addEventListener("keydown", (event) => { if (event.isTrusted && event.key === "Escape") say({ kind: "escape" }); }, true);
+  addEventListener("close", (event) => { if (event.target.id) say({ kind: "closed", id: event.target.id }); }, true);
+  addEventListener("toggle", (event) => { if (event.newState === "closed" && event.target.id) say({ kind: "closed", id: event.target.id }); }, true);
   let scrollPending = null;
   addEventListener("scroll", (event) => {
     if (performance.now() - lastHumanAtMs > HUMAN_WINDOW_MS) return;

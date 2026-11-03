@@ -44,7 +44,7 @@ ${dropdown({ id: "bench-find-list", label: "What it finds", items: findItems(pro
 <div class="bench-menus">${secondaryButton("Home", { ...tiny, controls: "bench-places", isExpanded: false, dataAttributes: { "bench-place-button": "" } })}${secondaryButton("Guest", { ...tiny, controls: "bench-profiles", isExpanded: false, dataAttributes: { "bench-profile-button": "" } })}</div>
 ${dropdown({ id: "bench-places", label: "Places", items: BENCH_PLACES.map((place) => ({ label: place.name, isButton: true, dataAttributes: { "bench-place": place.placeValue } })) })}
 ${dropdown({ id: "bench-profiles", label: "Profiles", items: profileItems(profiles) })}
-${toggleButton("Seen 0 of 0", { ...tiny, isPressed: false, dataAttributes: { "bench-seen": "" } })}
+<div class="bench-seen"><span class="bench-group-name" data-bench-seen-count>Seen 0 of 0</span>${toggleButton("Not seen yet", { ...tiny, isPressed: false, dataAttributes: { "bench-seen": "" } })}</div>
 ${stateButtons()}
 <div class="bench-rail-foot"><p class="bench-note">Tap a screen to open it. Buttons and links in it press as usual.</p>${secondaryButton("Gallery", { isTiny: true, href: "/design", icon: "chevron-back" })}</div>`;
   const tools = html`${secondaryButton("Replay", { ...tiny, dataAttributes: { "bench-replay": "" } })}${toggleButton("Slow", { ...tiny, isPressed: false, dataAttributes: { "bench-slow": "" } })}${toggleButton("Dark", { ...tiny, isPressed: false, dataAttributes: { "bench-dark": "" } })}${secondaryButton("On my phone", { ...tiny, controls: "bench-on-phone", dataAttributes: { "bench-on-phone-button": "" } })}${toggleButton("Moving backgrounds", { ...tiny, icon: "image", isLabelHidden: true, isPressed: false, dataAttributes: { "bench-moving": "" } })}`;

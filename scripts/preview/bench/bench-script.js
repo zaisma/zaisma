@@ -133,8 +133,12 @@
 
   async function enterOn(screen, state) {
     const api = screenApi(screen);
-    if (api) { await api.enterState(state); followNote(screen, false); }
+    if (!api) return;
+    const isEntered = await api.enterState(state);
+    followNote(screen, isEntered === false);
+    if (isEntered === false && screen === activeScreens()[0]) unpress(`${state.placeValue}/${state.stateValue}`);
   }
+  const unpress = (key) => { bench.pressed.delete(key); setPressed($(`[data-bench-state="${key}"]`), false); };
 
   // A press: enter it on every screen in play, on its page and as its person, then mark it seen.
   function arrive(state, then) {
@@ -143,7 +147,8 @@
     if (big) { arriveBig(state, then); return; }
     if (profile) { bench.profile = profile; forgetOnce(profile); drawProfile(); }
     if (profile || !isOnPage || state.isOwnPage) {
-      if (state.isOwnPage || !isOnPage) { bench.pressed.clear(); }
+      // A page of its own: whatever else was showing goes with the page it was on, and only this stays pressed.
+      if (state.isOwnPage || !isOnPage) { bench.pressed.clear(); bench.pressed.add(`${state.placeValue}/${state.stateValue}`); bench.ownPageAddress = state.path; drawRail(); }
       for (const screen of allScreens) load(screen, state.path, bench.profile, () => {
         if (state.stepsToTake) stepThrough(screen, state.stepsToTake, () => then?.(screen));
         else enterOn(screen, state).then(() => then?.(screen));
@@ -221,7 +226,7 @@
       button.hidden = bench.isOnlyUnseen && seen;
     }
     for (const group of $$("[data-state-group]")) group.hidden = !$$("[data-bench-state]", group).some((button) => !button.hidden);
-    labelOf($("[data-bench-seen]")).textContent = `Seen ${seenCount} of ${shown.length}`;
+    $("[data-bench-seen-count]").textContent = `Seen ${seenCount} of ${shown.length}`;
     labelOf($("[data-bench-place-button]")).textContent = placeOf(bench.placeValue)?.name ?? "Another page";
     drawProfile();
   }
@@ -238,6 +243,7 @@
     const place = placeOf(placeValue);
     if (!place) return;
     bench.pressed.clear();
+    bench.ownPageAddress = null;
     bench.placeValue = placeValue;
     if (place.seenBy === "guest" && bench.profile !== "guest") { bench.profile = "guest"; forgetOnce("guest"); }
     if (place.seenBy === "signed_in" && bench.profile === "guest") bench.profile = place.profile ?? "Moss_Runner";
@@ -260,6 +266,11 @@
     heard(screenName, groupName, message) {
       const screen = screens[screenName];
       if (!screen) return;
+      // A sheet or menu closed in the page: its button comes back up, whichever way it was closed.
+      if (message.kind === "closed") {
+        for (const key of [...bench.pressed]) { const state = stateOf(key); if (state.opens === message.id || state.presses?.includes(`"${message.id}"`)) unpress(key); }
+        return;
+      }
       if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
@@ -279,7 +290,7 @@
     screen.address = address;
     if (big?.screen === screen) return;
     if (screen.name === bench.leadName || bench.leadName === null) {
-      if (address !== bench.address) bench.pressed.clear();
+      if (address !== bench.address && address !== bench.ownPageAddress) { bench.pressed.clear(); bench.ownPageAddress = null; }
       bench.address = address;
       bench.isSignedIn = isSignedIn;
       const place = data.places.find((each) => new RegExp(each.pathPattern).test(address));

@@ -136,6 +136,7 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-menus > *, .bench-buttons > * { min-width: 0; }
 .bench-menus .cut-btn, .bench-buttons .cut-btn { display: flex; width: 100%; }
 .bench-group-name { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); }
+.bench-seen { display: flex; align-items: center; justify-content: space-between; gap: var(--pad-frame-compact); }
 .bench-group { display: flex; flex-direction: column; gap: var(--pad-frame-compact); }
 .bench-rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; gap: var(--gap-words-words); }
 .bench-note { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); }
