@@ -50,7 +50,7 @@ beforeAll(async () => {
   await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'v-strict', devices = 'phone' WHERE slug LIKE 'strict-%'").run();
   await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay', account_requirement = 'multiplayer', room_browsing = 'page' WHERE slug = 'strict-arena'").run();
   await env.DB.prepare("UPDATE games SET account_requirement = 'whole_game', cloud_saves_enabled = 0 WHERE slug = 'strict-members'").run();
-  testerToken = (await addTesterLink(env.DB, games[3]!.id, "Playtesters")).token;
+  testerToken = (await addTesterLink(env.DB, env, games[3]!.id, "Playtesters")).token;
   const key = (await createApiKey(env.DB, "strict-dev", "claude")).token;
   const posted = await SELF.fetch(`${SITE}/api/dev/forum`, {
     method: "POST",

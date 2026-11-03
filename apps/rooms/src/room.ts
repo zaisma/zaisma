@@ -47,7 +47,7 @@ import { roomPurchaseHandling } from "./purchases.ts";
 import { filterChatMessage } from "./chat-filter.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import { roomReachOf } from "./room-reach.ts";
-import { signingKey, type Env } from "./index.ts";
+import { passPublicKeys, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
 type Attachment =
@@ -821,7 +821,7 @@ export class Room extends DurableObject<Env> {
     // Who the player may chat with, from their pass: the room keeps it, and the game never sees it.
     let chatSettings: PlayerChatSettings | null = null;
     try {
-      const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { gameSlug: this.meta.slug, issuerUrl: this.env.ISSUER });
+      const claims = await verifyPass(pass, await passPublicKeys(this.env), { gameSlug: this.meta.slug, issuerUrl: this.env.ISSUER });
       chatSettings = chatSettingsOf(claims);
       // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
       const name = claims.kind === "account" ? await accountUsernameOf(this.db, claims.sub) : claims.name;

@@ -380,7 +380,7 @@ async function makeWorld(routeName = ""): Promise<World> {
   const shader = await addShader(env.DB, { id: newId("shader"), game_id: game.id, screen: "wide", size_bytes: 80, buffer_count: 0, texture_count: 0 });
   await env.GAMES.put(shaderKey(game.id, shader.id), "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }");
   await settleShader(env.DB, shader, null, [{ quality_level: 0, check_frame_ms: 20, maximum_check_frame_ms: 75 }], 0);
-  const tester = await addTesterLink(env.DB, game.id, "Playtesters");
+  const tester = await addTesterLink(env.DB, env, game.id, "Playtesters");
   expect(await env.GAME_SECRETS!.set(game.id, "API_TOKEN", `secret ${n}`, nowMs)).toHaveProperty("secret");
   // A room its game server kept.
   await env.DB.prepare("INSERT INTO kept_rooms (game_id, room_code, name, saved_size_bytes, saved_at_ms, last_played_at_ms, created_at_ms) VALUES (?, 'K7Q2MX', 'Frostbound', 2048, ?, ?, ?)").bind(game.id, nowMs, nowMs, nowMs).run();
@@ -412,8 +412,8 @@ async function makeWorld(routeName = ""): Promise<World> {
   await addDatabaseRestore(env.DB, { id: databaseRestoreId, game_id: game.id, restore_to_at_ms: nowMs - 60_000, undo_bookmark: "undo-access-checks", undoes_database_restore_id: null, restored_at_ms: nowMs });
 
   // A webhook and a sign-in app each.
-  const webhook = await createWebhook(env.DB, { ownerId: victimOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/zaisma`, eventKinds: ["bug_reported"], gameSlugs: null });
-  const strangerWebhook = await createWebhook(env.DB, { ownerId: strangerOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/moon`, eventKinds: ["bug_reported"], gameSlugs: null });
+  const { webhook } = await createWebhook(env.DB, env, { ownerId: victimOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/zaisma`, eventKinds: ["bug_reported"], gameSlugs: null });
+  const { webhook: strangerWebhook } = await createWebhook(env.DB, env, { ownerId: strangerOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/moon`, eventKinds: ["bug_reported"], gameSlugs: null });
   const { app } = await createSignInApp(env.DB, { ownerId: victimOwner.id, name: "Hop Online", kind: "confidential", redirectUrls: ["https://hop.example.test/callback"] });
   const { app: strangerApp } = await createSignInApp(env.DB, { ownerId: strangerOwner.id, name: "Moon Online", kind: "confidential", redirectUrls: ["https://moon.example.test/callback"] });
 

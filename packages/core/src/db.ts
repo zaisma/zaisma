@@ -1,6 +1,7 @@
 import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type MatchUpdateMode, type MultiplayerMode, type PlayerReportReason, type ReportReason, type ReviewStatus, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
-import { newId } from "./ids.ts";
+import { newId, sha256Hex } from "./ids.ts";
 import { randomKey } from "./game-access.ts";
+import { openSecret, sealSecret, type StoredSecretsKeys } from "./sealed-secrets.ts";
 import type { ReviewReason } from "./review.ts";
 
 const now = () => Date.now();
@@ -394,7 +395,11 @@ export interface TesterLink {
   id: string;
   game_id: string;
   name: string;
-  token: string;
+  /** The link's secret, kept plain only until the cron seals it (sealStoredSecrets). testerLinkToken reads it either way. */
+  token: string | null;
+  /** What the link is found by from its URL. */
+  token_sha256: string | null;
+  sealed_token: string | null;
   version_choice: VersionChoice;
   /** The version a picked link opens; null for the other choices. */
   picked_version_id: string | null;
@@ -411,13 +416,21 @@ export async function testerLinks(database: D1Database, gameId: string): Promise
   return results;
 }
 
-/** A tester link that isn't turned off (it may be past its end date), with its game's slug. */
-export async function testerLinkByToken(database: D1Database, token: string): Promise<(TesterLink & { slug: string }) | null> {
+/** A tester link's token, from wherever it's kept. */
+export async function testerLinkToken(keys: StoredSecretsKeys, link: Pick<TesterLink, "id" | "token" | "sealed_token">): Promise<string> {
+  if (link.token) return link.token;
+  if (!link.sealed_token) throw new Error(`Tester link ${link.id} has no token`);
+  return openSecret(keys, link.sealed_token, `tester_links.token:${link.id}`);
+}
+
+/** A tester link that isn't turned off (it may be past its end date), with its game's slug and the token it was found by. */
+export async function testerLinkByToken(database: D1Database, token: string): Promise<(TesterLink & { slug: string; token: string }) | null> {
   if (!/^[a-z0-9]{20}$/.test(token)) return null;
-  return database
-    .prepare("SELECT tester_links.*, games.slug FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at_ms IS NULL")
-    .bind(token)
-    .first();
+  const link = await database
+    .prepare("SELECT tester_links.*, games.slug FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE (tester_links.token_sha256 = ? OR tester_links.token = ?) AND tester_links.revoked_at_ms IS NULL")
+    .bind(await sha256Hex(new TextEncoder().encode(token)), token)
+    .first<TesterLink & { slug: string }>();
+  return link ? { ...link, token } : null;
 }
 
 /** What a tester link opens and until when. */
@@ -427,12 +440,17 @@ export interface TesterLinkChoices {
   endsAtMs: number | null;
 }
 
-export async function addTesterLink(database: D1Database, gameId: string, name: string, choices: TesterLinkChoices = { versionChoice: "live", pickedVersionId: null, endsAtMs: null }): Promise<TesterLink> {
-  const link: TesterLink = {
-    id: newId("tester"),
+/** The new link's row, with its token, which only ever goes to the database sealed. */
+export async function addTesterLink(database: D1Database, keys: StoredSecretsKeys, gameId: string, name: string, choices: TesterLinkChoices = { versionChoice: "live", pickedVersionId: null, endsAtMs: null }): Promise<TesterLink & { token: string }> {
+  const id = newId("tester");
+  const token = randomKey(20);
+  const link: TesterLink & { token: string } = {
+    id,
     game_id: gameId,
     name,
-    token: randomKey(20),
+    token,
+    token_sha256: await sha256Hex(new TextEncoder().encode(token)),
+    sealed_token: await sealSecret(keys, token, `tester_links.token:${id}`),
     version_choice: choices.versionChoice,
     picked_version_id: choices.pickedVersionId,
     ends_at_ms: choices.endsAtMs,
@@ -441,8 +459,8 @@ export async function addTesterLink(database: D1Database, gameId: string, name: 
     revoked_at_ms: null,
   };
   await database
-    .prepare("INSERT INTO tester_links (id, game_id, name, token, version_choice, picked_version_id, ends_at_ms, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(link.id, gameId, name, link.token, link.version_choice, link.picked_version_id, link.ends_at_ms, link.created_at_ms)
+    .prepare("INSERT INTO tester_links (id, game_id, name, token_sha256, sealed_token, version_choice, picked_version_id, ends_at_ms, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(link.id, gameId, name, link.token_sha256, link.sealed_token, link.version_choice, link.picked_version_id, link.ends_at_ms, link.created_at_ms)
     .run();
   return link;
 }

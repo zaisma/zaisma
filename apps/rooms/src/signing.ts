@@ -10,11 +10,27 @@ function cached(): (secret: string) => Promise<SigningKey> {
 }
 
 const passKey = cached();
+const secondPassKey = cached();
 const receiptKey = cached();
 
-/** The pass signing key (PASS_SIGNING_KEY): it signs passes, and rotates freely, since passes last a day. */
-export function signingKey(env: { PASS_SIGNING_KEY: string }): Promise<SigningKey> {
-  return passKey(env.PASS_SIGNING_KEY);
+type PassKeyEnv = { PASS_SIGNING_KEY: string; SECOND_PASS_SIGNING_KEY?: string; IS_SECOND_PASS_SIGNING_KEY_IN_USE?: string };
+
+/** The key in use, of the two pass signing keys (scripts/replace-key.mjs swaps them): it signs passes. */
+export function signingKey(env: PassKeyEnv): Promise<SigningKey> {
+  if (env.IS_SECOND_PASS_SIGNING_KEY_IN_USE !== "true") return passKey(env.PASS_SIGNING_KEY);
+  if (!env.SECOND_PASS_SIGNING_KEY) return Promise.reject(new Error("IS_SECOND_PASS_SIGNING_KEY_IN_USE is set, but SECOND_PASS_SIGNING_KEY isn't"));
+  return secondPassKey(env.SECOND_PASS_SIGNING_KEY);
+}
+
+/**
+ * Both pass keys, the one in use first: what /.well-known/jwks.json publishes and what checks a pass. So the next key
+ * is out long before it signs anything, and a pass signed with the key before a swap keeps working until it expires.
+ */
+export async function passPublicKeys(env: PassKeyEnv): Promise<PublicKey[]> {
+  const first = (await passKey(env.PASS_SIGNING_KEY)).publicKey;
+  if (!env.SECOND_PASS_SIGNING_KEY) return [first];
+  const second = (await secondPassKey(env.SECOND_PASS_SIGNING_KEY)).publicKey;
+  return env.IS_SECOND_PASS_SIGNING_KEY_IN_USE === "true" ? [second, first] : [first, second];
 }
 
 /** The receipt signing key (RECEIPT_SIGNING_KEY): it signs receipts only, and stays published once retired (RETIRED_RECEIPT_PUBLIC_KEYS). */

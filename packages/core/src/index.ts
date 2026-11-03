@@ -6,6 +6,7 @@ export * from "./time.ts";
 export * from "./zip.ts";
 export * from "./headers.ts";
 export * from "./db.ts";
+export * from "./sealed-secrets.ts";
 export * from "./game-access.ts";
 export * from "./scan/static.ts";
 export * from "./scan/images.ts";

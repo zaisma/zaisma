@@ -598,7 +598,7 @@ export async function testerEnter(env: Env, token: string, request: Request): Pr
 export async function previewPage(request: Request, env: Env, token: string): Promise<Response> {
   const read = readPreviewLinkToken(token);
   const version = read ? await versionById(env.DB, read.versionId) : null;
-  const expiresAtMs = version ? checkPreviewLinkToken(token, version) : null;
+  const expiresAtMs = version ? checkPreviewLinkToken(env, token, version) : null;
   const game = version && expiresAtMs ? await env.DB.prepare("SELECT * FROM games WHERE id = ?").bind(version.game_id).first<Game>() : null;
   if (!version || !expiresAtMs || !game) return glassMessage(env, "This preview link doesn't work", "Preview links last a day, and the developer can turn them off. Get a fresh one from the dashboard or the API.", 404);
   if (!canOpen(game)) return glassMessage(env, game.review_status === "removed" ? "This game was removed" : "This game is being reviewed", "Its previews are closed too.", game.review_status === "removed" ? 410 : 404);

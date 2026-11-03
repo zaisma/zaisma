@@ -3,6 +3,8 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
+import { handleSignIn } from "../../apps/site/src/sign-in.ts";
+import type { Env as SiteEnv } from "../../apps/site/src/env.ts";
 import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
@@ -2739,7 +2741,7 @@ describe("a game for 16 and up", () => {
 
   it("holds tester links to it, but not the developer's previews", async () => {
     await grownUpGame();
-    const link = await addTesterLink(env.DB, "g-grown", "Friends");
+    const link = await addTesterLink(env.DB, env, "g-grown", "Friends");
     const teen = new Browser();
     await join(teen, null, "Quiet_Comet", BIRTH_TEEN);
     const adult = new Browser();
@@ -2808,7 +2810,7 @@ describe("a game that sells itself", () => {
     const strangerAccount = (await env.DB.prepare("SELECT id FROM accounts WHERE username = 'Ben_Walker'").first<{ id: string }>())!;
     expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM room_keys WHERE account_id = ?").bind(strangerAccount.id).first("key_count")).toBe(0);
     // A tester link plays it, as it skips the account rule.
-    const link = await addTesterLink(env.DB, "g-ashfall", "Friends");
+    const link = await addTesterLink(env.DB, env, "g-ashfall", "Friends");
     expect((await guest.go("/api/plays/ashfall", undefined, { method: "POST", body: JSON.stringify({ tester: link.token, token: "test-token" }) })).status).toBe(204);
     // A refund ends it.
     await env.DB.prepare("UPDATE purchases SET purchase_status = 'refunded' WHERE id = 'purchase_full'").run();
@@ -3905,6 +3907,44 @@ describe("Sign in with Zaisma", () => {
 
     const removed = await developer.go(`/api/dev/sign-in-apps/${appId}`, undefined, { method: "DELETE", body: "{}" });
     expect(await removed.json()).toEqual({ removed_sign_in_app_id: appId, next_steps: [] });
+  });
+
+  it("swaps its signing key with nothing breaking: the next key is out ahead, and tokens from before keep working", async () => {
+    const newSigningKey = async () => {
+      const pair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+      return JSON.stringify(await crypto.subtle.exportKey("jwk", pair.privateKey));
+    };
+    const before: SiteEnv = { ...env, SECOND_SIGN_IN_SIGNING_KEY: await newSigningKey() };
+    const after = { ...before, IS_SECOND_SIGN_IN_SIGNING_KEY_IN_USE: "true" };
+    const published = async (keys: SiteEnv) => ((await (await handleSignIn(new Request(`${SITE}/.well-known/jwks.json`), keys, "/.well-known/jwks.json"))!.json()) as { keys: { kid: string }[] }).keys.map((key) => key.kid);
+    const kidOf = (token: string) => (JSON.parse(atob(token.split(".")[0]!.replace(/-/g, "+").replace(/_/g, "/"))) as { kid: string }).kid;
+    const swapWith = async (keys: SiteEnv, code: string, appId: string, clientSecret: string) =>
+      (await (await handleSignIn(new Request(`${SITE}/oauth/token`, { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", redirect_uri: CALLBACK, code, client_id: appId, client_secret: clientSecret }) }), keys, "/oauth/token"))!.json()) as { access_token: string; id_token: string };
+    const userinfoWith = (keys: SiteEnv, accessToken: string) => handleSignIn(new Request(`${SITE}/oauth/userinfo`, { headers: { authorization: `Bearer ${accessToken}` } }), keys, "/oauth/userinfo");
+
+    const { appId, clientSecret } = await developerWithApp();
+    const player = new Browser();
+    await join(player, "owl@example.com", "Night_Owl");
+    const tokensBefore = await swapWith(before, await allow(player, appId), appId, clientSecret!);
+
+    // Both are out before the swap, and the one in use comes first.
+    const [inUse, next] = await published(before);
+    expect(next).toBeDefined();
+    expect(kidOf(tokensBefore.id_token)).toBe(inUse);
+    expect(await published(after)).toEqual([next, inUse]);
+    expect(await published({ ...env })).toEqual([inUse]);
+
+    // A token from before the swap still answers, and new ones sign with the next key, which servers already hold.
+    expect((await userinfoWith(after, tokensBefore.access_token))!.status).toBe(200);
+    const again = await player.go(authorizeQuery(appId));
+    const tokensAfter = await swapWith(after, new URL(again.headers.get("location")!).searchParams.get("code")!, appId, clientSecret!);
+    expect(kidOf(tokensAfter.id_token)).toBe(next);
+    expect((await userinfoWith(after, tokensAfter.access_token))!.status).toBe(200);
+
+    // A leaked key: its slot overwritten, what it signed stops counting.
+    const afterLeak = { ...after, SIGN_IN_SIGNING_KEY: await newSigningKey() };
+    expect((await userinfoWith(afterLeak, tokensBefore.access_token))!.status).toBe(401);
+    expect((await userinfoWith(afterLeak, tokensAfter.access_token))!.status).toBe(200);
   });
 
   it("signs a player in to a site, remembers their yes, and lets them take it back", async () => {
