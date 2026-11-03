@@ -84,13 +84,15 @@
     big.screen.figure.style.setProperty("--screen-scale", String(scale));
   }
   function openBig(screen) {
-    big = { screen, scale: 1, profile: bench.profile, isSlow: bench.isSlow, isDark: bench.isDark, lastDone: bench.lastDone, isChanged: false };
+    big = { screen, scale: 1, profile: bench.profile, isSlow: bench.isSlow, isDark: bench.isDark, lastDone: bench.lastDone, isChanged: false, isExit: false, isHolding: false };
     document.body.classList.add("bench-is-big");
     screen.figure.classList.add("is-big");
     $(".bench-big-tools").hidden = false;
     setPressed($("[data-bench-big-slow]"), big.isSlow); setPressed($("[data-bench-big-dark]"), big.isDark);
     labelOf($("[data-bench-big-profile-button]")).textContent = big.profile === "guest" ? "Guest" : big.profile;
     placeBig();
+    setPressed($("[data-bench-big-exit]"), false);
+    drawScrub();
   }
   function closeBig() {
     if (!big) return;
@@ -187,13 +189,14 @@
   const forgetOnce = (profile) => { if (profile === "guest") fetch(`/__preview/bench/forget-profile?profile=${encodeURIComponent(profile)}`, { method: "POST" }); };
 
   function pressState(key) {
+    if (big?.isHolding) { letGo().then(() => pressState(key)); return; }
     const state = stateOf(key);
     const button = $(`[data-bench-state="${key}"]`);
     if (bench.pressed.has(key)) { bench.isInSteps = false; bench.ownPageAddress = null; bench.pressed.delete(key); setPressed(button, false); leave(state); bench.lastDone = { kind: "left", key }; return; }
     bench.pressed.add(key);
     setPressed(button, true);
     bench.lastDone = { kind: "state", key };
-    if (big) big.lastDone = bench.lastDone;
+    if (big) { big.lastDone = bench.lastDone; drawScrub(); }
     arrive(state, (screen) => { if (screen === screens.phone) noteSeen(state); });
   }
   function leave(state) {
@@ -352,7 +355,8 @@
     if (dataset.benchBigSlow !== undefined) { big.isSlow = !big.isSlow; setPressed(target, big.isSlow); applyLook(big.screen); return; }
     if (dataset.benchDark !== undefined) { bench.isDark = !bench.isDark; setPressed(target, bench.isDark); allScreens.forEach(applyLook); return; }
     if (dataset.benchBigDark !== undefined) { big.isDark = !big.isDark; setPressed(target, big.isDark); applyLook(big.screen); return; }
-    if (dataset.benchBigClose !== undefined) return closeBig();
+    if (dataset.benchBigExit !== undefined) { letGo().then(() => { big.isExit = !big.isExit; setPressed(target, big.isExit); drawScrub(); }); return; }
+    if (dataset.benchBigClose !== undefined) return letGo().then(closeBig);
     if (dataset.benchMoving !== undefined) { bench.isMoving = !bench.isMoving; setPressed(target, bench.isMoving); for (const screen of allScreens) load(screen, screen.address ?? bench.address, bench.profile); return; }
     if (dataset.benchSeen !== undefined) { bench.isOnlyUnseen = !bench.isOnlyUnseen; setPressed(target, bench.isOnlyUnseen); return drawRail(); }
     if (dataset.benchOnPhoneButton !== undefined) drawQrCode();
@@ -370,6 +374,7 @@
 
   // Reset: every screen back to the page as it first looked, nothing pressed, each as whoever it's seen as now. A state with a page of its own goes back to its place's.
   function reset() {
+    if (big?.isHolding) { letGo().then(reset); return; }
     const path = bench.ownPageAddress ? placeOf(bench.placeValue)?.path ?? bench.address : bench.address;
     bench.pressed.clear();
     bench.ownPageAddress = null;
@@ -382,6 +387,7 @@
   }
 
   function replay() {
+    if (big?.isHolding) { letGo().then(replay); return; }
     const done = big?.lastDone ?? bench.lastDone;
     const inPlay = activeScreens();
     if (!done) { for (const screen of inPlay) load(screen, screen.address ?? bench.address, big?.screen === screen ? big.profile : bench.profile); return; }
@@ -396,9 +402,36 @@
     setTimeout(() => { for (const screen of inPlay) enterOn(screen, state); }, pauseMs);
   }
 
-  // The slider: every animation in the light box held where it's dragged to; let go at the end, they run on.
+  // The slider: runs the last state's entrance or exit from the start and holds it, to drag through by hand. Pages and forms have no animation to hold.
   const scrub = $("#bench-big-scrub");
-  if (scrub) scrub.addEventListener("input", () => { if (big) screenApi(big.screen)?.scrub(Number(scrub.value) === 100 ? null : Number(scrub.value) / 100); });
+  const scrubBox = scrub.closest(".slider");
+  const scrubLabel = $("label", scrubBox);
+  const scrubState = () => { const key = big?.lastDone?.key; const state = key && stateOf(key); return state && !state.isOwnPage ? state : null; };
+  const drawScrub = () => {
+    const state = big && scrubState();
+    scrub.disabled = !state;
+    scrubBox.classList.toggle("is-disabled", !state);
+    scrubLabel.textContent = state ? `${big.isExit ? "Exit" : "Entrance"}: ${state.label}` : "Press a state first";
+    scrub.value = 100;
+    scrub.dispatchEvent(new CustomEvent("input", { bubbles: true, detail: { isOurs: true } }));
+  };
+  let scrubQueue = Promise.resolve();
+  const letGo = () => {
+    if (!big?.isHolding) return Promise.resolve();
+    big.isHolding = false;
+    const key = big.lastDone?.key;
+    return scrubQueue.then(() => screenApi(big.screen)?.releaseHeld(bench.pressed.has(key)));
+  };
+  scrub.addEventListener("input", (event) => {
+    if (!big || event.detail?.isOurs) return;
+    const state = scrubState();
+    if (!state) return;
+    const share = Number(scrub.value) / 100, api = screenApi(big.screen);
+    scrubQueue = scrubQueue.then(async () => {
+      if (!big.isHolding) { big.isHolding = true; big.isChanged = true; await api.holdAnimation(state, Boolean(big.isExit)); }
+      api.scrub(share);
+    });
+  });
 
   // The find box: every state, place and profile, or a /address to go to.
   const findBox = $("form.find input[type=search], form.find input");

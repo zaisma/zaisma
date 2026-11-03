@@ -257,6 +257,31 @@
   const sayPageColor = () => say({ kind: "page-color", color: pageColor() });
   addEventListener("load", () => { sayPageColor(); new MutationObserver(sayPageColor).observe(document.head, { subtree: true, childList: true, attributes: true, attributeFilter: ["content", "media"] }); });
 
+  // What the slider holds, and running any state to where it belongs with no animation at all.
+  const held = { animations: [], lateTimers: [], state: null };
+  const noMotion = new CSSStyleSheet();
+  noMotion.replaceSync("*, *::before, *::after, ::backdrop { transition: none !important; animation: none !important; }");
+  const instantly = async (run) => {
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, noMotion];
+    await run();
+    getComputedStyle(document.documentElement).opacity;
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== noMotion);
+    getComputedStyle(document.documentElement).opacity;
+  };
+  // A sheet leaving closes when its animation says it has ended (layers.ts): this says so now, for one with none to wait for.
+  const finishSheetsLeaving = () => { for (const sheet of document.querySelectorAll("dialog.is-leaving")) sheet.dispatchEvent(new TransitionEvent("transitionend", { propertyName: "opacity" })); };
+  /** Lets go of what's held. isIn: whether the state should be showing after, or null to leave it as it stands. */
+  async function releaseHeld(isIn) {
+    const { state, lateTimers, animations } = held;
+    held.animations = []; held.lateTimers = []; held.state = null;
+    for (const animation of animations) { try { animation.finish(); } catch { /* it had gone */ } }
+    finishSheetsLeaving();
+    for (const run of lateTimers) run();
+    if (!state || isIn === null) return;
+    const isThereNow = entered.has(keyOf(state));
+    await instantly(async () => { if (isIn && !isThereNow) await enterState(state); if (!isIn && isThereNow) { leaveState(state); finishSheetsLeaving(); } });
+  }
+
   let pageSent = null;
   const pageAsSent = () => (pageSent ??= fetch(location.href).then((answered) => answered.text()).then((text) => new DOMParser().parseFromString(text, "text/html")));
 
@@ -306,15 +331,42 @@
     },
     setTheme(theme) { benchTheme = theme; document.documentElement.setAttribute("data-theme-choice", theme); document.documentElement.setAttribute("data-theme", theme); dispatchEvent(new Event("zaisma:theme")); sayPageColor(); },
     setPlaybackRate(rate) { playbackRate = rate; for (const animation of allAnimations()) animation.playbackRate = rate; },
-    /** The slider: every animation held at this share of the way through; null lets them go. */
-    scrub(share) {
-      for (const animation of allAnimations()) {
-        const { endTime } = animation.effect.getComputedTiming();
-        if (share === null) { animation.play(); continue; }
-        animation.pause();
-        animation.currentTime = share * endTime;
+    /**
+     * The slider. A state's animation is over by the time it's dragged, and a finished one is gone, so holding runs it again from the start and stops it at once:
+     * the state's entrance, or its exit. Scrubbing then moves what's held, and letting go leaves the state as the bench has it.
+     */
+    async holdAnimation(state, isExit) {
+      await releaseHeld(null);
+      const isIn = entered.has(keyOf(state));
+      await instantly(async () => { if (isExit && !isIn) await enterState(state); if (!isExit && isIn) { leaveState(state); finishSheetsLeaving(); } });
+      const before = new Set(allAnimations()), caught = new Set();
+      // Only what's on a layer as it enters: a page that's still settling has animations of its own to finish. As one leaves, it may be no layer any more, and only what leaving started is new.
+      const isOnLayer = (animation) => isExit || animation.effect.target?.closest?.(LAYERS);
+      const catchNew = () => { for (const animation of allAnimations()) if (!before.has(animation) && !caught.has(animation) && animation.effect.getComputedTiming().iterations !== Infinity && isOnLayer(animation)) { animation.pause(); caught.add(animation); } };
+      if (isExit) {
+        // A sheet closes itself on a timer as well as when its animation ends: that waits until it's let go.
+        const { setTimeout: realTimeout } = window;
+        window.setTimeout = (run, ms, ...rest) => { held.lateTimers.push(() => run(...rest)); return 0; };
+        leaveState(state);
+        window.setTimeout = realTimeout;
+        catchNew();
+      } else {
+        let isEntering = true;
+        const catchEachFrame = () => { catchNew(); if (isEntering) requestAnimationFrame(catchEachFrame); };
+        catchEachFrame();
+        await enterState(state);
+        isEntering = false;
+        catchNew();
       }
+      held.animations = [...caught];
+      held.state = state;
+      return held.animations.length;
     },
+    scrub(share) {
+      const endMs = Math.max(0, ...held.animations.map((animation) => Number(animation.effect.getComputedTiming().endTime)));
+      for (const animation of held.animations) animation.currentTime = Math.min(share * endMs, Number(animation.effect.getComputedTiming().endTime) - 0.01);
+    },
+    releaseHeld,
   };
 
   addEventListener("DOMContentLoaded", () => { pageChanged(); });
