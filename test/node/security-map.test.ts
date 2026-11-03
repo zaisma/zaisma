@@ -8,8 +8,6 @@ import { adminDoors, apiDoors, collectDoors, mcpDoors } from "../../scripts/secu
 // @ts-expect-error: a plain JavaScript script without types
 import { exportMapDir, exportPublic, historyIndexOf, publicExportProblems, checkMapDirExport } from "../../scripts/security-map/export-public.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { chains, pickFrontier, RECHECK_CASE_CAP, recheckSample } from "../../scripts/security-map/frontier.mjs";
-// @ts-expect-error: a plain JavaScript script without types
 import { CHECKLISTS, generateMap, mergeDoors, readMap, writeMap } from "../../scripts/security-map/generate.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
@@ -22,9 +20,8 @@ import { SEED_RULES, seedRobust } from "../../scripts/security-map/seed-robust.m
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
- * The security map (docs/DECISIONS.md, "Zaisma's own AI looks for holes every night."; the
- * security-map skill): doors generated from the code, verdicts that go stale when that code changes,
- * day-one robust seeding from the tests, the night's frontier, and a public export that hides holes.
+ * The security map (the security-map skill): doors generated from the code, verdicts that go stale
+ * when that code changes, day-one robust seeding from the tests, and a public export that hides holes.
  */
 
 const ROOT = join(import.meta.dirname, "../..");
@@ -37,7 +34,6 @@ type Case = { case_id: string; case_name: string; status: string; severity_tier:
 type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; cases: Case[] };
 type Sector = { sector_id: string; sector_name: string; attacker_goal: string; doors: Door[] };
 type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[]; STORED_VALUES: { stored: string }[] };
-type FrontierItem = { bucket: string; sector_id: string; door_id: string; case_id: string; case_ref: string };
 
 let workDir = "";
 beforeEach(() => {
@@ -319,74 +315,6 @@ describe("a case's status", () => {
     expect(canSetRobust(base)).toBe(false);
     expect(canSetRobust({ ...base, evidence: probe("x") })).toBe(true);
     expect(() => withVerdict(base, { status: "robust", ...verdict })).toThrow(/evidence/);
-  });
-});
-
-describe("the night's frontier", () => {
-  function frontierMap(): Sector[] {
-    const map = emptyMap();
-    // Accounts: well covered. Rooms: nothing explored, so its unexplored cases come first.
-    const accountsDoor = fixtureDoor("api:GET /accounts-door", "accounts");
-    accountsDoor.cases = accountsDoor.cases.map((theCase, index) => (index < 12 ? robust(theCase, `case ${index}`) : theCase));
-    accountsDoor.cases[12] = { ...robust(accountsDoor.cases[12]!), status: "stale", stale_reason: "src/fixture.ts:guard changed since the verdict" };
-    map.find((sector) => sector.sector_id === "accounts")!.doors.push(accountsDoor);
-    map.find((sector) => sector.sector_id === "rooms")!.doors.push(fixtureDoor("room-message:kick", "rooms", "room_message"));
-    return map;
-  }
-
-  it("does stale first, then the recheck sample, then the least-covered sector's unexplored cases", () => {
-    const frontier: FrontierItem[] = pickFrontier(frontierMap(), { date: "2026-10-18", budgetCaseCount: 40 });
-    const buckets = frontier.map((item) => item.bucket);
-    expect(buckets[0]).toBe("stale");
-    expect(frontier[0]!.case_ref).toBe("api:GET /accounts-door#age-16-17");
-    const firstUnexplored = buckets.indexOf("unexplored");
-    expect(buckets.slice(1, firstUnexplored).every((bucket) => bucket === "recheck")).toBe(true);
-    expect(buckets.slice(firstUnexplored).every((bucket) => bucket === "unexplored")).toBe(true);
-    expect(frontier[firstUnexplored]!.sector_id).toBe("rooms");
-  });
-
-  it("rechecks only probe-backed robust cases, at most a quarter of the budget", () => {
-    const map = emptyMap();
-    const accounts = map.find((sector) => sector.sector_id === "accounts")!;
-    for (let index = 0; index < 30; index += 1) {
-      const door = fixtureDoor(`api:GET /door-${String(index).padStart(2, "0")}`, "accounts");
-      door.cases = door.cases.map((theCase, caseIndex) =>
-        caseIndex < 5 ? robust(theCase) : withVerdict(theCase, { status: "robust", evidence: { kind: "test", ref: "test/site/access-checks.test.ts", note: "proven by CI" }, verdict_at: NOW, verdict_anchor_hashes: {} }),
-      );
-      accounts.doors.push(door);
-    }
-    const frontier: FrontierItem[] = pickFrontier(map, { date: "2026-10-18", budgetCaseCount: 40 });
-    const rechecks = frontier.filter((item) => item.bucket === "recheck");
-    expect(rechecks).toHaveLength(RECHECK_CASE_CAP);
-    for (const item of rechecks) expect(caseOf(doorIn(map, item.door_id), item.case_id).evidence!.kind).toBe("probe");
-  });
-
-  it("never goes over its budget", () => {
-    expect(pickFrontier(frontierMap(), { date: "2026-10-18", budgetCaseCount: 3 })).toHaveLength(3);
-  });
-
-  it("rechecks about a tenth of robust cases, the same for a date and different across dates", () => {
-    const refs = Array.from({ length: 200 }, (_, index) => `api:GET /door-${index}#other-account-id`);
-    const today = recheckSample(refs, "2026-10-18");
-    expect(today).toHaveLength(20);
-    expect(recheckSample(refs, "2026-10-18")).toEqual(today);
-    expect(recheckSample(refs, "2026-10-19")).not.toEqual(today);
-  });
-});
-
-describe("chains", () => {
-  it("crosses doors that give a thing with doors that trust it, minus the ones tried", () => {
-    const map = emptyMap();
-    const accounts = map.find((sector) => sector.sector_id === "accounts")!;
-    accounts.doors.push(fixtureDoor("page:POST /account/keys", "accounts", "page_form", { gives: ["api_key"] }));
-    accounts.doors.push(fixtureDoor("api:GET /games", "accounts", "api_call", { trusts: ["api_key"] }));
-    accounts.doors.push(fixtureDoor("api:GET /access", "accounts", "api_call", { trusts: ["api_key"] }));
-    const all = chains(map);
-    expect(all).toEqual([
-      { thing: "api_key", giver_door_id: "page:POST /account/keys", truster_door_id: "api:GET /access" },
-      { thing: "api_key", giver_door_id: "page:POST /account/keys", truster_door_id: "api:GET /games" },
-    ]);
-    expect(chains(map, [all[0]])).toEqual([all[1]]);
   });
 });
 
