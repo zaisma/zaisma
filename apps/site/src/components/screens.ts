@@ -11,10 +11,10 @@ import { tag } from "./foundations.ts";
 
 export const SCREENS_PATH = "/design/screens";
 
-/** The three screens: a phone at real size, the same phone turned and a laptop, with what the bench shows them at when the window has the room. */
+/** The three screens: a common phone (an iPhone 14, 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
 export const BENCH_SCREENS = [
-  { screenName: "phone", name: "Phone", widthPx: 320, heightPx: 667, scalePct: 100, isPhone: true },
-  { screenName: "turned", name: "Turned", widthPx: 667, heightPx: 320, scalePct: 75, isPhone: true },
+  { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, scalePct: 82, isPhone: true },
+  { screenName: "turned", name: "Turned", widthPx: 852, heightPx: 393, scalePct: 64, isPhone: true },
   { screenName: "laptop", name: "Laptop", widthPx: 1440, heightPx: 900, scalePct: 57, isPhone: false },
 ] as const;
 
@@ -32,7 +32,7 @@ export interface BenchScreenOptions {
 /** One live screen: a frame at the screen's own size, so its media queries and layout are the screen's, scaled to fit. A phone's sits in a black body shaped like a real one, which shows where the screen ends. */
 export function benchScreen(options: BenchScreenOptions): Raw {
   const scaleNumber = options.scalePct / 100;
-  return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" style="--screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
+  return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" style="--screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
 <div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx)}" height="${String(options.heightPx)}" style="transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
 }
@@ -128,7 +128,7 @@ component({
 html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench { --bench-bezel: 6px; position: fixed; inset: 0; display: grid; grid-template-columns: 16.25rem minmax(0, 1fr); gap: var(--pad-frame-compact); padding: var(--pad-frame-compact); box-sizing: border-box; background: var(--page); color: var(--ink); }
 .bench-rail > * { flex: none; }
-.bench-rail > .find { height: var(--control-height-small); min-height: 0; }
+.bench-rail > .find { flex: none; --control-height: var(--control-height-small); }
 .bench-rail { --control-height: var(--control-height-small); display: flex; flex-direction: column; gap: var(--gap-words-words); min-height: 0; overflow-y: auto; padding: var(--pad-frame); scrollbar-width: none; }
 .bench-menus, .bench-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--pad-frame-compact); }
 .bench-menus > *, .bench-buttons > * { min-width: 0; }
@@ -165,5 +165,5 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-big-tools .slider { flex: 0 1 18rem; }
 `,
   render: benchLayout,
-  examples: [{ label: "A phone screen showing the example page", isWide: true, markup: benchScreen({ screenName: "phone", name: "Phone", widthPx: 320, heightPx: 667, isPhone: true, scalePct: 50, framePath: "/design/example" }) }],
+  examples: [{ label: "A phone screen showing the example page", isWide: true, markup: benchScreen({ screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, isPhone: true, scalePct: 40, framePath: "/design/example" }) }],
 });

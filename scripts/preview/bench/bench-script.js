@@ -32,16 +32,17 @@
   };
   const followNote = (screen, isOn) => { if (screen.followNote) screen.followNote.hidden = !isOn; };
 
-  // Sized to the window: the phone at real size when it fits, and the others from what's beside it.
+  // Sized to the window: the phone as tall as the room allows, up to real size, and the others from what's beside it.
   function fit() {
     const stage = $(".bench-stage");
     const room = stage.getBoundingClientRect();
     const bezelsPx = 2 * BEZEL_PX;
     const phoneScale = Math.min(1, (room.height - PHONE_ROOM_PX - bezelsPx) / screens.phone.heightPx);
     const besideWidth = room.width - screens.phone.widthPx * phoneScale - bezelsPx - GAP_PX;
-    const fullHeight = screens.turned.heightPx * 0.75 + screens.laptop.heightPx * 0.57;
-    const share = Math.min(1, (room.height - GAP_PX - bezelsPx) / fullHeight, besideWidth / (screens.laptop.widthPx * 0.57));
-    const scales = { phone: phoneScale, turned: 0.75 * share, laptop: 0.57 * share };
+    const turnedScale = Number(screens.turned.figure.dataset.scalePct) / 100, laptopScale = Number(screens.laptop.figure.dataset.scalePct) / 100;
+    const fullHeight = screens.turned.heightPx * turnedScale + screens.laptop.heightPx * laptopScale;
+    const share = Math.min(1, (room.height - GAP_PX - bezelsPx) / fullHeight, besideWidth / (screens.laptop.widthPx * laptopScale));
+    const scales = { phone: phoneScale, turned: turnedScale * share, laptop: laptopScale * share };
     for (const screen of allScreens) {
       const scale = big?.screen === screen ? big.scale : scales[screen.name];
       screen.scale = scales[screen.name];

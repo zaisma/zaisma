@@ -9,7 +9,7 @@
   const isSignedIn = asked.get("signed_in") === "1";
   const isPhoneScreen = screenName === "phone" || screenName === "turned";
   const bench = window.parent !== window && window.parent.zaismaBench ? window.parent.zaismaBench : null;
-  const SCREEN_SIZE = { phone: [320, 667], turned: [667, 320] }[screenName];
+  const SCREEN_SIZE = { phone: [393, 852], turned: [852, 393] }[screenName];
 
   // The mark stays on the address, so the Referer of everything the page sends says whose it is.
   const marked = (address) => { const url = new URL(address, location.href); if (url.origin === location.origin) url.searchParams.set("bench_screen", markText); return url.href; };
