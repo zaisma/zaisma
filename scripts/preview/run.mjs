@@ -598,6 +598,8 @@ runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, creat
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
+// The month's spending stop reaches every free game's rooms, so it's on only for a preview started to look at it.
+runSql(process.env.PREVIEW_SPENDING_STOP ? "INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (date('now', 'start of month'), unixepoch('now') * 1000)" : "UPDATE spending_months SET free_rooms_stopped_at_ms = NULL");
 seedFriendsNow();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
@@ -1803,8 +1805,6 @@ async function seedFriends(go, form) {
   await (await signedIn(hornet, "198.51.100.211"))(`/friends/add/${new URL(invited.headers.get("location"), SITE).searchParams.get("invite")}`, {});
   const hornetPlayerId = (await (await go("/friends")).text()).match(/Loud_Hornet[\s\S]*?\/friends\/(player_[a-z0-9]+)\/remove/)?.[1];
   if (hornetPlayerId) await go(`/friends/blocks/${hornetPlayerId}`, form({}));
-  // The month's spending stop reaches every free game's rooms, so it's on only for a preview started to look at it.
-runSql(process.env.PREVIEW_SPENDING_STOP ? "INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (date('now', 'start of month'), unixepoch('now') * 1000)" : "DELETE FROM spending_months WHERE settings_missing_told_at_ms IS NULL");
 seedFriendsNow();
   // A 16-year-old who chose open and social while joining, not a friend.
   people.Bright_Reed = await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");

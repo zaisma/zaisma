@@ -989,16 +989,16 @@ describe("rooms", () => {
     const id = await addGame("stopped");
     await e.DB.exec("INSERT OR REPLACE INTO owners (id, kind, created_at_ms, credit_balance_cents) VALUES ('owner-stop', 'person', 1, 0);");
     await e.DB.prepare("UPDATE games SET owner_id = 'owner-stop' WHERE id = ?").bind(id).run();
-    const a = await join("stopped", "STOPAA");
+    const a = await join("stopped", "STPPAA");
     const stoppedAtMs = Date.now();
     await e.DB.prepare("INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (?, ?)").bind(monthStartDateOf(), stoppedAtMs).run();
     const made = await post("/v1/rooms", "stopped");
     expect(made.status).toBe(403);
     expect(await made.json()).toMatchObject({ error: { code: "hosting_paused" } });
-    const fresh = await connect("stopped", "STOPBB");
+    const fresh = await connect("stopped", "STPPBB");
     expect(await fresh.next()).toMatchObject({ type: "error", code: "hosting_paused" });
 
-    const stub = e.ROOMS.get(e.ROOMS.idFromName("stopped:STOPAA"));
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("stopped:STPPAA"));
     await runInDurableObject(stub, async (room: Room, state) => {
       (room as any).hostingCheckedAtMs = 0;
       await state.storage.put("hostingCheckedAtMs", 0);
