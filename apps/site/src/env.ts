@@ -194,6 +194,14 @@ export interface Env {
   SUPABASE_SECRET_KEY?: string;
   /** Sign in with Zaisma's RS256 key, a private RSA JWK (scripts/sign-in-key.mjs makes one). Without it, Sign in with Zaisma is off. */
   SIGN_IN_SIGNING_KEY?: string;
+  /** The other Sign in with Zaisma key, published ahead of signing anything (scripts/replace-key.mjs). */
+  SECOND_SIGN_IN_SIGNING_KEY?: string;
+  /** "true" while SECOND_SIGN_IN_SIGNING_KEY signs. */
+  IS_SECOND_SIGN_IN_SIGNING_KEY_IN_USE?: string;
+  /** 32 random bytes, base64: seals secrets kept in the database (packages/core/src/sealed-secrets.ts). */
+  STORED_SECRETS_KEY: string;
+  SECOND_STORED_SECRETS_KEY?: string;
+  IS_SECOND_STORED_SECRETS_KEY_IN_USE?: string;
 }
 
 export function gameUrl(env: Env, slug: string): string {

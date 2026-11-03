@@ -236,7 +236,7 @@ describe("a game's history", () => {
     const full = (await createApiKey(env.DB, accountId, "full")).token;
     const owner = await personOwner(env.DB, accountId);
     await makeGame("sky-hopper");
-    await createWebhook(env.DB, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: "https://hooks.example.test/zaisma", eventKinds: ["bug_reported"], gameSlugs: null });
+    await createWebhook(env.DB, env, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: "https://hooks.example.test/zaisma", eventKinds: ["bug_reported"], gameSlugs: null });
     const made = await api("/webhooks", { key: full, body: { endpoint_url: "https://hooks.example.test/two", event_kinds: ["bug_reported"] } });
     expect(made.status).toBe(201);
     const limited = (await createApiKey(env.DB, accountId, "one game", { accessLevel: "publish", gameSlugs: ["sky-hopper"] })).token;

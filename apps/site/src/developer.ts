@@ -101,6 +101,7 @@ import {
   addTesterLink,
   revokeTesterLink,
   testerLinks,
+  testerLinkToken,
   updateTesterLink,
   VERSION_CHOICES,
   endPreviewPasses,
@@ -1114,7 +1115,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       backgrounds,
       shaders: await shadersAnswer(env, shaders),
       versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null, reviewFacts)),
-      testers: testers.map((link) => testerJson(env, link)),
+      testers: await Promise.all(testers.map((link) => testerJson(env, link))),
     });
   }
 
@@ -2282,7 +2283,7 @@ function listOrThrow(files: unknown): UploadFile[] {
  * too. One per group (team, playtesters, a streamer), so one can be turned off without the others.
  */
 async function testerRoute(request: Request, env: Env, game: Game, id: string | undefined, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
-  if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((link) => testerJson(env, link)) }];
+  if (!id && request.method === "GET") return [{ testers: await Promise.all((await testerLinks(env.DB, game.id)).map((link) => testerJson(env, link))) }];
   if (!id && request.method === "POST") {
     if (game.review_status === "removed") {
       throw gameRemoved(game, "it can't get tester links");
@@ -2294,11 +2295,11 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
     if (links.length >= MAXIMUM_TESTER_LINK_COUNT) {
       throw new ApiError("too_many_tester_links", { message: `${game.slug} has ${MAXIMUM_TESTER_LINK_COUNT} tester links on, the most a game can.`, fix: "Turn one off with remove_tester_link (its tester_id from get_game) first." });
     }
-    const link = await addTesterLink(env.DB, game.id, name, choices);
+    const link = await addTesterLink(env.DB, env, game.id, name, choices);
     await reviewForTesterLink(env, game, link, caller.actor);
     await audit(env.DB, game.id, "tester-link-added", name, caller.actor);
     await logCallerEvent(env, caller, "tester_link_added", { gameId: game.id, subjectName: name });
-    return [{ tester: testerJson(env, link), next_steps: [] satisfies NextStep[] }, 201];
+    return [{ tester: await testerJson(env, link), next_steps: [] satisfies NextStep[] }, 201];
   }
   const testerFix = "get_game lists the tester links that are on, with their IDs.";
   if (id && (request.method === "PATCH" || request.method === "DELETE")) {
@@ -2314,7 +2315,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
       await reviewForTesterLink(env, game, changed, caller.actor);
       await audit(env.DB, game.id, "tester-link-changed", name, caller.actor);
       await logCallerEvent(env, caller, "tester_link_changed", { gameId: game.id, subjectName: name });
-      return [{ tester: testerJson(env, changed), next_steps: [] satisfies NextStep[] }];
+      return [{ tester: await testerJson(env, changed), next_steps: [] satisfies NextStep[] }];
     }
     if (!(await revokeTesterLink(env.DB, game.id, id))) throw new ApiError("no_tester_link", { message: `${game.slug} has no tester link on with the ID ${id}.`, field: "tester_id", fix: testerFix });
     await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
@@ -2493,9 +2494,9 @@ async function webhookRoute(request: Request, env: Env, sub: "test" | "deliverie
     if ((await webhooksFor(env.DB, caller.ownerId)).length >= MAXIMUM_WEBHOOK_COUNT) {
       throw new ApiError("too_many_webhooks", { message: `You have ${MAXIMUM_WEBHOOK_COUNT} webhooks, the most an account can.`, fix: "Delete one you don't use with delete_webhook, or add these event_kinds to one you have with update_webhook." });
     }
-    const webhook = await createWebhook(env.DB, { ownerId: caller.ownerId, destinationKind, endpointUrl, eventKinds, gameSlugs });
+    const { webhook, signingSecret } = await createWebhook(env.DB, env, { ownerId: caller.ownerId, destinationKind, endpointUrl, eventKinds, gameSlugs });
     await logCallerEvent(env, caller, "webhook_created", { subjectName: webhook.id });
-    return [{ webhook: webhookJson(webhook), signing_secret: webhook.signing_secret, next_steps: [testStep(webhook)] satisfies NextStep[] }, 201];
+    return [{ webhook: webhookJson(webhook), signing_secret: signingSecret, next_steps: [testStep(webhook)] satisfies NextStep[] }, 201];
   }
   if (!webhook) throw badMethod(method, new URL(request.url).pathname);
 
@@ -2523,7 +2524,7 @@ async function webhookRoute(request: Request, env: Env, sub: "test" | "deliverie
     const endpointUrl = body.endpoint_url === undefined ? (destinationKind === "endpoint_url" ? undefined : null) : endpointUrlFor(env, destinationKind, body.endpoint_url);
     const givenGameSlugs = body.game_slugs === undefined ? undefined : gameSlugsOrThrow(checked.gameSlugs);
     const gameSlugs = givenGameSlugs !== undefined || isNewDestination ? gameSlugsFor(destinationKind, givenGameSlugs === undefined ? gameSlugsOf(webhook) : givenGameSlugs) : undefined;
-    const updated = await updateWebhook(env.DB, webhook, {
+    const { webhook: updated, signingSecret } = await updateWebhook(env.DB, env, webhook, {
       destinationKind,
       endpointUrl,
       eventKinds: body.event_kinds === undefined ? undefined : eventKindsOrThrow(body.event_kinds),
@@ -2533,7 +2534,7 @@ async function webhookRoute(request: Request, env: Env, sub: "test" | "deliverie
     await logCallerEvent(env, caller, "webhook_changed", { subjectName: webhook.id });
     const counts = (await deliveryCountsFor(env.DB, caller.ownerId)).get(webhook.id);
     const nextSteps: NextStep[] = body.endpoint_url !== undefined || isNewDestination || replaceSigningSecret === true ? [testStep(updated)] : [];
-    return [{ webhook: webhookJson(updated, counts), signing_secret: replaceSigningSecret === true ? updated.signing_secret : null, next_steps: nextSteps }];
+    return [{ webhook: webhookJson(updated, counts), signing_secret: signingSecret, next_steps: nextSteps }];
   }
   if (method === "DELETE") {
     await deleteWebhook(env.DB, webhook.id);
@@ -2638,11 +2639,11 @@ function deliveryJson(delivery: WebhookDelivery) {
 // The JSON for each kind of thing, as schemas.ts describes it: the row's own names, with values in
 // the API's form (ISO times, true and false, lists and objects instead of stored text).
 
-function testerJson(env: Env, link: TesterLink) {
+async function testerJson(env: Env, link: TesterLink) {
   return {
     id: link.id,
     name: link.name,
-    link_url: `${env.SITE_ORIGIN}/t/${link.token}`,
+    link_url: `${env.SITE_ORIGIN}/t/${await testerLinkToken(env, link)}`,
     version_choice: link.version_choice,
     picked_version_id: link.picked_version_id,
     ends_at: iso(link.ends_at_ms),
@@ -2695,7 +2696,7 @@ function performanceCheckJson(row: PerformanceCheckRow | null) {
 
 export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null, aiReview: AiReviewFacts | null) {
   const isReviewOpen = aiReview !== null && !isAiReviewDone(version) && version.ai_review_status !== "stopped";
-  const preview = previewLinkToken(version);
+  const preview = previewLinkToken(env, version);
   const report = scanReportOf(version);
   return {
     id: version.id,

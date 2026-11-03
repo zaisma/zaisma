@@ -1,5 +1,6 @@
 import { isOpenToOthers, OPEN_TO_OTHERS_SQL } from "./ai-review.ts";
 import { sha256Hex } from "./ids.ts";
+import { storedSecretsKeyBytes, type StoredSecretsKeys } from "./sealed-secrets.ts";
 import type { TesterLink } from "./db.ts";
 import type { Game, Version } from "./types.ts";
 
@@ -102,46 +103,56 @@ export async function deleteEndedAccessPasses(database: D1Database, nowMs = Date
 // An accounts-only game (account_requirement whole_game) serves its public address only to a browser that
 // came through its zaisma.com page: the page asks for a grant (POST /api/plays/:slug/entry, which checks the
 // account and its age), and the games server swaps it for a cookie at <slug>.<game domain>/_zaisma/enter.
-// Nothing is stored per player: both are HMACs keyed with the game's entry_signing_key, so a new key ends
-// every grant and cookie at once. The grant works for a minute (not once), and only ever reaches the
-// player's own frame, inside an encrypted URL.
+// Nothing is stored per player: both are HMACs keyed with the game's entry_signing_key under STORED_SECRETS_KEY,
+// so a new entry_signing_key ends every grant and cookie at once, and the database alone can't make one. The grant
+// works for a minute (not once), and only ever reaches the player's own frame, inside an encrypted URL.
 
 const ENTRY_TOKEN_PATTERN = /^(\d{1,15})\.([0-9a-f]{64})$/;
 
-async function entryHmacKey(signingKey: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(signingKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+/** The game's entry key under each stored secrets key, the one in use first. */
+async function entryHmacKeys(keys: StoredSecretsKeys, signingKey: string): Promise<CryptoKey[]> {
+  return Promise.all(
+    storedSecretsKeyBytes(keys).map(async (keyBytes) => {
+      const outerKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const entryKey = await crypto.subtle.sign("HMAC", outerKey, new TextEncoder().encode(`entry_signing_key:${signingKey}`));
+      return crypto.subtle.importKey("raw", entryKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+    }),
+  );
 }
 
-async function signEntry(game: Pick<Game, "id" | "entry_signing_key">, purpose: "grant" | "entry", expiresAtMs: number): Promise<string> {
-  const signature = await crypto.subtle.sign("HMAC", await entryHmacKey(game.entry_signing_key), new TextEncoder().encode(`${purpose}|${game.id}|${expiresAtMs}`));
+async function signEntry(keys: StoredSecretsKeys, game: Pick<Game, "id" | "entry_signing_key">, purpose: "grant" | "entry", expiresAtMs: number): Promise<string> {
+  const signature = await crypto.subtle.sign("HMAC", (await entryHmacKeys(keys, game.entry_signing_key))[0]!, new TextEncoder().encode(`${purpose}|${game.id}|${expiresAtMs}`));
   return `${expiresAtMs}.${Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** Whether a grant or cookie is this game's, for this purpose, and still on. crypto.subtle.verify compares in constant time. */
-async function isEntrySigned(game: Pick<Game, "id" | "entry_signing_key">, purpose: "grant" | "entry", token: string, nowMs: number): Promise<boolean> {
+async function isEntrySigned(keys: StoredSecretsKeys, game: Pick<Game, "id" | "entry_signing_key">, purpose: "grant" | "entry", token: string, nowMs: number): Promise<boolean> {
   const match = ENTRY_TOKEN_PATTERN.exec(token);
   if (!match || !game.entry_signing_key) return false;
   const expiresAtMs = Number(match[1]);
   if (expiresAtMs <= nowMs) return false;
   const signature = Uint8Array.from(match[2]!.match(/../g)!, (pair) => parseInt(pair, 16));
-  return crypto.subtle.verify("HMAC", await entryHmacKey(game.entry_signing_key), signature, new TextEncoder().encode(`${purpose}|${game.id}|${expiresAtMs}`));
+  for (const key of await entryHmacKeys(keys, game.entry_signing_key)) {
+    if (await crypto.subtle.verify("HMAC", key, signature, new TextEncoder().encode(`${purpose}|${game.id}|${expiresAtMs}`))) return true;
+  }
+  return false;
 }
 
 /** A grant for the player's frame to enter an accounts-only game's public address: good for a minute. */
-export async function createEntryGrant(game: Pick<Game, "id" | "entry_signing_key">, nowMs = Date.now()): Promise<string> {
-  return signEntry(game, "grant", nowMs + ACCESS_GRANT_DURATION_MS);
+export async function createEntryGrant(keys: StoredSecretsKeys, game: Pick<Game, "id" | "entry_signing_key">, nowMs = Date.now()): Promise<string> {
+  return signEntry(keys, game, "grant", nowMs + ACCESS_GRANT_DURATION_MS);
 }
 
 /** Swap a grant for the entry cookie's value, lasting 12 hours. Null when the grant is old, another game's or from before a new key. */
-export async function useEntryGrant(game: Pick<Game, "id" | "entry_signing_key">, grant: string, nowMs = Date.now()): Promise<{ cookieValue: string; expiresAtMs: number } | null> {
-  if (!(await isEntrySigned(game, "grant", grant, nowMs))) return null;
+export async function useEntryGrant(keys: StoredSecretsKeys, game: Pick<Game, "id" | "entry_signing_key">, grant: string, nowMs = Date.now()): Promise<{ cookieValue: string; expiresAtMs: number } | null> {
+  if (!(await isEntrySigned(keys, game, "grant", grant, nowMs))) return null;
   const expiresAtMs = nowMs + ACCESS_PASS_DURATION_MS;
-  return { cookieValue: await signEntry(game, "entry", expiresAtMs), expiresAtMs };
+  return { cookieValue: await signEntry(keys, game, "entry", expiresAtMs), expiresAtMs };
 }
 
 /** Whether an entry cookie's value still opens this game. */
-export function isEntryCookieValid(game: Pick<Game, "id" | "entry_signing_key">, cookieValue: string, nowMs = Date.now()): Promise<boolean> {
-  return isEntrySigned(game, "entry", cookieValue, nowMs);
+export function isEntryCookieValid(keys: StoredSecretsKeys, game: Pick<Game, "id" | "entry_signing_key">, cookieValue: string, nowMs = Date.now()): Promise<boolean> {
+  return isEntrySigned(keys, game, "entry", cookieValue, nowMs);
 }
 
 /** A tester link opens its game while it's on and before its end date. */

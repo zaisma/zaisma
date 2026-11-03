@@ -142,10 +142,10 @@ describe("security alerts", () => {
   it("go to a webhook for every game at an endpoint_url, never one limited to a game or a game server", async () => {
     const owner = await personOwner(env.DB, ACCOUNT_ID);
     await createGame(env.DB, { slug: "sky-hopper", title: "Sky Hopper", description: "", ownerId: owner.id, visibility: "draft" });
-    await createWebhook(env.DB, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/all`, eventKinds: ["security_alert"], gameSlugs: null });
-    await createWebhook(env.DB, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/one-game`, eventKinds: ["security_alert"], gameSlugs: ["sky-hopper"] });
-    await createWebhook(env.DB, { ownerId: owner.id, destinationKind: "game_server", endpointUrl: null, eventKinds: ["security_alert"], gameSlugs: ["sky-hopper"] });
-    await createWebhook(env.DB, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/bugs`, eventKinds: ["bug_reported"], gameSlugs: null });
+    await createWebhook(env.DB, env, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/all`, eventKinds: ["security_alert"], gameSlugs: null });
+    await createWebhook(env.DB, env, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/one-game`, eventKinds: ["security_alert"], gameSlugs: ["sky-hopper"] });
+    await createWebhook(env.DB, env, { ownerId: owner.id, destinationKind: "game_server", endpointUrl: null, eventKinds: ["security_alert"], gameSlugs: ["sky-hopper"] });
+    await createWebhook(env.DB, env, { ownerId: owner.id, destinationKind: "endpoint_url", endpointUrl: `${HOOKS}/bugs`, eventKinds: ["bug_reported"], gameSlugs: null });
     await logSecurityEvent(env, row("api_key_new_place", { doneBy: "api_key", apiKeyName: "GitHub Actions", isNewPlace: true }));
     expect(hooked.map((hook) => hook.url)).toEqual([`${HOOKS}/all`]);
     const event = hooked[0]!.body;

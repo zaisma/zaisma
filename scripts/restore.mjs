@@ -344,6 +344,18 @@ async function runRestore() {
   putSecretWhenMissing("rooms", "PASS_SIGNING_KEY", ed25519Key);
   putSecretWhenMissing("rooms", "RECEIPT_SIGNING_KEY", ed25519Key);
   putSecretWhenMissing("rooms", "PLAYER_TAG_KEY", () => randomBytes(32).toString("base64"));
+  putSecretWhenMissing("rooms", "SECOND_PASS_SIGNING_KEY", ed25519Key);
+  putSecretWhenMissing("rooms", "CHAT_GROUP_KEY", () => randomBytes(32).toString("base64"));
+  putSecretWhenMissing("site", "SECOND_SIGN_IN_SIGNING_KEY", () => spawnSync(process.execPath, [join(CHECKOUT, "scripts", "sign-in-key.mjs")], { encoding: "utf8" }).stdout);
+  // The stored secrets keys from the password manager (STORED_SECRETS_KEYS, as JSON), or what the backup sealed stays shut: webhooks and tester links need replacing.
+  const storedKeys = JSON.parse(process.env.STORED_SECRETS_KEYS ?? "{}");
+  if (!storedKeys.STORED_SECRETS_KEY) say("STORED_SECRETS_KEYS isn't set: making new keys, so webhook signing secrets and tester links from the backup won't open.");
+  const firstStoredKey = storedKeys.STORED_SECRETS_KEY ?? randomBytes(32).toString("base64");
+  const secondStoredKey = storedKeys.SECOND_STORED_SECRETS_KEY ?? randomBytes(32).toString("base64");
+  for (const worker of ["rooms", "games", "site"]) {
+    putSecretWhenMissing(worker, "STORED_SECRETS_KEY", () => firstStoredKey);
+    putSecretWhenMissing(worker, "SECOND_STORED_SECRETS_KEY", () => secondStoredKey);
+  }
   putSecretWhenMissing("site", "SIGN_IN_SIGNING_KEY", () => spawnSync(process.execPath, [join(CHECKOUT, "scripts", "sign-in-key.mjs")], { encoding: "utf8" }).stdout);
   if (flags.get("site-domain") !== PRODUCTION.siteDomain) putSecretWhenMissing("site", "TURNSTILE_SECRET", () => TURNSTILE_TEST_KEYS.secret);
   putSecretWhenMissing("site", "RESTORE_KEY_ID", () => process.env.RESTORE_KEY_ID);

@@ -29,6 +29,8 @@ const passKey = await generateSigningKey();
 const receiptKey = await generateSigningKey();
 // A throwaway key for the opaque player tags in passes (32 bytes, base64). The real one is a Worker secret.
 const playerTagKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+const chatGroupKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+const storedSecretsKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
 
 // The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
 // real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
@@ -172,6 +174,8 @@ const roomsBindings = {
   PASS_SIGNING_KEY: passKey,
   RECEIPT_SIGNING_KEY: receiptKey,
   PLAYER_TAG_KEY: playerTagKey,
+  CHAT_GROUP_KEY: chatGroupKey,
+  STORED_SECRETS_KEY: storedSecretsKey,
   ROOM_LIST_CACHE_SECONDS: "0",
   PLAYING_NOW_CACHE_SECONDS: "0",
   // Cloudflare's relay and its analytics answer from the stand-in above.
@@ -209,6 +213,7 @@ export default defineConfig({
         // Email codes go to a stand-in outbox the tests read (test/site/accounts.test.ts), never real email.
         EMAIL_OUTBOX_URL: "https://outbox.test",
         SIGN_IN_SIGNING_KEY: signInKey,
+        STORED_SECRETS_KEY: storedSecretsKey,
         // Room lists answer from the database every time, so tests see each change at once.
         ROOM_LIST_CACHE_SECONDS: "0",
         PLAYING_NOW_CACHE_SECONDS: "0",
@@ -244,7 +249,7 @@ export default defineConfig({
         workers: [roomsDatabaseWorker, photoDnaWorker],
         outboundService: siteOutsideServers,
       }),
-      worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
+      worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "", STORED_SECRETS_KEY: storedSecretsKey }),
       worker("core", "apps/games/wrangler.jsonc"),
       worker("game-server", "apps/games/wrangler.jsonc"),
       worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra),

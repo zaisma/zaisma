@@ -161,7 +161,7 @@ describe("lowering the age", () => {
     expect((await api("/games/hop", { method: "PATCH", body: { minimum_player_age_years: 13 } })).status).toBe(200);
     await setAge(16);
     const game = (await gameBySlug(env.DB, "hop"))!;
-    await addTesterLink(env.DB, game.id, "Team", { versionChoice: "picked", pickedVersionId: scheduled, endsAtMs: null });
+    await addTesterLink(env.DB, env, game.id, "Team", { versionChoice: "picked", pickedVersionId: scheduled, endsAtMs: null });
     const refused = await api("/games/hop", { method: "PATCH", body: { minimum_player_age_years: 13 } });
     expect(refused.status).toBe(409);
     expect((await refusal(refused)).message).toContain(scheduled);
