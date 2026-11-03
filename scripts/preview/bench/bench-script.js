@@ -260,6 +260,7 @@
     heard(screenName, groupName, message) {
       const screen = screens[screenName];
       if (!screen) return;
+      if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
       if (big) { big.isChanged = true; if (message.kind === "click") big.lastDone = { kind: "click", message, address: screen.address }; return; }

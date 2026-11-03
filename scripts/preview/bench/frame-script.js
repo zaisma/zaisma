@@ -224,6 +224,24 @@
     const script = document.createElement("script"); script.src = "/__preview/bench/states.js"; script.onload = done; script.onerror = done; document.head.append(script);
   });
 
+  // The status bar's color, as a browser picks it: the page's theme-color for this light or dark, else the page's own background. Never a shader's.
+  let benchTheme = null;
+  const pageColor = () => {
+    const isDark = benchTheme ? benchTheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+      const { media } = meta;
+      const isMatch = !media || (/prefers-color-scheme:\s*dark/.test(media) ? isDark : /prefers-color-scheme:\s*light/.test(media) ? !isDark : matchMedia(media).matches);
+      if (isMatch && meta.content) return meta.content;
+    }
+    for (const el of [document.body, document.documentElement]) {
+      const color = el ? getComputedStyle(el).backgroundColor : "";
+      if (color && color !== "transparent" && color !== "rgba(0, 0, 0, 0)") return color;
+    }
+    return isDark ? "#000" : "#fff";
+  };
+  const sayPageColor = () => say({ kind: "page-color", color: pageColor() });
+  addEventListener("load", () => { sayPageColor(); new MutationObserver(sayPageColor).observe(document.head, { subtree: true, childList: true, attributes: true, attributeFilter: ["content", "media"] }); });
+
   let pageSent = null;
   const pageAsSent = () => (pageSent ??= fetch(location.href).then((answered) => answered.text()).then((text) => new DOMParser().parseFromString(text, "text/html")));
 
@@ -271,7 +289,7 @@
       const names = namesIn(main).slice(0, 200);
       return `rules-${hashOf([rulesFor(names)])}-${names.join(",")}`;
     },
-    setTheme(theme) { document.documentElement.setAttribute("data-theme-choice", theme); document.documentElement.setAttribute("data-theme", theme); dispatchEvent(new Event("zaisma:theme")); },
+    setTheme(theme) { benchTheme = theme; document.documentElement.setAttribute("data-theme-choice", theme); document.documentElement.setAttribute("data-theme", theme); dispatchEvent(new Event("zaisma:theme")); sayPageColor(); },
     setPlaybackRate(rate) { playbackRate = rate; for (const animation of allAnimations()) animation.playbackRate = rate; },
     /** The slider: every animation held at this share of the way through; null lets them go. */
     scrub(share) {
