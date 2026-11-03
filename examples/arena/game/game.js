@@ -133,8 +133,35 @@ function showBoard(/** @type {World} */ world) {
   }
 }
 
-// Mute, block and report, from the game's own menu.
-document.getElementById("players").onclick = () => room && Zaisma.openPlayersPanel(room);
+// The game's own player list, in its own look: it reads the room's players, and mutes, blocks and reports through the room.
+const playersElement = document.getElementById("players-list");
+function showPlayers() {
+  const list = playersElement.querySelector("ol");
+  list.textContent = "";
+  for (const other of room ? room.players.filter((player) => !room.me || player.id !== room.me.id) : []) {
+    const line = document.createElement("li");
+    line.textContent = `${other.name} `;
+    const mute = document.createElement("button");
+    mute.type = "button";
+    mute.textContent = "Mute";
+    mute.onclick = () => room.mute(other.id);
+    const block = document.createElement("button");
+    block.type = "button";
+    block.textContent = "Block";
+    block.onclick = () => room.block(other.id);
+    const report = document.createElement("button");
+    report.type = "button";
+    report.textContent = "Report";
+    report.onclick = () => room.report(other.id, "other");
+    line.append(mute, " ", block, " ", report);
+    list.append(line);
+  }
+  if (!list.children.length) list.textContent = "Nobody else is here yet.";
+}
+document.getElementById("players").onclick = () => {
+  playersElement.hidden = !playersElement.hidden;
+  if (!playersElement.hidden) showPlayers();
+};
 // Your color: picked with the Color button, kept for next time and brought into each room as join data.
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
 const colorButton = document.getElementById("color");
@@ -176,9 +203,6 @@ document.getElementById("best").onclick = async () => {
     list.textContent = error.message;
   }
 };
-
-// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openPlayersPanel lists them).
-document.getElementById("friends").onclick = () => room && Zaisma.openPlayersPanel(room);
 
 /** @param {string} [roomCode] a friend's arena; else the linked one, a busy one or a new one */
 async function start(roomCode) {

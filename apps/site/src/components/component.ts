@@ -7,7 +7,7 @@ import type { Raw } from "../markup.ts";
  * gallery shows. Each group file (foundations.ts, actions.ts, …) defines its components as it loads;
  * components/index.ts imports them all and bundles their styles and scripts for the pages.
  */
-export type ComponentGroup = "foundations" | "layout" | "actions" | "inputs" | "navigation" | "panes" | "data";
+export type ComponentGroup = "foundations" | "layout" | "actions" | "inputs" | "navigation" | "panes" | "data" | "over-a-game";
 
 export const COMPONENT_GROUPS: { group: ComponentGroup; name: string }[] = [
   { group: "foundations", name: "Foundations" },
@@ -17,6 +17,7 @@ export const COMPONENT_GROUPS: { group: ComponentGroup; name: string }[] = [
   { group: "navigation", name: "Navigation" },
   { group: "panes", name: "Panes" },
   { group: "data", name: "Data" },
+  { group: "over-a-game", name: "Over a game" },
 ];
 
 /**
@@ -41,11 +42,16 @@ export const COMPONENT_SUBGROUPS: { group: ComponentGroup; subgroup: string; nam
   { group: "panes", subgroup: "cards", name: "Cards" },
   { group: "panes", subgroup: "layers", name: "Layers" },
   { group: "panes", subgroup: "buying", name: "Buying" },
+  { group: "panes", subgroup: "sheets", name: "Sheets" },
   { group: "data", subgroup: "pictures", name: "Pictures" },
   { group: "data", subgroup: "lists", name: "Lists" },
   { group: "data", subgroup: "numbers", name: "Numbers" },
   { group: "data", subgroup: "states", name: "States" },
   { group: "data", subgroup: "reading", name: "Reading" },
+  { group: "over-a-game", subgroup: "zaisma-button", name: "Zaisma button" },
+  { group: "over-a-game", subgroup: "zaisma-overlay", name: "Zaisma overlay" },
+  { group: "over-a-game", subgroup: "notices", name: "Notices" },
+  { group: "over-a-game", subgroup: "sheets", name: "Sheets" },
 ];
 
 /** A group's subgroups in gallery order; none for a group that's one page. */
@@ -79,6 +85,8 @@ export interface ComponentExample {
   /** The state or variant shown: "Rest", "Pointed", "Pressed", "Keyboard focus", "Busy", "Error", "Small", "Full width". The gallery shows it in a few quiet words under the example. */
   label: string;
   markup: Raw;
+  /** A working example that answers to the gallery page's own address (a list read a page at a time, on its page 2): its markup at that address. */
+  markupAt?: (url: URL) => Raw;
   /** Spans the whole stage width. */
   isWide?: boolean;
   /** A fixed state (pointed, pressed, focused, busy): shown still, not something to point at or press. */

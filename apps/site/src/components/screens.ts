@@ -3,7 +3,7 @@ import { pageScript, pageScriptPath } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { sheet } from "./panes.ts";
-import { secondaryButton, primaryButton, textLink } from "./actions.ts";
+import { action, secondaryButton, primaryButton, textLink } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 import { checkField } from "./choices.ts";
 import { grid, paneParts, row, stack, stackOfOne } from "./layout.ts";
@@ -64,7 +64,7 @@ export function screens(options: ScreensOptions): Raw {
     const name = `${screenSize.name}, ${theme}`;
     return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
 <div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
-<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${secondaryButton(`${name}, larger`, { type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
+<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${secondaryButton(action("fullScreen", `${name}, larger`), { type: "button", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
 <ul class="screen-problems" data-screen-problems hidden></ul>
 <p class="screen-pointed" data-screen-pointed hidden></p>
 </figure>`;
@@ -132,7 +132,7 @@ ${options.account ? html`<p>Seen as ${options.account}: the screens show whoever
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
+  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {

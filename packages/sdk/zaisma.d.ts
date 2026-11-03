@@ -198,7 +198,7 @@ declare namespace Zaisma {
   const server: Server;
 
   /**
-   * Invite friends. On Zaisma it opens the page's Share, the same as the game bar's Share button: the
+   * Invite friends. On Zaisma it opens Zaisma's invite sheet, the same as the Zaisma overlay's Share: the
    * room's QR code, link and code, Copy and the share sheet ("opened", or "failed" when the page couldn't
    * open it). On your own site it opens the share sheet on phones, otherwise copies the room's invite link
    * (the game's page without a room). Call it from a button in your game, like on a "waiting for players"
@@ -226,16 +226,6 @@ declare namespace Zaisma {
    * else send(check.text);
    */
   function checkChat(text: string): Promise<ChatCheck>;
-
-  /**
-   * The Players panel, where a player can mute, block and report the others and see their friends. On
-   * Zaisma it opens the game bar's own Players, the same as its button (leaving full screen if the
-   * game is in it), so a Players button in your game, in your game's style, does exactly what the bar's
-   * does. On your own site, where there's no bar, it draws Zaisma's ready-made panel.
-   * A game with its own netcode offers them in its own menu. Or build your own panel
-   * with room.mute, room.block and room.report.
-   */
-  function openPlayersPanel(room: Room): void;
 
   /**
    * The signed-in player's Zaisma friends who are playing this game right now, for your own list of
@@ -605,7 +595,7 @@ declare namespace Zaisma {
 
   /**
    * Whether Zaisma's page covers the game right now, so a game can pause or hold the player's input while it does.
-   * coveredBy is "sheet" while one of Zaisma's sheets is open over the game (buying, Players, Report: the player is
+   * coveredBy is "sheet" while one of Zaisma's sheets is open over the game (buying, the Zaisma overlay, Report: the player is
    * busy with it), "card" while one of its cards is over the game's corner (Still there?, Keep your progress; the
    * game stays in view and playable), and null otherwise. Always null outside Zaisma's page (your own site, a
    * local test). Listen for "coveredBy" to hear each change.

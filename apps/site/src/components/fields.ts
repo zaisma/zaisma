@@ -4,10 +4,11 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, picture, type IconName } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { tertiaryButton, toggleButton } from "./actions.ts";
+import { ICON_ROOM_WIDTH, secondaryButton, action, passwordToggle, tertiaryButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
 import { row } from "./layout.ts";
+import { HEADER_RAIL_MEDIA } from "./tokens.ts";
 
 /*
  * Fields: the cut field, search, the PIN field and the wheel field. From the sign-in draft (fields, the
@@ -15,6 +16,8 @@ import { row } from "./layout.ts";
  */
 
 export interface CutFieldOptions {
+  /** For a few characters (a room code): a short field, with room beside it for its button. */
+  isShort?: boolean;
   name: string;
   label: string;
   type: "text" | "email" | "search" | "password";
@@ -59,8 +62,8 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const hintId = `${id}-hint`;
   const className = ["field", "carving", "layered", "is-used", "sized", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
-  return controlMarkup(html`<div class="cut-field"><label class="words-margin" for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? toggleButton(options.isPasswordShown ? "Hide" : "Show", { type: "button", isSmall: true, isPressed: Boolean(options.isPasswordShown), controls: id, isDisabled: options.isDisabled }) : ""}</span>
+  return controlMarkup(html`<div class="cut-field${options.isShort ? " is-short" : ""}"><label class="words-margin" for="${id}">${options.label}</label>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) }) : ""}</span>
 ${options.error ? html`<p class="field-error words-margin" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint words-margin" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -121,7 +124,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
     ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, 0) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
-  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton("Clear the search", { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
+  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton(action("close", "Clear the search"), { type: "button", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
 }
 
 export interface WheelColumn {
@@ -206,8 +209,8 @@ export function wheelField(options: WheelFieldOptions): ControlMarkup {
   const sent = options.wheelKind === "custom"
     ? columns.map((column) => html`<input type="hidden" name="${column.name}" value="${(column.rows.find((row) => row.rowValue === column.pickedValue) ?? column.rows[0])?.rowValue ?? ""}" data-part="${column.name}">`)
     : html`<input type="hidden" name="${options.name}" value="${options.pickedValue ?? ""}">`;
-  return controlMarkup(html`<fieldset class="wheel-field" id="${id}" data-wheels="${options.wheelKind}"${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}${options.isRequired ? raw(" data-required") : ""}>
-<legend class="words-margin" id="${id}-legend">${options.label}</legend>
+  return controlMarkup(html`<div class="wheel-field" role="group" aria-labelledby="${id}-legend" id="${id}" data-wheels="${options.wheelKind}"${options.minimumAt ? html` data-minimum-at="${options.minimumAt}"` : ""}${options.isRequired ? raw(" data-required") : ""}>
+<span class="field-legend words-margin" id="${id}-legend">${options.label}</span>
 <button type="button" class="${buttonClass}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${describedBy}">${CUT_LINE}${fieldIcon ? icon(fieldIcon) : ""}<span class="wheel-value one-line">${shown}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
 ${floatingPane({
     id: `${id}-pick`,
@@ -222,7 +225,7 @@ ${floatingPane({
   })}
 <p class="field-error words-margin" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint words-margin" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
 ${sent}
-</fieldset>`, "field", { hasOwnWords: true });
+</div>`, "field", { hasOwnWords: true });
 }
 
 /** How many boxes a PIN field has: a purchase PIN's digits (packages/core/src/purchase-pin.ts), so the field and the rule never differ. */
@@ -329,6 +332,119 @@ export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
 `;
 
 /** Show/Hide: shows the password it controls, and hides it again. Clear: empties a search and puts you back in it. */
+/**
+ * Typing on a phone on its side, the keyboard leaves a sliver of the screen and the field is often under it. The field you're in, with what's
+ * in its row (Join), rises into a bar at the top of what shows; the rest is covered, and a press on the cover or the keyboard's Done ends it.
+ * The field stays where it is in the page, so it keeps its focus and the keyboard stays up. window.zaismaTypingBar shows it in the gallery.
+ */
+export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
+  var media = window.matchMedia("(orientation: landscape) and (max-height: 500px) and (pointer: coarse)"), root = document.documentElement, view = window.visualViewport, held = null, typed = null, cover = null, veil = null, pendingTimer = 0, settling = 0, pinning = 0, isLeaving = false;
+  var TEXT = /^(text|search|email|url|tel|password|number)$/;
+  function isTyped(el) { return el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && TEXT.test(el.type))) && !el.readOnly && !el.disabled; }
+  // Centered in what shows above the keyboard, every frame while it's up: a phone pans what shows as the keyboard moves, and tells late.
+  function setPlace(name, value) { root.style.setProperty(name, value + "px"); }
+  function fit() {
+    var top = view ? view.offsetTop : 0, left = view ? view.offsetLeft : 0, height = shownHeight(), width = view ? view.width : window.innerWidth;
+    setPlace("--typing-height", height); setPlace("--typing-shown-width", width);
+    if (held) { setPlace("--typing-top", top + Math.max(0, (height - held.offsetHeight) / 2)); setPlace("--typing-left", left + (width - held.offsetWidth) / 2); }
+  }
+  function pin() { fit(); pinning = requestAnimationFrame(pin); }
+  // The field, with its row's other controls when it shares one (Join); never the form it's in.
+  function holderOf(el) {
+    var field = el.closest(".cut-field, .pin-field, .find"), cell = field && field.parentElement;
+    if (cell && cell.classList.contains("row-cell")) return cell.closest(".layout-row");
+    return field || el.closest(".stack-cell") || el.parentElement;
+  }
+  // The veil fades the whole screen to the ground the field's glass sits on, over any open sheet (a popover is the top layer's newest),
+  // so what's clipped and fixed can change under it unseen.
+  function makeVeil(isShown) {
+    var made = document.createElement("div");
+    made.className = "typing-veil" + (isShown ? " is-shown" : "");
+    made.setAttribute("popover", "manual");
+    document.body.appendChild(made);
+    if (made.showPopover) made.showPopover();
+    return made;
+  }
+  function removeVeil() { if (veil) { veil.remove(); veil = null; } }
+  function veilMs() { return veil ? parseFloat(getComputedStyle(veil).transitionDuration) * 1000 || 0 : 0; }
+  function lowered() { document.dispatchEvent(new Event("typing-bar-lowered")); }
+  function fadeVeilOut() {
+    lowered();
+    if (!veil) return;
+    var leaving = veil, ms = veilMs(); veil = null;
+    leaving.offsetWidth; leaving.classList.remove("is-shown");
+    setTimeout(function () { leaving.remove(); }, ms);
+  }
+  // In the bar and back, what's beside what changes, and a control that keeps its size doesn't redraw by itself: the row's slants would part.
+  function redrawEdges() { if (window.zaismaRedrawEdges) window.zaismaRedrawEdges(); }
+  // What's round the field goes back to its place at once: anything easing there would carry on past the veil.
+  function takeDown() {
+    var kept = [];
+    for (var el = held; el; el = el.parentElement) { kept.push([el, el.style.transition]); el.style.transition = "none"; }
+    cancelAnimationFrame(pinning); held.classList.remove("is-typing-bar", "is-typing-shown", "is-typing-leaving"); cover.remove(); root.classList.remove("is-typing");
+    held = cover = null;
+    root.offsetWidth;
+    kept.forEach(function (each) { each[0].style.transition = each[1]; });
+    redrawEdges();
+  }
+  function putUp(el) {
+    typed = el; held = holderOf(el);
+    cover = document.createElement("div"); cover.className = "typing-cover"; held.after(cover);
+    held.classList.add("is-typing-bar"); root.classList.add("is-typing"); pin(); redrawEdges();
+  }
+  // A frame apart: the veil leaving and the field arriving at once can flash on a phone.
+  function reveal() { removeVeil(); requestAnimationFrame(function () { if (held) held.classList.add("is-typing-shown"); }); }
+  function setGround(el) { root.style.setProperty("--typing-ground", getComputedStyle(el).getPropertyValue("--glass-ground")); }
+  function shownHeight() { return view ? view.height : window.innerHeight; }
+  // Whatever the keyboard does to the screen happens under the veil: done once what shows has changed and held still, never before the
+  // keyboard's slide could have ended, or at the limit when no keyboard moves it.
+  function afterSettling(startHeight, startedAt, limitMs, done) {
+    var lastHeight = shownHeight(), lastTop = view ? view.offsetTop : 0, stillSince = performance.now(), hasMoved = lastHeight !== startHeight;
+    function look(now) {
+      var height = shownHeight(), top = view ? view.offsetTop : 0;
+      if (height !== lastHeight || top !== lastTop) { lastHeight = height; lastTop = top; stillSince = now; hasMoved = true; }
+      if (now - startedAt >= limitMs || (hasMoved && now - startedAt >= 500 && now - stillSince >= 250)) { settling = 0; done(); return; }
+      settling = requestAnimationFrame(look);
+    }
+    settling = requestAnimationFrame(look);
+  }
+  function stopWaiting() { clearTimeout(pendingTimer); cancelAnimationFrame(settling); settling = 0; }
+  function lift(el) {
+    stopWaiting(); isLeaving = false;
+    if (held) { takeDown(); setGround(el); putUp(el); reveal(); return; }
+    var startHeight = shownHeight(), startedAt = performance.now();
+    typed = el; setGround(el);
+    function under() {
+      if (document.activeElement !== el) { typed = null; fadeVeilOut(); return; }
+      putUp(el); afterSettling(startHeight, startedAt, 900, reveal);
+    }
+    if (veil) { under(); return; }
+    veil = makeVeil(false); veil.offsetWidth; veil.classList.add("is-shown");
+    pendingTimer = setTimeout(under, veilMs());
+  }
+  function drop() {
+    if (isLeaving) return;
+    stopWaiting();
+    if (!held) { typed = null; fadeVeilOut(); return; }
+    if (veil) { takeDown(); typed = null; fadeVeilOut(); return; }
+    isLeaving = true; held.classList.add("is-typing-leaving");
+    pendingTimer = setTimeout(function () { isLeaving = false; veil = makeVeil(true); takeDown(); typed = null; fadeVeilOut(); }, parseFloat(getComputedStyle(held).animationDuration) * 1000 || 0);
+  }
+  document.addEventListener("focusin", function (event) { if (media.matches && isTyped(event.target)) lift(event.target); });
+  document.addEventListener("focusout", function () { setTimeout(function () { var active = document.activeElement; if (typed && active !== typed && !(held && held.contains(active))) drop(); }, 0); });
+  // The click that follows a press on the cover ends with it: it would land on what's under the cover, and a press beside a sheet closes it.
+  function swallow(event) { event.preventDefault(); event.stopPropagation(); }
+  document.addEventListener("pointerdown", function (event) {
+    if (!cover || event.target !== cover) return;
+    event.preventDefault(); typed.blur(); drop();
+    document.addEventListener("click", swallow, { capture: true, once: true });
+    setTimeout(function () { document.removeEventListener("click", swallow, true); }, 700);
+  }, true);
+  media.addEventListener("change", function () { if (!media.matches) drop(); });
+  window.zaismaTypingBar = { lift: lift };
+})();
+`;
+
 export const FIELD_SCRIPT = `/* fields */(function () {
   document.addEventListener("click", function (event) {
     var clear = event.target.closest && event.target.closest(".find > .tertiary-btn");
@@ -342,8 +458,8 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
     input.type = on ? "text" : "password";
-    // Only its words change: the slab and its drawn edge stay. The label, not the loader's span before it.
-    show.querySelector(".face > span:not(.loader)").textContent = on ? "Hide" : "Show";
+    // Only its icon and name change: the slab and its drawn edge stay.
+    show.setAttribute("aria-label", on ? "Hide" : "Show");
     show.setAttribute("aria-pressed", String(on));
   });
   // A field that takes only some characters (data-characters) drops every other before it shows, letters first turned to capitals where
@@ -419,6 +535,11 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     // A Floating pane under the field, as wide as it; the cursor stays in the field, so Esc there closes it (below).
     var float = window.zaismaFloat(list, {
       anchor: form, focusOnClose: input, isAnchorWidth: true,
+      // A field in the header too narrow for a game's row beside its cover (a phone) opens its list across the whole header.
+      anchorRect: function () {
+        var rect = form.getBoundingClientRect(), header = form.closest("body > .top");
+        return header && rect.width < parseFloat(getComputedStyle(list).getPropertyValue("--list-least-width")) ? header.getBoundingClientRect() : rect;
+      },
       onToggle: function (isShown) { input.setAttribute("aria-expanded", String(isShown)); form.classList.toggle("is-open", isShown); showFinish(); }
     });
     function isOpen() { return float.isOpen(); }
@@ -435,8 +556,12 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       else input.removeAttribute("aria-activedescendant");
       showFinish();
     }
-    function show() { if (isOpen()) float.place(); else float.open(); showFinish(); }
+    // On a phone on its side, with the keyboard up, there's no room for them under the header's field: Enter searches, and they stay away.
+    var noRoomMedia = form.closest("body > .top") && window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)});
+    function hasNoRoom() { return Boolean(noRoomMedia) && noRoomMedia.matches; }
+    function show() { if (hasNoRoom()) return; if (isOpen()) float.place(); else float.open(); showFinish(); }
     function hide() { float.close(false); showFinish(); }
+    if (noRoomMedia) noRoomMedia.addEventListener("change", function () { if (hasNoRoom()) hide(); });
     // What's typed, the part of the words that matches it in bold.
     function words(text, typed) {
       var span = document.createElement("span"), matchIndex = typed ? text.toLowerCase().indexOf(typed.toLowerCase()) : -1;
@@ -488,9 +613,12 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
         next.concat(nextGames).forEach(function (row, rowIndex) { row.id = id + "-row-" + rowIndex; });
       }
       rows = next.concat(nextGames);
-      if (rows.length && document.activeElement === input) { show(); setActive(0); } else { setActive(-1); hide(); }
+      // What's lit is what Enter takes: a game of exactly what's typed, wherever its row is, or else the first row.
+      var titledIndex = games.findIndex(function (game) { return game.title.toLowerCase() === typed.toLowerCase(); });
+      if (rows.length && document.activeElement === input) { show(); setActive(titledIndex < 0 ? 0 : next.length + titledIndex); } else { setActive(-1); hide(); }
     }
     function ask() {
+      if (hasNoRoom()) return;
       var typed = input.value.trim();
       if (asking) { asking.abort(); asking = null; }
       if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
@@ -507,9 +635,10 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var row = rows[active];
       if (row && row.tagName === "A") { location.href = row.href; return; }
       if (row) { input.value = row.getAttribute("data-finish"); input.dispatchEvent(new Event("input", { bubbles: true })); }
-      clearTimeout(timer); if (asking) asking.abort(); hide();
       form.requestSubmit();
     }
+    // A search sent is done with: its predictions close, and on a touch screen the keyboard goes with them, so the results show.
+    form.addEventListener("submit", function () { clearTimeout(timer); if (asking) asking.abort(); hide(); if (matchMedia("(pointer: coarse)").matches) input.blur(); });
     input.addEventListener("input", function () { clearTimeout(timer); showFinish(); timer = setTimeout(ask, WAIT_MS); });
     input.addEventListener("scroll", showFinish);
     // Back in a search that has words in it (clicked, tapped or tabbed to), its predictions show again, as if just typed.
@@ -774,6 +903,26 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
 `;
 
 const FIELD_STYLES = `
+/* The typing bar (TYPING_BAR_SCRIPT). While it's up, nothing around it may hold what's fixed inside it or clip it, under its cover. The field keeps its own glass and cut. */
+.is-typing body { background: var(--typing-ground); }
+.is-typing body *:not(.is-typing-bar, .is-typing-bar *, .typing-cover) { visibility: hidden !important; }
+.is-typing :is(.is-typing-bar, .typing-cover) { visibility: visible !important; }
+.is-typing :has(.is-typing-bar) { transition: none !important; animation: none !important; clip-path: none !important; -webkit-mask: none !important; mask: none !important; transform: none !important; translate: none !important; filter: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; contain: none !important; container-type: normal !important; perspective: none !important; will-change: auto !important; }
+.typing-cover { position: fixed; z-index: 2147482999; top: 0; left: 0; width: 100%; height: 100lvh; background: var(--typing-ground); }
+.is-typing-bar.is-typing-bar { position: fixed !important; z-index: 2147483000 !important; top: var(--typing-top, 0px) !important; left: var(--typing-left, 0px) !important; right: auto !important; bottom: auto !important; width: min(var(--typing-shown-width, 100vw) - 2 * max(var(--pad-frame), var(--safe-left), var(--safe-right)), var(--typing-width)) !important; max-width: none !important; flex: none !important; margin: 0 !important; box-sizing: border-box; }
+.is-typing-bar, .is-typing-bar * { transition: none !important; }
+.is-typing-bar.is-typing-bar { opacity: 0; will-change: opacity, translate; }
+.is-typing-bar.is-typing-bar.is-typing-shown { opacity: 1; animation: typing-rise var(--motion-state) var(--ease-glide); }
+.is-typing-bar > .row-cell:has(input) { flex: 1 1 auto; max-width: none; }
+.is-typing-bar > .row-cell:has(input) > * { width: 100%; }
+.is-typing-bar .cut-field > .field { width: 100% !important; max-width: none !important; }
+.is-typing-bar:has(textarea) { max-height: calc(var(--typing-height, 100vh) - 2 * var(--pad-inside-words)); overflow: auto; }
+.is-typing-bar.is-typing-bar.is-typing-leaving { animation: typing-fall var(--motion-state) var(--ease-standard) forwards; }
+.typing-veil { position: fixed; inset: 0 auto auto 0; width: 100%; height: 100lvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--typing-ground); opacity: 0; pointer-events: none; transition: opacity var(--motion-state) var(--ease-standard); }
+.typing-veil.is-shown { opacity: 1; }
+@keyframes typing-rise { from { opacity: 0; translate: 0 var(--pad-inside-words); } }
+@keyframes typing-fall { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .is-typing-bar.is-typing-bar.is-typing-shown, .is-typing-bar.is-typing-bar.is-typing-leaving { animation: none; } .typing-veil { transition: none; } }
 /* Fields: the header's search field, bigger. A cut field of clearer glass with a drawn outline and a line icon saying what goes in it;
    pointing clears it a little, and typing in it whitens it and draws the outline in orange. Words are 16px, so phones don't zoom in. */
 .cut-field { display: flex; flex-direction: column; gap: var(--gap-words-control); }
@@ -784,6 +933,7 @@ const FIELD_STYLES = `
 /* Its width never follows what's in it or the font it's shown in (a hidden password's dots are larger): a card's width where its pane fits
    what's in it, the pane's width where that's wider, never past it. */
 .cut-field > .field:not(.select, .long) { width: var(--size-card); min-width: 100%; max-width: 100%; }
+.cut-field.is-short > .field:not(.select, .long) { width: var(--size-field-short); min-width: 0; }
 /* Its face is a layer of its own under its words (the field's ::before), so the words can fade out at an end with more of them past it
    (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
 .field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
@@ -809,11 +959,10 @@ const FIELD_STYLES = `
 .field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
 .field.no-icon > input { --text-start: var(--pad-inside-words); }
-/* Show/Hide: a small secondary button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its words change and its
+/* Show/Hide: a small secondary button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its icon changes and its
    width doesn't, so what's typed keeps exactly the room it leaves: the toggle's width and its inset on each side. */
 .field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
-.field.with-toggle { --toggle-width: 62px; }
-.field.with-toggle > .cut-btn > .face { width: var(--toggle-width); padding: 0; }
+.field.with-toggle { --toggle-width: ${ICON_ROOM_WIDTH}; }
 .field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
 .field > .cut-btn { position: absolute; z-index: 5; right: var(--toggle-inset); top: var(--toggle-inset); }
 /* Read-only: nothing to type, so it doesn't light as you point at it; it can still be selected, copied and focused. */
@@ -829,10 +978,11 @@ component({
   slug: "cut-field",
   group: "inputs",
   subgroup: "fields",
-  summary: "Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.",
+  summary: "Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words. Typing on a phone on its side, the screen fades to the ground of its glass and it rises, with what shares its row, centered above the keyboard once that has settled (TYPING_BAR_SCRIPT, every field, nothing per page).",
   styles: FIELD_STYLES,
   render: cutField,
   examples: [
+    { label: "Short: a few characters, its button beside it", markup: examplePane(row({ widths: "fit", items: [{ kind: "control", markup: cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", isShort: true }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] })) },
     { label: "Empty", markup: examplePane(cutField({ id: "example-username-empty", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "username" })) },
     { label: "Typed", markup: examplePane(cutField({ id: "example-username-typed", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r" })) },
     { label: "Focused", markup: examplePane(cutField({ id: "example-email-focused", name: "email", label: "Email", type: "email", icon: "mail", placeholder: "you@example.com", state: "is-focused" })), isStill: true },
@@ -952,6 +1102,7 @@ component({
 .find-finish { position: absolute; z-index: 2; inset: 0 var(--search-end-room) 0 calc(var(--pad-inside-words) + 34px); display: flex; align-items: center; overflow: hidden; white-space: pre; pointer-events: none;
   font: 500 1.125rem var(--display); color: var(--muted); }
 .find-finish > .find-typed { visibility: hidden; }
+.find-list { --list-least-width: var(--size-pane-beside); }
 .find-list .select-option { text-decoration: none; }
 .find-list .select-option b { font-weight: 600; color: var(--ink); }
 .find-list .select-option > .find-row-icon { flex: none; display: inline-flex; color: var(--muted); }
@@ -963,7 +1114,7 @@ component({
 .find-list .select-options { container-type: inline-size; }
 .find-game { gap: var(--gap-words-beside-control); }
 .find-game > .cover.is-small { width: clamp(96px, 20cqw, 160px); }
-.find-game-words { display: grid; gap: 2px; min-width: 0; font: var(--type-name); }
+.find-game-words { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; font: var(--type-name); }
 .find-game-fact { font: var(--type-note); color: var(--muted); }
 /* Shown open in place (the gallery's open state): hanging under the field, over what follows it. */
 .find > .find-list.in-place { position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; right: 0; }
@@ -1000,9 +1151,9 @@ component({
   styles: `
 /* A wheel field: the same cut field, with what it picks said by its icon; open, it's whitened with the orange outline, like a field you're
    typing in. With no icon its words start where an icon would. */
-.wheel-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
-/* Its legend is laid out as its first part (layout.ts), so the fieldset's gap spaces it. */
-.wheel-field legend { font: var(--type-label); color: var(--ink-2); }
+.wheel-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
+/* Its words come first, as a field's label does, so they sit the same gap from the control on every browser (a fieldset's legend doesn't in Safari). */
+.field-legend { font: var(--type-label); color: var(--ink-2); }
 .wheel-button { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-words); width: 100%; --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--pad-inside-words); cursor: pointer; text-align: left;
   font: 500 1.125rem var(--display); color: var(--muted); }
 .wheel-button[aria-expanded="true"], .wheel-button:focus-visible { outline: none; --face-color: var(--carving-face-focus); }
@@ -1036,7 +1187,7 @@ component({
 .wheel-channel > .cut-line { z-index: 3; pointer-events: none; }
 .wheel-channel:has(> .wheel:focus-visible) > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The wheel scrolls inside its groove, the picked row snapped to the middle; the rows above and below fade toward the groove's ends. */
-.wheel { position: relative; z-index: 2; height: 100%; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory; scroll-padding-top: var(--wheel-row);
+.wheel { position: relative; z-index: 2; height: 100%; overflow-y: auto; overscroll-behavior-y: none; scroll-snap-type: y mandatory; scroll-padding-top: var(--wheel-row);
   scrollbar-width: none; padding: var(--wheel-row) 0; box-sizing: border-box; outline: none;
   -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4));
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4)); }

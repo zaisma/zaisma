@@ -172,9 +172,11 @@ export function divider(options: { words?: string; isDecorative?: boolean } = {}
 
 
 /** A rail's parts: its channel, carved with slanted ends, and inside it the groove the thumb slides in. */
-export const RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
+export const RAIL_PARTS = '<div class="rail-line carving deep" data-cut-line="3" data-cut-sizes><svg class="cut-line" aria-hidden="true"><polygon/></svg><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
+/** The page's rail stands in no glass, so it carves its own ends. */
+const PAGE_RAIL_PARTS = '<div class="rail-line carving deep"><div class="rail-groove"><div class="rail-thumb"></div></div></div>';
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
-export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true">${RAIL_PARTS}</div>`);
+export const railMarkup = (scrollKind: "box" | "page" | "side"): Raw => raw(`<div class="rail${scrollKind === "side" ? " sideways" : ""}" data-rail="${scrollKind}" aria-hidden="true">${scrollKind === "page" ? PAGE_RAIL_PARTS : RAIL_PARTS}</div>`);
 
 /**
  * A tag: a few words or a number, slanted at both ends, on what it labels. "new" is green (Updated, Live), "count" a number in the buttons'
@@ -220,7 +222,7 @@ export interface SheetMarkupOptions {
   /** Controls pinned at its foot in place of buttons (a stack of them), in view while the body scrolls: a store panel's card row and Buy. */
   foot?: Raw;
   /** "center" over the dimmed page; "foot" risen from the screen's foot over a running game, not dimming it; "corner" at the screen's bottom right over a running game, as tall as what's in it, not dimming it (a store panel over a game); "middle" in the middle of the screen on a wide screen whatever opened it, never hung from a button (Confirm it's you); "start" a tall panel sliding in from the screen's start edge over the page (a sidebar on a phone). */
-  placement?: "center" | "foot" | "corner" | "middle" | "start";
+  placement?: "center" | "foot" | "corner" | "middle" | "start" | "docked";
   /** A store panel (panes.ts): a store panel's own width, in either placement. */
   isStorePanel?: boolean;
   /** Shown in place, not over the page: the gallery's still copies. */
@@ -235,6 +237,10 @@ export interface SheetMarkupOptions {
   titleId?: string;
   /** A short yes or no that guards something (a confirm sheet, Confirm it's you): opened over another sheet it's drawn a size smaller, in the middle of it. */
   isConfirm?: boolean;
+  /** A lot to read or choose: on a phone on its side it fills the screen, its parts in columns, since a box there shows a line or two at a time. */
+  isFillingSideways?: boolean;
+  /** A line beside its title on a phone on its side, under it elsewhere. */
+  titleNote?: Raw;
 }
 
 /**
@@ -245,13 +251,13 @@ export interface SheetMarkupOptions {
 export function sheetMarkup(options: SheetMarkupOptions): Raw {
   const buttons = options.buttons ?? [];
   const parts = paneParts({
-    head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>`, end: options.closeButton },
+    head: { words: html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>${options.titleNote ?? ""}`, end: options.closeButton },
     body: html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge">${options.body}</div></div>`,
     foot: options.foot ? { start: { kind: "block", markup: options.foot } } : buttons.length ? { start: { kind: "block", markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined,
   });
   const inside = options.parts ?? parts;
   const form = options.action === undefined ? html`<form class="sheet-in scrolls" method="dialog">${inside}</form>` : html`<form class="sheet-in scrolls" method="post" action="${options.action}">${inside}</form>`;
-  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "corner" ? " placement-corner" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start" : ""}${options.isStorePanel ? " store-panel" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="pane"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
+  return html`<dialog class="sheet glass${options.placement === "foot" ? " placement-foot" : options.placement === "corner" ? " placement-corner" : options.placement === "middle" ? " placement-middle" : options.placement === "start" ? " placement-start docked" : options.placement === "docked" ? " placement-docked docked" : ""}${options.isStorePanel ? " store-panel" : ""}${options.isFillingSideways ? " fills-sideways" : ""}${options.isCompact ? " is-compact" : ""}${options.isPicture ? " is-picture" : ""}${options.isShown ? " in-place" : ""}" id="${options.id}" aria-labelledby="${options.titleId ?? `${options.id}-title`}"${options.isConfirm ? raw(" data-sheet-confirm") : ""} data-glass data-glass-corners="${options.placement === "docked" || options.placement === "start" ? "0 0 0 0" : "pane"}"${options.isShown ? raw(" open") : ""}>${EDGE}${form}</dialog>`;
 }
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
@@ -307,7 +313,14 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
       light.style.setProperty("--light-span", (isAcross ? r.width : r.height) + "px");
       if (!isGliding) { void light.offsetWidth; light.style.transition = ""; }
     }
-    function lightUp(part) { clearTimeout(dimLater); dimLater = null; place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); }
+    // A part or its neighbor changing size while it's lit (a folder opening under the pointer) moves or grows it, so the light stays with it, as long as it's whole.
+    var sizes = null;
+    function follow() {
+      if (sizes || !window.ResizeObserver) return;
+      sizes = new ResizeObserver(function () { if (!lit) return; if (lit.getClientRects().length) place(lit, false); else dim(); });
+      sizes.observe(holder); holder.querySelectorAll("[data-lights]").forEach(function (part) { sizes.observe(part); });
+    }
+    function lightUp(part) { clearTimeout(dimLater); dimLater = null; place(part, holder.classList.contains("is-lit")); lit = part; holder.classList.add("is-awake", "is-lit"); follow(); }
     function dim() { clearTimeout(dimLater); dimLater = null; lit = null; holder.classList.remove("is-lit"); }
     function dimSoon() { if (!dimLater && lit) dimLater = setTimeout(dim, PASSING_MS); }
     holder.addEventListener("pointerover", function (event) {

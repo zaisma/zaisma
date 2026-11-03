@@ -535,12 +535,12 @@ export function choiceCards(options: ChoiceCardsOptions): Raw {
   const cards = options.isCompact
     ? well({ kind: "choice-well holds-parts", scrollDirection: "down", edgeLight: "left", body: html`${options.choices.map(card)}` })
     : html`<div class="choice-cards cards-row" style="--card-count: ${options.choices.length}">${options.choices.map(card)}</div>`;
-  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend class="${options.isLabelHidden ? "sr" : "words-margin"}">${options.label}</legend>${cards}${options.error ? html`<p class="field-error words-margin" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
+  return html`<fieldset class="${className}"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-describedby="${id}-error"` : ""}><legend class="sr">${options.label}</legend>${options.isLabelHidden ? "" : html`<span class="field-legend words-margin" aria-hidden="true">${options.label}</span>`}${cards}${options.error ? html`<p class="field-error words-margin" id="${id}-error">${options.error}</p>` : ""}</fieldset>`;
 }
 
 const VISIBILITIES: ChoiceCard[] = [
   { label: "Listed", choiceValue: "listed", text: "On Zaisma's shelves and in search, for anyone.", icon: "people" },
-  { label: "Unlisted", choiceValue: "unlisted", text: "Only people with its link can find it.", icon: "eye" },
+  { label: "Unlisted", choiceValue: "unlisted", text: "Only people with its link can find it.", icon: "eye-off" },
   { label: "Private", choiceValue: "private", text: "Only you and your testers.", icon: "lock" },
 ];
 
@@ -569,7 +569,6 @@ component({
    card below. Pointing wakes the edge light along that same edge; a press sinks the card, easing in and back out. The real radio lies over
    the card, unseen, so the arrow keys move between them as the system's do. */
 .choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.choices > legend { font: var(--type-label); color: var(--ink-2); }
 /* The cards are a row of cards (layout.ts's cards-row): side by side while all fit, all stacked once they can't. */
 .choice-card { cursor: pointer; -webkit-tap-highlight-color: transparent; color: var(--muted); }
 .choice-card > :not(.cut-line):not(.choice-input):not(.edge-light) { position: relative; z-index: 2; }
@@ -609,6 +608,12 @@ component({
 /* Its rows touch, as a menu's do, so a press anywhere down the list lands on a card, never a gap between two. */
 .well.choice-well > .well-body { display: flex; flex-direction: column; font: inherit; }
 .choice-well .choice-card { flex: none; }
+/* On a phone on its side, in a sheet: two columns, all of them showing, with only the sheet's own scroll. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .sheet .well.choice-well { --well-height: none; height: auto; max-height: none; }
+  .sheet .well.choice-well > .well-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; overflow: visible; padding-inline-end: 0; }
+  .sheet .well.choice-well > .rail { display: none; }
+}
 .choice-well .choice-words { gap: 2px; }
 .choice-well .choice-card > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .choice-well .choice-card > .cut-line polygon { stroke: transparent; }

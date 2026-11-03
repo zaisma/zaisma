@@ -77,9 +77,6 @@ function isReconnecting(playerId) {
   return Boolean(playerId && room && room.players.some((player) => player.id === playerId && player.awayReason === "lost"));
 }
 
-// Mute, block and report, from the game's own menu.
-document.getElementById("players-button").onclick = () => room && Zaisma.openPlayersPanel(room);
-
 /** @param {Zaisma.Room} next */
 function use(next) {
   room = next;

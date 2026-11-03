@@ -8,7 +8,7 @@ export const CONTROL_HEIGHTS: ControlHeight[] = ["small", "regular", "field", "b
 
 /**
  * A control's markup: what a layout (layout.ts) takes as a control, in a row, a stack or a pane's corner. It's a type of its own, made only
- * by the controls' own functions (actions.ts, fields.ts, choices.ts, inputs.ts, switch.ts, and the row arrows), so a paragraph can't be
+ * by the controls' own functions (actions.ts, fields.ts, choices.ts, inputs.ts, and switch.ts), so a paragraph can't be
  * passed as a control and a corner can't be given two things: the compiler refuses it. design.test.ts checks no other file makes one.
  */
 export class ControlMarkup extends Raw {
@@ -20,8 +20,6 @@ export class ControlMarkup extends Raw {
     readonly controlHeight: ControlHeight,
     /** It shows words of its own round it (a field's label), so a stack spaces it as a block. */
     readonly hasOwnWords: boolean,
-    /** It shows only to a mouse or trackpad (the row arrows), so a row keeps the room before it on it, and none when it's gone. */
-    readonly isPointerOnly: boolean,
     /** It's words alone, with no edge of its own (a tertiary button), so it keeps the words' margin in a pane, like words. */
     readonly isWordsAlone: boolean,
   ) {
@@ -30,6 +28,6 @@ export class ControlMarkup extends Raw {
 }
 
 /** Marks a control's markup as a control, for its own function to return. */
-export function controlMarkup(markup: Raw, controlHeight: ControlHeight, options: { hasOwnWords?: boolean; isPointerOnly?: boolean; isWordsAlone?: boolean } = {}): ControlMarkup {
-  return new ControlMarkup(markup.html, controlHeight, Boolean(options.hasOwnWords), Boolean(options.isPointerOnly), Boolean(options.isWordsAlone));
+export function controlMarkup(markup: Raw, controlHeight: ControlHeight, options: { hasOwnWords?: boolean; isWordsAlone?: boolean } = {}): ControlMarkup {
+  return new ControlMarkup(markup.html, controlHeight, Boolean(options.hasOwnWords), Boolean(options.isWordsAlone));
 }

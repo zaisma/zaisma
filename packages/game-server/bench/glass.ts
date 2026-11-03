@@ -138,7 +138,10 @@ export function friendsHereHtml(gameSlug: string, friends: FriendPlaying[]): str
 
 /** The players sheet's friends part: the friends playing the game outside this room, with Join. */
 export function friendRowsHtml(gameSlug: string, friends: FriendPlaying[]): string {
-  const rows: FriendInGame[] = friends.map((friend) => ({ player_id: friend.playerId, username: friend.username, room_code: friend.roomCode, server_url: null, join_refusal: friend.roomCode ? null : "friend_not_in_room", watch: null }));
+  const rows = friends.map((friend) => {
+    const door: FriendInGame = { player_id: friend.playerId, username: friend.username, room_code: friend.roomCode, server_url: null, join_refusal: friend.roomCode ? null : "friend_not_in_room", watch: null };
+    return { username: friend.username, statusWords: friend.roomCode ? "In this game" : "Online", door };
+  });
   return String(friendRows(gameSlug, rows));
 }
 

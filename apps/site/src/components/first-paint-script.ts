@@ -21,6 +21,19 @@ export const THEME_SCRIPT = `/* theme */(function () {
 })();
 `;
 
+/**
+ * Which side an iPhone on its side has its notch at (data-cutout-side on <html>), before the first paint. Its safe area can't say: it's the
+ * same on both sides. The tokens free the other side.
+ */
+export const CUTOUT_SIDE_SCRIPT = `/* cutout side */(function () {
+  if (!/iPhone/.test(navigator.userAgent)) return;
+  var root = document.documentElement;
+  function apply() { var turned = window.orientation; if (turned === 90) root.setAttribute("data-cutout-side", "left"); else if (turned === -90) root.setAttribute("data-cutout-side", "right"); else root.removeAttribute("data-cutout-side"); }
+  window.addEventListener("orientationchange", apply);
+  apply();
+})();
+`;
+
 /** How long the page's script files wait for the site's stylesheet before running without it. */
 export const STYLES_WAIT_LIMIT_MS = 10_000;
 

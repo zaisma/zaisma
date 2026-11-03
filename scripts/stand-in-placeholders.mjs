@@ -15,6 +15,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FOLDERS = [
   { folder: "covers", exportName: "STAND_IN_COVER_PICTURES" },
   { folder: "pictures", exportName: "STAND_IN_ACCOUNT_PICTURES" },
+  { folder: "game-views", exportName: "STAND_IN_GAME_VIEWS" },
 ];
 // PICTURE_PLACEHOLDER, read from its line in packages/core (whose TypeScript Node can't load on its own).
 const PICTURE_PLACEHOLDER = (() => {
@@ -53,7 +54,7 @@ try {
   }
   writeFileSync(
     join(ROOT, "apps/site/src/generated/stand-in-placeholders.generated.ts"),
-    `// Made by scripts/stand-in-placeholders.mjs from brand/design/covers and brand/design/pictures: never edit it by hand.\nimport type { ShownPicture } from "../components/foundations.ts";\n\n${exported.join("\n")}`,
+    `// Made by scripts/stand-in-placeholders.mjs from brand/design/covers, brand/design/pictures and brand/design/game-views: never edit it by hand.\nimport type { ShownPicture } from "../components/foundations.ts";\n\n${exported.join("\n")}`,
   );
 } finally {
   await chrome.close();

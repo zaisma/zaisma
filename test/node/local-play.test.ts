@@ -217,7 +217,7 @@ describe("play-locally", () => {
   it("frames each player's page, zaisma.com's game page drawn by the site's own code, under the dev bar", async () => {
     const dev = await (await fetch(`${play.benchUrl}/?player=${anna}`)).text();
     expect(dev).toContain('class="bench-bar"');
-    expect(dev).not.toContain('class="playing-bar');
+    expect(dev).not.toContain('class="zaisma-button');
     expect(dev).toContain(`src="/p/${anna}/g/${SLUG}?play"`);
     expect(dev).toContain('id="bench-who-menu"');
     expect(dev).toContain('id="bench-panel"');
@@ -240,7 +240,7 @@ describe("play-locally", () => {
     expect(response.headers.get("set-cookie")).toBe(`zaisma_in=1; Path=/p/${anna}; SameSite=Lax`);
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
     const page = await response.text();
-    for (const id of ["game-page-data", "buy-sheet", "players", "share-dialog", "room-dialog"]) expect(page).toContain(`id="${id}"`);
+    for (const id of ["game-page-data", "buy-sheet", "players", "share-dialog", "room-here"]) expect(page).toContain(`id="${id}"`);
     // Report is a step of the Players sheet.
     expect(page).toContain('data-sheet-step="report"');
     expect(page).toContain(`src="${play.gameSiteUrl}/${SLUG}/"`);

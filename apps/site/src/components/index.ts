@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { MINIFIED_COMPONENT_SCRIPT, MINIFIED_FIRST_PAINT_PIECES, MINIFIED_FIRST_PAINT_SCRIPT, MINIFIED_LOOK_SCRIPT } from "../generated/components-script.generated.ts";
-import { ACCOUNT_LINK_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, SHOWN_ONCE_DRAWN_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
+import { ACCOUNT_LINK_SCRIPT, CUTOUT_SIDE_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN_AMOUNTS_SCRIPT, MEASURED_GLASS_SCRIPT, SHOWN_ONCE_DRAWN_SCRIPT, THEME_SCRIPT } from "./first-paint-script.ts";
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PAGE_SWITCH_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
-import { CHECK_SCRIPT, CHOICE_CARDS_SCRIPT, COLOR_FIELD_SCRIPT, COPY_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, PIN_FIELD_SCRIPT, SEARCH_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT, WHEEL_SCRIPT } from "./inputs.ts";
-import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, ROW_SCRIPT, SCROLL_FADE_SCRIPT, SIDEBAR_SCRIPT } from "./navigation.ts";
+import { CHECK_SCRIPT, CHOICE_CARDS_SCRIPT, COLOR_FIELD_SCRIPT, COPY_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, PIN_FIELD_SCRIPT, SEARCH_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT, WHEEL_SCRIPT, TYPING_BAR_SCRIPT } from "./inputs.ts";
+import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, HEADER_FIT_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, SCROLL_FADE_SCRIPT, SIDEBAR_SCRIPT } from "./navigation.ts";
 import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
 import { DROPDOWN_SCRIPT, PLACE_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { LAYERS_SCRIPT } from "./layers.ts";
 import { MATERIAL_SCRIPT, MATERIAL_STYLES } from "./materials.ts";
-import { CHART_SCRIPT, LIST_ROW_FIT_SCRIPT, LIST_ROW_FOLD_SCRIPT, TABLE_SCRIPT } from "./data.ts";
+import { CHART_SCRIPT, LIST_PAGES_SCRIPT, LIST_ROW_FOLD_SCRIPT, TABLE_SCRIPT } from "./data.ts";
 import { QR_CODE_SCRIPT } from "./qr-code.ts";
 import { CODE_BLOCK_SCRIPT } from "./reading.ts";
 import { PLAYING_CARD_SCRIPT } from "./playing.ts";
@@ -124,6 +124,7 @@ const firstPaintPiece = (name: string, source: string, marker: RegExp | null): F
 /** The first-paint script's pieces, in the order they run: a page carries the ones its markup needs (html.ts, firstPaintScriptTags). */
 export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("theme", THEME_SCRIPT, null),
+  firstPaintPiece("cutout-side", CUTOUT_SIDE_SCRIPT, null),
   firstPaintPiece("following-files", FOLLOWING_FILES_SCRIPT, null),
   firstPaintPiece("watch", WATCH_SCRIPT, null),
   // A page reached from another of Zaisma's has its panes fade in, and a game opened from its cover its world settle in first.
@@ -135,8 +136,9 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("materials", MATERIAL_SCRIPT, null),
   firstPaintPiece("rows", ROW_LAYOUT_SCRIPT, null),
   firstPaintPiece("compacting", COMPACT_SCRIPT, null),
-  // A list row narrows its buttons to their icons, and a table sizes its slabs and fades, before the page shows.
-  firstPaintPiece("list-row-fit", LIST_ROW_FIT_SCRIPT, /\blist-row-action\b/),
+  // The header gives way to its room before the page shows, so a phone never sees a computer's header first.
+  firstPaintPiece("header-fit", HEADER_FIT_SCRIPT, /\bbar-layout\b/),
+  // A table sizes its slabs and fades before the page shows.
   firstPaintPiece("tables", TABLE_SCRIPT, /\btable-scroll\b/),
   // A rail takes its room beside what scrolls (a table, a track), and every page has the page's own.
   firstPaintPiece("rails", RAIL_SCRIPT, null),
@@ -148,7 +150,6 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   // A game's shader frame fades in once it has drawn: listening from the start, as its runner can say so before the page's files run.
   firstPaintPiece("shown-once-drawn", SHOWN_ONCE_DRAWN_SCRIPT, /data-shows-once-drawn/),
   firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),
-  firstPaintPiece("row-arrows", ROW_SCRIPT, /data-row-arrows/),
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
   firstPaintPiece("started-low", STARTED_LOW_SCRIPT, /\bis-started-low\b/),
   // Where a pane hangs from its button: a wheel or a colour field makes its floating pane as it's wired.
@@ -156,6 +157,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("wheels", WHEEL_SCRIPT, /data-wheels/),
   firstPaintPiece("charts", CHART_SCRIPT, /data-chart-scroll/),
   firstPaintPiece("long-fields", LONG_FIELD_SCRIPT, /data-long-field/),
+  firstPaintPiece("typing-bar", TYPING_BAR_SCRIPT, /<input|<textarea/),
   firstPaintPiece("sliders", SLIDER_SCRIPT, /data-slider/),
   firstPaintPiece("color-fields", COLOR_FIELD_SCRIPT, /data-color-field/),
   firstPaintPiece("city-pane", CITY_PANE_PLACE_SCRIPT, /data-city-pane|\bcity-stage\b/),
@@ -166,7 +168,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
 export const FIRST_PAINT_SCRIPT_SOURCE = FIRST_PAINT_PIECES.map((piece) => piece.source).join("");
 const SOME_PAGES_PIECES_SOURCE = FIRST_PAINT_PIECES.filter((piece) => piece.marker).map((piece) => piece.source).join("");
 export const LOOK_SCRIPT_SOURCE = SOME_PAGES_PIECES_SOURCE + EDGE_LIGHT_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT;
-export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + LIST_PAGES_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
  * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't

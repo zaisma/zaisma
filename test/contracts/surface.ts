@@ -206,7 +206,7 @@ export function lockSurface(snapshotName: string, file: string, names: string[])
  * A lock on surfaces read any way (several files, a namespace, a script's lists). With isMainKept, the
  * code is also checked against the snapshot on GitHub's main, so a baseline can't take back what v1 had.
  */
-export function lockSurfaces(snapshotName: string, current: Record<string, Surface>, { isMainKept = false } = {}): void {
+export function lockSurfaces(snapshotName: string, current: Record<string, Surface>, { isMainKept = false, letGoBeforeTheBeta = [] as string[] } = {}): void {
   const path = join(SNAPSHOTS, `${snapshotName}.json`);
   if (isWritingBaseline) {
     it(`writes the ${snapshotName} snapshot`, () => writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`));
@@ -222,7 +222,7 @@ export function lockSurfaces(snapshotName: string, current: Record<string, Surfa
   if (isMainKept) {
     it(`keeps everything the v1 ${snapshotName} snapshot has on GitHub's main`, () => {
       const onMain = snapshotOnMain(snapshotName);
-      if (onMain) expect(lostSince(onMain, current), "v1 only gains things, and main's snapshot is v1 as it shipped").toEqual([]);
+      if (onMain) expect(lostSince(onMain, current).filter((lost) => !letGoBeforeTheBeta.some((name) => lost.includes(name))), "v1 only gains things, and main's snapshot is v1 as it shipped").toEqual([]);
     });
   }
 }

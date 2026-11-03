@@ -2,10 +2,10 @@ import { html, type Raw } from "../markup.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { glassPane } from "./foundations.ts";
-import { primaryButton } from "./actions.ts";
+import { action, primaryButton } from "./actions.ts";
 import { rail } from "./navigation.ts";
 import { stack, type LayoutMarkup } from "./layout.ts";
-import { cutPolygon } from "./tokens.ts";
+import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
 
 /*
  * The city: Zaisma's own live 3D scene, from the sign-in draft. One city on land in an endless sea, seen on one slow cinematic loop,
@@ -64,7 +64,7 @@ export const CITY_PANE_PLACE_SCRIPT = `/* city pane */(function () {
     var pane = document.querySelector("[data-city-pane]"), stage = document.querySelector(".city-stage");
     if (!pane || !stage || stage.classList.contains("is-framed") || (window.innerWidth === placedWidth && !isForced)) return;
     placedWidth = window.innerWidth;
-    if (window.innerWidth > 760) { pane.style.marginTop = ""; return; }
+    if (window.innerWidth > 760 || window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}).matches) { pane.style.marginTop = ""; return; }
     // The first heading showing (a pane can hold views that take turns, like Sign in and Make an account).
     var heading = Array.prototype.find.call(pane.querySelectorAll("h1, h2"), function (el) { return el.getClientRects().length > 0; });
     var header = pane.parentElement.querySelector("header.top");
@@ -124,7 +124,7 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
   if (!canvas) return;
   var stage = canvas.closest(".city-stage"), host = stage.parentElement, isFramed = stage.classList.contains("is-framed");
   var pane = host.querySelector("[data-city-pane]"), header = host.querySelector("header.top");
-  function isNarrow() { return window.innerWidth <= 760; }
+  function isNarrow() { return window.innerWidth <= 760 && !window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}).matches; }
 
   /* The pane's place on a phone is set before the first paint (CITY_PANE_PLACE_SCRIPT); the city follows it. */
   function place() {}
@@ -2837,6 +2837,14 @@ html:has(.city-page) { height: 100%; }
   /* The page's rail runs down the gutter beside the pane. */
   .city-page .rail[data-rail="page"] { right: 1px; }
 }
+/* A phone on its side: the logo keeps to its corner and the pane stands the whole height on the right, its form in view, the city between them. */
+@media ${HEADER_RAIL_MEDIA} {
+  html:has(.city-page), body:has(> .city-page) { height: 100dvh; min-height: 0; overflow: hidden; }
+  .city-page { display: block; min-height: 100dvh; padding-bottom: 0; }
+  .city-page header.top { top: var(--pad-frame); left: max(var(--pad-frame), var(--safe-left)); width: max-content; transform: none; }
+  .city-page .city-pane { position: fixed; top: var(--pad-frame); bottom: auto; right: max(var(--pad-frame), var(--safe-right)); width: min(var(--size-pane-beside), 100%); max-height: calc(100svh - 2 * var(--pad-frame)); margin: 0; }
+  .city-page .city-pane > .glass-pane > .pane-in { overflow: hidden auto; }
+}
 /* The gallery's example: the stage in its own box, cut like a pane, with a pane on its right as tall as what's in it; where the box is a
    phone's width, the pane is full width at its foot, as on a phone. */
 .city-frame { position: relative; width: 100%; height: 420px; overflow: hidden; display: flex; align-items: flex-start; justify-content: flex-end; padding: var(--pad-inner-pane);
@@ -2857,7 +2865,7 @@ component({
     {
       label: "A pane on the city",
       isWide: true,
-      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true }) }] }) })}</div>`,
+      markup: html`<div class="city-frame">${cityStage({ isFramed: true })}${glassPane({ paneWidth: "fit", label: "Sign in", body: stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true }) }] }) })}</div>`,
     },
   ],
 });

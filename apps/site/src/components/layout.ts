@@ -1,6 +1,6 @@
 import { Raw, html, raw, type EmptyNoteMarkup } from "../markup.ts";
 import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
-import { BARE_GROUPS, WORDS_HOLDERS } from "./tokens.ts";
+import { BARE_GROUPS, HEADER_RAIL_MEDIA, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -18,8 +18,6 @@ export type { ControlMarkup } from "./control-markup.ts";
  * here, so everything in a pane is placed by a layout and every word in it keeps the pane's margin. design.test.ts checks no other file
  * makes one.
  */
-/** Where a bar (the header) goes to two rows: below 64em, a phone and an iPad, and a phone on its side. */
-export const BAR_TWO_ROWS_MEDIA = "(max-width: 64em)";
 
 export class LayoutMarkup extends Raw {
   /** Makes it a type of its own: plain markup isn't a layout. */
@@ -138,7 +136,7 @@ export interface RowOptions {
  */
 export function row(options: RowOptions): LayoutMarkup {
   const controls = options.items.flatMap((layoutItem) => (layoutItem.kind === "control" ? [layoutItem.markup] : []));
-  // A block that's a row of controls itself (a shelf's sort and arrows) counts its controls' height too, so words beside it sit on their
+  // A block that's a row of controls itself (a shelf's sort) counts its controls' height too, so words beside it sit on their
   // center line.
   const nestedHeights = options.items.flatMap((layoutItem) => {
     const found = layoutItem.kind === "block" ? /^<div class="layout-row[^"]*"[^>]*? data-control-height="([a-z]+)"/.exec(layoutItem.markup.html) : null;
@@ -149,16 +147,11 @@ export function row(options: RowOptions): LayoutMarkup {
   const alignment = options.widths === "fit" ? (options.alignment ?? "start") : "start";
   const cells = options.items.map((layoutItem, itemIndex) => {
     const after = options.items[itemIndex + 1];
-    // A control only a mouse shows (the row arrows) keeps the room before it on itself, so the row closes up when it's gone.
-    const isAfterPointerOnly = after?.kind === "control" && after.markup.isPointerOnly;
-    const before = options.items[itemIndex - 1];
-    const isPointerOnly = layoutItem.kind === "control" && layoutItem.markup.isPointerOnly;
     // The last cell reaches past the row's end as far as a control reaches over the next, and the row stops that far short of its own end
     // (ROW_STYLES), so a control ends at the row's end whether its line wraps there or not.
-    const endGap = after ? (isAfterPointerOnly ? "" : rowGap(layoutItem, after)) : "control-row-boxes";
-    const gaps = [endGap ? `gap-end-${endGap}` : "", before && isPointerOnly ? `gap-start-${rowGap(before, layoutItem)}` : ""].filter(Boolean).join(" ");
+    const endGap = after ? rowGap(layoutItem, after) : "control-row-boxes";
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
-    return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""}${isPointerOnly ? " is-pointer-only" : ""}${gaps ? ` ${gaps}` : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
+    return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""} gap-end-${endGap}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
   // An equal row is marked for ROW_LAYOUT_SCRIPT, which gives its cells the widest one's width.
   return asLayout(html`<div class="layout-row${options.widths === "equal" ? " widths-equal" : ""} alignment-${alignment}${isOnFieldBoxes ? " is-on-field-boxes" : ""}"${tallest ? html` data-control-height="${tallest}"` : ""}${groupLabel(options.label)}>${cells}</div>`);
@@ -240,7 +233,7 @@ export function grid(options: GridOptions): LayoutMarkup {
 }
 
 export interface TrackOptions {
-  /** Unique on the page: its row arrows name it (rowArrows' trackId), and a page script fills it in. */
+  /** Unique on the page: a page script fills it in. */
   id: string;
   /** Start to end: blocks, each one cell. A page script may add more of the same. */
   items: LayoutItem[];
@@ -251,7 +244,7 @@ export interface TrackOptions {
   whenEmpty: EmptyNoteMarkup;
 }
 
-/** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, with Row arrows for a mouse. */
+/** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, on its rail. */
 export function track(options: TrackOptions): LayoutMarkup {
   return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
 }
@@ -306,7 +299,7 @@ export function paneParts(options: PanePartsOptions): LayoutMarkup {
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
 
 /** What takes a control's height in each control (its --control-height), as it sits directly in a row's cell. */
-const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-marks", ".find", ".switch-well", ".tab-switch", ".steps"];
+const HEIGHT_HOLDERS = [".cut-btn", ".tertiary-btn", ".run-wrap > .run", ".cut-field > .field", ".pin-marks", ".find", ".switch-well", ".tab-switch"];
 
 /** What shows of a holder's children: not hidden, not a cell whose only thing is hidden (holds-only-hidden, ROW_LAYOUT_SCRIPT), not a slab's drawn edge (a tray's first child), and not a script, a template or a form's hidden field. */
 const SHOWN = ':not([hidden], .holds-only-hidden, .edge, script, template, input[type="hidden"])';
@@ -378,12 +371,14 @@ function edgeRows(edge: "top" | "bottom"): string[] {
 
 export const STACK_STYLES = `
 /* A stack: one under another, each cell's gap above it picked by what's on each side (stack(), from the spacing table). A hidden cell takes no
-   room, and the first shown has nothing above it. In a pane, controls fill its width, as they always have. */
+   room, and the first shown has nothing above it. Everything in a stack is one width, the stack's, as everything in a row is one height. */
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }
 .stack-cell { display: flex; flex-direction: column; min-width: 0; }
 /* In a compact sheet (or a confirm over a sheet) everything is a control's stack gap apart, whatever the spacing table says. */
 .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) .layout-stack > .stack-cell[class*="gap-top-"] { margin-top: var(--gap-control-stack); }
 ${GAP_TOKENS.filter((gap) => gap !== "control-row-boxes").map((gap) => `.layout-stack > .stack-cell.gap-top-${gap} { margin-top: var(--gap-${gap}); }`).join("\n")}
+/* What's first to show has nothing above it to keep a gap from, whatever is hidden before it. */
+.layout-stack.layout-stack.layout-stack > .stack-cell:not([hidden]):not(:not([hidden]) ~ *) { margin-top: 0; }
 .layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden, :empty)) { margin-top: 0; }
 /* A cell with nothing in it yet, or whose only thing is hidden (a page script shows it: a step, an error), takes no room. */
 .stack-cell:is(:empty, :has(> [hidden]:only-child)) { display: none; }
@@ -426,14 +421,7 @@ ${CONTROL_HEIGHTS.map((height) => `[data-control-height="${height}"] { --row-con
 /* A block beside a field's box (a check beside Sort by) sits on the box's center line too, not at its foot. */
 .layout-row.is-on-field-boxes:not(.is-wrapped) > .row-cell.is-block { min-height: var(--row-control-height); }
 /* Side by side, words keep the words margin from a control beside them (--gap-words-beside-control), as from the pane's edge. */
-${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control" : gap]).map(([gap, token]) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${token}); }\n.layout-row > .row-cell.gap-start-${gap} { margin-inline-start: var(--gap-${token}); }`).join("\n")}
-/* A control only a mouse shows isn't there without one, nor while it has nothing to do (hidden): the cell before it is then the row's last,
-   and reaches past the row's end like any last cell. */
-@media not ((hover: hover) and (pointer: fine)) {
-  .row-cell.is-pointer-only { display: none; }
-  .layout-row > .row-cell:has(+ .row-cell.is-pointer-only:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
-}
-.layout-row > .row-cell:has(+ .row-cell.is-pointer-only:last-child > [hidden]:only-child) { margin-inline-end: var(--gap-control-row-boxes); }
+${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control" : gap]).map(([gap, token]) => `.layout-row > .row-cell.gap-end-${gap} { margin-inline-end: var(--gap-${token}); }`).join("\n")}
 .layout-row.alignment-start { justify-content: flex-start; }
 .layout-row.alignment-end { justify-content: flex-end; }
 .layout-row.alignment-center { justify-content: center; }
@@ -476,25 +464,36 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
    only a control's gap after that). Controls beside each other overlap by the slant, so they slant toward each other; beside your picture,
    which never slants, words' gap. Search sits after the tabs, pushed to the end; with neither, the end goes to the end by itself. */
 .bar-layout > .logo { margin-right: var(--gap-block-block); margin-left: var(--pad-words); }
-.bar-layout:has(> [data-sidebar-button]) > .logo { margin-left: 0; }
-.bar-layout > [data-sidebar-button] { margin-right: var(--gap-words-control); }
+.bar-layout:has(> :is([data-sidebar-button], [data-header-back])) > .logo { margin-left: 0; }
+.bar-layout > :is([data-sidebar-button], [data-header-back]) { margin-right: var(--gap-words-control); }
 .bar-layout .find:has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
 .bar-layout .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 .bar-layout .nav:has(~ .find) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .nav:not(:has(~ .find)):has(~ .end > .shell) { margin-inline-end: var(--gap-control-row-boxes); }
+.bar-layout .nav:not(:has(~ .find)):has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 .bar-layout .find { margin-left: auto; }
 .bar-layout > .end { margin-left: auto; }
 .bar-layout .find ~ .end { margin-left: 0; }
-/* Two rows (a phone, an iPad): the first row Zaisma, the search button and you; where you are, or the open search, a row of its own below,
-   with no neighbor to keep a gap from. The search button and Sign in slant toward each other; beside your picture, a control's gap. */
-@media ${BAR_TWO_ROWS_MEDIA} {
-  .bar-layout > [data-sidebar-button] { margin-left: var(--pad-words); }
-  .bar-layout .find, .bar-layout .find:has(~ .end > .shell), .bar-layout .find:has(~ .end > .me) { margin: 0; }
-  .bar-layout > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
-  .bar-layout .nav:has(~ .find) { margin-inline-end: 0; }
-  /* Beside a control (Sign in), its slant runs under that control's (a row's negative gap), so it reaches past its own column: a
-     control's max-width of 100% would hold it to the column, narrowing its face until its icon met the slant. */
-  .bar-layout > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); max-width: none; }
-  .bar-layout > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+/* Search as a button (too little room for the field): Zaisma, where you are or the open search, the search button and you, in one row. The search
+   button and Sign in slant toward each other; beside your picture, a control's gap. */
+.bar-layout.has-search-button .find { margin-left: 0; }
+.bar-layout.has-search-button > .find + .cut-btn { margin-left: auto; margin-right: var(--gap-words-control); }
+/* Beside a control (Sign in), its slant runs under that control's (a row's negative gap), so it reaches past its own column: a
+   control's max-width of 100% would hold it to the column, narrowing its face until its icon met the slant. */
+.bar-layout.has-search-button > .find + .cut-btn:has(~ .end > .shell) { margin-right: var(--gap-control-row-boxes); max-width: none; }
+.bar-layout.has-search-button > .find + .cut-btn:has(~ .end > .me) { margin-right: var(--gap-control-stack); }
+/* A bar stood up (the header on a phone on its side): a stack down the page's side, so its pieces are all one width, the bar's own less its inset,
+   a control's gap apart. What comes last sits at its foot. As tall as the screen with the browser's bars showing, so it never resizes as they
+   come and go. The page keeps the bar's room beside it, each clear of the notch. */
+@media ${HEADER_RAIL_MEDIA} {
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }
+  body > .bar-layout.has-tab-row:not(.searching) { top: var(--pad-frame); bottom: auto; left: max(var(--pad-frame), var(--safe-left), var(--corner-room)); width: var(--header-height); height: calc(100svh - 2 * var(--pad-frame)); transform: none; flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); }
+  body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > * { margin: 0; max-width: none; }
+  body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > .nav.nav.nav { flex: 0 1 auto; width: auto; min-height: 0; margin: 0; }
+  body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > .end > * { flex: 1; }
+  body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > .find + .cut-btn { margin: auto 0 0; }
+  body > .bar-layout.has-tab-row.has-tab-row:not(.searching):not(:has(> .find + .cut-btn)) > .end, body > .bar-layout.search-on-computer.has-tab-row:not(.searching) > .end { margin-top: auto; }
 }
 
 /* A row of cards (choice cards): side by side while all fit, their boxes overlapping so the edge rule slants them toward each other, each
@@ -545,6 +544,7 @@ export const TRACK_STYLES = `
 .layout-track:not(.shows-side-rail) { margin-bottom: var(--rail-reach); }
 /* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
 .layout-track { scroll-padding-inline: var(--pad-words); }
+@media (max-width: 760px), (max-height: 500px) { .layout-track { --fade-sideways-px: 28px; } }
 /* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
 .layout-track:has(> .media-well) { gap: var(--gap-control-stack); }
 /* A row of wells with no words under them (a game's media) keeps no rail's room while it fits: nothing under them needs the words margin,

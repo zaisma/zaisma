@@ -1,7 +1,7 @@
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import type { ControlMarkup } from "./control-markup.ts";
-import { secondaryButton, textLink } from "./actions.ts";
+import { action, secondaryButton, textLink } from "./actions.ts";
 import { glassPane, tag, type ShownPicture } from "./foundations.ts";
 import { details, pictureFrame, type Detail } from "./data.ts";
 import { STAND_IN_ACCOUNT_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -67,7 +67,7 @@ component({
   render: person,
   examples: [
     { label: "A game's developer", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }), "words") }) },
-    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", activity: "Playing Ashen Crown", end: secondaryButton("Join", { type: "button", isSmall: true }) }), "words") }) },
+    { label: "A friend in a room, with Join", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "Liam", href: "#person", pictureSize: "sm", activity: "Playing Ashen Crown", end: secondaryButton(action("join"), { type: "button", isSmall: true }) }), "words") }) },
     { label: "A profile's head: large, with details about them", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(person({ username: "Sofia", href: "#person", pictureSize: "lg", picture: STAND_IN_ACCOUNT_PICTURES["kestrel-sky"], activity: "Playing Ashen Crown", details: [{ label: "Friends since", text: "March" }, { label: "Games", text: "12" }, { label: "On Zaisma since", text: "2026" }], end: secondaryButton("Add a friend", { type: "button" }) }), "words") }) },
     { label: "A long username, with a mark", markup: glassPane({ paneWidth: "fit", body: stackOfOne(person({ username: "the_longest_username_allowed", href: "#person", note: "Played 2,140 hours", marks: tag("Developer", "plain") }), "words") }) },
   ],

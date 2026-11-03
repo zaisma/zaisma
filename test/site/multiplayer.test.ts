@@ -6,6 +6,7 @@ import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 import { reportSheet } from "../../apps/site/src/report.ts";
 import { pageProblems } from "./page-rules.ts";
+import { pageScriptText } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
 
@@ -78,11 +79,11 @@ describe("game page controls", () => {
     const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
-    expect(page).toMatch(/href="\/g\/solo\/report"[^>]*data-report/);
-    expect(page).toContain('<div class="floating-pane placed-under dropdown glass" id="menu-dialog" role="menu"');
-    // The ⋯ button opens it, and Report this game is one of its choices.
-    expect(page).toMatch(/id="menu"[^>]*aria-controls="menu-dialog" aria-expanded="false"/);
-    expect(page.match(/<div class="floating-pane placed-under dropdown glass" id="menu-dialog"[\s\S]*?All games/)![0]).toContain('href="/g/solo/report"');
+    // The Z opens the menu, and Report this game is in its This game.
+    expect(page).toMatch(/id="zaisma-open"[^>]*aria-controls="players"/);
+    expect(page.match(/data-sheet-tab="game"[\s\S]*?data-sheet-tab="inbox"/)![0]).toContain('href="/g/solo/report"');
+    // Nothing a game sends opens it.
+    expect(await pageScriptText(page, (path) => SELF.fetch(`https://zaisma.test${path}`))).not.toContain("zaisma:players-open");
     expect(page).not.toContain("More games");
     // Content rules open beside the game instead of replacing it.
     expect(page).toContain('href="/legal/content-rules" target="_blank"');
@@ -92,18 +93,17 @@ describe("game page controls", () => {
     await addGame("solo");
     await addGame("arena", "relay");
     const solo = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
-    expect(solo).toContain('<dialog class="sheet glass" id="report" aria-labelledby="report-title"');
+    expect(solo).toContain('data-sheet-step="report"');
     expect(solo).not.toContain('id="report-reason-game-player"');
     expect(solo).toContain('href="/legal/dmca" target="_blank" rel="noopener"');
     const arena = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(arena).toContain('id="report-reason-game-player" value="player"');
-    // A game hands a player report to the sheet, and only from its own origin.
     expect(pageDataOf(arena, "report-data")).toMatchObject({ slug: "arena", gameOrigin: "https://games.zaisma.test" });
   });
 
   it("builds the report sheet from gallery components alone", () => {
     for (const isMultiplayer of [false, true]) {
-      const markup = String(reportSheet({ slug: "arena", title: "Arena" } as Game, { isMultiplayer, gameOrigin: "https://games.zaisma.test" }));
+      const markup = String(reportSheet({ game: { slug: "arena", title: "Arena" } as Game, isMultiplayer }));
       expect(pageProblems(markup)).toEqual([]);
       // What the sheet's script finds it by.
       for (const id of ["report-title", "report-sub", "report-reasons-game", "report-reasons-player", "report-details", "report-pic", "report-pic-img", "report-picture", "report-hold", "report-context", "report-error", "report-notices", "report-tell", "report-sent", "report-done", "report-send", "report-data"]) expect(markup).toContain(`id="${id}"`);

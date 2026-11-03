@@ -2,7 +2,7 @@
   "name": "Zaisma",
   "short_name": "Zaisma",
   "start_url": "/",
-  "display": "browser",
+  "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#E7E4DF",
   "icons": [

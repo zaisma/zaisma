@@ -14,7 +14,7 @@ import { answerSpendingRequest, spendingRequestAnswer } from "./spending-request
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
 import { stripeFormTargets } from "./stripe.ts";
 import { waitEndsText } from "./email-codes.ts";
-import { secondaryButton, primaryButton, textLink, toggleButton } from "./components/actions.ts";
+import { action, type ButtonWords, secondaryButton, primaryButton, textLink, visibilityButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { paneParts, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
@@ -34,12 +34,12 @@ import { hostingMeter } from "./hosting-meter.ts";
 
 const PAGE = "/dashboard/settings";
 const TAB_PANES = [
-  { id: "hosting", label: "Hosting", icon: "gauge" },
-  { id: "pro", label: "Pro", icon: "plus" },
-  { id: "payments", label: "Payments", icon: "card" },
-  { id: "webhooks", label: "Webhooks", icon: "bell" },
-  { id: "sign-in-apps", label: "Sign-in apps", icon: "person" },
-  { id: "keys", label: "Keys", icon: "key" },
+  { id: "hosting", ...action("hosting") },
+  { id: "pro", ...action("pro") },
+  { id: "payments", ...action("payments") },
+  { id: "webhooks", ...action("webhooks") },
+  { id: "sign-in-apps", ...action("signInApps") },
+  { id: "keys", ...action("keys") },
 ] as const;
 
 /** What the page tells the developer after a change, by the key its redirect carries. */
@@ -228,9 +228,9 @@ function settingsPane(id: string, title: string, items: LayoutItem[], corner?: {
 }
 
 /** A row's small button that opens a sheet. */
-const opens = (label: string, sheetId: string): ControlMarkup => secondaryButton(label, { type: "button", isSmall: true, controls: sheetId });
+const opens = (button: ButtonWords, sheetId: string): ControlMarkup => secondaryButton(button, { type: "button", isSmall: true, controls: sheetId });
 /** A row's ⋯, hanging a dropdown of what's done less often. */
-const more = (what: string, menuId: string): ControlMarkup => secondaryButton(`More for ${what}`, { type: "button", isSmall: true, icon: "more", isLabelHidden: true, controls: menuId, isExpanded: false });
+const more = (what: string, menuId: string): ControlMarkup => secondaryButton(action("more", `More for ${what}`), { type: "button", isSmall: true, isLabelHidden: true, controls: menuId, isExpanded: false });
 
 /** A button that opens a sheet which posts (a confirm, with its sentence). */
 const askSheet = (id: string, title: string, text: string, action: string, confirmLabel: string, isDelete = false) => confirmSheet({ id, title, text, action, confirmLabel, isDelete });
@@ -320,7 +320,7 @@ function hostingPane(settings: Settings): LayoutItem {
       ...[...refundableTopUps.values()].map((topUp) => layer(askSheet(`refund-${topUp.id}`, `Refund ${dollars(topUp.refundable_cents)}?`, "It goes back to the card it came from, and that credit is gone.", `${PAGE}/credit/refund/${topUp.id}`, "Refund"))),
     );
   }
-  return settingsPane("hosting", "Hosting", items, { end: secondaryButton("Add credit", { type: "button", icon: "plus", isSmall: true, controls: "add-credit" }) });
+  return settingsPane("hosting", "Hosting", items, { end: secondaryButton(action("addCredit"), { type: "button", isSmall: true, controls: "add-credit" }) });
 }
 
 /** The monthly credit plan: one row saying what it does and what the next 1st pays, with its sheets; with none, the row that starts one. */
@@ -329,7 +329,7 @@ function creditPlanItems(credit: CreditJson): LayoutItem[] {
   const refundWords = words(html`<p>Each payment is credit like a top-up: unused, it refunds to your card for ${CREDIT_LIMITS.refundableDurationDays} days. ${textLink("Terms", "/legal/terms")}</p>`);
   if (!plan) {
     return [
-      block(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No plan", text: "A monthly plan shows here." }), label: "Monthly credit plan", rows: [{ title: "Monthly credit plan", detail: "Credit goes back to a level you pick on the 1st of every month. You pay only what your games spent.", action: opens("Start a monthly plan", "plan-start") }] })),
+      block(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No plan", text: "A monthly plan shows here." }), label: "Monthly credit plan", rows: [{ title: "Monthly credit plan", detail: "Credit goes back to a level you pick on the 1st of every month. You pay only what your games spent.", action: opens(action("startPlan"), "plan-start") }] })),
       layer(
         sheet({
           id: "plan-start",
@@ -362,7 +362,7 @@ function creditPlanItems(credit: CreditJson): LayoutItem[] {
             detail: `Back to ${dollars(levelCents)} on the 1st of every month`,
             secondDetail: isFailing ? "Your card was declined. Stripe is trying again over the next days." : plan.next_payment_cents > 0 ? `${nextDay} pays ${dollars(plan.next_payment_cents)} so far` : `${nextDay} pays nothing so far`,
             end: isFailing ? tag("Card declined", "warning") : undefined,
-            action: [opens("Change level", "plan-change"), opens("Stop plan", "plan-stop")],
+            action: [opens(action("change"), "plan-change"), opens(action("stopPlan"), "plan-stop")],
           },
         ],
       }),
@@ -406,7 +406,7 @@ function gameRow(each: GameHosting): ListRow {
     secondDetail: (hosting.is_paused ? pausedWords : budgetWords) ?? undefined,
     end: hosting.is_paused ? tag("Paused", "warning") : undefined,
     meter,
-    action: budgetCents === null ? opens("Give it a budget", idBase) : [opens("Change budget", idBase), more(game.title, `${idBase}-more`)],
+    press: { controls: idBase },
   };
 }
 
@@ -427,6 +427,7 @@ function gameSheets(each: GameHosting): LayoutItem[] {
             { kind: "words", markup: html`<p>The most credit this game may use each month, past its free hosting. At least $1.</p>` },
             { kind: "control", markup: cutField({ id: `${idBase}-field`, name: "monthly_budget_dollars", label: "Monthly budget ($)", type: "text", icon: "card", inputMode: "numeric", text: budgetCents === null ? "" : String(budgetCents / 100), isRequired: true, hint: budgetCents === null && each.lastMonthBeyondFreeCents > 0 ? `Last month's use past free: ${dollars(each.lastMonthBeyondFreeCents)}.` : undefined }) },
             { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` },
+            ...(budgetCents === null ? [] : [{ kind: "control" as const, markup: secondaryButton(action("turnOff", "Turn off paid hosting"), { type: "button", controls: `${idBase}-off` }) }]),
           ],
         })}</div>`),
         buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save budget", { type: "submit" })],
@@ -435,7 +436,6 @@ function gameSheets(each: GameHosting): LayoutItem[] {
     ...(budgetCents === null
       ? []
       : [
-          layer(dropdown({ id: `${idBase}-more`, label: game.title, items: [{ label: "Turn off paid hosting", icon: "pause", confirmSheetId: `${idBase}-off` }] })),
           layer(askSheet(`${idBase}-off`, `Turn off paid hosting for ${game.title}?`, "It stops at its free allowance each month. Nothing is charged past it.", `${PAGE}/games/${game.slug}/budget-off`, "Turn off")),
         ]),
   ];
@@ -532,17 +532,17 @@ function paymentsPane(settings: Settings): LayoutItem {
   }
   const rows: ListRow[] = [];
   if (!stripe.can_take_payments) {
-    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: opens("Finish on Stripe", "payments-finish") });
+    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: opens(action("openStripe", "Finish on Stripe"), "payments-finish") });
     items.push(layer(tapSheet("payments-finish", "Finish on Stripe?", "Tap your passkey, then finish setting up your account on Stripe's page.", `${PAGE}/payments/connect`, "Continue to Stripe")));
   }
   rows.push(
     {
       title: stripe.business_name ?? "No seller name yet",
       detail: `${stripe.support_email ?? "No support email"} · ${stripe.country_code ?? ""} · ${(stripe.default_currency_code ?? "").toUpperCase()}`,
-      action: secondaryButton("Change on Stripe", { href: "https://dashboard.stripe.com/settings/account", icon: "out-of-page", isSmall: true }),
+      action: secondaryButton(action("openStripe", "Change on Stripe"), { href: "https://dashboard.stripe.com/settings/account", isSmall: true }),
     },
-    { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens("Change", "payments-tax") },
-    ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: toggleButton("Hide amounts", { type: "button", icon: "eye", isSmall: true, isPressed: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
+    { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens(action("change"), "payments-tax") },
+    ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: visibilityButton({ show: "Show amounts", hide: "Hide amounts" }, { type: "button", isSmall: true, isContentHidden: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
     { title: "Disconnect Stripe", detail: "Players can't buy in your games until you connect again · past sales stay", action: opens("Disconnect", "payments-disconnect") },
   );
   items.push(
@@ -559,7 +559,7 @@ function paymentsPane(settings: Settings): LayoutItem {
     ),
     layer(askSheet("payments-disconnect", "Disconnect Stripe?", "Players can't buy in any of your games until you connect again. Past sales stay.", `${PAGE}/payments/disconnect`, "Disconnect")),
   );
-  return settingsPane("payments", "Payments", items, { end: secondaryButton("Open Stripe", { href: "https://dashboard.stripe.com", icon: "out-of-page", isSmall: true }) });
+  return settingsPane("payments", "Payments", items, { end: secondaryButton(action("openStripe"), { href: "https://dashboard.stripe.com", isSmall: true }) });
 }
 
 /* ---- Webhooks ---- */
@@ -590,7 +590,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
               title: where,
               detail: `${webhook.event_kinds.map((kind) => EVENT_WORDS[kind as keyof typeof EVENT_WORDS] ?? kind).join(", ")}${webhook.destination_kind === "endpoint_url" && webhook.game_slugs ? ` · only ${webhook.game_slugs.join(", ")}` : ""}`,
               end: trouble ? tag(trouble, "warning") : undefined,
-              action: [opens("Change", `webhook-${webhook.id}-edit`), more(where, `webhook-${webhook.id}-more`)],
+              action: [opens(action("change"), `webhook-${webhook.id}-edit`), more(where, `webhook-${webhook.id}-more`)],
             };
           }),
         }),
@@ -608,11 +608,11 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
           id: `${idBase}-more`,
           label: where,
           items: [
-            { label: "Send a test", icon: "send", confirmSheetId: `${idBase}-test` },
-            { label: "Deliveries", icon: "clock", href: `${PAGE}?deliveries=${webhook.id}#webhook-deliveries` },
-            { label: "New signing secret", icon: "key", confirmSheetId: `${idBase}-secret` },
+            { ...action("sendTest"), confirmSheetId: `${idBase}-test` },
+            { ...action("deliveries"), href: `${PAGE}?deliveries=${webhook.id}#webhook-deliveries` },
+            { ...action("newSecret", "New signing secret"), confirmSheetId: `${idBase}-secret` },
             { kind: "rule" },
-            { label: "Delete", icon: "trash", confirmSheetId: `${idBase}-delete` },
+            { ...action("delete"), confirmSheetId: `${idBase}-delete` },
           ],
         }),
       ),
@@ -665,7 +665,7 @@ function webhooksPane(settings: Settings, state: PageState, deliveries: Delivery
     );
   }
   return settingsPane("webhooks", "Webhooks", items, {
-    end: secondaryButton("Add", { type: "button", icon: "plus", isSmall: true, controls: "webhook-add" }),
+    end: secondaryButton(action("add"), { type: "button", isSmall: true, controls: "webhook-add" }),
     foot: games.length ? secondaryButton("Send to a game server", { type: "button", isSmall: true, controls: "webhook-server-add" }) : undefined,
   });
 }
@@ -701,7 +701,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
             title: app.name,
             detail: `${app.kind === "confidential" ? "Confidential, with a secret" : "Public, no secret"} · client ID ${app.id}`,
             secondDetail: `Sends players back to ${app.redirect_urls.join(", ")}`,
-            action: [opens("Change", `app-${app.id}-edit`), more(app.name, `app-${app.id}-more`)],
+            action: [opens(action("change"), `app-${app.id}-edit`), more(app.name, `app-${app.id}-more`)],
           })),
         }),
       ),
@@ -714,7 +714,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
         dropdown({
           id: `${idBase}-more`,
           label: app.name,
-          items: [...(app.kind === "confidential" ? [{ label: "New client secret", icon: "key" as const, confirmSheetId: `${idBase}-secret` }, { kind: "rule" as const }] : []), { label: "Delete", icon: "trash", confirmSheetId: `${idBase}-delete` }],
+          items: [...(app.kind === "confidential" ? [{ ...action("newSecret", "New client secret"), confirmSheetId: `${idBase}-secret` }, { kind: "rule" as const }] : []), { ...action("delete"), confirmSheetId: `${idBase}-delete` }],
         }),
       ),
       layer(sheet({ id: `${idBase}-edit`, title: "Change this app", closeLabel: "Close", action: `${PAGE}/sign-in-apps/${app.id}`, body: stack({ items: fields(idBase, app) }), buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Save", { type: "submit" })] })),
@@ -739,7 +739,7 @@ function signInAppsPane(settings: Settings): LayoutItem {
       }),
     ),
   );
-  return settingsPane("sign-in-apps", "Sign-in apps", items, { end: secondaryButton("Make", { type: "button", icon: "plus", isSmall: true, controls: "app-add" }) });
+  return settingsPane("sign-in-apps", "Sign-in apps", items, { end: secondaryButton(action("make"), { type: "button", isSmall: true, controls: "app-add" }) });
 }
 
 /* ---- Keys ---- */
@@ -764,7 +764,7 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
             title: key.name,
             detail: keyDetail(key, games),
             end: key.kind === "connected_app" ? tag("AI app", "plain") : undefined,
-            action: opens("Remove", `key-remove-${key.id}`),
+            action: opens(action("remove"), `key-remove-${key.id}`),
           })),
         }),
       ),
@@ -798,11 +798,11 @@ function keysPane(keys: ApiKey[], games: { slug: string; title: string }[], maki
               ],
             })}</div>`
           : html`<p>${making.passkeyState === "waiting" && making.approvesFromAtMs !== null ? `Your new passkey can make keys from ${waitEndsText(making.approvesFromAtMs)}.` : "Making a key needs your passkey, so someone who learns your password can't make one."} ${making.passkeyState === "none" ? html`${textLink("Add a passkey", "/account#passkeys")} first.` : ""}</p>`),
-        buttons: canMake ? [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Make the key", { type: "submit" })] : [secondaryButton("Close", { type: "submit", formMethod: "dialog" })],
+        buttons: canMake ? [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Make the key", { type: "submit" })] : [secondaryButton(action("close"), { type: "submit", formMethod: "dialog" })],
       }),
     ),
   );
-  return settingsPane("keys", "Keys", items, { end: secondaryButton("Make", { type: "button", icon: "plus", isSmall: true, controls: "key-add" }) });
+  return settingsPane("keys", "Keys", items, { end: secondaryButton(action("make"), { type: "button", isSmall: true, controls: "key-add" }) });
 }
 
 /* ---- The page ---- */
@@ -812,23 +812,32 @@ const SETTINGS_SCRIPT = pageScript(
   String.raw`(function () {
   // The places down the side (and in their sheet on a phone) light up for the pane in view.
   var panes = document.querySelectorAll("[data-settings-pane]");
-  var switches = document.querySelectorAll("#settings-places > .tab-switch, #settings-places-sheet .tab-switch");
+  var switches = document.querySelectorAll("#settings-places .tab-switch, #settings-places-sheet .tab-switch");
   if (switches.length && "IntersectionObserver" in window && panes.length) {
     var seen = {};
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) { seen[entry.target.id] = entry.isIntersecting ? entry.boundingClientRect.top : null; });
-      var shown = null;
-      panes.forEach(function (pane) { if (shown === null && seen[pane.id] !== null && seen[pane.id] !== undefined) shown = pane; });
-      if (!shown) return;
+    var showPlace = function (id) {
       switches.forEach(function (tabs) {
-        var tab = tabs.querySelector('a[href="#' + shown.id + '"]');
+        var tab = tabs.querySelector('a[href="#' + id + '"]');
         if (!tab || tab.getAttribute("aria-current") === "page") return;
         tabs.querySelectorAll("a").forEach(function (each) { each.removeAttribute("aria-current"); });
         tab.setAttribute("aria-current", "page");
         if (tabs.pickTab) tabs.pickTab(tab);
       });
+    };
+    var showPaneInView = function () {
+      // While a place's press carries the page, the place pressed is the one you're on, whatever the page passes on its way.
+      if (document.documentElement.hasAttribute("data-page-gliding")) return;
+      var shown = null;
+      panes.forEach(function (pane) { if (shown === null && seen[pane.id] !== null && seen[pane.id] !== undefined) shown = pane; });
+      if (shown) showPlace(shown.id);
+    };
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) { seen[entry.target.id] = entry.isIntersecting ? entry.boundingClientRect.top : null; });
+      showPaneInView();
     }, { rootMargin: "-20% 0px -60% 0px" });
     panes.forEach(function (pane) { io.observe(pane); });
+    // Landed, every copy of the places says the one pressed; stopped on the way, the pane in view says.
+    addEventListener("zaisma:page-glide-end", function (event) { if (event.detail.hasLanded) showPlace(event.detail.hash.slice(1)); else showPaneInView(); });
   }
 
   // A spending request's link opens its sheet over the Hosting pane.

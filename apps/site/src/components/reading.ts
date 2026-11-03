@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { colorCode, codeLanguageName, type CodeLanguage } from "./code-colors.ts";
 import { component } from "./component.ts";
-import { secondaryButton, textLink, toggleButton } from "./actions.ts";
+import { action, secondaryButton, textLink, toggleButton } from "./actions.ts";
 import { CUT_LINE, divider, glassPane, groove, icon, tag, well } from "./foundations.ts";
 import type { IconName } from "./icons.ts";
 import { row, stack, stackOfOne } from "./layout.ts";
@@ -40,25 +40,6 @@ export function breadcrumbs(options: BreadcrumbsOptions): Raw {
   return html`<nav class="breadcrumbs" aria-label="Where this page is"><ol data-fades-sideways>${options.trail.map((step) => html`<li>${textLink(step.label, step.href, { isQuiet: true })}${chevron}</li>`)}<li><span aria-current="page">${options.current}</span></li></ol></nav>`;
 }
 
-export interface PagerOptions {
-  /** What's paged, for a screen reader: Replies, Versions. */
-  label: string;
-  /** The newer page, where there is one. */
-  newerHref?: string;
-  /** The older page, where there is one. */
-  olderHref?: string;
-}
-
-/** A pager: Newer and Older under a list that's read page by page (a topic's replies); the end you're at can't be pressed. A list you add to in place has Load more instead. */
-export function pager(options: PagerOptions): Raw {
-  return html`<nav class="pager" aria-label="${options.label}: pages">${row({
-    widths: "equal",
-    items: [
-      { kind: "control", markup: secondaryButton("Newer", options.newerHref ? { href: options.newerHref, icon: "arrow-back" } : { type: "button", icon: "arrow-back", isDisabled: true }) },
-      { kind: "control", markup: secondaryButton("Older", options.olderHref ? { href: options.olderHref, icon: "arrow-on" } : { type: "button", icon: "arrow-on", isDisabled: true }) },
-    ],
-  })}</nav>`;
-}
 
 
 export interface ProgressOptions {
@@ -162,7 +143,7 @@ export interface CodeBlockOptions {
  */
 export function codeBlock(options: CodeBlockOptions): Raw {
   const isWrapped = options.state === "is-wrapped", isCopied = options.state === "is-copied";
-  const head = html`<div class="code-head"><span class="code-language">${options.codeLanguage ? codeLanguageName(options.codeLanguage) : "Code"}</span><span class="code-said" role="status">${isCopied ? "Copied" : ""}</span>${row({ widths: "fit", items: [{ kind: "control", markup: toggleButton("Wrap", { type: "button", isSmall: true, isPressed: isWrapped, dataAttributes: { "code-wrap": "" } }) }, { kind: "control", markup: secondaryButton("Copy", { type: "button", isSmall: true, icon: "copy", dataAttributes: { "code-copy": "" } }) }] })}</div>`;
+  const head = html`<div class="code-head"><span class="code-language">${options.codeLanguage ? codeLanguageName(options.codeLanguage) : "Code"}</span><span class="code-said" role="status">${isCopied ? "Copied" : ""}</span>${row({ widths: "fit", items: [{ kind: "control", markup: toggleButton("Wrap", { type: "button", isSmall: true, isPressed: isWrapped, dataAttributes: { "code-wrap": "" } }) }, { kind: "control", markup: secondaryButton(action("copy"), { type: "button", isSmall: true, dataAttributes: { "code-copy": "" } }) }] })}</div>`;
   return html`<figure class="code-block${isWrapped ? " is-wrapped" : ""}${isCopied ? " is-copied" : ""}">${well({
     kind: "code-well",
     body: html`${slab({ body: raw(""), isDense: true, kind: "code-head-slab" })}${head}<div class="code-scroll" data-fades-sideways data-side-rail><pre class="code-lines"><code>${raw(colorCode(options.code, options.codeLanguage))}</code></pre></div>`,
@@ -286,23 +267,6 @@ component({
   examples: [
     { label: "A forum topic, at the top of its pane", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: breadcrumbs({ trail: [{ label: "Forum", href: "#breadcrumbs" }, { label: "Rooms", href: "#breadcrumbs" }], current: "Rooms drop everyone at 50 players" }) }] }) }) },
     { label: "A game's version, in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: breadcrumbs({ trail: [{ label: "Your games", href: "#breadcrumbs" }, { label: "Ashen Crown", href: "#breadcrumbs" }, { label: "Versions", href: "#breadcrumbs" }], current: "Version 14" }) }, { kind: "words", markup: html`<h2>Version 14</h2>` }] }) }) },
-  ],
-});
-
-component({
-  name: "Pager",
-  slug: "pager",
-  group: "navigation",
-  subgroup: "scrolling",
-  summary: "Newer and Older under a list read a page at a time, like a topic's replies. The end you're at can't be pressed. A list you add to in place has Load more instead.",
-  styles: `
-/* A pager: Newer and Older, an equal Row. */
-.pager { min-width: 0; }
-`,
-  render: pager,
-  examples: [
-    { label: "In the middle", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(pager({ label: "Replies", newerHref: "#pager", olderHref: "#pager" })) }) },
-    { label: "On the newest page", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(pager({ label: "Replies", olderHref: "#pager" })) }) },
   ],
 });
 

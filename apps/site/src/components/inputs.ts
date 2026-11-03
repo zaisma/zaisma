@@ -5,7 +5,7 @@ import { CUT_LINE, floatingPane, glassPane, groove, icon, well } from "./foundat
 import { cutField } from "./fields.ts";
 import { tabSwitch } from "./switch.ts";
 import { lightBox } from "./light-box.ts";
-import { tertiaryButton } from "./actions.ts";
+import { action, tertiaryButton } from "./actions.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { examplePane } from "./example-pane.ts";
 
@@ -167,7 +167,7 @@ const fileRow = (file: FileDropFile, dropId: string): Raw => {
   const sending = isUploading
     ? html`<span class="file-drop-sending" role="progressbar" aria-label="Sending ${file.fileName}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${String(sentPct)}" aria-valuetext="${sent}">${groove({ filledPct: sentPct, isWorking: true })}</span>`
     : "";
-  return html`<li class="file-drop-row carving carving-parts${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(`Remove ${file.fileName}`, { type: "button", icon: "close", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
+  return html`<li class="file-drop-row carving carving-parts${isUploading ? " is-sending" : ""}" data-cut-line="8">${CUT_LINE}<button type="button" class="file-drop-preview cut-carved" data-cut-line="4" aria-controls="${dropId}-view" aria-label="View ${file.fileName}"${file.previewUrl ? html` style="--picture:url('${file.previewUrl}')" data-picture="${file.previewUrl}"` : raw(" disabled")}>${CUT_LINE}${file.previewUrl ? html`<span class="file-drop-zoom">${icon("search")}</span>` : icon("save")}</button><span class="file-drop-about">${about}</span><span class="file-drop-remove">${tertiaryButton(action("close", `Remove ${file.fileName}`), { type: "button", isLabelHidden: true, isSmall: true })}</span>${sending}</li>`;
 };
 
 /**
@@ -384,7 +384,7 @@ export function copyField(options: CopyFieldOptions): Raw {
   // Words are a field's height, a control in a row or stack; code runs as many lines as it takes, a block.
   const markup = html`<div class="${className}"><span class="copy-head words-margin"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
     body,
-    end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
+    end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
     endNote: icon("check"),
     state: options.isCode && options.state === "is-focused" ? "is-focused" : undefined,
     isUsed: !options.isCode,
@@ -499,8 +499,8 @@ export function colorField(options: ColorFieldOptions): Raw {
   const isNone = Boolean(options.isNoneAllowed) && !HEX_CODE.test(options.pickedValue);
   // With no color picked, the square waits on a color of its own to start from.
   const hex = (HEX_CODE.test(options.pickedValue) ? options.pickedValue : "#5865F2").toUpperCase();
-  return html`<fieldset class="wheel-field color-field" id="${id}" data-color-field data-color-hex="${hex}">
-<legend class="words-margin" id="${id}-legend">${options.label}</legend>
+  return html`<div class="wheel-field color-field" role="group" aria-labelledby="${id}-legend" id="${id}" data-color-field data-color-hex="${hex}">
+<span class="field-legend words-margin" id="${id}-legend">${options.label}</span>
 <button type="button" class="wheel-button color-button carving is-used sized is-button no-icon" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}<span class="color-chip cut-carved" aria-hidden="true" data-cut-line="6" style="--swatch:${isNone ? "var(--clear-swatch)" : hex}">${CUT_LINE}</span><span class="wheel-value color-value">${isNone ? "None" : hex}</span><span class="wheel-chev">${icon("chevron-down")}</span></button>
 ${floatingPane({
     id: `${id}-pick`,
@@ -512,7 +512,7 @@ ${floatingPane({
     body: html`<div class="color-pane"><div class="color-square cut-carved${options.state === "is-focused" ? " is-focused" : ""}" data-cut-line="10" tabindex="0" role="slider" aria-label="Hue and strength" aria-valuetext="${hex}">${CUT_LINE}<span class="color-square-light" aria-hidden="true"></span><span class="color-knob thumb" aria-hidden="true" data-on-no-pane><span class="color-knob-slab thumb-slab cut-raised" data-cut-line="6">${CUT_LINE}</span></span></div><div class="color-side"><span class="color-swatch cut-carved" aria-hidden="true" data-cut-line="10">${CUT_LINE}</span>${cutField({ name: `${options.name}_hex`, id: `${id}-hex`, label: "Hex code", type: "text", text: hex, autocomplete: "off", characterPattern: "[#0-9A-Fa-f]", maximumCharacterCount: 7, isUppercase: true })}${slider({ name: `${options.name}_brightness`, id: `${id}-brightness`, label: "Brightness", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}${options.isNoneAllowed ? html`<span class="color-none">${tertiaryButton("None", { type: "button", isFullWidth: true })}</span>` : ""}</div></div>`,
   })}
 <input type="hidden" name="${options.name}" value="${isNone ? "" : hex}">
-</fieldset>`;
+</div>`;
 }
 
 /** A color field's pane: the square, the hex code and the brightness move together, and the field shows and sends the pick. */

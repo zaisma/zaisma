@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { tertiaryButton } from "./actions.ts";
+import { action, tertiaryButton } from "./actions.ts";
 import { CUT_LINE, EDGE, glassPane, groove, icon, type ShownPicture } from "./foundations.ts";
 import { stackOfOne } from "./layout.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -28,7 +28,7 @@ export const lengthWords = (durationSec: number): string => {
 /** Sound: it mutes and unmutes, its icon following the level (muted, one wave up to half, two above: data-sound-at, set by its script). */
 function soundButton(): Raw {
   const levels = (["off", "low", "high"] as const).map((soundAt) => raw(String(icon(soundAt === "off" ? "speaker-off" : soundAt === "low" ? "speaker-low" : "speaker")).replace("<svg ", `<svg data-shown-at="${soundAt}" `)));
-  return raw(String(tertiaryButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true, dataAttributes: { "video-sound": "", "sound-at": "high" } })).replace(String(icon("speaker")), levels.join("")));
+  return raw(String(tertiaryButton(action("mute"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "video-sound": "", "sound-at": "high" } })).replace(String(icon("speaker")), levels.join("")));
 }
 
 /**
@@ -39,7 +39,7 @@ function soundButton(): Raw {
  */
 export function videoPlayer(options: VideoPlayerOptions): Raw {
   const level = html`<span class="video-level">${groove({ kind: "video-level-groove", filledPct: 100 })}<input class="video-level-input" type="range" min="0" max="1" step="0.05" value="1" aria-label="Sound level"></span>`;
-  const controls = html`<div class="video-controls glass glass-bar compact smoke" data-glass data-glass-corners="0 0 0 0" role="group" aria-label="Video controls">${EDGE}${tertiaryButton("Play", { type: "button", icon: "play", onIcon: "pause", isLabelHidden: true, isSmall: true, dataAttributes: { "video-play": "" } })}<span class="video-seek">${groove({ kind: "video-progress", filledPct: 0 })}<span class="video-loaded" aria-hidden="true"></span><span class="video-waiting light-glint loops" aria-hidden="true"></span><input class="video-seek-input" type="range" min="0" max="${String(options.playDurationSec)}" step="0.1" value="0" aria-label="Where it's at"></span><span class="video-time" aria-hidden="true"><span data-video-time>0:00</span><span class="video-time-length"> / ${lengthWords(options.playDurationSec)}</span></span><span class="video-sound">${soundButton()}${level}</span>${tertiaryButton("Full screen", { type: "button", icon: "full-screen", onIcon: "full-screen-exit", isLabelHidden: true, isSmall: true, dataAttributes: { "video-full-screen": "" } })}</div>`;
+  const controls = html`<div class="video-controls glass glass-bar compact smoke" data-glass data-glass-corners="0 0 0 0" role="group" aria-label="Video controls">${EDGE}${tertiaryButton(action("playVideo"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "video-play": "" } })}<span class="video-seek">${groove({ kind: "video-progress", filledPct: 0 })}<span class="video-loaded" aria-hidden="true"></span><span class="video-waiting light-glint loops" aria-hidden="true"></span><input class="video-seek-input" type="range" min="0" max="${String(options.playDurationSec)}" step="0.1" value="0" aria-label="Where it's at"></span><span class="video-time" aria-hidden="true"><span data-video-time>0:00</span><span class="video-time-length"> / ${lengthWords(options.playDurationSec)}</span></span><span class="video-sound">${soundButton()}${level}</span>${tertiaryButton(action("fullScreen"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "video-full-screen": "" } })}</div>`;
   return html`<div class="video-player carving${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-video-player data-video-length="${String(options.playDurationSec)}" aria-busy="false">${CUT_LINE}<span class="video-status" role="status"></span><video class="video-stand-in" aria-hidden="true" tabindex="-1" muted playsinline></video><video src="${options.videoUrl}" poster="${options.poster.imageUrl}" preload="none" playsinline aria-label="${options.label}"></video><span class="video-press" data-video-press aria-hidden="true"></span>${controls}</div>`;
 }
 
@@ -221,7 +221,7 @@ component({
 .video-player:fullscreen > .cut-line { display: none; }
 .video-player:fullscreen > video { clip-path: none; }
 /* There its bar floats a pane's margin in from the screen's edges (and clear of a phone's rounded corners and notch), not a frame gap. */
-.video-player:fullscreen .video-controls { left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); right: max(var(--pad-pane), env(safe-area-inset-right, 0px)); bottom: max(var(--pad-pane), env(safe-area-inset-bottom, 0px)); }
+.video-player:fullscreen .video-controls { left: max(var(--pad-pane), var(--safe-left)); right: max(var(--pad-pane), var(--safe-right)); bottom: max(var(--pad-pane), env(safe-area-inset-bottom, 0px)); }
 `,
   render: videoPlayer,
   examples: [

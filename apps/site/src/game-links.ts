@@ -1,3 +1,4 @@
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, standingOf, testerLinkByToken, type Game, type GameLink, type LinkBrand } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -99,21 +100,37 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
  * The sheet over the running game, like the buy sheet: where a link goes, or (a sheet of its own) that it can't open here. Open is a real
  * link to the address, so the browser opens the tab however long the player looked. Closing either sheet any way but Open is Stay.
  */
-export function leavingCard(gameTitle: string): Raw {
-  const body = stack({
+export const linkAskSheet = gallerySheet<{ gameTitle: string; url?: string }>({
+  name: "Leaving Zaisma sheet",
+  slug: "leaving-zaisma-sheet",
+  summary: "A game's link to another site, asked once before the tab opens. Its script fills in the address.",
+  states: [{ stateValue: "asking", label: "Asking", options: { gameTitle: "Neon Drift", url: "https://neon-drift.example/store" } }],
+  make: (options, isShown) => sheet({ isShown, id: "link-ask", title: "You're leaving Zaisma", closeLabel: "Close", placement: "foot", body: stack({
     items: [
-      { kind: "block", markup: copyField({ id: "link-url", label: `${gameTitle} wants to open:`, copiedText: "", isCode: true }) },
+      { kind: "block", markup: copyField({ id: "link-url", label: `${options.gameTitle} wants to open:`, copiedText: options.url ?? "", isCode: true }) },
       { kind: "block", markup: checkField({ id: "link-trust", name: "is_link_site_trusted", label: "Open links to this site straight away from now on, in this browser" }) },
     ],
-  });
-  return html`${sheet({ id: "link-ask", title: "You're leaving Zaisma", closeLabel: "Close", placement: "foot", body, buttons: [secondaryButton("Stay", { id: "link-stay", type: "submit", formMethod: "dialog" }), primaryButton("Open", { href: "#", dataAttributes: { "link-go": "" } })] })}${sheet({
+  }), buttons: [secondaryButton("Stay", { id: "link-stay", type: "submit", formMethod: "dialog" }), primaryButton("Open", { href: "#", dataAttributes: { "link-go": "" } })] }),
+});
+
+export const linkClosedSheet = gallerySheet<Record<string, never>>({
+  name: "Link closed sheet",
+  slug: "link-closed-sheet",
+  summary: "A game's link that can't open here, said over the game.",
+  states: [{ stateValue: "closed", label: "Open", options: {} }],
+  make: (sheetOptions, isShown) => sheet({
+    isShown,
     id: "link-closed",
     title: "This link can't be opened here.",
     closeLabel: "Close",
     placement: "foot",
     body: stackOfOne(html``),
     buttons: [secondaryButton("Back to the game", { id: "link-back", type: "submit", formMethod: "dialog" })],
-  })}`;
+  }),
+});
+
+export function leavingCard(gameTitle: string): Raw {
+  return html`${linkAskSheet({ gameTitle })}${linkClosedSheet({})}`;
 }
 
 /**

@@ -347,7 +347,7 @@ describe("the gallery", () => {
     for (const { group, subgroup } of GALLERY_PLACES()) {
       for (const holder of elementTree((await page(galleryPagePath(group, subgroup))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
-        // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices, a wheel field's wheels, a file drop's files)
+        // A control's own parts (a switch's tabs, a dropdown's choices, a wheel field's wheels, a file drop's files)
         // are its inside, not controls beside each other.
         if (holder.classes.includes("wheels") || holder.classes.includes("file-drop-list") || holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"') || holder.classes.includes("dropdown-in") || holder.attributes.includes(' role="listbox"')) continue;
         // What a well holds is its own inside (a compact choice list's cards, down its carving like a vertical switch's places), and a
@@ -658,7 +658,6 @@ const GALLERY_ONLY = new Set<string>([
 const OWN_SVG = new Map<string, string>([
   ["const stroke = ", "the icon set's line icons"],
   ['"arrow-back"', "the icon set's filled arrows"],
-  ['"arrow-on"', "the icon set's filled arrows"],
   ['"arrow-first"', "the icon set's filled arrows"],
   ['"arrow-last"', "the icon set's filled arrows"],
   ["play: '<svg", "the icon set's play triangle"],
@@ -690,7 +689,6 @@ const OWN_GLASS = new Map<string, string>([
   ['class="foot glass glass-bar"', "the footer"],
   ['class="banner glass"', "a banner"],
   ['class="top bar-layout glass', "the header"],
-  ['class="playing-bar glass', "the bar beside a running game"],
   ['class="playing-card glass', "a card over a running game's corner"],
   ['class="gallery-bar glass', "the gallery's bar"],
   ['class="chart-tip glass', "a chart's number where you point, on a small piece of floating glass"],

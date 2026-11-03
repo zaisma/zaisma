@@ -51,15 +51,15 @@ import {
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
-import { details, gameKeyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
-import { glassPane, tag, type IconName } from "./components/foundations.ts";
+import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
+import { glassPane, icon, tag, type IconName } from "./components/foundations.ts";
 import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { banner, dropdown, gameCard, notice, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
-import { playingBar, playingCheck } from "./components/playing.ts";
+import { playingCheck, zaismaButton, zaismaOverlay } from "./components/playing.ts";
 import { gameMedia } from "./components/game-media.ts";
 import { readingText } from "./components/reading.ts";
 import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrounds.ts";
@@ -70,16 +70,17 @@ import { KEEP_PLAYED_COOKIE_SOURCE } from "./home-script.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
-import { blockSheet } from "./blocks.ts";
-import { playersSheet } from "./players-sheet.ts";
+import { blockSheetParts } from "./blocks.ts";
+import { playingPeople } from "./players-sheet.ts";
+import { ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
 import { friendRequestParts } from "./friend-requests.ts";
-import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
+import { GAME_UPDATES_SCRIPT, updateButton } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
 import { MAXIMUM_REFRESHED_ROOM_COUNT, ROOM_CODE_TYPING, codeBox, pageRooms, readRoomPick, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
-import { BUY_SHEET_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
+import { BUY_SHEET_SCRIPT, buySheetParts, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
@@ -361,9 +362,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton(playsAfterSignIn ? "Sign in to play" : deviceNote.isPlayedAnyway ? "Play anyway" : "Play", { id: "play", type: "button", isBig: true, isFullWidth: true, icon: "play" }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(action("play", playsAfterSignIn ? "Sign in to play" : deviceNote.isPlayedAnyway ? "Play anyway" : "Play"), { id: "play", type: "button", isBig: true, isFullWidth: true }) }]
       : fullGamePrice
-        ? [{ kind: "control" as const, markup: primaryButton("Buy", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, icon: "cart", trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
+        ? [{ kind: "control" as const, markup: primaryButton(action("buy"), { id: "buy-game", type: "button", isBig: true, isFullWidth: true, trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isFullWidth: true, isDisabled: true }) }];
   const demoSlug = isForSale ? view.demoGameSlug : null;
   const otherGameLink = demoSlug ? secondaryButton("Play the demo", { href: `/g/${demoSlug}?play`, isBig: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true }) : null;
@@ -378,8 +379,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           items: [
             { kind: "control", markup: secondaryButton("Details", { href: "#about", isBig: true }) },
             ...(otherGameLink ? [{ kind: "control" as const, markup: otherGameLink }] : []),
-            { kind: "control", markup: secondaryButton("Share", { id: "share-page", type: "button", icon: "share", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
-            { kind: "control", markup: secondaryButton("Report", { href: reportHref, icon: "flag", isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
+            { kind: "control", markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
+            { kind: "control", markup: secondaryButton(action("report"), { href: reportHref, isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
           ],
         }),
       },
@@ -398,8 +399,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       items: [
         { kind: "words", markup: html`<h1 id="title">${game.title}</h1>` },
         ...(developer ? [{ kind: "words" as const, markup: html`<p>by ${textLink(developer.name, profilePath(developer.name), { isQuiet: true })}</p>` }] : []),
-        { kind: "block", id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, markup: gameKeyDetails({ playerCount: playingNowPlayerCount }) },
-        ...(tester || !canSignIn || isClosed ? [] : [{ kind: "block" as const, id: "friends-here", isHidden: true, markup: html`` }]),
+        { kind: "block", markup: keyDetails({ details: [
+          { id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, label: "Playing now", detailValue: playingNowPlayerCount.toLocaleString("en-US") },
+          ...(tester || !canSignIn || isClosed ? [] : [{ id: "friends-here", isHidden: true, label: "Friends playing", detailValue: "" }]),
+        ] }) },
         ...(tester ? [{ kind: "block" as const, markup: banner({ text: testerWords, icon: "info", tone: "warning" }) }] : []),
         ...(isClosed ? [{ kind: "words" as const, id: "closed", markup: html`<p>This game isn't open to your account. ${textLink("Find other games", "/")}</p>` }] : []),
         { kind: "block", markup: paneActions },
@@ -451,73 +454,24 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ? [section("more", `More from ${developer.name}`, [{ kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No other games yet", text: "This is the developer's only game so far." }), itemSize: "cover", items: developerGames.map((otherGame) => ({ kind: "block" as const, markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }) })) }) }])]
       : []),
   ];
-  // Playing: the bar beside the game, and what it opens.
-  const barControls = [
-    ...(multiplayer ? [secondaryButton("Players", { id: "players-open", type: "button", icon: "people", isLabelHidden: true, isSmall: true, controls: "players", reactionCount: 0 })] : []),
-    ...(saves ? [secondaryButton("Keep your progress", { id: "keep-bar", href: joinHere, icon: "save", isLabelHidden: true, isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } })] : []),
-    ...(hasRoomCodes ? [secondaryButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog" })] : []),
-    ...(isClosed ? [] : updateBarButtons()),
-    secondaryButton("Share", { id: "share", type: "button", icon: "share", isLabelHidden: true, isSmall: true, controls: "share-dialog" }),
-    secondaryButton("Full screen", { id: "full", type: "button", icon: "full-screen", isLabelHidden: true, isSmall: true }),
-    secondaryButton("More", { id: "menu", type: "button", icon: "more", isLabelHidden: true, isSmall: true, controls: "menu-dialog", isExpanded: false }),
+  // Playing: the Z over the game, and the menu it opens.
+  const roomItems: LayoutItem[] = hasRoomCodes ? roomCodeItems() : [];
+  const people = playingPeople({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", isPlayedAlone: !multiplayer, canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, roomItems });
+  const gameRows: ListRow[] = [
+    // Guests only: a signed-in player's progress is on their account already.
+    ...(saves && !viewer.account ? [{ id: "keep-link", isHidden: true, title: "Keep your progress", lead: icon("save"), href: joinHere }] : []),
+    { title: "Report this game", lead: icon("flag"), href: reportHref },
+    { title: "Content rules", lead: icon("rules"), href: "/legal/content-rules", isNewTab: true },
   ];
-  const roomSheet = hasRoomCodes
-    ? sheet({
-        id: "room-dialog",
-        title: "Room",
-        placement: "foot",
-        closeLabel: "Close",
-        body: stack({
-          items: [
-            { kind: "block", id: "room-here", isHidden: true, markup: stack({ items: [
-              { kind: "block", id: "room-code-shown", markup: copyField({ id: "room-code-text", label: "This room", copiedText: "", isCode: true }) },
-              { kind: "control", markup: secondaryButton("Hide the room code", { id: "room-eye", type: "button", icon: "eye", isHidden: true }) },
-              { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
-            ] }) },
-            { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", autocomplete: "off", ...ROOM_CODE_TYPING }) },
-            { kind: "words", id: "join-leaves", isHidden: true, markup: html`<p>It leaves the room you're in.</p>` },
-          ],
-        }),
-        buttons: [secondaryButton("Join", { id: "room-join", type: "submit" })],
-      })
-    : "";
-  const menu = dropdown({
-    id: "menu-dialog",
-    label: game.title,
+  const gameBody = stack({ items: [
     // When the account last saved ("Saved 2 min ago"), written by the saves script: saving that works says nothing over the game.
-    head: { title: game.title, note: ownServers.length ? ownServersLine(ownServers) : undefined, lineId: saves ? "save-line" : undefined },
-    items: [
-      // Guests only: a signed-in player's progress is on their account already.
-      ...(saves && !viewer.account ? [{ id: "keep-link", isHidden: true, label: "Keep your progress", icon: "save" as const, href: joinHere, dataAttributes: { keep: "/join" } }] : []),
-      { label: "Report this game", icon: "flag", href: reportHref, dataAttributes: { report: "" } },
-      { kind: "rule" },
-      { label: "Content rules", icon: "rules", href: "/legal/content-rules", isNewTab: true },
-      { label: "All games", icon: "games", href: "/" },
-    ],
-  });
-  const keepCard = saves
-    ? notice({ placement: "over-game",
-        id: "keep",
-        title: "Keep your progress",
-        body: stack({ items: [
-          { kind: "words", id: "save-status", isHidden: true, markup: html`<p role="status"></p>` },
-          { kind: "words", markup: html`<p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
-          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } }) }, { kind: "control", markup: secondaryButton("Not now", { id: "keep-later", type: "button" }) }] }) },
-          { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", signinHere, { dataAttributes: { keep: "/signin" } })}</p>` },
-        ] }),
-      })
-    : "";
-  const signInCard = canSignIn
-    ? notice({ placement: "over-game",
-        id: "sign-in-ask",
-        title: `${game.title} asks you to sign in`,
-        body: stack({ items: [
-          { kind: "words", markup: html`<p id="sign-in-text">Make a free Zaisma account or sign in. The game keeps running here while you do.</p>` },
-          { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } }) }, { kind: "control", markup: secondaryButton("Not now", { id: "sign-in-later", type: "button" }) }] }) },
-          { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", signinHere, { dataAttributes: { "sign-in": "/signin" } })}</p>` },
-        ] }),
-      })
-    : "";
+    ...(saves ? [{ kind: "words" as const, markup: html`<p id="save-line" hidden></p>` }] : []),
+    ...(ownServers.length ? [{ kind: "words" as const, markup: html`<p>${ownServersLine(ownServers)}</p>` }] : []),
+    ...(isClosed ? [] : [{ kind: "control" as const, markup: updateButton() }]),
+    ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
+    { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: game.title, rows: gameRows }) },
+  ] });
+  const overlay = gameOverlay({ title: game.title, people, gameBody, reportStep: reportStep(game, { isMultiplayer: multiplayer }), isPlayedAlone: !multiplayer });
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
     head: view.head,
@@ -535,25 +489,23 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     // What a page for older players shows depends on who's looking, so no cache keeps it.
     isPrivate: game.minimum_player_age_years > 13 || game.full_game_item_name !== null || addOns.length > 0,
     hasStripeFrame: !isClosed,
+    hasBackButton: true,
     body: html`${stack({ items: [{ kind: "block", markup: gamePane }, ...sections] })}
-${playingBar({ title: game.title, controls: barControls })}
+${zaismaButton()}
 <template id="game-frame"><iframe class="game-frame" id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
-${roomSheet}
-${isClosed ? "" : connectionPlate()}
-${menu}
-${multiplayer
-  ? html`${playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}`, reportStep: reportStep(game, { isMultiplayer: true }) })}${reportScript(game, { gameOrigin })}${blockSheet({ gameOrigin })}`
-  : reportSheet(game, { isMultiplayer: false, gameOrigin })}
-${keepCard}
-${saves ? notice({ placement: "over-everything", id: "signed-out", title: "You've been signed out", text: "Sign in again to keep saving to your account.", buttons: [primaryButton("Sign in", { href: signinHere })] }) : ""}
-${signInCard}
+${overlay}
+${people.parts}
+${multiplayer ? html`${reportScript(game, { gameOrigin })}${blockSheetParts({ gameOrigin })}` : reportScript(game, { gameOrigin })}
+${saves ? keepProgressCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
+${saves ? signedOutCard(signinHere) : ""}
+${canSignIn ? signInAskCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
-${isClosed ? "" : buySheet({ joinHref: joinHere, signInHref: signinHere, cover })}
-${shareDialog(game.title, !tester)}
+${isClosed ? "" : buySheetParts({ joinHref: joinHere, signInHref: signinHere, cover })}
+${shareDialog({ gameTitle: game.title, hasQrCode: !tester })}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
       slug: game.slug,
@@ -596,6 +548,7 @@ ${isClosed
           BUY_SHEET_SCRIPT,
           GAME_EMBEDDED_SCRIPT,
           GAME_UPDATES_SCRIPT,
+          ZAISMA_OVERLAY_SCRIPT,
           GAME_AUTOPLAY_SCRIPT,
         )}`,
   });
@@ -1023,11 +976,6 @@ const SECURITY_PAGE = `
 const GAME_PAGE_SCRIPT = pageScript("game-page", String.raw`const gamePage = JSON.parse(document.getElementById("game-page-data").textContent);
 let frame = null;
 const share = document.getElementById("share");
-const full = document.getElementById("full");
-const dialog = document.getElementById("menu-dialog");
-// iPhones can't put a frame in full screen, so don't offer it there.
-if (!document.fullscreenEnabled) full.hidden = true;
-full.onclick = () => frame && frame.requestFullscreen();
 // The game only loads when the player taps Play. That tap also lets the game play sound straight away.
 function play() {
   if (frame) return;
@@ -1116,8 +1064,12 @@ function remember() {
 const friendsHere = document.getElementById("friends-here");
 if (friendsHere && /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) {
   fetch("/g/" + gamePage.slug + "/friends").then((r) => (r.ok ? r.text() : "")).then((fragment) => {
-    friendsHere.innerHTML = fragment;
-    friendsHere.hidden = !fragment;
+    const arrived = document.createElement("template");
+    arrived.innerHTML = fragment;
+    const detail = arrived.content.querySelector(".key-detail");
+    if (!detail) return;
+    friendsHere.replaceChildren(...detail.childNodes);
+    friendsHere.hidden = false;
   }).catch(() => {});
 }
 // Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds. The
@@ -1267,26 +1219,19 @@ if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.pus
   const playLabel = document.querySelector("#play .face > span:not([class])"), playWords = needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine)) ? "Play anyway" : "Play";
   if (playLabel && playLabel.textContent !== playWords && /^Play( anyway)?$/.test(playLabel.textContent)) playLabel.textContent = playWords;
 }
-// The ⋯ menu is a dropdown, which opens and closes itself; closed, the game gets the keys back.
-const menuButton = document.getElementById("menu");
 // A tap into the game never reaches this page: the page losing focus closes an open menu instead.
 window.addEventListener("blur", () => document.querySelectorAll('.dropdown[role="menu"]:popover-open').forEach((menu) => { const opener = document.querySelector('[aria-controls="' + menu.id + '"][aria-expanded="true"]'); if (opener) opener.click(); }));
-menuButton.addEventListener("click", () => setTimeout(() => { if (frame && menuButton.getAttribute("aria-expanded") === "false" && !document.querySelector("dialog.sheet[open]")) frame.focus(); }));
-// The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
-// whether it takes others), Join otherwise; its sheet has the code with Copy, and Join by code. In streamer mode (an
-// account setting) the code starts hidden: the eye shows it on this page, and Share blurs it under Show.
-const roomOpen = document.getElementById("room-open");
-const roomDialog = document.getElementById("room-dialog");
+// The room in the menu's Room: the room's code while the game is in a room (zaisma:room, then zaisma:players says
+// whether it takes others), with Copy, and Join by code. In streamer mode (an account setting) the code starts
+// hidden: the eye shows it on this page, and Share blurs it under Show.
+const roomDialog = document.getElementById("players");
 const isStreamerModeOn = gamePage.is_streamer_mode_on === true;
 let isRoomCodeHidden = isStreamerModeOn;
 let shownRoom = null;
 function showRoomCode(room) {
   shownRoom = room;
-  if (!roomOpen) return;
-  roomOpen.querySelector(".face > span:not([class])").textContent = !room ? "Join" : !room.isOpen ? "Closed" : isRoomCodeHidden ? "••••••" : room.code;
-  roomOpen.title = !room ? "Join a room by its code" : !room.isOpen ? "This room doesn't take new players" : "The room's code";
+  if (!document.getElementById("room-here")) return;
   document.getElementById("room-here").hidden = !room;
-  document.getElementById("join-leaves").hidden = !room;
   document.getElementById("room-closed").hidden = !room || room.isOpen;
   const codeText = document.getElementById("room-code-text");
   codeText.textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
@@ -1295,12 +1240,11 @@ function showRoomCode(room) {
   document.getElementById("room-code-shown").hidden = !room || !room.isOpen;
   const roomEye = document.getElementById("room-eye");
   roomEye.hidden = !isStreamerModeOn || !room || !room.isOpen;
+  roomEye.setAttribute("aria-pressed", String(isRoomCodeHidden));
   roomEye.querySelector(".face > span:not([class])").textContent = isRoomCodeHidden ? "Show the room code" : "Hide the room code";
 }
-if (roomOpen && roomDialog) {
+if (document.getElementById("bar-join-code")) {
   const joinInput = document.getElementById("bar-join-code");
-  roomOpen.addEventListener("click", () => { if (!shownRoom) setTimeout(() => joinInput.focus()); });
-  roomDialog.addEventListener("close", () => { if (frame) frame.focus(); });
   // Enter joins: the sheet's first submit button is its Close, which the browser would press.
   joinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); joinInput.form.requestSubmit(document.getElementById("room-join")); } });
   joinInput.addEventListener("input", () => joinInput.setCustomValidity(""));
@@ -1376,26 +1320,18 @@ addEventListener("message", (e) => {
       if (!shownRoom || shownRoom.code !== d.code) showRoomCode({ code: d.code, isOpen: true });
     }
   }
-  // The game's own Invite or Players button (Zaisma.invite, Zaisma.openPlayersPanel): the same Share and
-  // Players as the bar's, only right after the player's tap. Full screen holds only the game, so it ends first.
-  // Invite hears whether Share opened.
-  if (d && (d.type === "zaisma:share" || d.type === "zaisma:players-open")) {
-    const isShare = d.type === "zaisma:share";
-    const answerShare = (isOpened) => isShare && typeof d.requestNumber === "number" && frame.contentWindow.postMessage({ type: "zaisma:share-answer", requestNumber: d.requestNumber, isOpened }, gameOrigin);
+  // The game's own Invite button (Zaisma.invite): Zaisma's invite sheet, only right after the player's tap. Invite hears whether it opened.
+  // No game can open the menu: only the player's own press does (docs/principles/whose-game-is-it.md).
+  if (d && d.type === "zaisma:share") {
+    const answerShare = (isOpened) => typeof d.requestNumber === "number" && frame.contentWindow.postMessage({ type: "zaisma:share-answer", requestNumber: d.requestNumber, isOpened }, gameOrigin);
     if (navigator.userActivation && !navigator.userActivation.isActive) answerShare(false);
     else {
-      const playersOpen = document.getElementById("players-open");
-      const open = () => {
-        if (!isShare) return playersOpen && playersOpen.click();
-        try {
-          shareFrom(share);
-          answerShare(true);
-        } catch {
-          answerShare(false);
-        }
-      };
-      if (document.fullscreenElement) document.exitFullscreen().then(open, open);
-      else open();
+      try {
+        shareFrom(share);
+        answerShare(true);
+      } catch {
+        answerShare(false);
+      }
     }
   }
   // Who's in the room, and whether it takes others by its code.

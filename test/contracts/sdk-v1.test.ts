@@ -23,10 +23,10 @@ const FROZEN_TYPES = join(ROOT, FROZEN_TYPES_PATH);
 const isWritingBaseline = Boolean(process.env.CONTRACTS_WRITE_BASELINE);
 
 /** sdk.d.ts's SHA-256. A new baseline prints the new one: change it here, in the same reviewed diff. */
-const FROZEN_TYPES_SHA256 = "0b1108d4fa235cbc2f68319595c9a0844a353a4e9cbbb91876e547a775be3c73";
+const FROZEN_TYPES_SHA256 = "b340cff291c67d79629e090a129d0897d9c8b8fc228079702f02b869806d30a0";
 
 /** window.Zaisma's members this lock holds: everything but joinRoom and rooms (rooms-v1.test.ts). */
-const ROOTS = ["sdkVersionNumber", "gameSlug", "player", "invite", "checkChat", "openPlayersPanel", "friends", "links", "server", "saves", "versions", "items"];
+const ROOTS = ["sdkVersionNumber", "gameSlug", "player", "invite", "checkChat", "friends", "links", "server", "saves", "versions", "items"];
 /** Types rooms-v1.test.ts holds: unions past them aren't walked here. */
 const ROOM_TYPES = new Set(["Room", "Rooms"]);
 
@@ -254,7 +254,7 @@ function typeProblems(frozenText: string): string[] {
   const assertions = [
     "/** Compiles only when Given fits Wanted. */",
     "type Fits<Given extends Wanted, Wanted> = true;",
-    // A Room a game passes back (invite, openPlayersPanel) is one the SDK made, never one the game built, so today's
+    // A Room a game passes back (invite) is one the SDK made, never one the game built, so today's
     // Room stands for v1's there; rooms-v1.test.ts holds the Room itself (today's still fits v1's).
     "type RoomHandles<Given> = { [Index in keyof Given]: Given[Index] extends ZaismaV1Lock.Room | null | undefined ? Exclude<Given[Index], ZaismaV1Lock.Room> | Zaisma.Room : Given[Index] };",
     ...roots.flatMap((root) => assertionsFor(checker, root)), "export {};", ""].join("\n");
@@ -556,7 +556,6 @@ async function runtimeSurfaces(): Promise<Record<string, Surface>> {
     ["Zaisma.player.offerAccount", (z) => z.player.offerAccount()],
     ["Zaisma.invite", (z) => z.invite(null)],
     ["Zaisma.checkChat", (z) => z.checkChat("hi")],
-    ["Zaisma.openPlayersPanel", (z) => z.openPlayersPanel({})],
     ["Zaisma.friends.list", (z) => z.friends.list(), true],
     ["Zaisma.friends.setRoom", (z) => z.friends.setRoom({ serverUrl: "wss://play.example.com", roomCode: "K7Q2MX" }), true],
     ["Zaisma.friends.setRoom(null)", (z) => z.friends.setRoom(null), true],
@@ -603,7 +602,8 @@ describe("the SDK v1, outside rooms", () => {
     });
   }
 
-  lockSurfaces("sdk-runtime", runtime, { isMainKept: true });
+  // Before the beta, v1 can still let go of what no game uses (docs/DECISIONS.md, "The v1 contract is fixed before it's locked"). Once this is on main, the name can leave this list.
+  lockSurfaces("sdk-runtime", runtime, { isMainKept: true, letGoBeforeTheBeta: ["openPlayersPanel"] });
 
   it("tells games more values may come in every union a game reads", () => {
     const source = ts.createSourceFile(SDK_TYPES, readFileSync(SDK_TYPES, "utf8"), ts.ScriptTarget.ES2022, true);

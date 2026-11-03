@@ -1,5 +1,5 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
-import { tertiaryButton } from "./components/actions.ts";
+import { action, tertiaryButton } from "./components/actions.ts";
 import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
 import { tagsInUse, type TagInUse } from "./components/data.ts";
@@ -219,21 +219,21 @@ function filterGroups(query: BrowseQuery, priceLabels: Record<BrowsePriceRange, 
     {
       groupName: "genre",
       label: "Genre",
-      icon: "games",
+      icon: action("genre").icon,
       pickedLabel: query.genre === "any" ? "Any" : GENRE_LABELS[query.genre],
       choices: (["any", ...GENRES] as (Genre | "any")[]).map((genre) => ({ label: genre === "any" ? "Any" : GENRE_LABELS[genre], href: picked({ genre }), isCurrent: query.genre === genre })),
     },
     {
       groupName: "players",
       label: "Players",
-      icon: "people",
+      icon: action("players").icon,
       pickedLabel: PLAYERS_LABELS[query.players],
       choices: BROWSE_PLAYERS.map((players) => ({ label: PLAYERS_LABELS[players], href: picked({ players }), isCurrent: query.players === players })),
     },
     {
       groupName: "price",
       label: "Price",
-      icon: "price-tag",
+      icon: action("price").icon,
       pickedLabel: priceLabels[query.priceRange],
       choices: (["any", ...PRICE_RANGES] as BrowsePriceRange[]).map((priceRange) => ({ label: priceLabels[priceRange], href: picked({ priceRange }), isCurrent: query.priceRange === priceRange })),
     },
@@ -337,24 +337,27 @@ const SUGGESTIONS_KEPT_MS = 60_000;
 /**
  * What the header's search suggests as you type (GET /games/suggestions?search_text=, SearchSuggestions): the games Browse would find,
  * in its Popular order with the viewer's device first, so nothing shows that a stranger couldn't find on Browse; and the ways to finish
- * what's typed, from those games' titles, developers and genres, the one that finds the most games first.
+ * what's typed, from those games' titles, developers and genres, the one that finds the most games first. What's typed exactly leads: a game of
+ * that title leads the games (the search's script lights it), and a developer or genre of those words leads the finishes.
  */
 export function suggestionsFor(games: BrowseGame[], searchText: string): SearchSuggestions {
   const needle = searchText.toLowerCase();
   if (!needle) return { finishes: [], games: [] };
-  const found = games.filter((game) => matchesSearch(game, searchText));
+  const isTitled = (game: BrowseGame) => game.title.toLowerCase() === needle;
+  const matches = games.filter((game) => matchesSearch(game, searchText));
+  const found = [...matches.filter(isTitled), ...matches.filter((game) => !isTitled(game))];
   // Each finish once, however it's written, with how many games searching it finds and where it first shows in the order.
   const finishes = new Map<string, { finish: string; gameCount: number; firstIndex: number }>();
   found.forEach((game, gameIndex) => {
     const words = [game.title, game.developer ?? "", ...game.genres.map((genre) => GENRE_LABELS[genre as Genre] ?? genre)];
     for (const word of words) {
       const key = word.toLowerCase();
-      if (!key.startsWith(needle) || key === needle || finishes.has(key)) continue;
+      if (!key.startsWith(needle) || finishes.has(key) || (key === needle && word === game.title)) continue;
       finishes.set(key, { finish: word, gameCount: found.filter((each) => matchesSearch(each, word)).length, firstIndex: gameIndex });
     }
   });
   return {
-    finishes: [...finishes.values()].sort((first, second) => second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
+    finishes: [...finishes.values()].sort((first, second) => Number(second.finish.toLowerCase() === needle) - Number(first.finish.toLowerCase() === needle) || second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
     games: found.slice(0, MAXIMUM_SUGGESTION_COUNT).map((game) => ({
       title: game.title,
       page_url: `/g/${game.slug}`,

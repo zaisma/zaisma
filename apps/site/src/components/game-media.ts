@@ -1,6 +1,6 @@
 import { html, raw, type EmptyNoteMarkup, type Raw, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
-import { tertiaryButton } from "./actions.ts";
+import { action, tertiaryButton } from "./actions.ts";
 import { CUT_LINE, EDGE_LIGHT, glassPane, groove, picture, tag, type ShownPicture } from "./foundations.ts";
 import { lengthWords, videoPlayer } from "./video-player.ts";
 import { paneParts, stackOfOne, track } from "./layout.ts";
@@ -68,7 +68,7 @@ function mediaSlide(options: GameMediaOptions, mediaItem: GameMediaItem, itemInd
 export function gameMediaViewer(options: GameMediaOptions): Raw {
   const itemCount = options.items.length;
   const strip = options.items.map((mediaItem, itemIndex) => html`<button type="button" class="media-thumb cover-art carving holds-art" data-cut-line="0" data-cut-square data-media-to="${String(itemIndex)}"${itemIndex ? "" : raw(' aria-current="true"')} aria-label="${itemLabel(mediaItem, itemIndex, itemCount)}">${CUT_LINE}<span class="cover-picture carving-art" data-cut-line="0">${picture(posterOf(mediaItem), { shownSizes: "(max-width: 520px) 96px, 128px", largestPx: 384 })}</span>${groove({ kind: "media-thumb-time", filledPct: 0 })}</button>`);
-  const close = tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
+  const close = tertiaryButton(action("close"), { type: "submit", formMethod: "dialog", isLabelHidden: true, isSmall: true });
   const placeWords = itemCount > 1 ? html`<span class="media-count" aria-live="polite"><span data-media-at>1</span> of ${String(itemCount)}</span>` : "";
   const parts = paneParts({
     head: { words: html`<div class="media-head"><h2 class="media-title">${options.gameTitle}</h2>${placeWords}</div>`, end: close },

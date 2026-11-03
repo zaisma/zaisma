@@ -61,7 +61,6 @@ export const SAVES_SCRIPT = pageScript("saves", `
   let guest = !signedIn();
   const status = document.getElementById("save-status");
   const offer = document.getElementById("keep");
-  const offerBar = document.getElementById("keep-bar");
   const offerLink = document.getElementById("keep-link");
   const savedLine = document.getElementById("save-line");
   let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, saved_at, changed_by_kind, save_data }
@@ -294,8 +293,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   let isOnlyHereSaid = false;
   function maybeOffer() {
     if (!guest || !guestText || guestText === EMPTY_SAVE_TEXT) return;
-    if (offerBar) offerBar.hidden = false;
-    if (offerLink) offerLink.hidden = false;
+    if (offerLink) offerLink.closest("li").hidden = false;
     // Said once a visit, when there's first progress to keep (the Keep card says it again when it shows).
     if (!isOnlyHereSaid) { isOnlyHereSaid = true; say("Your progress is only saved in this browser."); }
     // The card by itself, after a while, unless the game picks the moment instead. Either way it shows once a visit.
@@ -348,7 +346,7 @@ export const SAVES_SCRIPT = pageScript("saves", `
   async function joined() {
     if (!guest || !signedIn()) return;
     guest = false;
-    for (const el of [offerBar, offerLink]) if (el) el.hidden = true;
+    if (offerLink) offerLink.closest("li").hidden = true;
     if (offer) hideCard(offer);
     if (!frame) return; // Not playing yet: Play opens the game through the restore page as usual.
     const c = await load();

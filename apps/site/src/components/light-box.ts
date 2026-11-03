@@ -1,5 +1,5 @@
 import { html, type Raw } from "../markup.ts";
-import { tertiaryButton } from "./actions.ts";
+import { action, tertiaryButton } from "./actions.ts";
 
 /*
  * The light box's markup, in a file of its own so inputs.ts (a file drop's pictures) can use it without importing panes.ts, which imports
@@ -22,5 +22,5 @@ export interface LightBoxOptions {
  * top of what opened it, as that sheet's second layer, and a press anywhere, Close or Esc lands back on it.
  */
 export function lightBox(options: LightBoxOptions): Raw {
-  return html`<dialog class="sheet light-box" id="${options.id}" aria-label="${options.label}"><form class="light-box-in" method="dialog"><span class="light-box-close">${tertiaryButton(options.closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true })}</span>${options.body}</form></dialog>`;
+  return html`<dialog class="sheet light-box" id="${options.id}" aria-label="${options.label}"><form class="light-box-in" method="dialog"><span class="light-box-close">${tertiaryButton(action("close", options.closeLabel), { type: "submit", formMethod: "dialog", isLabelHidden: true })}</span>${options.body}</form></dialog>`;
 }

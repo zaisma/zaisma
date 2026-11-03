@@ -20,7 +20,6 @@
 <p id="status">Joining…</p>
 <div id="chat-log"></div>
 <div id="chat-row"><input id="chat-input" maxlength="2000" placeholder="Say something…" autocomplete="off" hidden><button id="chat-send" hidden>Send</button></div>
-<button id="players" hidden>Players</button>
 <script src="_zaisma/v1.js"></script>
 <script>
 // The chat box from Zaisma's developer docs (Chat), with a Players button for mute, block and report.
@@ -40,8 +39,6 @@
   showStatus();
   room.on("players", showStatus);
   input.hidden = send.hidden = !room.canChat;
-  document.querySelector("#players").hidden = false;
-  document.querySelector("#players").onclick = () => Zaisma.openPlayersPanel(room);
   room.on("chat", (chat) => addLine(nameOf(chat.fromPlayerId), chat.hasSlur ? "(hidden)" : chat.text));
   // Games run in a frame that doesn't submit forms: the button and Enter send.
   async function sendLine() {

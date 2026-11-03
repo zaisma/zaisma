@@ -7,7 +7,7 @@ export const LAYOUT_TIERS: readonly LayoutRuleTier[] = ["page", "sweep"];
  * tier. The check fails a page only for what a player would notice:
  *   - see: nothing past the screen, covered or spilling out of its pane, and the main action and Home's first cover without scrolling;
  *   - read: no words cut off or over something with an edge, nothing lost at 200% text (the sweep's screens), no scrolling sideways;
- *   - reach: 44px touch targets on a touch screen, and on one without touch every control reached by Tab, its focus showing;
+ *   - reach: 44px touch targets, tall and wide, on a touch screen, and on one without touch every control reached by Tab, its focus showing;
  *   - press: every press answers within 400 ms.
  * Style isn't measured: the components and their tokens hold it, which test/site/design.test.ts and test/node/materials.test.ts check (a
  * pane's margins and frame gap, its corners and bevels, a row's one line and widths, the page shapes and reading width, a pane kind's
@@ -94,7 +94,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   var SKIPPED = "script, style, template, .sr, [aria-hidden='true'], .loader, .rail, .edge, .cut-line";
   // Words people see are measured even where a screen reader skips them (a chart's drawn scale and axis, read as a table instead).
   var WORDS_SKIPPED = "script, style, template, .sr, .loader, .rail, .edge, .cut-line";
-  var COMPONENTS = ["run-wrap", "cut-btn", "tertiary-btn", "cut-field", "field", "find", "switch-well", "tab-switch", "steps", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
+  var COMPONENTS = ["run-wrap", "cut-btn", "tertiary-btn", "cut-field", "field", "find", "switch-well", "tab-switch", "cover", "banner", "glass-pane", "tray", "tray-head", "sheet", "dropdown", "notice", "table", "list-rows", "choice-card", "toggle", "check", "top", "foot", "layout-row", "layout-stack", "layout-grid", "layout-track", "pane-head", "pane-foot"];
   // Asked of the same element again and again, and nothing measuring changes what shows: worked out once each.
   var shownByElement = new Map();
   function isShown(el) {
@@ -117,7 +117,7 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   function report(check, el, said) { if (isMeasured(check)) failures.push({ check: check, element: describe(el), said: said }); }
   var round = function (n) { return Math.round(n * 10) / 10; };
   // What sits over the page, fixed to the window: a sheet, a menu, a popover, a notice, a card over the game. Measured as panes over the page.
-  var OVER_PAGE = ".sheet:not(.in-place), .dropdown, [popover], .notice, .playing-card, .playing-bar, .playing-check";
+  var OVER_PAGE = ".sheet:not(.in-place), .dropdown, [popover], .notice, .playing-card, .zaisma-button, .playing-check";
   function isOnFixed(el) { for (var walk = el; walk && walk !== document.body; walk = walk.parentElement) { if (getComputedStyle(walk).position === "fixed") return true; } return false; }
   // A gallery example is a piece shown alone, not a page: the page's own rules (its titles, its headings' order) skip it.
   var EXAMPLE = ".example-stage";
@@ -179,8 +179,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   }
   var panes = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (pane) { return isShown(pane) && !pane.classList.contains("frame"); });
   panes.forEach(function (pane) {
-    // What holds a pane's content and pads it: its inner part (a sidebar's places scroll in .sidebar-scroll), or the pane itself.
-    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in, :scope > .sidebar-scroll") || pane, p = pane.getBoundingClientRect();
+    // What holds a pane's content and pads it: its inner part, or the pane itself.
+    var holder = pane.querySelector(":scope > .pane-in, :scope > .sheet-in, :scope > .playing-card-in") || pane, p = pane.getBoundingClientRect();
     // A pane that scrolls inside itself: its top and bottom are its content's, wherever it's scrolled to.
     var isScrolling = holder.scrollHeight > holder.clientHeight + 1, contentTop = holder.getBoundingClientRect().top - holder.scrollTop;
     var box = { left: p.left, right: p.right, top: isScrolling ? contentTop : p.top, bottom: isScrolling ? contentTop + holder.scrollHeight : p.bottom };
@@ -250,13 +250,15 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
   if (options.isTouch && isMeasured("a touch target under 44px")) document.querySelectorAll("a[href], button, [role='button'], [role='tab'], input:not([type='hidden']), select, textarea, summary").forEach(function (el) {
     if (!isShown(el) || el.closest(SKIPPED) || getComputedStyle(el).display === "inline" || Number(getComputedStyle(el).opacity) < 0.01) return;
     if (el.matches("input, textarea") && el.closest("label, .field, .find, .check, .toggle, .slider")) return;
-    var r = el.getBoundingClientRect(), extendPx = 0;
+    var r = el.getBoundingClientRect(), extendPx = 0, extendAcrossPx = 0;
     ["::before", "::after"].forEach(function (pseudo) {
       var css = getComputedStyle(el, pseudo);
       if (css.content === "none" || css.position !== "absolute") return;
       extendPx = Math.max(extendPx, Math.max(0, -parseFloat(css.top) || 0) + Math.max(0, -parseFloat(css.bottom) || 0) + Math.max(0, (parseFloat(css.height) || 0) - r.height));
+      extendAcrossPx = Math.max(extendAcrossPx, Math.max(0, -parseFloat(css.left) || 0) + Math.max(0, -parseFloat(css.right) || 0) + Math.max(0, (parseFloat(css.width) || 0) - r.width));
     });
     if (r.height + extendPx < 44 - 0.5) report("a touch target under 44px", el, round(r.height + extendPx) + "px tall");
+    if (r.width + extendAcrossPx < 44 - 0.5) report("a touch target under 44px", el, round(r.width + extendAcrossPx) + "px wide");
   });
 
   measurePanes();
@@ -270,6 +272,12 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
     if (acrossPx > TOLERANCE_PX && downPx > TOLERANCE_PX) report("two panes overlapping", pagePanes[p2], "over " + describe(pagePanes[p1]) + " by " + round(acrossPx) + " x " + round(downPx) + "px");
   }
   var pageWidthPx = document.scrollingElement.scrollWidth;
+  // Whatever scrolls up and down has its rail (RAIL_SCRIPT). A wheel's rows are what you turn, and the gallery's stand-in page scrolls only to slim its header.
+  document.querySelectorAll("body *").forEach(function (box) {
+    if (box.scrollHeight <= box.clientHeight + 1 || box.clientHeight === 0 || !/auto|scroll/.test(getComputedStyle(box).overflowY) || box.matches(".wheel, .header-scroll") || !box.checkVisibility()) return;
+    for (var next = (box.matches("[data-rail-scroller]") ? box.parentElement : box).nextElementSibling; next && next.hasAttribute("data-rail"); next = next.nextElementSibling) if (next.getAttribute("data-rail") === "box") return;
+    report("a box that scrolls without its rail", box, round(box.scrollHeight - box.clientHeight) + "px to scroll and no rail");
+  });
   if (pageWidthPx > innerWidth + 1) report("the page scrolls sideways", document.body, pageWidthPx + "px wide in a " + innerWidth + "px window");
   return failures;
 }`;

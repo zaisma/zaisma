@@ -2574,137 +2574,8 @@
     });
   });
 
-  /** Hand a player report to the Zaisma page. If no Zaisma page answers (the game runs somewhere else), use our own form. */
-  function handOff(room, reported, opened, fallback) {
-    if (!config.site || window.parent === window) return fallback();
-    var isAnswered = false;
-    function listen(event) {
-      if (event.origin === config.site && event.source === window.parent && event.data && event.data.type === "zaisma:report-open") {
-        isAnswered = true;
-        window.removeEventListener("message", listen);
-        opened();
-      }
-    }
-    window.addEventListener("message", listen);
-    window.parent.postMessage({ type: "zaisma:report", code: room.roomCode, player: { id: reported.id, name: reported.name } }, config.site);
-    setTimeout(function () {
-      window.removeEventListener("message", listen);
-      if (!isAnswered) fallback();
-    }, 800);
-  }
-
   // The first four go to Zaisma; the rest to the game's developer.
   var REASONS = [["real_life_threat", "Threatening them in real life"], ["personal_details", "Sharing someone's personal details"], ["following_after_block", "Following me after I blocked them"], ["sexual", "Sexual behavior"], ["harassment", "Harassing or bullying"], ["cheating", "Cheating"], ["other", "Something else"]];
-
-  /** A ready-made Players panel: mute, block and report. Games open it from their own menu. */
-  function openPlayersPanel(room) {
-    // On Zaisma, the page's own Players (the bar's), so a game's Players button opens the same one.
-    if (onZaismaPage()) {
-      window.parent.postMessage({ type: "zaisma:players-open" }, config.site);
-      return;
-    }
-    var old = document.getElementById("zaisma-safety");
-    if (old) old.remove();
-    var wrap = document.createElement("div");
-    wrap.id = "zaisma-safety";
-    wrap.setAttribute("role", "dialog");
-    wrap.setAttribute("aria-label", "Players");
-    // Zaisma's Steel look: gunmetal plates with the cut corner.
-    wrap.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(4,5,7,.6);display:grid;place-items:center;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#eceef0";
-    var box = document.createElement("div");
-    box.style.cssText = "background:linear-gradient(180deg,#262a31,#1b1e23);box-shadow:inset 1px 1px 0 rgba(255,255,255,.09),inset -1px -1px 0 rgba(0,0,0,.7),0 14px 32px rgba(0,0,0,.42);clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,0 100%);padding:18px;width:min(420px,92vw);max-height:80vh;overflow:auto";
-    wrap.appendChild(box);
-    var buttonStyle = "font:inherit;font-size:13px;font-weight:600;min-height:36px;padding:0 12px;border:0;background:linear-gradient(180deg,#30353d,#22262c);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%);color:#eceef0;cursor:pointer";
-    function close() { wrap.remove(); }
-    wrap.addEventListener("click", function (event) { if (event.target === wrap) close(); });
-    wrap.addEventListener("keydown", function (event) { if (event.key === "Escape") close(); });
-
-    function render(note) {
-      box.textContent = "";
-      var head = document.createElement("div");
-      head.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
-      var heading = document.createElement("strong");
-      heading.textContent = "Players";
-      var closeButton = document.createElement("button");
-      closeButton.textContent = "Close";
-      closeButton.style.cssText = buttonStyle;
-      closeButton.onclick = close;
-      head.append(heading, closeButton);
-      box.appendChild(head);
-      if (note) {
-        var noteText = document.createElement("p");
-        noteText.textContent = note;
-        noteText.style.cssText = "margin:0 0 10px;color:#b9e7a6";
-        box.appendChild(noteText);
-      }
-      var others = room.players.filter(function (each) { return !room.me || each.id !== room.me.id; });
-      if (!others.length) {
-        var none = document.createElement("p");
-        none.textContent = "Nobody else is here.";
-        none.style.color = "#969ba4";
-        box.appendChild(none);
-      }
-      others.forEach(function (other) {
-        var row = document.createElement("div");
-        row.style.cssText = "display:flex;gap:6px;align-items:center;padding:10px 0;box-shadow:inset 0 1px 0 #000,inset 0 2px 0 rgba(255,255,255,.05)";
-        // Only what this player did themselves shows: a block someone made of them never does.
-        var isBlocked = hasBlocked(other.id);
-        var isMuted = Boolean(room._muted && room._muted.has(other.id));
-        var name = document.createElement("span");
-        name.textContent = other.name + (isBlocked ? " (blocked)" : isMuted ? " (muted)" : "");
-        name.style.flex = "1";
-        row.appendChild(name);
-        function button(text, onclick) {
-          var each = document.createElement("button");
-          each.textContent = text;
-          each.style.cssText = buttonStyle;
-          each.onclick = onclick;
-          row.appendChild(each);
-        }
-        // A lasting block is undone on zaisma.com/friends; a session one here.
-        if (!lastingBlocked.has(other.id)) button(isBlocked ? "Unblock" : isMuted ? "Unmute" : "Mute", function () { isBlocked || isMuted ? room.unmute(other.id) : room.mute(other.id); render(); });
-        if (!isBlocked) {
-          button("Block", function () {
-            room.block(other.id).then(function (isDone) {
-              render(!isDone ? undefined : lastingBlocked.has(other.id) ? other.name + " is blocked. Unblock them on your Zaisma friends page." : other.name + " is blocked for this session.");
-            }, function () { render(); });
-          });
-        }
-        button("Report", function () { handOff(room, other, close, function () { reportForm(other); }); });
-        box.appendChild(row);
-      });
-    }
-
-    function reportForm(reported) {
-      box.textContent = "";
-      var heading = document.createElement("strong");
-      heading.textContent = "Report " + reported.name;
-      var select = document.createElement("select");
-      select.style.cssText = "display:block;width:100%;margin:12px 0;min-height:40px;padding:0 10px;background:#0d0f12;color:#eceef0;border:1px solid #000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06);font:inherit";
-      REASONS.forEach(function (reason) { var option = document.createElement("option"); option.value = reason[0]; option.textContent = reason[1]; select.appendChild(option); });
-      var note = document.createElement("p");
-      note.textContent = "Zaisma reviews reports. Nothing about you is sent. They'll also be muted for you.";
-      note.style.cssText = "margin:0 0 12px;color:#969ba4;font-size:13px";
-      var send = document.createElement("button");
-      send.textContent = "Send report";
-      send.style.cssText = buttonStyle + ";background:linear-gradient(180deg,#eef0f2 0%,#b9bcc1 46%,#7d8086 100%);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000;color:#0b0b0c";
-      var back = document.createElement("button");
-      back.textContent = "Back";
-      back.style.cssText = buttonStyle + ";margin-left:6px";
-      back.onclick = function () { render(); };
-      send.onclick = function () {
-        send.disabled = true;
-        room.mute(reported.id);
-        room.report(reported.id, select.value).then(function () { render("Thanks. Your report was sent."); }, function (error) { render(error.message); });
-      };
-      box.append(heading, select, note, send, back);
-    }
-
-    render();
-    document.body.appendChild(wrap);
-    wrap.tabIndex = -1;
-    wrap.focus();
-  }
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage(), linkedServerUrl: roomCodeFromPage() ? serverUrlFromPage() : null, isLinkedAsSpectator: watchFromPage() };
   /*
@@ -2753,5 +2624,5 @@
   });
 
   var friends = { list: listFriends, setRoom: setOwnRoom, sendRequest: sendFriendRequest };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, setUpOffZaisma: setUpOffZaisma, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, openPlayersPanel: openPlayersPanel, links: links, items: items, friends: friends, saves: saves, versions: versions, page: zaismaPage };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, setUpOffZaisma: setUpOffZaisma, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, checkChat: checkChat, links: links, items: items, friends: friends, saves: saves, versions: versions, page: zaismaPage };
 })();

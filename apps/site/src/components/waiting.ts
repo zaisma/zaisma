@@ -1,6 +1,6 @@
 import { html, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
-import { primaryButton, secondaryButton, tertiaryButton } from "./actions.ts";
+import { action, primaryButton, secondaryButton, tertiaryButton } from "./actions.ts";
 import { listRows } from "./data.ts";
 import { pinField } from "./fields.ts";
 import { row } from "./layout.ts";
@@ -66,8 +66,8 @@ component({
 `,
   render: () => primaryButton("Save", { type: "button", isBusy: true }),
   examples: [
-    { label: "Try it: press one, and it waits a second and a half on its answer", markup: html`<div data-waiting-example>${row({ widths: "fit", items: [secondaryButton("Save", { type: "button" }), primaryButton("Sign in", { type: "button" }), tertiaryButton("Undo", { type: "button" })].map((markup) => ({ kind: "control" as const, markup })) })}</div>` },
-    { label: "The primary button, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
+    { label: "Try it: press one, and it waits a second and a half on its answer", markup: html`<div data-waiting-example>${row({ widths: "fit", items: [secondaryButton("Save", { type: "button" }), primaryButton(action("signIn"), { type: "button" }), tertiaryButton("Undo", { type: "button" })].map((markup) => ({ kind: "control" as const, markup })) })}</div>` },
+    { label: "The primary button, saying what's happening", markup: primaryButton(action("signIn"), { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "A secondary button", markup: secondaryButton("Save", { type: "button", isBusy: true }), isStill: true },
     { label: "A small button", markup: tertiaryButton("Undo", { type: "button", isBusy: true }), isStill: true },
     { label: "A way in", markup: html`<div style="width:min(320px,100%)">${secondaryButton("Sign in with a passkey", { wayIn: "passkey", isBusy: true })}</div>`, isStill: true },

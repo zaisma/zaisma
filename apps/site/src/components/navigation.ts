@@ -3,18 +3,19 @@ import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
-import { cutPolygon } from "./tokens.ts";
-import { secondaryButton, tertiaryButton, rowArrows, primaryButton, textLink } from "./actions.ts";
+import { tabIconsAlone } from "./switch.ts";
+import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
+import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, stateNote } from "./data.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
-import { BAR_TWO_ROWS_MEDIA, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
 
 /*
  * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
- * scrollbar and a row's arrows. From the header draft (ops docs/drafts/look-and-voice/header.html) and the home draft.
+ * scrollbar. From the header draft (ops docs/drafts/look-and-voice/header.html) and the home draft.
  */
 
 export type HeaderTab = "home" | "browse" | "your-games" | "developer" | "forum";
@@ -24,6 +25,8 @@ export interface HeaderOptions {
   current: HeaderTab | null;
   /** The page's own search; without it the header has none. */
   search?: SearchFieldOptions;
+  /** The search shows only where it's a field, so on a phone and an iPad the tabs have its room: a developer page's game search. */
+  isSearchOnComputerOnly?: boolean;
   /** The signed-in account, or none: then the header says Sign in. */
   account?: { username: string } | null;
   /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
@@ -48,6 +51,8 @@ export interface HeaderOptions {
   id?: string;
   /** The page's sidebar button (sidebarButton: a small Secondary button), at the header's start, over the sidebar it folds. */
   sidebarButton?: ControlMarkup;
+  /** Back at the header's start, before Zaisma, there from the first paint: a game's page. It goes Home, and reached from another Zaisma page in this tab, back to that page as it was (HEADER_SCRIPT). */
+  hasBackButton?: boolean;
 }
 
 const tab = (label: string, href: string, isCurrent: boolean, isFoldable = false, isOpen = true): SwitchTab => ({ label, href, isCurrent, isFoldable, isFolded: isFoldable && !isOpen });
@@ -64,19 +69,22 @@ export function header(options: HeaderOptions): Raw {
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
   const tabs = options.ownTabs ?? [
-    tab("Home", "/", options.current === "home"),
-    tab("Browse", "/games", options.current === "browse"),
-    ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []),
-    tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen),
-    tab("Forum", "/forum", options.current === "forum", true, isOpen),
+    { ...tab(action("home").label, "/", options.current === "home"), icon: action("home").icon },
+    { ...tab(action("browse").label, "/games", options.current === "browse"), icon: action("browse").icon },
+    ...(account && options.yourGamesHref ? [{ ...tab(action("yourGames").label, options.yourGamesHref, options.current === "your-games"), icon: action("yourGames").icon }] : []),
+    { ...tab(action("developer").label, account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), icon: action("developer").icon },
+    { ...tab(action("forum").label, "/forum", options.current === "forum", true, isOpen), icon: action("forum").icon },
   ];
   const hasTabRow = !options.isOnSignInPage && tabs.filter((each) => !each.isFolded).length >= 2;
-  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : "", options.isWaiting ? "is-waiting" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
-  const signIn = options.hasPageRunner ? secondaryButton("Sign in", { href: "/signin" }) : primaryButton("Sign in", { href: "/signin" });
+  const states = [hasTabRow ? "has-tab-row" : "", options.isCompact ? "is-compact" : "", options.isSearchOpen ? "searching" : "", options.isSearchOnComputerOnly ? "search-on-computer" : "", options.isWaiting ? "is-waiting" : ""].filter(Boolean).map((name) => ` ${name}`).join("");
+  // Beside Back on a phone there's room for its icon alone, so a guest on a shared link keeps the tabs.
+  const signIn = options.hasPageRunner
+    ? secondaryButton(action("signIn"), { href: "/signin", dataAttributes: { "sign-in-icon": "", ...(options.hasBackButton ? { "sign-in-narrows": "" } : {}) } })
+    : primaryButton(action("signIn"), { href: "/signin", isArrowKept: true, dataAttributes: { "sign-in-icon": "" } });
   return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}${options.isWaiting ? raw(" data-stays-waiting") : ""}>${EDGE}
-  ${options.sidebarButton ?? ""}${wordmark}
+  ${options.hasBackButton ? secondaryButton(action("back"), { id: `${id}-back`, href: "/", isLabelHidden: true, isSmall: true, dataAttributes: { "header-back": "" } }) : ""}${options.sidebarButton ?? ""}${wordmark}${hasTabRow ? logo("mark") : ""}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
-  ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
+  ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(action("search", options.search.label), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
     account ? accountButton({ username: account.username, menuId, isMenuOpen: options.isMenuOpen }) : signIn
   }</div>`}
@@ -86,12 +94,12 @@ export function header(options: HeaderOptions): Raw {
 /** The account menu your picture opens: it names you, then your places and Sign out. */
 function accountMenu(username: string, menuId: string, isOpen = false): Raw {
   const items: DropdownItem[] = [
-    { label: "Your profile", icon: "person", href: `/@${username}` },
-    { label: "Friends", icon: "friends", href: "/friends" },
-    { label: "Developer", icon: "code", href: "/dashboard" },
-    { label: "Settings", icon: "gear", href: "/account" },
+    { ...action("yourProfile"), href: `/@${username}` },
+    { ...action("friends"), href: "/friends" },
+    { ...action("developer"), href: "/dashboard" },
+    { ...action("settings"), href: "/account" },
     { kind: "rule" },
-    { label: "Sign out", icon: "sign-out", action: "/signout" },
+    { ...action("signOut"), action: "/signout" },
   ];
   return dropdown({ id: menuId, label: "Your account", head: { title: username, note: "Online" }, items, isOpen });
 }
@@ -114,19 +122,21 @@ export function accountButton(options: AccountButtonOptions): Raw {
 }
 
 /**
- * Where the header goes to its two rows (Zaisma, search and you over where you are): below 64em, so on an iPad and a phone on its side, and on
- * a laptop with the browser's text at 200%, as the one row wouldn't fit there. In em, which media queries take from the browser's text size.
+ * A small screen, where the header clears the notch and a page's search that's for computers goes: below 64em, so an iPad, a phone on its side,
+ * and a laptop with the browser's text at 200%. In em, which media queries take from the browser's text size. How the header's pieces
+ * give way is decided by its own room, not the screen's (HEADER_FIT_SCRIPT).
  */
-export const HEADER_TWO_ROWS_MEDIA = BAR_TWO_ROWS_MEDIA;
+export const HEADER_SMALL_SCREEN_MEDIA = "(max-width: 64em)";
+
+/** Sign in as its icon alone: the row's room is gone with its words, which keep their own padding everywhere else. */
+const signInIconAlone = (signIn: string) => `  ${signIn} > .face > .ico { display: block; }
+  ${iconAloneFace(`${signIn} > .face`)}
+  ${signIn} > .face { justify-content: center; }
+  ${signIn} > .face > :is(span:not([class]), .arrow) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }`;
 
 const HEADER_STYLES = `
-/* The header's height at rest, from its size classes, for the page under it to clear (html.ts's --header-room): one row of regular controls
-   inside its inset. On a phone its first row is small controls, and the tabs, where there are any, a row of regular height under it. */
+/* The header's height, on every screen, for the page under it to clear (html.ts's --header-room): one row of regular controls inside its inset. */
 :root { --header-height: calc(var(--control-height-regular) + 2 * var(--pad-frame)); }
-@media ${HEADER_TWO_ROWS_MEDIA} {
-  :root { --header-height: calc(var(--control-height-small) + 2 * var(--pad-frame)); }
-  :root:has(#top.has-tab-row) { --header-height: calc(var(--control-height-small) + var(--gap-control-stack) + var(--control-height-regular) + 2 * var(--pad-frame)); }
-}
 /* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
@@ -141,59 +151,75 @@ const HEADER_STYLES = `
    page scrolls, it rises to the frame gap from the window's top; nothing in it is laid out again, and it stays smooth. */
 .top.is-compact { top: var(--pad-frame); }
 .top > :not(.edge) { position: relative; z-index: 3; }
-.top .find, .top .find input { transition: width var(--motion-glide) var(--ease-glide); }
 
-/* Beside where you are, search takes all the room left, past a field's widest, so no room ever opens between them and both keep the slant. */
-.top .nav ~ .find { max-width: none; }
+/* Search is short at rest, so where you are leads the bar, and grows once it's pressed or holds words. It's never narrower than it can be used:
+   with less room than that it's the search button (below). */
+.top .find { flex: 0 1 var(--size-search); min-width: var(--size-search-least); transition: flex-basis var(--motion-glide) var(--ease-glide); }
+.top .find:is(:focus-within, .is-focused, :has(input:not(:placeholder-shown))) { flex-basis: var(--size-search-open); }
 
 /* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */
 .nav { display: flex; flex: none; min-width: 0; }
 .top .nav[hidden] { display: none; }
 .nav > .switch-well { flex: 1; }
-/* The sidebar button at the header's start is a regular control's height, as the tabs, the search and the account button beside it, so it
-   sits at the frame gap with them; on phones it's small with the first row. */
-.top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-regular); }
+/* The sidebar button at the header's start and the search button are a regular control's height, as the tabs, the search and the account
+   button beside them, so they sit at the frame gap with them. */
+.top > .cut-btn:is([data-sidebar-button], [data-header-back]), .top > .find + .cut-btn { --control-height: var(--control-height-regular); }
 
 .end { display: flex; align-items: center; flex: none; }
 
 
-/* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
-/* The phone's search button: a small Secondary button, icon only, that swaps the tabs for the field. */
+/* Where the tabs are words the Zaisma wordmark leads, and the tabs' icons wait for a phone. */
+.top > .logo.mark { display: none; }
+.top .tab-switch .ico { display: none; }
+.top .end > [data-sign-in-icon] > .face > .ico { display: none; }
+/* The search button: a Secondary button, icon only, that swaps the tabs for the field. */
 .top > .find + .cut-btn { display: none; }
-@media ${HEADER_TWO_ROWS_MEDIA} {
+/* Until what follows it has arrived it isn't whole, so it hasn't been fitted to its room (HEADER_FIT_SCRIPT, as it's whole): its glass shows, and what's on it waits, so a slow page never paints a computer's header on a phone. CSS, so it can't hold a page with no scripts; asked with :has, as :last-child doesn't match in Chrome until the whole page is read. */
+body > .top:not(:has(+ *)) > :not(.edge) { visibility: hidden; }
+/* As its own room runs out, the header gives way one step at a time (HEADER_FIT_SCRIPT), each keeping the one before.
+   First search becomes its button, which swaps the tabs for the field. */
+.top.has-search-button .find { display: none; flex: 1 1 0; min-width: 0; max-width: none; }
+.top.has-search-button.searching .find { display: flex; }
+.top.has-search-button.searching .nav { display: none; }
+.top.has-search-button > .find + .cut-btn { display: inline-flex; }
+.top.has-search-button.searching > .find + .cut-btn { display: none; }
+/* On a phone on its side the typing bar is the search: the header stays as it is (never .searching), and the field, there only to take focus, waits out of sight. */
+.top.has-search-button.typing-search .find { display: flex; }
+.top.has-search-button.typing-search .find:not(.is-typing-bar) { position: fixed; top: 0; left: 0; opacity: 0; pointer-events: none; }
+/* Then the tabs draw in around their words. */
+.top.has-tight-tabs .tab-switch { --tab-room: var(--pad-icon); }
+/* Then Zaisma is its mark and the tabs their icons, sharing the room. */
+.top.has-icon-tabs.has-tab-row > .logo.wordmark { display: none; }
+.top.has-icon-tabs > .logo.mark { display: flex; margin-inline: var(--pad-icon); }
+.top.has-icon-tabs > :is([data-sidebar-button], [data-header-back]) { margin-right: 0; }
+.top.has-icon-tabs .nav { flex: 1 1 0; }
+${tabIconsAlone(".top.has-icon-tabs .tab-switch")}
+${signInIconAlone(".top.has-icon-tabs .end > [data-sign-in-narrows]")}
+/* Last, Sign in is its icon too (a 320 px phone). Past that the tabs scroll in their Well, as any Switch does. */
+${signInIconAlone(".top.has-icon-sign-in .end > [data-sign-in-icon]")}
+/* While it measures, what eases its width doesn't, so it reads what each step comes to. */
+.top.is-measuring .foldable { transition: none; }
+@media ${HEADER_SMALL_SCREEN_MEDIA} {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
-  /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; }
-  /* Where the first row is tight (Sign in on a 320px phone), the logo gives way: it draws smaller in the room left, never pushing the row wider. */
-  .top > .logo { grid-area: 1 / 1; min-width: 0; }
-  .top > .logo > .logo-art { max-width: 100%; }
-  .top > .find + .cut-btn { grid-area: 1 / 3; }
-  .top > .end { grid-area: 1 / 4; }
-  /* With a sidebar's button it's first in the first row, the logo beside it. */
-  .top:has(> [data-sidebar-button]) { grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto auto; }
-  .top > [data-sidebar-button] { grid-area: 1 / 1; }
-  .top:has(> [data-sidebar-button]) > .logo { grid-area: 1 / 2; }
-  .top:has(> [data-sidebar-button]) > .find + .cut-btn { grid-area: 1 / 4; }
-  .top:has(> [data-sidebar-button]) > .end { grid-area: 1 / 5; }
-  .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
-  /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); }
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); }
-  /* Words keep the bar's words margin from its edge (materials.ts): the logo, and the open search field's words (its icon first), which its own
-     room as a carving already puts there. */
-  .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
-  .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; }
-  .top.searching .find { display: flex; }
-  .top.searching .nav { display: none; }
-  .top > .find + .cut-btn { display: inline-flex; }
-  /* The tabs are a row of regular height: a finger's. */
-  .top .nav, .top.is-compact .nav { order: 4; flex-basis: 100%; }
-  /* The first row is small controls, so it shares Zaisma, search and Sign in or you on the narrowest phones; Sign in is the compact runner, or
-     a small secondary button beside the page's own runner. */
-  .top .end > .run-wrap > .run, .top .end > .cut-btn, .top > .cut-btn[data-sidebar-button] { --control-height: var(--control-height-small); }
-  .top .end .run { --slab-words: 15px; font-size: 0.875rem; gap: 6px; }
-  /* The picture is as tall as the search button beside it, at rest or compact. */
-  .top .me, .top.is-compact .me { --control-height: var(--control-height-small); }
+  .top.search-on-computer .find, .top.search-on-computer > .find + .cut-btn { display: none; }
+  .top.search-on-computer .nav:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+}
+/* A phone on its side: the header stands as a rail down the left (layout.ts's bar, stood up). Zaisma's mark and the tabs' icons at the top, search
+   and you at the foot. Pressing search lays it across the top again for as long as the field is open. */
+@media ${HEADER_RAIL_MEDIA} {
+  body > .top.has-tab-row:not(.searching) > .logo.wordmark { display: none; }
+  body > .top.has-tab-row:not(.searching) > .logo.mark { display: flex; justify-content: center; }
+  body > .top.has-tab-row:not(.searching) .tab-switch .ico { display: block; }
+  body > .top.has-tab-row:not(.searching) .tab-switch > .foldable.folded { display: none; }
+  body > .top.has-tab-row:not(.searching) .tab-switch > :is(a, button) { justify-content: center; --row-start: 0px; --row-end: 0px; }
+  body > .top.has-tab-row:not(.searching) .tab-switch > :is(a, button) > span:not(.tag) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  body > .top.has-tab-row:not(.searching) .rail { display: none; }
+  body > .top.has-tab-row:not(.searching) .end > [data-sign-in-icon] > .face > .ico { display: block; }
+  body > .top.has-tab-row:not(.searching) .end > [data-sign-in-icon] > .face { width: auto; padding: 0; justify-content: center; }
+  body > .top.has-tab-row:not(.searching) .end > [data-sign-in-icon] > .face > :is(span:not([class]), .arrow) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 /* The account menu hangs from your picture's right end, so it's never wider than the room from there back to the page's margin: the
    header's width less its inset (a phone's header is narrower than the menu's own width). */
@@ -211,27 +237,104 @@ const HEADER_STYLES = `
 `;
 
 /**
+ * How the header gives way, measured from its own room, so a page and a gallery's frame of one width are the same, however many tabs it has:
+ * search becomes its button, then the tabs draw in, then they're icons, then Sign in is too. It runs as the header arrives, so the first paint is right, and again
+ * as its room or what's in it changes. A phone on its side stands the header up (layout.ts): always its button, with its own rules for the rest.
+ */
+export const HEADER_FIT_SCRIPT = `/* header fit */(function () {
+  var railMedia = window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}), LAST_STEP = 4;
+  function takeSteps(top, stepCount) { top.classList.toggle("has-search-button", stepCount > 0); top.classList.toggle("has-tight-tabs", stepCount > 1); top.classList.toggle("has-icon-tabs", stepCount > 2); top.classList.toggle("has-icon-sign-in", stepCount > 3); }
+  // The tabs' own width: from the tabs themselves, as the slab gliding from the last page's tab can reach past them for a moment, and that's no room they need.
+  function tabsWidth(tabs) {
+    var endPx = 0;
+    Array.prototype.forEach.call(tabs.querySelectorAll(":scope > a, :scope > button"), function (tab) { endPx = Math.max(endPx, tab.offsetLeft + tab.offsetWidth); });
+    return endPx + parseFloat(getComputedStyle(tabs).paddingRight);
+  }
+  // What its pieces come to with no room to spare (as wide as they are, so its auto margins are nothing): the field at its least, the tabs at their words' width.
+  function neededWidth(top, stepCount) {
+    takeSteps(top, stepCount);
+    var own = getComputedStyle(top), neededPx = parseFloat(own.paddingLeft) + parseFloat(own.paddingRight);
+    Array.prototype.forEach.call(top.children, function (piece) {
+      var style = getComputedStyle(piece);
+      if (piece.classList.contains("edge") || style.display === "none") return;
+      var tabs = piece.querySelector(":scope > .switch-well .tab-switch");
+      neededPx += parseFloat(style.marginLeft) + parseFloat(style.marginRight) + (piece.matches(".find") ? parseFloat(style.minWidth) : Math.max(piece.offsetWidth, tabs ? tabsWidth(tabs) : 0));
+    });
+    return neededPx;
+  }
+  function fit(top) {
+    if (!top.clientWidth || (top.checkVisibility && !top.checkVisibility({ contentVisibilityAuto: true }))) return;
+    if (railMedia.matches && top.matches("body > .top")) { takeSteps(top, 1); return; }
+    var roomPx = top.clientWidth, needed = top.neededWidths || (top.neededWidths = []), find = top.querySelector(".find");
+    var isTyping = Boolean(find) && find.contains(document.activeElement), isSearching = top.classList.contains("searching"), isMeasuring = false, stepCount = 0;
+    for (; stepCount < LAST_STEP; stepCount++) {
+      if (needed[stepCount] === undefined) {
+        // Measuring hides the field in the steps past it, which would take the cursor out of it: what's typed in stays until it's closed.
+        if (isTyping) return;
+        if (!isMeasuring) { isMeasuring = true; top.classList.remove("searching"); top.classList.add("is-measuring"); top.style.width = "max-content"; }
+        needed[stepCount] = neededWidth(top, stepCount);
+      }
+      if (needed[stepCount] <= roomPx) break;
+    }
+    if (isMeasuring) { top.style.width = ""; top.classList.remove("is-measuring"); if (isSearching) top.classList.add("searching"); }
+    // Out of room while typing, the field stays and the tabs make way for it.
+    if (isTyping && stepCount > 0 && !top.classList.contains("typing-search")) top.classList.add("searching");
+    takeSteps(top, stepCount);
+  }
+  function wire(top) {
+    if (top.fitToRoom) return;
+    function measureAgain() { top.neededWidths = null; fit(top); }
+    top.fitToRoom = function () { fit(top); };
+    fit(top);
+    window.zaismaWatch.size(top, top.fitToRoom);
+    var tabs = top.querySelector(".tab-switch");
+    if (tabs) window.zaismaWatch.size(tabs, measureAgain);
+    window.zaismaWatch.fontsIn(measureAgain);
+    railMedia.addEventListener("change", measureAgain);
+  }
+  window.zaismaWatch.each("header.top", wire);
+  // The page's own header, the moment what follows it has arrived: the rest of a slow page can take a while, and a phone may paint before it does.
+  window.zaismaWatch.arriving(function () { var top = document.querySelector("body > header.top"); if (top && top.nextSibling) wire(top); });
+})();
+`;
+
+/**
  * The header's own behavior: it slims once the page scrolls (the gallery's frames scroll a box of their own,
  * [data-scroll-box]), the slab sits under the current page and a faint one follows the pointer, "/" jumps to search,
- * on a phone the search button swaps the tabs for the field, and the developer tabs open or fold from where the last page left them.
+ * the search button swaps the tabs for the field, and the developer tabs open or fold from where the last page left them.
  * The menu is DROPDOWN_SCRIPT's.
  */
 export const HEADER_SCRIPT = pageScript(
   "header",
   `(function () {
-  var phone = function () { return window.matchMedia(${JSON.stringify(HEADER_TWO_ROWS_MEDIA)}).matches; };
+  var smallScreen = window.matchMedia(${JSON.stringify(HEADER_SMALL_SCREEN_MEDIA)});
   var headers = Array.prototype.slice.call(document.querySelectorAll("header.top"));
+  /* Back is a link Home. Reached from another Zaisma page in this tab, and through a reload or Leave, it goes back to that page as it was instead. Sign-in's pages are no place to go back to. */
+  var backButton = document.querySelector("[data-header-back]");
+  if (backButton) {
+    var backKey = "zaisma-back:" + location.pathname, navigation = performance.getEntriesByType("navigation")[0], from = null;
+    try { from = document.referrer ? new URL(document.referrer) : null; } catch (error) { /* no address, no way back */ }
+    var isFromHere = from && from.origin === location.origin && from.pathname === location.pathname;
+    var isFromZaisma = from && from.origin === location.origin && !/^\\/(signin|join|signout)/.test(from.pathname);
+    var hasWayBack = false;
+    try {
+      if ((!navigation || navigation.type === "navigate") && !isFromHere) { if (isFromZaisma) sessionStorage.setItem(backKey, "1"); else sessionStorage.removeItem(backKey); }
+      hasWayBack = sessionStorage.getItem(backKey) === "1" && history.length > 1;
+    } catch (error) { /* no note, no way back */ }
+    if (hasWayBack) backButton.addEventListener("click", function (event) { event.preventDefault(); history.back(); });
+  }
   headers.forEach(function (top) {
     /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
 
     /* Where you are is a framed Switch, which moves its own slab (SWITCH_SCRIPT). */
 
-    /* Search: on a phone the search button swaps the row below for the field. */
-    var search = top.querySelector('.find input[type="search"]'), findOpen = top.querySelector(".find + .cut-btn");
-    top.openSearch = function () { if (!search) return; top.classList.add("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "true"); search.focus(); };
-    top.closeSearch = function () { top.classList.remove("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "false"); };
-    if (findOpen) findOpen.addEventListener("click", function () { if (top.classList.contains("searching")) top.closeSearch(); else top.openSearch(); });
-    if (search) search.addEventListener("blur", function () { if (phone() && !search.value) setTimeout(top.closeSearch, 120); });
+    /* Search: with too little room for the field, the search button swaps the tabs for it. */
+    var search = top.querySelector('.find input[type="search"]'), findOpen = top.querySelector(".find + .cut-btn"), sideways = window.matchMedia("(orientation: landscape) and (max-height: 500px) and (pointer: coarse)");
+    top.openSearch = function () { if (!search || (smallScreen.matches && top.classList.contains("search-on-computer"))) return; top.classList.add(sideways.matches ? "typing-search" : "searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "true"); search.focus(); };
+    top.closeSearch = function () { top.classList.remove("searching", "typing-search"); if (findOpen) findOpen.setAttribute("aria-expanded", "false"); if (top.fitToRoom) top.fitToRoom(); };
+    if (findOpen) findOpen.addEventListener("click", function () { if (top.classList.contains("searching") || top.classList.contains("typing-search")) top.closeSearch(); else top.openSearch(); });
+    if (search) search.addEventListener("blur", function () { if (top.classList.contains("has-search-button") && !search.value && !sideways.matches) setTimeout(top.closeSearch, 120); });
+    document.addEventListener("typing-bar-lowered", function () { if (top.classList.contains("typing-search") && (document.activeElement !== search || !sideways.matches)) top.closeSearch(); });
   });
   /* Pages are separate loads, so the page's header remembers whether its developer tabs were open (sessionStorage zaisma-nav). The next
      page starts them that way, then opens or folds them to its own, as one header would; with nothing saved it shows its own at once. */
@@ -283,23 +386,20 @@ export const HEADER_SCRIPT = pageScript(
     var top = headers.filter(function (each) { return each.querySelector(".find") && each.offsetParent !== null; })[0];
     if (!top) return;
     if (event.key === "/" && !/^(input|textarea|select)$/i.test(event.target.tagName) && !event.target.isContentEditable) { event.preventDefault(); top.openSearch(); }
-    if (event.key === "Escape" && top.classList.contains("searching")) top.closeSearch();
+    if (event.key === "Escape" && (top.classList.contains("searching") || top.classList.contains("typing-search"))) top.closeSearch();
   });
 })();
 `,
 );
 
 /** The links at the foot of every page: what Zaisma is and its rules. */
-const FOOTER_LINKS: [string, string][] = [
-  ["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"],
-  ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"],
-];
+const FOOTER_LINKS: [string, string][] = [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"]];
+const FOOTER_RULES_LINKS: [string, string][] = [["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"]];
 
 export function footer(): Raw {
   return html`<footer class="foot glass glass-bar" data-glass data-glass-corners="header">${EDGE}<div class="foot-in words-margin round">
   ${logo("mark")}
-  <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
-  <p>Zaisma is open source, under the MIT license.</p>
+  <nav class="foot-links" aria-label="More from Zaisma"><div class="foot-group is-own">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</div><div class="foot-group">${FOOTER_RULES_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</div></nav>
 </div></footer>`;
 }
 
@@ -357,8 +457,9 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var railedBoxes = scrollBoxes.map(function (box) {
       var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
       if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || railAfter(box, "box")) return null;
-      // A box with Zaisma's sideways rail (data-side-rail) hides the browser's bars for its own, so it takes its own up-down one too.
-      if ((getComputedStyle(box).scrollbarWidth === "none" && !box.hasAttribute("data-side-rail")) || box.classList.contains("rail-thumb")) return null;
+      // A box with Zaisma's sideways rail (data-side-rail) hides the browser's bars for its own, so it takes its own up-down one too. So does
+      // one marked own-scroll in its markup: that's the browser's bar gone before the rail comes, not a box asking for none.
+      if ((getComputedStyle(box).scrollbarWidth === "none" && !box.hasAttribute("data-side-rail") && !box.classList.contains("own-scroll")) || box.classList.contains("rail-thumb")) return null;
       var parent = box.parentElement; if (!parent || parent === document.body) return null;
       return { box: box, isControl: isControl, isParentStatic: getComputedStyle(parent).position === "static" };
     });
@@ -395,9 +496,6 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // The groove sits 2px inside the channel, so its slanted ends lie 2px in from the channel's: the thumb stops this far along it, its own
     // slant flush against the groove's end.
     var SLANT_IN_PX = 2 * Math.SQRT2;
-    // Which of its ends meet a square corner of the glass, and so are square themselves (is-square-start, is-square-end), the thumb's with them.
-    // Only the page's rail carves its own ends; one in a box is square unless the edge rule cuts it, where it reaches a cut corner.
-    var NO_SQUARE_ENDS = { start: false, end: false }, SQUARE_ENDS = { start: true, end: true }, squareEnds = NO_SQUARE_ENDS;
     // The page's thumb follows the page's scroll in the browser itself where it can (a scroll-driven animation): in step with a swipe and
     // with the browser's bar showing and hiding, which a script a frame behind can't be. Only its length is set here (--thumb-share).
     var followsScroll = isPage && window.CSS && CSS.supports("animation-timeline: scroll()");
@@ -458,15 +556,13 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function to(y) { if (isPage) window.scrollTo(0, y); else if (isSide) scroller.scrollLeft = y; else scroller.scrollTop = y; }
     function along(event) { return isSide ? event.clientX : event.clientY; }
     var size = { track: 0, thumb: 0, max: 1, start: 0, startIn: SLANT_IN_PX };
-    // A slanted end's bevel (null: the whole width, as along the page): the thumb nests into it at the groove's 2px, so its own end is the
-    // groove's cut (the bevel less what the 2px gaps take off it, by the edge rule), and where that's deeper than the thumb is thick, the
-    // thumb starts in by the rest, as at a whole slant.
-    var slants = null;
+    // A cut end's bevel, by the edge rule (the page's rail carves its whole width): the thumb nests into it at the groove's 2px, so its own end
+    // is the groove's cut (the bevel less what the 2px gaps take off it), and where that's deeper than the thumb is thick, the thumb starts in by the rest.
+    var channel = bar.querySelector(".rail-line");
     function slantInFor(isStart) {
-      if (isStart ? squareEnds.start : squareEnds.end) return 0;
-      if (!slants) return SLANT_IN_PX;
-      var thick = isSide ? groove.clientHeight : groove.clientWidth;
-      return Math.max(0, (isStart ? slants.start : slants.end) - (4 - 2 * Math.SQRT2) - thick);
+      if (isPage) return SLANT_IN_PX;
+      var cuts = channel.cutCorners || [0, 0, 0, 0], cut = isSide ? (isStart ? cuts[3] : cuts[2]) : (isStart ? cuts[1] : cuts[2]);
+      return Math.max(0, cut - (4 - 2 * Math.SQRT2) - (isSide ? groove.clientHeight : groove.clientWidth));
     }
     // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
     var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
@@ -475,7 +571,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       place: function () {
         var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
         placed.max = placed.whole - placed.view;
-        if (above) placed.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
+        // Under the header, or the whole way down beside it where it's a rail.
+        if (above) { var aboveRect = above.getBoundingClientRect(); placed.top = Math.round((aboveRect.height > aboveRect.width ? 0 : aboveRect.bottom) + GUTTER_PX) + "px"; }
         // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
         // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are square, as
         // anything in a box is by the edge rule; where the box reaches a cut corner, that end is cut, stopping where its slant keeps that
@@ -493,15 +590,6 @@ export const RAIL_SCRIPT = `/* rail */(function () {
               // A box whose start never moves (a table's row heads) starts its rail past it.
               var rowHead = scroller.querySelector(":scope > table.has-row-heads > tbody > tr > th"), sideStart = rowHead ? rowHead.offsetWidth : 0, sideBox = scroller.getBoundingClientRect();
               placed.side = isAtFoot ? { left: Math.max(0, edge.left + fromCut(cuts[3]) - shownLeft, sideStart ? sideBox.left + sideStart + inset - shownLeft : 0), right: Math.max(0, shownRight - (edge.right - fromCut(cuts[2]))) } : { left: 0, right: 0 };
-              // Square, but where it runs into a cut corner of the foot it's along: there it's cut along the corner's line, moved in by the
-              // frame gap as the edge rule moves it for anything in a corner, so its end lies the frame gap from the corner's cut all along it: a
-              // small corner bevels only the end's tip, a big one slants it across its whole width. Exactly that line, never the least bevel,
-              // so the channel, the groove in it and the thumb nest one inside the other at their own gaps.
-              var footGap = edge.bottom - own.bottom;
-              var slantFor = function (cut, alongPx) { var sum = Math.max(0, alongPx) + footGap, slantPx = cut - sum + Math.SQRT2 * Math.min(sum / 2, inset); return slantPx > 0.5 ? Math.min(widthPx, slantPx) : 0; };
-              var startSlant = isAtFoot && !sideStart ? slantFor(cuts[3], shownLeft + placed.side.left - edge.left) : 0, endSlant = isAtFoot ? slantFor(cuts[2], edge.right - (shownRight - placed.side.right)) : 0;
-              placed.slants = { start: startSlant, end: endSlant };
-              placed.squareEnds = { start: startSlant < 0.5, end: endSlant < 0.5 };
             } else {
               // Measured on screen, where a sheet still growing in as it opens is drawn smaller than it lays out: the gaps are drawn at
               // that size too, and what's measured is put back at the size it lays out at, so the rail lands where it will be once it's in.
@@ -514,8 +602,6 @@ export const RAIL_SCRIPT = `/* rail */(function () {
               var boxTop = box.top + (startsAt ? (startsAt + inset) * drawn : 0), boxBottom = box.bottom - footLane;
               var top = Math.max(boxTop, edge.top + topIn * drawn), bottom = Math.min(boxBottom, edge.bottom - bottomIn * drawn), right = Math.min(box.right, edge.right - inset * drawn);
               placed.box = { top: (top - from.top) / drawn - parent.clientTop, height: Math.max(0, bottom - top) / drawn, left: (right - from.left) / drawn - parent.clientLeft - (reachPx + widthPx) / 2 };
-              // Square, as anything in a box is by the edge rule; only an end that runs into a cut corner of what holds it is cut along it.
-              placed.squareEnds = { start: !(cuts[1] >= 0.5 && edge.top + topIn * drawn >= boxTop - 0.5), end: !(cuts[2] >= 0.5 && edge.bottom - bottomIn * drawn <= boxBottom + 0.5) };
             }
           }
         }
@@ -524,12 +610,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       putPlace: function (placed) {
         if (placed.top) bar.style.top = placed.top;
         if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
-        slants = placed.slants || null;
-        if (slants) { bar.style.setProperty("--rail-start-slant", slants.start.toFixed(1) + "px"); bar.style.setProperty("--rail-end-slant", slants.end.toFixed(1) + "px"); }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
-        var ends = placed.squareEnds || (isPage ? NO_SQUARE_ENDS : SQUARE_ENDS);
-        if (ends.start !== squareEnds.start || ends.end !== squareEnds.end) { squareEnds = ends; bar.classList.toggle("is-square-start", ends.start); bar.classList.toggle("is-square-end", ends.end); }
         // The box makes room for its rail by this class, never by a :has() on the rail beside it, for the same reason.
         if (!isPage) scroller.classList.toggle(isSide ? "shows-side-rail" : "shows-rail", isShown);
       },
@@ -583,7 +665,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     // What it scrolls, never a drawing laid over it (a carving's cut line comes first in a switch's well, and keeps its size as the tabs
     // in it narrow): a rail measured on while its tabs overflowed for a moment would stay on, its thumb out past the page's edge.
     var content = isPage ? document.body : Array.prototype.filter.call(scroller.children, function (child) { return !child.matches("svg, .edge, .cut-line, .rail"); });
-    if (isPage) window.zaismaWatch.size(content, layout); else (content.length ? content : [scroller]).forEach(function (child) { window.zaismaWatch.size(child, layout); });
+    // What it holds changing size, and the box itself: a phone turned changes the box's height while what's in it stays as wide.
+    if (isPage) window.zaismaWatch.size(content, layout); else Array.prototype.concat.apply([scroller], Array.prototype.slice.call(content)).forEach(function (child) { window.zaismaWatch.size(child, layout); });
     if (above) window.zaismaWatch.size(above, layout);
     // A box's content can change without its children changing size (a pane's views taking turns, a step showing): measured again then.
     if (!isPage) window.zaismaWatch.page(function (changes) { if (changes.some(function (change) { return scroller.contains(change.target); })) layout(); });
@@ -728,7 +811,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
  * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
-  var FADE_PX = 34, boxes = [], dueBoxes = null;
+  // A phone's screen has less to spare for a fade.
+  var isSmallScreen = window.matchMedia("(max-width: 760px), (max-height: 500px)"), boxes = [], dueBoxes = null;
+  function fadePx() { return isSmallScreen.matches ? 20 : 34; }
+  window.zaismaScrollFadePx = fadePx;
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -739,7 +825,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     var isScrollable = read.scrollHeight > read.clientHeight + 1;
     // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
     // away (the --fade transition) once there's nothing more.
-    var top = read.scrollTop > 0.5 ? FADE_PX : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? FADE_PX : 0;
+    var top = read.scrollTop > 0.5 ? fadePx() : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? fadePx() : 0;
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
@@ -759,17 +845,24 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function sync(box) { if (dueBoxes) dueBoxes.add(box); else syncAll([box]); }
   // A box keeps a swipe or a wheel to itself only while it can scroll; one that can't lets it carry on to the page.
   function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
+  var holding = new WeakSet();
+  function hold(box) {
+    if (holding.has(box)) return;
+    holding.add(box); held(box);
+    window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
+    box.addEventListener("input", function () { held(box); });
+  }
   function find() {
     // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
-    window.zaismaWatch.each("[data-scroll-box]", function (box) {
-      held(box);
-      window.zaismaWatch.size(box.firstElementChild || box, function () { held(box); });
-    });
+    window.zaismaWatch.each("[data-scroll-box]", hold);
     fadeBoxes(window.zaismaWatch.scrollBoxes());
   }
   function fadeBoxes(scrollBoxes) {
     var found = scrollBoxes.filter(function (box) {
-      return !(box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade"));
+      if (box.classList.contains("scroll-fades")) return false;
+      // A box with no fade from here still holds a swipe while it can scroll, as every box does (tokens.ts).
+      if (/^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) { hold(box); return false; }
+      return true;
     });
     boxes = boxes.filter(function (box) { return box.isConnected; });
     found.forEach(function (box) {
@@ -823,12 +916,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
     function start() { if (here && !isStarted && row.scrollWidth - row.clientWidth > 1) { isStarted = true; row.showWhole(here, false); } }
-    function ends() { reach = null; start(); var span = fades(); row.classList.toggle("is-scrollable-sideways", span.before + span.after > 2); }
+    function ends() { reach = null; start(); fades(); }
     // Where something sits along the row's whole scrolled content.
     function along(el) { var r = el.getBoundingClientRect(), start = r.left - row.getBoundingClientRect().left + row.scrollLeft; return { start: start, end: start + r.width }; }
     // Scrolls the least that shows something whole, clear of the fades: back to just past the fade at the start (the row's scroll padding
     // there, which a framed switch sets to its fade at that side and snaps by), or on to the first stop, a shown thing's start, from which
-    // it's whole clear of the fade at the end (--fade-sideways-px). isGliding scrolls smoothly; a smooth scroll can be cut short (a touch
+    // it's whole clear of the fade at the end (--fade-sideways-px). The first or last thing shown goes flush to its end, no fade left. isGliding scrolls smoothly; a smooth scroll can be cut short (a touch
     // still settling, the page scrolling too), so it lands once it's over.
     row.showWhole = function (el, isGliding) {
       var css = getComputedStyle(row), most = row.scrollWidth - row.clientWidth, now = row.scrollLeft, at = along(el);
@@ -845,11 +938,13 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
           return false;
         });
       }
+      var things = shown(), isLast = el === things[things.length - 1];
+      if (el === things[0]) goal = 0; else if (isLast) goal = most;
       goal = Math.max(0, Math.min(most, goal));
       if (Math.abs(goal - now) < 1) return;
       if (!isGliding || reduce) { row.scrollLeft = goal; return; }
       row.scrollTo({ left: goal, behavior: "smooth" });
-      clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
+      clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (isLast) goal = row.scrollWidth - row.clientWidth; if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
     };
     if (here) window.zaismaWatch.fontsIn(function () { if (isStarted) row.showWhole(here, false); });
     var isFadeQueued = false;
@@ -884,39 +979,13 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
 })();
 `;
 
-/** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
-export const ROW_SCRIPT = `/* rows */(function () {
-  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // A row's arrows may come before the row they scroll: they're wired once it's there too.
-  window.zaismaWatch.each("[data-row-arrows]", function (steps) {
-    var back = steps.querySelectorAll(".cut-btn")[0];
-    if (document.getElementById(back.getAttribute("aria-controls"))) wire(steps); else window.zaismaWatch.whenRead(function () { wire(steps); });
-  });
-  function wire(steps) {
-    var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
-    if (!track) return;
-    // The gallery's fixed states: the row starts scrolled to its middle or its end, once it's laid out (a section off screen isn't yet).
-    var scrolledTo = steps.getAttribute("data-scrolled-to");
-    function ends() {
-      var more = track.scrollWidth - track.clientWidth;
-      if (scrolledTo && more > 2) { track.scrollLeft = scrolledTo === "end" ? more : more / 2; scrolledTo = null; }
-      var left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
-      back.disabled = !left; on.disabled = !right; steps.hidden = more <= 2;
-    }
-    function by(direction) { track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" }); }
-    back.addEventListener("click", function () { by(-1); }); on.addEventListener("click", function () { by(1); });
-    track.addEventListener("scroll", ends, { passive: true });
-    window.zaismaWatch.size(track, ends);
-    ends();
-  }
-})();
-`;
-
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
 /** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
-const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
+const headerFrame = (markup: Raw, isTall = false, isPhoneWidth = false) => html`<div class="header-frame${isTall ? " tall" : ""}${isPhoneWidth ? " is-phone-width" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
 /** A footer example: a small page of its own, cut like a pane, with the backdrop behind it, as the header's are. */
 const pageFrame = (markup: Raw) => html`<div class="header-frame"><div class="backdrop is-framed" aria-hidden="true"></div><div class="header-scroll" data-scroll-box>${markup}</div></div>`;
+/** A footer example: a frame as tall as the footer, at the width that shows it one way or another (it goes by its own width). */
+const footerFrame = (width = "") => html`<div class="header-frame is-fitted${width ? ` ${width}` : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${footer()}</div>`;
 const STAND_IN_ACCOUNT = { username: "emma_r" };
 const LONG_NAMED_ACCOUNT = { username: "maximilian_vandenberg" };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games", suggestionsUrl: "/design/examples/search-suggestions" };
@@ -931,11 +1000,14 @@ component({
   render: header,
   examples: [
     { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
+    { label: "On a game's page: Back goes Home, or, reached from another Zaisma page, back to it as it was", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-back", current: "browse", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", hasBackButton: true })) },
     { label: "Signed out", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
     { label: "Menu open, with a long username", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-long", current: "home", search: GAMES_SEARCH, account: LONG_NAMED_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
     { label: "Search open, its finishes and games under it (on a phone it takes the tabs' place)", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-search", current: "home", search: { ...GAMES_SEARCH, searchText: "ash", state: "is-open", shownSuggestions: SEARCH_STAND_IN.suggestionsFor("ash") }, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header", isSearchOpen: true }), true) },
-    { label: "On the dashboard: no search", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "On the dashboard: game search on a computer, and on a phone its extra tabs take that room", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", search: GAMES_SEARCH, isSearchOnComputerOnly: true, account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "A guest on a game's page: on a phone, Sign in is its icon alone", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-guest", current: null, search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true, hasBackButton: true })) },
     { label: "Compact after scrolling, on a page with its own runner (a game's Play): Sign in is a secondary button", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-runner", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false, hasPageRunner: true, isCompact: true })) },
+    { label: "The forum on a 320 px phone: with every other step taken, the tabs scroll", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-forum-phone", current: "forum", search: GAMES_SEARCH, account: null, isOnDeveloperPage: true }), false, true) },
     { label: "On sign-in: Zaisma alone", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-sign-in", current: null, isOnDeveloperPage: false, isOnSignInPage: true })) },
   ],
 });
@@ -943,16 +1015,15 @@ component({
 component({
   name: "Account button",
   slug: "account-button",
-  group: "navigation",
-  subgroup: "bars",
+  group: "actions",
+  subgroup: "buttons",
   summary: "You, at the header's end once you're signed in: your picture alone is the button, a slab as tall as the controls beside it. It opens the account menu, which names you.",
   styles: `
 /* Your picture as a slab (materials.ts, holds-art): raised on the header's glass, as tall as the controls beside it and cut by the edge rule
-   like them, so it fits the header's corner. Its states are the slab's: pointed it catches the light, pressed it lands, and by keyboard the
-   focus line runs round its whole cut. With the menu open the focus line stays round it, as it shows where the menu came from. */
+   like them, so it fits the header's corner. Its states are the slab's: pointed it catches the light, pressed it sinks in place, and by keyboard
+   the focus line runs round its whole cut. Open, it looks as at rest, as any button that opens a menu does: the menu says so. */
 .me { --control-height: var(--control-height-regular); }
 .me:focus-visible { outline: none; }
-.me[aria-expanded="true"] > .slab > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `,
   render: accountButton,
   examples: [
@@ -960,7 +1031,6 @@ component({
     { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }), isStill: true },
     { label: "Pointed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pointed" }), isStill: true },
     { label: "Pressed", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-pressed" }), isStill: true },
-    { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },
     { label: "Keyboard focus", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-focused" }), isStill: true },
   ],
 });
@@ -970,7 +1040,7 @@ component({
   slug: "footer",
   group: "navigation",
   subgroup: "bars",
-  summary: "The end of every page: for game developers, the forum, the source and the rules.",
+  summary: "The end of every page: for game developers, the forum, the source and the rules. One slim row, or two columns on a phone.",
   styles: `
 /* The foot, at the end of the page. */
 /* The footer: a slab of the header's glass across the bottom of the page, where the page ends, never floating over it. Its words are all of
@@ -978,25 +1048,31 @@ component({
 .foot {
   position: relative; width: min(var(--size-page-wide), calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane);
   color: var(--muted); font: var(--type-note); --glass-tint: var(--glass-top);
-  clip-path: ${cutPolygon("header")};
   transition: var(--glass-transition);
 }
 .foot > :not(.edge) { position: relative; z-index: 3; }
-/* A bar of glass (materials.ts), its words all of it, so they keep the words margin all round. */
-.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); }
-/* Quiet links in a row read as one sentence at a word's gap, so each sits a block's gap apart: a list of places, not a line of words. Each
-   link is whole on its line (its words never wrap), and the row wraps between links. */
-.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); white-space: nowrap; }
-.foot p { margin: 0 0 0 auto; }
-/* On a phone it stacks, centered: the mark, the links on centered lines as many as fit, then the license. */
-@media (max-width: 760px) {
-  .foot-in { flex-direction: column; align-items: center; text-align: center; }
-  .foot nav { justify-content: center; width: 100%; }
-  .foot p { margin: 0; }
+/* One slim row, as tall as the header (a bar of glass, materials.ts, its words the words margin all round): Zaisma's mark, its own places, and the rules at the end, quieter. Short of room the rules take a line of
+   their own, and where those lines would wrap (a phone, by the footer's own width) they're two columns and the mark goes. */
+.foot { container: foot / inline-size; }
+.foot-in { display: flex; align-items: center; gap: var(--gap-block-block); }
+.foot-links { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--gap-words-words) var(--gap-block-block); white-space: nowrap; }
+.foot-group { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-block-block); }
+.foot-group.is-own { color: var(--ink-2); }
+@container foot (max-width: 34rem) {
+  .foot-in > .logo { display: none; }
+  .foot-links { display: grid; grid-auto-flow: row dense; grid-template-columns: max-content 1fr; gap: var(--gap-words-control) var(--gap-block-block); }
+  .foot-group { display: contents; }
+  .foot-group > .link { grid-column: 1; justify-self: start; }
+  /* Content rules ends the first column, and the rest of the rules are the second. */
+  .foot-group:not(.is-own) > :not(:first-child) { grid-column: 2; }
 }
 `,
   render: footer,
-  examples: [{ label: "At the end of a page, on its backdrop", isWide: true, markup: html`<div class="header-frame is-fitted"><div class="backdrop is-framed" aria-hidden="true"></div>${footer()}</div>` }],
+  examples: [
+    { label: "On a wide screen: one row, as tall as the header, the rules at its end", isWide: true, markup: footerFrame() },
+    { label: "Short of room: the rules take a second line", isWide: true, markup: footerFrame("is-tablet-width") },
+    { label: "On a phone: two columns, with no mark", isWide: true, markup: footerFrame("is-phone-width") },
+  ],
 });
 
 component({
@@ -1009,9 +1085,9 @@ component({
   styles: `
 /* Zaisma's own scrollbar, on every device: a channel carved in the glass with a slab sliding in it (the materials, materials.ts), resting
    faintly and waking while it moves. Down a box it runs the box's height at the right, at the frame gap from the edges of the glass round
-   it (RAIL_SCRIPT places it); for the page, down the page's right gutter; sideways, under the box. Its channel's ends and its thumb's are
-   slanted, longest toward what scrolls, so the thumb slides flush into either end; where an end reaches a cut corner, it stops where its
-   slant keeps the frame gap from the corner's cut, and where it reaches a square corner, it's square too, at the frame gap. */
+   it (RAIL_SCRIPT places it); for the page, down the page's right gutter, carving its own slanted ends; sideways, under the box. In a box
+   its channel is cut by the edge rule, with a carving's rim, so an end at a cut corner lies the frame gap from the corner's cut all along it,
+   as its side lies from the side, and an end at a square corner is square; the thumb's ends nest in the channel's. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
 .rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
@@ -1024,25 +1100,20 @@ component({
 .own-scroll.is-dragged { scroll-snap-type: none; }
 /* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
    ends slant the same way, so at either end it slides flush into the channel's end, as a switch's slab into its well. */
-.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer;
-  --start-slant: var(--rail-start-slant, var(--rail-width)); --end-slant: var(--rail-end-slant, var(--rail-width)); --cut-shape: polygon(0 0, 100% var(--start-slant), 100% calc(100% - var(--end-slant)), 0 100%); }
-/* A sideways rail along a cut corner of what holds it slants its end only as far as the corner's line reaches into it (--rail-start-slant,
-   --rail-end-slant, from RAIL_SCRIPT), the thumb's end with it. */
-.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); --thumb-start-slant: clamp(0px, calc(var(--rail-start-slant, var(--rail-width)) - 1.17px), var(--thumb-slant)); --thumb-end-slant: clamp(0px, calc(var(--rail-end-slant, var(--rail-width)) - 1.17px), var(--thumb-slant));
-  clip-path: polygon(0 0, 100% var(--thumb-start-slant), 100% calc(100% - var(--thumb-end-slant)), 0 100%); }
-/* An end that meets a square corner of the glass (RAIL_SCRIPT says which) is square, and the thumb's end with it, so it still slides flush. */
-.rail.is-square-start > .rail-line { --start-slant: 0px; }
-.rail.is-square-end > .rail-line { --end-slant: 0px; }
-.rail.is-square-start .rail-thumb { --thumb-start-slant: 0px; }
-.rail.is-square-end .rail-thumb { --thumb-end-slant: 0px; }
+.rail > .rail-line { position: absolute; top: 0; bottom: 0; left: calc((var(--rail-reach) - var(--rail-width)) / 2); width: var(--rail-width); cursor: pointer; --rail-start-cut: var(--cut-size-top-right); --rail-end-cut: var(--cut-size-bottom-right); }
+.rail[data-rail="page"] > .rail-line { --rail-start-cut: var(--rail-width); --rail-end-cut: var(--rail-width); --cut-shape: polygon(0 0, 100% var(--rail-start-cut), 100% calc(100% - var(--rail-end-cut)), 0 100%); }
+/* The thumb's ends nest in the channel's at the groove's 2px, by the edge rule, so it slides flush into either. */
+.rail-thumb { --thumb-slant: calc(var(--rail-width) - 4px); --thumb-start-cut: clamp(0px, calc(var(--rail-start-cut) - 1.17px), var(--thumb-slant)); --thumb-end-cut: clamp(0px, calc(var(--rail-end-cut) - 1.17px), var(--thumb-slant));
+  clip-path: polygon(0 0, calc(100% - var(--thumb-start-cut)) 0, 100% var(--thumb-start-cut), 100% calc(100% - var(--thumb-end-cut)), calc(100% - var(--thumb-end-cut)) 100%, 0 100%); }
 .rail-thumb { cursor: grab; }
 .rail.dragging .rail-thumb { cursor: grabbing; }
 /* Sideways (a table, a chart): the same rail laid on its side, under the box, its channel along the foot of its reach, so at a pane's foot it
    sits at the frame gap like anything with an edge. */
+/* The header has no room for a rail: its tabs only fade where they run on. */
+.top .rail.sideways.is-on { display: none; }
 .rail.sideways { position: relative; top: auto; left: auto; width: auto; height: var(--rail-reach); user-select: none; -webkit-user-select: none; }
-.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width);
-  --cut-shape: polygon(0 0, 100% 0, calc(100% - var(--end-slant)) 100%, var(--start-slant) 100%); }
-.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, calc(100% - var(--thumb-end-slant)) 100%, var(--thumb-start-slant) 100%); }
+.rail.sideways > .rail-line { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: var(--rail-width); --rail-start-cut: var(--cut-size-bottom-left); --rail-end-cut: var(--cut-size-bottom-right); }
+.rail.sideways .rail-thumb { clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--thumb-end-cut)), calc(100% - var(--thumb-end-cut)) 100%, var(--thumb-start-cut) 100%, 0 calc(100% - var(--thumb-start-cut))); }
 /* A mark per part of the page: a hairline etched across the groove (materials.ts) that turns orange when pointed at. Pointing at the rail
    opens the nearest mark's name on a small glass label to its left; dragging, the name of the part the thumb is in rides beside it. */
 /* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */
@@ -1076,7 +1147,11 @@ component({
 }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { top: 132px; bottom: 10px; }
+  .rail[data-rail="page"] { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height) + 10px); bottom: 10px; }
+}
+/* Beside the header's rail on a phone on its side, it runs the screen's whole height, clear of the notch. */
+@media ${HEADER_RAIL_MEDIA} {
+  html:not(.is-playing):has(> body > .top.has-tab-row) .rail[data-rail="page"] { top: max(var(--pad-frame), var(--corner-room)); bottom: max(var(--pad-frame), var(--corner-room)); right: calc(var(--safe-right) + (var(--pad-pane) - var(--rail-reach)) / 2); }
 }
 /* By touch, a finger on it drags the thumb instead of the page. A finger held on it never selects the words beside it, opens the phone's
    callout or flashes a tap's highlight. */
@@ -1118,41 +1193,10 @@ component({
 
 /** Every stand-in game's cover, as a track's items. */
 const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
-/** A shelf of every stand-in game, for its arrows' states. */
-const arrowsShelf = (id: string, title: string, scrolledTo?: "middle" | "end") =>
-  glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id, trackId: `${id}-track`, title, items: STAND_IN_COVER_ITEMS, scrolledTo })) });
-
-component({
-  name: "Row arrows",
-  slug: "row-arrows",
-  group: "navigation",
-  subgroup: "scrolling",
-  summary: "Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.",
-  styles: `
-/* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
-   slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
-   that arrow lies flat in the well, faded. Touch screens swipe instead. */
-/* The well is a carving holding parts (materials.ts): the arrows sit the compact frame gap in, slanting toward each other. */
-.steps { --control-height: var(--control-height-small); display: none; gap: 0; }
-/* Each arrow is a Secondary button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
-@media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
-/* Without a mouse there are none, and a row holding them closes up before them (layout.ts, ROW_STYLES). */
-.steps .ico { width: 10px; height: 13px; transition: transform var(--motion-state) var(--ease-glide); }
-.steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
-.steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
-`,
-  render: rowArrows,
-  examples: [
-    { label: "At the row's start: back lies flat (with a mouse; a touch screen swipes and shows none)", isWide: true, markup: arrowsShelf("example-arrows-start", "Popular") },
-    { label: "Partway along: both can be pressed", isWide: true, markup: arrowsShelf("example-arrows-middle", "Trending", "middle") },
-    { label: "At the row's end: on lies flat", isWide: true, markup: arrowsShelf("example-arrows-end", "New", "end") },
-  ],
-});
-
 export interface ShelfOptions {
   /** Unique on the page: the shelf itself, for a page script (the home's Continue playing). */
   id: string;
-  /** Its track's id, for its arrows and a page script that fills it. */
+  /** Its track's id, for a page script that fills it. */
   trackId: string;
   title: string;
   /** Where its title goes, the whole list it's from (Browse, sorted the same way): the title is then a Link. Left out, it's words alone. */
@@ -1161,34 +1205,27 @@ export interface ShelfOptions {
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
   items: LayoutItem[];
-  /** What it says while it has no covers (Continue playing before you've played anything), in place of its row and arrows. */
+  /** What it says while it has no covers (Continue playing before you've played anything), in place of its row. */
   emptyText?: string;
-  /** Where its row starts scrolled to: the gallery's fixed states (Row arrows'). */
-  scrolledTo?: "middle" | "end";
 }
 
 /**
- * A shelf: a row of games under its heading, with its sort and, for a mouse, its arrows at the heading's end, and its covers in a track
- * that scrolls sideways. Where the heading and the sort don't fit side by side (a phone), the sort and the arrows go under the heading and
- * fill that line, the sort's tabs sharing it.
+ * A shelf: a row of games under its heading, with its sort at the heading's end, and its covers in a track that scrolls sideways on its
+ * rail. Where the heading and the sort don't fit side by side (a phone), the sort goes under the heading and fills that line.
  */
 export function shelf(options: ShelfOptions): Raw {
   const titleId = `${options.id}-title`;
   const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref) : options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
-  const controls: LayoutItem[] = [
-    ...(options.sortTabs ? [{ kind: "control" as const, markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] : []),
-    ...(isEmpty ? [] : [{ kind: "control" as const, markup: rowArrows({ rowName: options.title, trackId: options.trackId, scrolledTo: options.scrolledTo }) }]),
-  ];
   return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
-      controls.length
+      options.sortTabs
         ? {
             kind: "block",
             markup: row({
               widths: "lead-fills",
-              // The sort and the arrows go together, so where they don't fit beside the heading they go under it as one, the sort filling.
-              items: [{ kind: "words", markup: title }, { kind: "block", markup: options.sortTabs ? row({ widths: "lead-fills", items: controls }) : row({ widths: "fit", alignment: "end", items: controls }) }],
+              // Where the sort doesn't fit beside the heading it goes under it, filling the line.
+              items: [{ kind: "words", markup: title }, { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] }) }],
             }),
           }
         : { kind: "words", markup: title },
@@ -1204,14 +1241,14 @@ component({
   slug: "shelf",
   group: "navigation",
   subgroup: "scrolling",
-  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort and its arrows sit at the heading's end; its covers scroll sideways, a few showing with the next peeking in.",
+  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in.",
   styles: `
-/* A shelf: its heading, then its sort and its arrows together, in a row, then its track of covers. The heading keeps its whole width
-   beside them, up to the shelf's own (a container), so they go under it before it wraps; only a heading longer than the shelf wraps,
+/* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
+   shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
 .shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
-/* Under the heading, the sort and the arrows fill their line, never wider than it: the sort gives up room round its tabs' words to fit
+/* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
 .shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
 .shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
@@ -1266,7 +1303,7 @@ export interface SidebarPlace {
   label: string;
   href: string;
   isCurrent?: boolean;
-  icon?: IconName;
+  icon?: ListedIcon;
   /** A small number at its end, like unread reports: a Tag. */
   badgeCount?: number;
   /** Its own places (a gallery group's subgroups): it's a folder of them that opens in place, open to start with while it's current. */
@@ -1283,37 +1320,25 @@ export interface SidebarOptions {
   rememberKey: string;
 }
 
-/**
- * The places as words on the sidebar's glass: only the page you're on has the slab. A group with its own places opens and shuts like a folder
- * in place (its name is a button, never a page), the one holding the page you're on open to start with.
- */
-const sidebarPlaces = (places: SidebarPlace[], isNested = false, isShut = false): Raw =>
-  html`<ul class="sidebar-places${isNested ? " is-nested" : ""}"${isShut ? raw(" hidden") : ""}>${places.map((place) => {
-    const words = html`${place.icon ? icon(place.icon) : ""}<span class="sidebar-words">${place.label}</span>${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
-    if (place.places?.length) {
-      const isOpen = Boolean(place.isCurrent);
-      return html`<li><button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="${isOpen ? "true" : "false"}">${CUT_LINE}${words}<span class="sidebar-arrow">${icon("chevron-right")}</span></button>${sidebarPlaces(place.places, true, !isOpen)}</li>`;
-    }
-    // Every place is a row cut by the edge rule, as a menu's choices are; the page you're on is the row's slab, its words inside it.
-    return html`<li><a class="sidebar-place flush-row compact quiet${place.isCurrent ? " lights-start" : ""}" href="${place.href}" data-cut-line="8"${place.isCurrent ? raw(' aria-current="page"') : ""}>${CUT_LINE}${words}</a></li>`;
-  })}</ul>`;
+/** The places, as a stacked Switch: the place you're on is its slab, and a place with places of its own is a folder. */
+const placeAsTab = (place: SidebarPlace): SwitchTab => ({ ...place, isCurrent: Boolean(place.isCurrent), places: place.places?.map(placeAsTab) });
+const sidebarPlaces = (label: string, places: SidebarPlace[]): Raw => tabSwitch({ label, switchSize: "regular", isVertical: true, tabs: places.map(placeAsTab) });
 
 /**
- * A page's own places down its side: one pane of glass, the places words on it, only the page you're on on a slab with an orange start edge, the open group's own places
- * under it. Beside the page it runs from under the header to the screen's foot (sidebarLayout) and its button, at the header's start, folds it
- * away; where the page can't have a column beside it, it's a sheet that slides over the page from the start edge,
- * on the layer stack like every sheet (LAYERS_SCRIPT), gone once a place is picked, on a press beside it or Esc.
+ * A page's own places down its side: a stacked Switch on a floating pane as tall as its places, scrolling on its rail past the screen's height,
+ * beside the page (sidebarLayout), and its button, at the header's start, folds it away. Where the page can't have a column beside it, it's a
+ * sheet of Docked glass from the start edge, on the layer stack like every sheet (LAYERS_SCRIPT), gone once a place is picked, on a press beside it or Esc.
  */
 export function sidebar(options: SidebarOptions): Raw {
-  const places = sidebarPlaces(options.places);
-  return html`<nav class="sidebar glass glass-pane compact pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton("Close", { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
+  const places = sidebarPlaces(options.label, options.places);
+  return html`<nav class="sidebar glass glass-pane compact pinned" id="${options.id}" aria-label="${options.label}" data-sidebar-remember="${options.rememberKey}" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-in pane-in">${places}</div></nav>${sheetMarkup({ id: `${options.id}-sheet`, title: options.label, body: places, closeButton: tertiaryButton(action("close"), { type: "submit", formMethod: "dialog", isLabelHidden: true, isSmall: true }), placement: "start" })}`;
 }
 
 /** The button that folds a sidebar away and back on a wide screen, and slides it over the page on a phone: at the start of the page's header or bar. */
 /** The one button a Sidebar has: a small Secondary button with the sidebar's icon, wired for SIDEBAR_SCRIPT to fold the sidebar it controls. */
 export function sidebarButton(options: { controls: string; label: string; isExpanded: boolean }): ControlMarkup {
   // Beside the page it's on the sidebar's side, over it: the start of the page's header (siteHeader's sidebarButton) or bar.
-  return secondaryButton(options.label, { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
+  return secondaryButton(action("sidebar", options.label), { type: "button", isLabelHidden: true, isSmall: true, controls: options.controls, isExpanded: options.isExpanded, dataAttributes: { "sidebar-button": "" } });
 }
 
 /**
@@ -1389,9 +1414,6 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     say(nav);
   }
   document.addEventListener("click", function (event) {
-    // A group opens and shuts in place.
-    var group = event.target.closest && event.target.closest(".sidebar-group");
-    if (group) { var isOpen = group.getAttribute("aria-expanded") !== "true", list = group.nextElementSibling; group.setAttribute("aria-expanded", String(isOpen)); if (list) list.hidden = !isOpen; return; }
     var button = event.target.closest && event.target.closest("[data-sidebar-button]");
     if (!button) return;
     var id = button.getAttribute("aria-controls").replace(/-sheet$/, ""), nav = document.getElementById(id), sheet = document.getElementById(id + "-sheet");
@@ -1431,10 +1453,10 @@ const GALLERY_GROUPS: SidebarPlace[] = [
   { label: "Data", href: "#sidebar" },
 ];
 const SETTINGS_PLACES: SidebarPlace[] = [
-  { label: "Hosting", icon: "gauge", href: "#sidebar", isCurrent: true },
-  { label: "Pro", icon: "plus", href: "#sidebar" },
-  { label: "Payments", icon: "card", href: "#sidebar", badgeCount: 2 },
-  { label: "Keys", icon: "key", href: "#sidebar" },
+  { ...action("hosting"), href: "#sidebar", isCurrent: true },
+  { ...action("pro"), href: "#sidebar" },
+  { ...action("payments"), href: "#sidebar", badgeCount: 2 },
+  { ...action("keys"), href: "#sidebar" },
 ];
 const settingsPanes = stack({
   items: [
@@ -1442,52 +1464,44 @@ const settingsPanes = stack({
     { kind: "block", markup: glassPane({ paneWidth: "full", label: "Keys", body: stack({ items: [{ kind: "words", markup: html`<h2>Keys</h2>` }, { kind: "words", markup: html`<p>A key lets your AI tool or the upload command work on your games.</p>` }] }) }) },
   ],
 });
-const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane compact pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-scroll pane-in holds-rows scrolls">${sidebarPlaces(places)}</div></nav>`;
+const stillSidebar = (id: string, places: SidebarPlace[]) => html`<nav class="sidebar glass glass-pane compact pinned" id="${id}" aria-label="Design" data-glass data-glass-corners="pane">${EDGE}<div class="sidebar-in pane-in">${sidebarPlaces("Design", places)}</div></nav>`;
 
 component({
   name: "Sidebar",
   slug: "sidebar",
   group: "navigation",
   subgroup: "places",
-  summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. One pane of glass under the header, to the screen's foot; only the page you're on is on a slab, and a group opens like a folder. Its button, at the header's start, folds it away and the page glides into the width; on a phone the same button slides it over the page. Never a sidebar built in place.",
+  summary: "A page's own places down its side: the gallery's groups, Developer settings' Hosting, Pro and Keys. A stacked Switch on a floating pane as tall as its places. The place you're on is the slab, and the edge lights beside the one you point at. A group opens like a folder: the one you're in stays open, and opening another shuts the rest. Its button, at the header's start, folds it away and the page glides into the width; on a phone it's Docked glass from the start edge. Never a sidebar built in place.",
   styles: `
-/* A sidebar: one pane of glass, its places words on it, nothing carved. Only the page you're on sits on a raised slab with the orange line,
-   the switch's own; the open group's name is strong, its arrow turned down, its places under it set in. */
-/* Its places scroll inside it (sidebar-scroll) only when they're taller than it, on Zaisma's rail, so its glass and edge stay whole and
-   still; the places keep clear of the rail. */
+/* A sidebar: a floating pane as tall as its places, holding a stacked Switch: the place you're on is the slab, the edge lights beside the one
+   you point at. The well scrolls on its own rail past the pane's height, so the pane's glass stays whole and still. */
 .sidebar { display: flex; flex-direction: column; --sidebar-is-sheet: 0; }
-.sidebar-scroll { flex: 1 1 auto; }
-/* Its places are compact flush rows, close together as a menu's (materials.ts): a small control's height with a mouse, a regular one's for a
-   finger. A group's places are set in under it by a block's gap. */
-.sidebar-places { display: flex; flex-direction: column; gap: var(--gap-control-row); margin: 0; padding: 0; list-style: none; }
-.sidebar-places > li { display: flex; flex-direction: column; gap: var(--gap-control-row); }
-.sidebar-places.is-nested { --row-start: calc(var(--pad-words) + var(--gap-block-block)); }
-.sidebar-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.sidebar-place > .ico { width: 18px; height: 18px; flex: none; }
-.sidebar-place:hover, .sidebar-place[aria-current="page"], .sidebar-group[aria-expanded="true"] { color: var(--ink); }
-.sidebar-group { width: 100%; margin: 0; border: 0; background: none; cursor: pointer; text-align: start; }
-.sidebar-group[aria-expanded="true"] { font-weight: 600; }
-/* The place you're on is the row's slab, lit along its start edge (materials.ts): a line under it would read as one over the place below. */
-/* A group's arrow is small and quiet: it says the group opens, nothing more. */
-.sidebar-arrow { display: flex; flex: none; color: var(--muted); transition: transform var(--motion-state) var(--ease-glide); }
-.sidebar-group[aria-expanded="true"] > .sidebar-arrow { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) { .sidebar-arrow { transition: none; } }
-.sidebar-arrow > .ico { width: 12px; height: 12px; }
-.sidebar-place:focus-visible { outline: none; text-decoration: underline 2px var(--focus); text-underline-offset: 4px; }
-/* On a phone it's its sheet, sliding over the page from the start edge, as tall as the screen less the page's edge. */
-/* Nearly the screen's height, as a drawer: a frame gap off its top and foot, so a phone's places fit it before they scroll. */
-.sheet.placement-start:not(.in-place) { inset: var(--gap-control-stack) auto var(--gap-control-stack) var(--pad-pane); width: min(var(--size-sidebar), calc(100% - 3 * var(--pad-pane))); max-width: none; height: calc(100dvh - 2 * var(--gap-control-stack)); max-height: none; margin: 0; }
-.sheet.placement-start:not(.in-place) > .sheet-in { height: 100%; }
-.sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(-40px); }
-@starting-style { .sheet.placement-start[open] { transform: translateX(-40px); } }
-.sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); max-width: none; }
+.sidebar-in { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+.sidebar .sidebar-in > .well.switch-well { --well-height: none; flex: 0 1 auto; min-height: 0; }
+/* On a phone it's its sheet: Docked glass against the start edge, the screen's whole height, stopping a finger's width short of the far edge so the
+   page stays in view and a press on it closes the sheet. */
+.sheet.placement-start { --sheet-room: var(--touch-target); max-width: none; max-height: none; }
+.sheet.placement-start:not(.in-place) { margin: 0; inset: calc(-1 * var(--dock-overhang)) auto calc(-1 * var(--dock-overhang)) calc(-1 * var(--dock-overhang)); width: calc(min(var(--size-sidebar-sheet), 100vw - var(--sheet-room)) + var(--dock-overhang)); height: calc(100dvh + 2 * var(--dock-overhang)); }
+.sheet.placement-start.in-place { margin: 0; inset: calc(-1 * var(--dock-overhang)) auto calc(-1 * var(--dock-overhang)) calc(-1 * var(--dock-overhang)); width: calc(100% - var(--sheet-room) + var(--dock-overhang)); height: calc(100% + 2 * var(--dock-overhang)); }
+.sheet.placement-start > .sheet-in { height: 100%; box-sizing: border-box; padding: calc(var(--dock-overhang) + var(--pad-frame)) calc(var(--dock-bevel) + var(--pad-frame)) calc(var(--dock-overhang) + var(--pad-frame)) calc(var(--dock-overhang) + var(--pad-frame)); }
+/* On its side the screen is short and wide: its places lie in two columns, a folder's name across both, so they fit without scrolling. */
+@media ${HEADER_RAIL_MEDIA} {
+  .sheet.placement-start:not(.in-place) { width: calc(min(2 * var(--size-sidebar), 100vw - var(--sheet-room)) + var(--dock-overhang)); }
+  .sheet.placement-start .tab-switch.vertical { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sheet.placement-start .tab-switch.vertical > .switch-folder { grid-column: 1 / -1; }
+  .sheet.placement-start .tab-switch.vertical > .is-in-folder { --row-start: 14px; }
+  .sheet.placement-start .tab-switch.vertical .switch-slab { left: 0; right: auto; }
+}
+/* It slides in from the edge it's docked to, whole: nothing in it fades, only the dimming behind it. */
+.sheet.placement-start:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: translateX(-100%); }
+.sheet.placement-start:not(.in-place):is(:not([open]), .is-leaving, .is-arriving)::before, .sheet.placement-start:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) > * { opacity: 1; }
+@starting-style { .sheet.placement-start:not(.in-place)[open] { transform: translateX(-100%); } .sheet.placement-start:not(.in-place)[open]::before, .sheet.placement-start:not(.in-place)[open] > * { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .sheet.placement-start:is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-start[open] { transform: none; } }
+  .sheet.placement-start:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.placement-start:not(.in-place)[open] { transform: none; } }
 }
 /* The gallery's still copies: a sidebar as it sits, and a phone's screen with the sheet over its page. */
 /* A phone's width, as tall as the sheet in it at any size of text. */
-.sidebar-example-phone { width: 320px; max-width: 100%; padding: var(--gap-control-stack); box-shadow: var(--well-shade); }
-.sidebar-example-phone > .sheet.placement-start.in-place { width: min(var(--size-sidebar), 100%); }
+.docked-frame.sidebar-example-phone { width: min(100%, 320px); height: 560px; }
 `,
   render: sidebar,
   examples: [
@@ -1496,7 +1510,7 @@ component({
     {
       label: "On a phone, over the page",
       isStill: true,
-      markup: html`<div class="sidebar-example-phone glass" data-glass data-glass-corners="pane">${EDGE}${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarPlaces(GALLERY_GROUPS), closeButton: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
+      markup: html`<div class="docked-frame header-frame sidebar-example-phone"><div class="backdrop is-framed" aria-hidden="true"></div>${sheetMarkup({ id: "example-sidebar-phone", title: "Design", body: sidebarPlaces("Design", GALLERY_GROUPS), closeButton: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }), placement: "start", isShown: true })}</div>`,
     },
   ],
 });
@@ -1511,7 +1525,7 @@ component({
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
 .sidebar-layout { container: sidebar-layout / inline-size; width: 100%; min-width: 0; }
 .sidebar-layout-in { display: grid; grid-template-columns: var(--size-sidebar) minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow: hidden;
+.sidebar-layout-in > .sidebar { position: sticky; z-index: 1; top: var(--header-room, var(--pad-pane)); max-height: calc(100dvh - var(--header-room, var(--pad-pane)) - var(--pad-pane)); overflow: hidden;
   transition: var(--glass-transition), opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 @starting-style { .sidebar-layout-in > .sidebar { opacity: 0; transform: translateX(-24px); } }
 /* Folding: the sidebar, held where it was out of the page's way, slides off toward the edge as the page glides into its room. */
@@ -1525,6 +1539,12 @@ html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: var(
 html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
 /* Where the page can't have a column beside it (a phone, a tablet with large text), the sidebar is its sheet over the page (Sidebar). */
 @container sidebar-layout (max-width: ${SIDEBAR_SHEET_BELOW}) {
+  .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
+  html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
+  .sidebar-layout-in > .sidebar { display: none; --sidebar-is-sheet: 1; }
+}
+/* A phone on its side has no width to give up either: its places are its sheet too. */
+@media ${HEADER_RAIL_MEDIA} {
   .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
   html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }
   .sidebar-layout-in > .sidebar { display: none; --sidebar-is-sheet: 1; }
@@ -1601,29 +1621,19 @@ component({
   slug: "load-more",
   group: "navigation",
   subgroup: "scrolling",
-  summary: "Under a long list (versions, players, topics): the next page added in place, busy while it comes; under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.",
+  summary: "The next page added in place, busy while it comes. A list or a table has it as its last row (moreRows); under a grid of covers it loads by itself as you scroll. Without scripts it's a link to that page.",
   styles: `
-/* Load more: a full-width secondary button under its list, a block below it, with what went wrong under it as a control's words; or, once the
-   list has ended, a line of words saying so. */
+/* Load more: a full-width secondary button, with what went wrong under it as a control's words; or, once the list has ended, a line of words saying so. */
 .load-more { display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .load-more-words { margin: 0; font: var(--type-note); color: var(--muted); }
 .load-more.is-failed .load-more-words { color: var(--marked); }
 `,
   render: loadMore,
   examples: [
-    { label: "Under a list: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-more-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "/design/examples/older-versions?page=2", label: "Show older versions", listId: "example-load-more-list" }) }] }) }) },
+    { label: "As a list's last row: try it, to the last page", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-more-list", rows: LOADED_ROWS, moreRows: { href: "/design/examples/older-versions?page=2", label: "Show older versions" } })) }) },
     { label: "Busy", markup: html`<div style="width:min(340px,100%)">${secondaryButton("Show older versions", { href: "#load-more", isFullWidth: true, isBusy: true })}</div>`, isStill: true },
-    {
-      label: "After a failed load: press it again",
-      isWide: true,
-      isStill: true,
-      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-failed-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ href: "#load-more", label: "Show older versions", listId: "example-load-failed-list", isFailed: true }) }] }) }),
-    },
-    {
-      label: "At the end of the list",
-      isWide: true,
-      markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-end-list", rows: LOADED_ROWS }) }, { kind: "block", markup: loadMore({ label: "Show older versions", listId: "example-load-end-list", endText: "That's every version." }) }] }) }),
-    },
+    { label: "After a failed load: press it again", isWide: true, isStill: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-failed-list", rows: LOADED_ROWS, moreRows: { href: "#load-more", label: "Show older versions", isFailed: true } })) }) },
+    { label: "At the end of the list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions yet", text: "Each version you publish shows here." }), id: "example-load-end-list", rows: LOADED_ROWS, moreRows: { label: "Show older versions", endText: "That's every version." } })) }) },
   ],
 });
 
@@ -1633,7 +1643,7 @@ export interface FilterGroup {
   groupName: string;
   label: string;
   /** What it narrows by, at a glance, before its label: every way has one, so their words line up with Clear filters'. */
-  icon: IconName;
+  icon: ListedIcon;
   /** What's picked now, said beside its label: "Adventure", or "Any". */
   pickedLabel: string;
   choices: { label: string; href: string; isCurrent: boolean }[];
@@ -1660,7 +1670,7 @@ export function filterMenu(options: FilterMenuOptions): ControlMarkup {
   // A choice is a Dropdown's (its classes and look), a link to the list with it picked.
   const choice = (label: string, href: string, isCurrent: boolean, choiceIcon?: IconName, isHidden = false) =>
     html`<a href="${href}" class="${DROPDOWN_CHOICE_CLASS}" role="menuitem" tabindex="-1" data-lights data-keeps-open data-cut-line="8"${isCurrent ? raw(' aria-current="page"') : ""}${isHidden ? raw(" hidden") : ""}>${CUT_LINE}${choiceIcon ? icon(choiceIcon) : ""}<span>${label}</span>${isCurrent ? DROPDOWN_TICK : ""}</a>`;
-  const button = secondaryButton("Filter", { type: "button", icon: "filter", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
+  const button = secondaryButton(action("filter"), { type: "button", controls: options.id, isExpanded: Boolean(options.isOpen), reactionCount: options.filterCount || undefined });
   const opener = (groupName: string, inside: Raw, className: string) =>
     html`<button type="button" class="${DROPDOWN_CHOICE_CLASS} ${className}" role="menuitem" tabindex="-1" aria-haspopup="menu" data-lights data-cut-line="8" data-filter-opens="${groupName}">${CUT_LINE}${inside}</button>`;
   const main = html`<div class="dropdown-in filter-panel" data-filter-panel=""${options.openGroupName ? raw(" hidden") : ""}>${options.groups.map((group) =>
@@ -1757,9 +1767,9 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
 
 const filterMenuFrame = (options: FilterMenuOptions) => html`<div class="dropdown-frame">${filterMenu(options)}</div>`;
 const EXAMPLE_FILTER_GROUPS: FilterGroup[] = [
-  { groupName: "genre", label: "Genre", icon: "games", pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
-  { groupName: "players", label: "Players", icon: "people", pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
-  { groupName: "price", label: "Price", icon: "price-tag", pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
+  { groupName: "genre", ...action("genre"), pickedLabel: "Adventure", choices: ["Any", "Action", "Adventure", "Role-playing", "Strategy"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Adventure" })) },
+  { groupName: "players", ...action("players"), pickedLabel: "Any", choices: ["Any", "Single-player", "Multiplayer"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "Any" })) },
+  { groupName: "price", ...action("price"), pickedLabel: "$15 to $30", choices: ["Any price", "Free", "Under $5", "$5 to $15", "$15 to $30", "$30 and up"].map((label) => ({ label, href: "#filter-menu", isCurrent: label === "$15 to $30" })) },
 ];
 
 component({

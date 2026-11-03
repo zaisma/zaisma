@@ -87,7 +87,7 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
 }
 
 /**
- * On a game's page (into #friends-here): the friends playing it, their pictures and their names. Joining or watching them is the rooms
+ * On a game's page (into #friends-here, a Key detail beside Playing now): the friends playing it, their pictures and their names. Joining or watching them is the rooms
  * pane's, under the game's, so the game's pane stays its name, its Key details and Play.
  */
 export function friendsHere(here: FriendsInGame): Raw {
