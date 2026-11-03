@@ -123,6 +123,7 @@
   // A state's steps, one form or address at a time: each answer's page takes the next.
   async function stepThrough(screen, steps, ready) {
     let stepIndex = 0;
+    bench.isInSteps = true;
     const next = () => {
       const doc = screen.frame.contentDocument;
       if (stepIndex >= steps.length) return ready();
@@ -187,7 +188,7 @@
   function pressState(key) {
     const state = stateOf(key);
     const button = $(`[data-bench-state="${key}"]`);
-    if (bench.pressed.has(key)) { bench.pressed.delete(key); setPressed(button, false); leave(state); bench.lastDone = { kind: "left", key }; return; }
+    if (bench.pressed.has(key)) { bench.isInSteps = false; bench.ownPageAddress = null; bench.pressed.delete(key); setPressed(button, false); leave(state); bench.lastDone = { kind: "left", key }; return; }
     bench.pressed.add(key);
     setPressed(button, true);
     bench.lastDone = { kind: "state", key };
@@ -285,6 +286,7 @@
       if (message.kind === "open") { if (!big) openBig(screen); return; }
       if (big) { big.isChanged = true; if (message.kind === "click") big.lastDone = { kind: "click", message, address: screen.address }; return; }
       bench.leadName = screenName;
+      bench.isInSteps = false;
       if (message.kind === "click") bench.lastDone = { kind: "click", message, address: bench.address };
       for (const other of allScreens) {
         if (other === screen) continue;
@@ -299,7 +301,9 @@
     screen.address = address;
     if (big?.screen === screen) return;
     if (screen.name === bench.leadName || bench.leadName === null) {
-      if (!isSameAddress(address, bench.address) && !isSameAddress(address, bench.ownPageAddress)) { bench.pressed.clear(); bench.ownPageAddress = null; }
+      // A form's answer is on an address of its own, and it's still the state pressed.
+      if (bench.isInSteps) bench.ownPageAddress = address;
+      else if (!isSameAddress(address, bench.address) && !isSameAddress(address, bench.ownPageAddress)) { bench.pressed.clear(); bench.ownPageAddress = null; }
       bench.address = address;
       bench.isSignedIn = isSignedIn;
       const place = data.places.find((each) => new RegExp(each.pathPattern).test(address));
@@ -368,6 +372,7 @@
     const path = bench.ownPageAddress ? placeOf(bench.placeValue)?.path ?? bench.address : bench.address;
     bench.pressed.clear();
     bench.ownPageAddress = null;
+    bench.isInSteps = false;
     bench.lastDone = null;
     if (big) { big.lastDone = null; big.isChanged = false; }
     for (const screen of allScreens) { followNote(screen, false); load(screen, path, big?.screen === screen ? big.profile : bench.profile); }

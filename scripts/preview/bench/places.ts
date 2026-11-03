@@ -125,7 +125,6 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", opens: "join-birthday-pick" },
       { stateValue: "how-sign-in", label: "How you sign in", stateKind: "opened", seenBy: "guest", checkedPage: "How will you sign in" },
       { stateValue: "too-young", label: "Too young", stateKind: "opened", seenBy: "guest", checkedPage: "Make an account, too young" },
-      { stateValue: "pick-username", label: "Pick a username", stateKind: "opened", seenBy: "guest", checkedPage: "Pick a username" },
       { stateValue: "how-you-play", label: "How do you play", stateKind: "opened", seenBy: "signed_in", profile: "Moss_Runner", checkedPage: "How do you play" },
       { stateValue: "youre-in", label: "You're in", stateKind: "opened", seenBy: "signed_in", profile: "Moss_Runner", checkedPage: "You're in" },
     ],
@@ -181,6 +180,7 @@ export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
 
 /** Checked states with no button, each with why. */
 export const CHECKED_PAGES_NOT_ON_THE_BENCH: readonly { name: CheckedPageName; reason: string }[] = [
+  { name: "Pick a username", reason: "it passes through the stand-in Google sign-in on another site, where a screen loses the mark that says whose it is" },
   ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
 ];
 
