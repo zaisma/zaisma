@@ -49,6 +49,7 @@
       screen.figure.style.setProperty("--screen-width", `${screen.widthPx * scales[screen.name]}px`);
       screen.figure.style.setProperty("--screen-height", `${screen.heightPx * scales[screen.name]}px`);
       screen.frame.style.transform = `scale(${scale})`;
+      screen.figure.style.setProperty("--screen-scale", String(scale));
       screen.label.textContent = `${screen.figure.dataset.benchName}, ${Math.round(scales[screen.name] * 100)}%`;
     }
     if (big) placeBig();
@@ -68,6 +69,7 @@
     body.style.width = `${widthPx}px`;
     body.style.height = `${heightPx}px`;
     big.screen.frame.style.transform = `scale(${scale})`;
+    big.screen.figure.style.setProperty("--screen-scale", String(scale));
   }
   function openBig(screen) {
     big = { screen, scale: 1, profile: bench.profile, isSlow: bench.isSlow, isDark: bench.isDark, lastDone: bench.lastDone, isChanged: false };

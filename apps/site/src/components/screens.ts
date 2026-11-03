@@ -11,7 +11,7 @@ import { tag } from "./foundations.ts";
 
 export const SCREENS_PATH = "/design/screens";
 
-/** The three screens: a common phone (an iPhone 14, 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
+/** The three screens: a common phone (an iPhone 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
 export const BENCH_SCREENS = [
   { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, scalePct: 82, isPhone: true },
   { screenName: "turned", name: "Turned", widthPx: 852, heightPx: 393, scalePct: 64, isPhone: true },
@@ -32,7 +32,7 @@ export interface BenchScreenOptions {
 /** One live screen: a frame at the screen's own size, so its media queries and layout are the screen's, scaled to fit. A phone's sits in a black body shaped like a real one, which shows where the screen ends. */
 export function benchScreen(options: BenchScreenOptions): Raw {
   const scaleNumber = options.scalePct / 100;
-  return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" style="--screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
+  return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" style="--screen-scale: ${String(scaleNumber)}; --screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
 <div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx)}" height="${String(options.heightPx)}" style="transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
 }
@@ -149,13 +149,13 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-body { width: 100%; height: 100%; box-sizing: border-box; }
 .bench-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); }
 .bench-view > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); }
-/* A phone: a black body round the screen, shaped like a real one, so the screen's edges show against any page. The notch is cut from the same black, and it and the curved corners are an imitation, for what they'd hide of a page. */
-.bench-screen.is-phone { width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
-.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: 1.875rem; box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
-.bench-screen.is-phone .bench-view { border-radius: 1.5rem; }
-.bench-screen.is-phone .bench-view::after { content: ""; position: absolute; z-index: 1; background: #000; pointer-events: none; }
-.bench-screen.is-phone:not(.is-turned) .bench-view::after { top: 0; left: 50%; width: 30%; height: 1.25rem; transform: translateX(-50%); border-radius: 0 0 0.75rem 0.75rem; }
-.bench-screen.is-turned .bench-view::after { left: 0; top: 50%; height: 30%; width: 1rem; transform: translateY(-50%); border-radius: 0 0.75rem 0.75rem 0; }
+/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. An imitation, for what they'd hide of a page. */
+.bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
+.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: calc(var(--phone-corner) + var(--bench-bezel)); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
+.bench-screen.is-phone .bench-view { border-radius: var(--phone-corner); }
+.bench-screen.is-phone .bench-view::after { content: ""; position: absolute; z-index: 1; background: #000; border-radius: var(--phone-island-short); pointer-events: none; }
+.bench-screen.is-phone:not(.is-turned) .bench-view::after { top: var(--phone-island-inset); left: 50%; width: var(--phone-island-long); height: var(--phone-island-short); transform: translateX(-50%); }
+.bench-screen.is-turned .bench-view::after { left: var(--phone-island-inset); top: 50%; height: var(--phone-island-long); width: var(--phone-island-short); transform: translateY(-50%); }
 /* The light box: the others dimmed behind the one pressed, the rail still working. */
 .bench-dim { display: none; position: absolute; inset: 0; z-index: 3; background: var(--page); opacity: 0.88; }
 .bench-is-big .bench-dim { display: block; }
