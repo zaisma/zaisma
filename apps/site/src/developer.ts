@@ -65,9 +65,9 @@ import {
   type GameImage,
   type ImageKind,
   FILE_LIMITS,
-  PLAN_LIMITS,
   planFor,
-  type PlanKind,
+  releaseNewData,
+  storageOf,
   UploadError,
   addBlob,
   blobKey,
@@ -85,6 +85,10 @@ import {
   LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS,
   needsLifelikeGoreAge,
   testerLinkVersion,
+  testerLinkWaitingVersion,
+  dailyReviewMeaning,
+  isAiReviewDone,
+  type AiReviewSpeed,
   toManifest,
   versionById,
   type ScanReport,
@@ -106,6 +110,11 @@ import {
   type VersionChoice,
   type ReportReason,
   FREE_HOSTING_CENTS_PER_MONTH,
+  freeAllowanceCents,
+  freeHostingEndCents,
+  gameHosting,
+  spendingMonthRow,
+  type GameHosting,
   MAXIMUM_GAME_STORAGE_SIZE_BYTES,
   creditOf,
   freeUsedPct,
@@ -172,6 +181,7 @@ import {
   MATCH_UPDATE_MODES,
   type MatchUpdateMode,
   checkShownText,
+  titleNamesZaisma,
   type ShownTextOptions,
   hasThreads,
   ITEM_FIELDS,
@@ -180,6 +190,7 @@ import {
   isCreditLow,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
+import { checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, reserveOrRefuse, storageRoute } from "./storage-api.ts";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
@@ -209,7 +220,7 @@ import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
-import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions, replaceWaitingVersions } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, aiReviewSpeedFor, holdForPerson, imageMatcher, passVersionsHeldForGore, publishFacts, publishRouteOf, publishWithReview, pruneVersions, replaceWaitingVersions, requestAiReview, routePublish, usualAiReviewDurations, type PublishFacts } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 
@@ -238,6 +249,11 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   GET    /api/dev/games/:slug/versions/:id   scan result, findings and preview link
  *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "scheduled_publish_at" } publishes later
  *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
+ *   POST   /api/dev/games/:slug/versions/:id/ai-review  start a version's AI review without publishing it
+ *   DELETE /api/dev/games/:slug/versions/:id   delete a version that isn't in use (storage-api.ts)
+ *   DELETE /api/dev/games/:slug                delete the game for good: { "confirm_slug" } (storage-api.ts)
+ *   GET    /api/dev/storage                    what the account stores and can store (storage-api.ts)
+ *   PATCH  /api/dev/storage                    { "monthly_storage_budget_cents" } (storage-api.ts)
  *   DELETE /api/dev/games/:slug/versions/:id/preview-links   end every preview link handed out so far
  *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
@@ -618,9 +634,12 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/access", reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/activity", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/api-keys", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
+  call({ method: "GET", path: "/storage", reaches: "account", access: anyKey }),
+  call({ method: "PATCH", path: "/storage", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("monthly_storage_budget_cents") } }),
   call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
   call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
@@ -649,13 +668,17 @@ export const API_ROUTES: readonly ApiRoute[] = [
         patch_notes: plain,
         // Going live by itself is publishing, so it needs what publishing needs, not just upload.
         publish_when_approved: needsToo("version_access", "publish", "the version waits as a draft with a preview link, and the developer publishes it"),
+        publish_after_ai_review_enabled: plain,
         match_update_mode: plain,
+        is_big_update: plain,
       },
       maximumSizeBytes: 4 * 1024 * 1024,
     },
   }),
   call({ method: "GET", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode"), isOptional: true } }),
+  call({ method: "DELETE", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes", "publish_after_ai_review_enabled"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/ai-review", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/preview-links", reaches: "game", access: needs("version_access", "upload"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
@@ -893,7 +916,7 @@ async function ownGameSlugs(env: Env, given: unknown, caller: Caller, field: str
  * this caller alone. One that isn't is answered like a file never sent.
  */
 async function storedFiles(env: Env, given: unknown, caller: Caller): Promise<CheckedCall["files"]> {
-  const list = listOrThrow(given, await planFor(env.DB, caller.ownerId));
+  const list = listOrThrow(given);
   const found = await locateBlobs(env.DB, list.map((file) => file.sha256), caller.ownerId);
   const missingCount = list.filter((file) => !found.has(file.sha256)).length;
   if (missingCount) {
@@ -931,6 +954,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       : [];
     return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
+  if (apiRoute.path === "/storage") return answer(...(await storageRoute(env, method, checked.body, caller)));
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
   if (apiRoute.path === "/credit/plan" || apiRoute.path.startsWith("/credit/plan/")) return answer(...(await creditPlanRoute(env, apiRoute.path, method, checked.body, caller)));
   if (apiRoute.path === "/credit" || apiRoute.path.startsWith("/credit/")) return answer(...(await creditRoute(env, apiRoute.path, method, checked.body, caller)));
@@ -972,6 +996,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/games" && method === "POST") {
     const body = checked.body;
     const title = shownTextOrThrow(body.title, { field: "title", maximumCharacterCount: 80, isRequired: true });
+    await refuseZaismaInTitle(env, title, caller.ownerId);
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
@@ -1019,7 +1044,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/versions/:version_id/preview-links") return answer(...(await endPreviewLinks(env, game!, pathValues.version_id!, caller)));
   if (apiRoute.path.startsWith("/games/:slug/uploads") || apiRoute.path.startsWith("/games/:slug/versions")) {
     const what = apiRoute.path.startsWith("/games/:slug/uploads") ? "uploads" : "versions";
-    return answer(...(await versionRoute(request, env, game!, what, pathValues.version_id, apiRoute.path.endsWith("/publish"), caller, checked)));
+    return answer(...(await versionRoute(request, env, game!, what, pathValues.version_id, apiRoute.path.endsWith("/publish"), apiRoute.path.endsWith("/ai-review"), caller, checked)));
   }
 
   if (apiRoute.path === "/games/:slug/reports") return answer(await reportsFor(env, game!, checked.query.get("cursor")));
@@ -1065,6 +1090,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (!game) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
   const isImages = apiRoute.path.startsWith("/games/:slug/images");
 
+  if (apiRoute.path === "/games/:slug" && method === "DELETE") return answer(...(await deleteOwnGame(env, game, checked.body, caller)));
+
   if (!isImages && method === "GET") {
     const [images, shaders, backgrounds, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
       imagesForGame(env.DB, game.id),
@@ -1077,6 +1104,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       game.multiplayer_mode !== "none" ? listRooms(env.DB, game.id) : null,
     ]);
     const performanceChecks = await performanceChecksFor(env, versions.map((version) => version.id));
+    const reviewFacts = await aiReviewFacts(env, game, versions);
     return answer({
       game: await gameJson(env, game),
       alerts: alertsByGameId.get(game.id)!,
@@ -1085,7 +1113,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       images: images.map((image) => imageJson(env, image)),
       backgrounds,
       shaders: await shadersAnswer(env, shaders),
-      versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null)),
+      versions: versions.map((version) => versionJson(env, game, version, performanceChecks.get(version.id) ?? null, reviewFacts)),
       testers: testers.map((link) => testerJson(env, link)),
     });
   }
@@ -1118,7 +1146,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
         });
       }
     }
-    const { multiplayer_mode: multiplayerMode, game_server_allowed_hosts: allowedHosts, own_server_urls: ownServerUrls, links, ...details } = change;
+    const { multiplayer_mode: multiplayerMode, game_server_allowed_hosts: allowedHosts, own_server_urls: ownServerUrls, links, ...asked } = change;
+    // What other people can reach waits for the review: a hidden game takes this visibility once its live version's review lets it through.
+    const reviewForVisibility = asked.visibility ? await visibilityRoute(env, game, asked.visibility) : null;
+    const details = reviewForVisibility?.route === "now" || !reviewForVisibility ? asked : { ...asked, visibility: undefined };
+    if (asked.title !== undefined && asked.title !== game.title) await refuseZaismaInTitle(env, asked.title, game.owner_id);
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
     if (changesMultiplayer && game.multiplayer_mode === "built-in") {
       throw new ApiError("built_in_server", { message: "This game runs a game server built into Zaisma, which only Zaisma changes.", field: "multiplayer_mode", fix: "Leave multiplayer_mode out, or ask Zaisma with message_zaisma to change it." });
@@ -1147,6 +1179,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       await audit(env.DB, game.id, "links", `Links: ${checkedLinks.map((link) => `${link.link_name} ${link.destination_url}`).join(", ") || "none"}`, caller.actor);
       await logCallerEvent(env, caller, "links_changed", { gameId: game.id });
     }
+    const reviewSteps = reviewForVisibility ? await applyVisibilityRoute(env, game, asked.visibility!, reviewForVisibility, caller.actor) : [];
     const gameServerProblem = multiplayerMode === "own" ? await liveServerProblem(env, game) : null;
     const changed = (await gameBySlug(env.DB, game.slug))!;
     // Setting the game for 16 or 18 and up passes the versions held only for lifelike gore.
@@ -1162,7 +1195,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       game: await gameJson(env, changed),
       review_message: isWaitingForReview ? "The new title or description is checked in about a minute, then shows." : null,
       game_server_problem: gameServerProblem,
-      next_steps: [...goreSteps, ...refundPolicySteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
+      next_steps: [...reviewSteps, ...goreSteps, ...refundPolicySteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
     });
   }
 
@@ -1351,7 +1384,7 @@ async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller
   await logCallerEvent(env, caller, "hosting_budget_changed", { gameId: game.id });
   const month = await gameHostingMonth(env.DB, game.id);
   if (budgetCents === null) {
-    if (month.used_cents >= FREE_HOSTING_CENTS_PER_MONTH) await pauseNow(env, game.id, "free_used");
+    if (month.used_cents >= freeHostingEndCents(game.second_free_allowance_month_start_date, month.month_start_date, Boolean(month.has_real_players))) await pauseNow(env, game.id, "free_used");
   } else if (budgetCents <= month.charged_cents && month.charged_cents > 0) await pauseNow(env, game.id, "budget_used");
   else if (isRaising) await clearPauses(env, game.owner_id!, Date.now(), game.id);
 }
@@ -1417,9 +1450,13 @@ async function putBlob(request: Request, env: Env, sha256: string, caller: Calle
     return { sha256, storage_status: "already_stored" };
   }
   if (!request.body) throw new ApiError("no_body", { message: "The file came without a body.", fix: "Send the file's bytes as the request body." });
+  const storage = await storageOf(env.DB, caller.ownerId);
+  await checkStoredSizeFits(env, caller, sizeBytes, storage);
+  await reserveOrRefuse(env, caller.ownerId, sizeBytes, storage);
   try {
     await env.GAMES.put(blobKey(sha256), request.body, { sha256 });
   } catch (error) {
+    await releaseNewData(env.DB, caller.ownerId, sizeBytes);
     // Storage checks the SHA-256 as it stores (R2's BadDigest, 10037); any other failure is ours, not the file's.
     if (!/\(10037\)|checksum you specified did not match/.test(String((error as Error)?.message ?? error))) {
       console.error("Storing a file failed", error);
@@ -1456,6 +1493,7 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
       throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, field: "size_bytes", fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
     }
     if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, storage_status: "already_stored", upload_id: null, part_size_bytes: null, part_count: null };
+    await checkStoredSizeFits(env, caller, sizeBytes as number, await storageOf(env.DB, caller.ownerId), "size_bytes");
     const upload = await env.GAMES.createMultipartUpload(key);
     return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partSizeBytes, part_count: Math.ceil((sizeBytes as number) / FILE_LIMITS.partSizeBytes) };
   }
@@ -1470,10 +1508,12 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
     if (!(sizeBytes > 0 && sizeBytes <= FILE_LIMITS.partSizeBytes) || !request.body) {
       throw new ApiError("bad_part_size", { message: `Part ${partNumber} is empty, over ${FILE_LIMITS.partSizeBytes / 1048576} MB or has no Content-Length header.`, field: "Content-Length", fix: `Send each part but the last as exactly part_size_bytes (${FILE_LIMITS.partSizeBytes} bytes), with its Content-Length.` });
     }
+    await reserveOrRefuse(env, caller.ownerId, sizeBytes, await storageOf(env.DB, caller.ownerId));
     try {
       const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(partNumber, request.body);
       return { part_number: part.partNumber, etag: part.etag };
     } catch {
+      await releaseNewData(env.DB, caller.ownerId, sizeBytes);
       throw new ApiError("upload_closed", { message: "That upload_id isn't an open upload any more.", field: "upload_id", fix: `Start again with POST /api/dev/files/${sha256}/parts.` });
     }
   }
@@ -1492,6 +1532,16 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
       await env.GAMES.delete(key);
       throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
     }
+    // The real size this time, however small the start's size_bytes said it was.
+    const isHeld = (await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0;
+    if (!isHeld) {
+      try {
+        await checkStoredSizeFits(env, caller, stored.size, await storageOf(env.DB, caller.ownerId));
+      } catch (error) {
+        await env.GAMES.delete(key);
+        throw error;
+      }
+    }
     const start = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
     const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
     if (forbidden) {
@@ -1504,7 +1554,7 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
   throw badMethod(request.method, new URL(request.url).pathname);
 }
 
-async function versionRoute(request: Request, env: Env, game: Game, what: "uploads" | "versions", id: string | undefined, isPublish: boolean, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
+async function versionRoute(request: Request, env: Env, game: Game, what: "uploads" | "versions", id: string | undefined, isPublish: boolean, isAiReview: boolean, caller: Caller, checked: CheckedCall): Promise<[unknown, number?]> {
   const method = request.method;
   const body = checked.body;
   if (game.review_status === "removed" && method !== "GET") {
@@ -1513,8 +1563,12 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
 
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
-    const files = listOrThrow(body.files, await planFor(env.DB, caller.ownerId));
+    const files = listOrThrow(body.files);
     const missing = await missingBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
+    // The whole game must fit in what the account can store; each file checks the day's new data as it comes, so a game too big for one day goes up over several.
+    const missingHashes = new Set(missing);
+    const sizeByMissingHash = new Map(files.filter((file) => missingHashes.has(file.sha256)).map((file) => [file.sha256, file.size_bytes]));
+    await checkStoredSizeFits(env, caller, [...sizeByMissingHash.values()].reduce((totalSizeBytes, sizeBytes) => totalSizeBytes + sizeBytes, 0), await storageOf(env.DB, caller.ownerId), "files");
     return [{ file_count: files.length, size_bytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0), missing_file_hashes: missing }];
   }
 
@@ -1532,15 +1586,23 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
         fix: "Send it with publish_when_approved true, or give it to publish_version when you publish.",
       });
     }
+    if (body.publish_after_ai_review_enabled !== undefined && (typeof body.publish_after_ai_review_enabled !== "boolean" || body.publish_when_approved !== true)) throw badPublishAfterAiReview(typeof body.publish_after_ai_review_enabled === "boolean");
     const uploadMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
     const patchNotes = body.patch_notes === undefined ? "" : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
+    if (body.is_big_update !== undefined && (typeof body.is_big_update !== "boolean" || body.publish_when_approved !== true)) {
+      throw new ApiError("bad_is_big_update", {
+        message: typeof body.is_big_update !== "boolean" ? "is_big_update isn't true or false." : "is_big_update came without publish_when_approved true, so there's no publish for it to apply to.",
+        field: "is_big_update",
+        fix: "Send true with publish_when_approved true, or give it to publish_version when you publish.",
+      });
+    }
+    if (body.is_big_update === true && !patchNotes) throw bigUpdateNeedsNotes();
     const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
       .bind(game.id, Date.now() - DAY_MS)
       .first<{ version_count: number; oldest_at_ms: number | null }>();
-    const versionPlan = await planFor(env.DB, caller.ownerId);
-    if ((today?.version_count ?? 0) >= PLAN_LIMITS[versionPlan].maximumVersionsPerDay) {
+    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) {
       throw new ApiError("version_limit", {
-        message: `${game.slug} has had ${PLAN_LIMITS[versionPlan].maximumVersionsPerDay} versions in the last day, the most a game can${versionPlan === "free" ? ` (${PLAN_LIMITS.pro.maximumVersionsPerDay} with Zaisma Pro)` : ""}.`,
+        message: `${game.slug} has had ${FILE_LIMITS.maximumVersionsPerDay} versions in the last day, the most a game can.`,
         fix: "Wait until the oldest is a day old, then upload again; meanwhile test with the latest version's preview_url.",
         retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
       });
@@ -1557,14 +1619,16 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       kind: "files",
       patchNotes,
       publishWhenApprovedEnabled: body.publish_when_approved === true,
+      publishAfterAiReviewEnabled: body.publish_after_ai_review_enabled === true,
       matchUpdateMode: uploadMatchUpdateMode,
+      isBigUpdate: body.is_big_update === true,
     });
     await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await logCallerEvent(env, caller, "version_uploaded", { gameId: game.id, versionId });
     await queueCompression(env, manifest, files);
     await replaceWaitingVersions(env, game.id, versionId);
     await env.SCAN_QUEUE.send({ versionId });
-    const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
+    const reason = body.publish_when_approved === true ? "It goes live by itself once it passes, or once its AI review does when other people can reach the game and the developer is still earning going first; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
     return [{ version: await versionAnswer(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
   }
 
@@ -1574,6 +1638,18 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: versionFix });
 
   if (version && !isPublish && method === "GET") return [{ version: await versionAnswer(env, game, version) }];
+  if (version && !isPublish && method === "DELETE") return deleteOwnVersion(env, game, version, caller);
+
+  // Start the review ahead of a launch, with nothing published. A repeat answers where it stands.
+  if (version && isAiReview && method === "POST") {
+    if (version.scan_status === "scanning") throw new ApiError("still_scanning", { message: "This version is still being scanned.", field: "version_id", fix: "Wait for scan_status approved (get_version), then start its review.", retryAfterSec: 30 });
+    if (version.scan_status !== "approved") throw notApproved(game, version);
+    if (env.ANTHROPIC_API_KEY) await requestAiReview(env, game, version, caller.actor);
+    else if (version.ai_review_status === "not_started") await holdForPerson(env, game, version);
+    await logCallerEvent(env, caller, "ai_review_started", { gameId: game.id, versionId: version.id });
+    const reviewed = await versionAnswer(env, game, (await versionById(env.DB, version.id))!);
+    return [{ version: reviewed, next_steps: aiReviewSteps(game, reviewed) }];
+  }
 
   // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
   if (version && isPublish && method === "POST" && body.scheduled_publish_at !== undefined) {
@@ -1589,15 +1665,16 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw notApproved(game, version);
     const scheduledMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
-    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ?, match_update_mode = ? WHERE id = ?").bind(scheduledAtMs, scheduledMatchUpdateMode, version.id).run();
+    const scheduledMark = readPublishMark(body, game, version);
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ?, match_update_mode = ?, is_big_update = ?, patch_notes = ?, publish_after_ai_review_enabled = ? WHERE id = ?").bind(scheduledAtMs, scheduledMatchUpdateMode, scheduledMark.isBigUpdate, scheduledMark.patchNotes, readPublishAfterAiReview(body, version), version.id).run();
     await audit(env.DB, game.id, "publish-scheduled", `${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
-      version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
+      version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then. Its AI review starts by itself up to a day ahead when other people can reach the game." }] : [];
     return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
-    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL, is_big_update = CASE WHEN published_at_ms IS NULL THEN 0 ELSE is_big_update END WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     await logCallerEvent(env, caller, "publish_unscheduled", { gameId: game.id, versionId: version.id });
     return [{ game: await gameJson(env, game), version: await versionAnswer(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
@@ -1616,8 +1693,24 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     if (version.scan_status !== "approved") throw notApproved(game, version);
     ageMustAllowVersion(game, version, "version_id");
     const matchUpdateMode = readMatchUpdateMode(body.match_update_mode);
+    const mark = readPublishMark(body, game, version);
+    await env.DB.prepare("UPDATE versions SET is_big_update = ?, patch_notes = ? WHERE id = ?").bind(mark.isBigUpdate, mark.patchNotes, version.id).run();
+    const publishAfterAiReviewEnabled = readPublishAfterAiReview(body, version);
+    if (publishAfterAiReviewEnabled !== version.publish_after_ai_review_enabled) await env.DB.prepare("UPDATE versions SET publish_after_ai_review_enabled = ? WHERE id = ?").bind(publishAfterAiReviewEnabled, version.id).run();
+    const toPublish = { ...version, is_big_update: mark.isBigUpdate, patch_notes: mark.patchNotes, publish_after_ai_review_enabled: publishAfterAiReviewEnabled };
+    const { route, isReviewNeeded, isOpenBefore } = await routePublish(env, game, toPublish);
+    // Other people can reach the game and the developer is still earning going first, or chose not to: it goes live once its review passes, with its mark.
+    if (route !== "now") {
+      await publishWithReview(env, game, toPublish, "Published", caller.actor, matchUpdateMode);
+      await logCallerEvent(env, caller, "version_waiting_for_ai_review", { gameId: game.id, versionId: version.id });
+      const waiting = await versionAnswer(env, game, (await versionById(env.DB, version.id))!);
+      return [{ game: await gameJson(env, (await gameBySlug(env.DB, game.slug))!), version: waiting, next_steps: aiReviewSteps(game, waiting) }];
+    }
     const wasLiveVersion = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
+    await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, version.id).run();
     await publishVersion(env.DB, version, matchUpdateMode);
+    // This publish is the newest word: a version still waiting to go live once its review passes no longer does.
+    await env.DB.prepare("UPDATE versions SET publish_when_approved_enabled = 0 WHERE game_id = ? AND id != ? AND ai_review_status IN ('waiting', 'reviewing')").bind(game.id, version.id).run();
     if (matchUpdateMode === "now") await updateLiveMatches(env, game, version, wasLiveVersion, caller.waitUntil);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
     await logCallerEvent(env, caller, version.published_at_ms ? "version_rolled_back" : "version_published", { gameId: game.id, versionId: version.id });
@@ -1625,15 +1718,74 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id }, caller.waitUntil);
     await alertIfNoticeFixPublished(env, game.id, version.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
+    if (isReviewNeeded) await requestAiReview(env, published, (await versionById(env.DB, version.id))!, caller.actor);
     const isHidden = published.visibility === "draft" || published.visibility === "private";
     const hasScreenshot = isHidden && Boolean(await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'screenshot' AND review_status != 'rejected' LIMIT 1").bind(game.id).first());
+    const publishedAnswer = await versionAnswer(env, published, (await versionById(env.DB, version.id))!);
     const nextSteps: NextStep[] = isHidden
-      ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
-      : [];
-    return [{ game: await gameJson(env, published), version: await versionAnswer(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
+      ? [...(isReviewNeeded ? aiReviewSteps(game, publishedAnswer) : []), { tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
+      : isReviewNeeded
+        ? aiReviewSteps(game, publishedAnswer)
+        : [];
+    return [{ game: await gameJson(env, published), version: publishedAnswer, next_steps: nextSteps }];
   }
 
   throw badMethod(method, new URL(request.url).pathname);
+}
+
+const badPublishAfterAiReview = (isBoolean: boolean) =>
+  new ApiError("bad_publish_after_ai_review_enabled", {
+    message: isBoolean ? "publish_after_ai_review_enabled came without publish_when_approved true, so there's no publish for it to apply to." : "publish_after_ai_review_enabled isn't true or false.",
+    field: "publish_after_ai_review_enabled",
+    fix: "Send true with publish_when_approved true to go live only once the AI review passes, or give it to publish_version when you publish.",
+  });
+
+/** publish_after_ai_review_enabled as stored: as it was when it's left out. */
+function readPublishAfterAiReview(body: Record<string, unknown>, version: Version): number {
+  if (body.publish_after_ai_review_enabled === undefined) return version.publish_after_ai_review_enabled;
+  if (typeof body.publish_after_ai_review_enabled !== "boolean") throw badPublishAfterAiReview(false);
+  return body.publish_after_ai_review_enabled ? 1 : 0;
+}
+
+/** What to do next about a review that's running: it's told by get_version, or the ai_review_finished webhook. */
+function aiReviewSteps(game: Pick<Game, "slug">, version: { id: string; ai_review_status: string; usual_ai_review_duration_min: number | null; is_live: boolean }): NextStep[] {
+  if (version.usual_ai_review_duration_min === null) return [];
+  const words = version.is_live ? "It's live with its AI review pending" : "It goes live once its AI review passes";
+  return [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: version.usual_ai_review_duration_min * 60, reason: `${words}, which usually takes about ${version.usual_ai_review_duration_min} min, not a promise: a batch can take much longer. The ai_review_finished webhook says when it ends.` }];
+}
+
+const bigUpdateNeedsNotes = () => new ApiError("big_update_needs_patch_notes", { message: "This big update has no patch_notes, and a big update must say what's new.", field: "patch_notes", fix: "Send patch_notes with what's new, or leave is_big_update out to publish it as a quiet patch." });
+
+/**
+ * What a publish says about a version: a quiet patch unless is_big_update is true, with new patch_notes if it gives them. A version that
+ * has been live keeps its own of both, and can't be marked: only a first time live is news. Sending the same mark again on the live version
+ * passes, so a retried publish isn't refused. The answers are as stored, 0 or 1 for the mark.
+ */
+function readPublishMark(body: Record<string, unknown>, game: Game, version: Version): { isBigUpdate: number; patchNotes: string } {
+  if (body.is_big_update !== undefined && typeof body.is_big_update !== "boolean") {
+    throw new ApiError("bad_is_big_update", { message: "is_big_update isn't true or false.", field: "is_big_update", fix: "Send true for a big update, or leave it out for a quiet patch." });
+  }
+  const givenNotes = body.patch_notes === undefined ? undefined : shownTextOrThrow(body.patch_notes, { field: "patch_notes", maximumCharacterCount: FILE_LIMITS.maximumPatchNotesCharacterCount, isMultiline: true });
+  if (version.published_at_ms !== null) {
+    if (givenNotes !== undefined && givenNotes !== version.patch_notes) {
+      throw new ApiError("bad_patch_notes", { message: "This version has been live, so it keeps its patch_notes.", field: "patch_notes", fix: "Leave patch_notes out to roll back to it, or upload a new version with the new notes." });
+    }
+    if (body.is_big_update === true && !(version.id === game.live_version_id && version.is_big_update === 1)) {
+      throw new ApiError("big_update_already_live", { message: "This version has been live, and only a version going live for the first time can be a big update.", field: "is_big_update", fix: "Leave is_big_update out to roll back to it, or upload a new version and mark that." });
+    }
+    return { isBigUpdate: version.is_big_update, patchNotes: version.patch_notes };
+  }
+  const patchNotes = givenNotes ?? version.patch_notes;
+  if (body.is_big_update === true && !patchNotes) throw bigUpdateNeedsNotes();
+  return { isBigUpdate: body.is_big_update === true ? 1 : 0, patchNotes };
+}
+
+/** The whole word "Zaisma" in a title, unless the game is on one of Zaisma's own accounts. */
+async function refuseZaismaInTitle(env: Env, title: string, ownerId: string | null): Promise<void> {
+  if (!titleNamesZaisma(title)) return;
+  const owner = ownerId ? await env.DB.prepare("SELECT is_zaisma_account FROM owners WHERE id = ?").bind(ownerId).first<{ is_zaisma_account: number }>() : null;
+  if (owner?.is_zaisma_account === 1) return;
+  throw new ApiError("title_names_zaisma", { message: `The title ${JSON.stringify(title)} holds the word Zaisma, which only Zaisma's own games can use.`, field: "title", fix: 'Give the game a title of its own without the word Zaisma. A longer word holding it, like "Zaismatic", is fine.' });
 }
 
 /** match_update_mode as given: next_match when it's left out, and bad_match_update_mode for anything but the two. */
@@ -1645,6 +1797,28 @@ function readMatchUpdateMode(given: unknown): MatchUpdateMode {
     field: "match_update_mode",
     fix: 'Give "next_match" (running matches finish on the version they started; the default) or "now" (every live match switches to it within seconds, in the same room).',
   });
+}
+
+/** What asking for a visibility does with a live version whose review hasn't let it through. A hidden visibility, or a game with nothing live, is plain: a publish decides later. */
+async function visibilityRoute(env: Env, game: Game, visibility: Game["visibility"]) {
+  const live = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
+  if (!live || (visibility !== "listed" && visibility !== "unlisted")) return { route: "now" as const, isReviewNeeded: false, isOpenBefore: false, live: null };
+  return { ...(await routePublish(env, { ...game, visibility }, live)), live };
+}
+
+/** The visibility's review, and the game's waiting for it: asked again, the newest answer counts, and a hidden visibility ends the wait. */
+async function applyVisibilityRoute(env: Env, game: Game, visibility: Game["visibility"], routed: Awaited<ReturnType<typeof visibilityRoute>>, actor: string): Promise<NextStep[]> {
+  const isWaiting = routed.route !== "now" && (visibility === "listed" || visibility === "unlisted");
+  await env.DB.prepare("UPDATE games SET visibility_after_ai_review = ? WHERE id = ?").bind(isWaiting ? visibility : null, game.id).run();
+  if (!routed.live) return [];
+  await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(routed.isOpenBefore ? 1 : 0, routed.live.id).run();
+  if (routed.route === "needs_person") await holdForPerson(env, game, routed.live);
+  if (routed.isReviewNeeded) await requestAiReview(env, game, routed.live, actor);
+  if (!routed.isReviewNeeded) return [];
+  const answer = await versionAnswer(env, game, (await versionById(env.DB, routed.live.id))!);
+  if (answer.usual_ai_review_duration_min === null) return [];
+  const words = isWaiting ? `The game stays ${game.visibility} and becomes ${visibility} once its live version's AI review passes` : "The live version's AI review is pending";
+  return [{ tool: "get_version", arguments: { slug: game.slug, version_id: answer.id }, after_sec: answer.usual_ai_review_duration_min * 60, reason: `${words}: usually about ${answer.usual_ai_review_duration_min} min, not a promise.` }];
 }
 
 /** Lifelike gore plays only in games for 16 and up: a version showing it can't go to a game for everyone 13 and up. */
@@ -1667,7 +1841,7 @@ async function goreVersionPlayersCanReach(env: Env, game: Game): Promise<Version
     if (live) reachable.push(live);
   }
   for (const link of await testerLinks(env.DB, game.id)) {
-    const opened = await testerLinkVersion(env.DB, game, link);
+    const opened = (await testerLinkVersion(env.DB, game, link)) ?? (await testerLinkWaitingVersion(env.DB, game, link));
     if (opened) reachable.push(opened);
   }
   return reachable.find((version) => needsLifelikeGoreAge(version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : null)) ?? null;
@@ -1803,7 +1977,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, hostingUse, hostingMonth, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
+  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, hostingUse, hostingMonth, hostingStops, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
     // How the game runs for its players; null when the developer turned the measuring off.
     game.performance_measuring_enabled ? playerPerformance(env.DB, game.id, dayCount) : null,
@@ -1822,6 +1996,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .all<{ schedule_name: string; cron: string; version_id: string; next_run_at_ms: number; last_run_at_ms: number | null }>(),
     hostingUseThisMonth(env.DB, game.id),
     gameHostingMonth(env.DB, game.id),
+    gameHosting(env.DB, game.id),
     requestCountThisMonth(env.DB, game.id),
     env.DB
       .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(message_count), 0) AS message_count, COALESCE(SUM(inbound_size_bytes), 0) AS inbound_size_bytes, COALESCE(SUM(outbound_message_count), 0) AS outbound_message_count, COALESCE(SUM(outbound_size_bytes), 0) AS outbound_size_bytes FROM room_usage WHERE game_id = ? AND date >= ?")
@@ -1856,7 +2031,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, scheduled_run_count: day.game_server_scheduled_run_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
     // The one meter: the free allowance as a percentage, what used it as shares, and what credit paid past it.
-    hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth),
+    hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth, hostingStops),
     // What each player sends and gets a second, the biggest message types and what to change, so a developer's AI can cut it.
     room_traffic: roomTraffic(monthTraffic, monthMessageTypes),
     // Schedules are free, capped by their shape: up to 10, each at most once a minute.
@@ -1873,13 +2048,15 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
  * game is paused and why, and, for a game with a budget, what credit paid; the raw counts are facts for tuning,
  * never priced.
  */
-export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }) {
+export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number }, stops: GameHosting) {
   return {
     free_used_pct: hosting.freeUsedPct,
+    second_free_allowance_month_start_date: hosting.secondFreeAllowanceMonthStartDate,
+    free_rooms_stopped_at: iso(stops.freeRoomsStoppedAtMs),
     shares: hostingShares(hosting.kinds).map((share) => ({ kind: share.kind, share_pct: share.sharePct })),
-    is_paused: month.paused_at_ms !== null,
-    paused_reason: month.paused_at_ms !== null ? month.paused_reason : null,
-    paused_at: iso(month.paused_at_ms),
+    is_paused: stops.pausedAtMs !== null,
+    paused_reason: stops.pausedReason,
+    paused_at: iso(stops.pausedAtMs),
     resets_on_date: nextMonthStartDate(),
     monthly_budget_cents: game.monthly_budget_cents,
     spent_from_credit_cents: month.charged_cents,
@@ -2031,6 +2208,9 @@ const HISTORY: Record<string, string | null> = {
   "rolled-back": "Rolled back to an earlier version",
   "publish-scheduled": "Scheduled a version to publish later",
   "publish-unscheduled": "Cancelled a scheduled publish",
+  "ai-review-started": "A version's AI review started",
+  "ai-review-rolled-back": "The AI review stopped the live version; players are back on the version before it",
+  "ai-review-took-down": "The AI review stopped the live version, and no earlier version had passed, so the game has none live until a fix passes",
   "publish-dropped": "A scheduled version didn't pass review, so it wasn't published",
   "draft-deleted": "An unpublished version was deleted after 30 days",
   // Neutral on purpose: the developer is never told which kind of report it was.
@@ -2088,9 +2268,9 @@ function reasonAnswer(stored: string | null) {
   return reason ? reviewReasonAnswer(reason) : null;
 }
 
-function listOrThrow(files: unknown, plan: PlanKind): UploadFile[] {
+function listOrThrow(files: unknown): UploadFile[] {
   try {
-    return checkUploadList(files, plan);
+    return checkUploadList(files);
   } catch (error) {
     if (error instanceof UploadError) throw new ApiError(error.problem?.code ?? "bad_files", { message: error.message, field: error.problem?.field ?? "files", fix: error.problem?.fix ?? "Check the file list against docs/DEVELOPER-API.md, Uploading versions." });
     throw error;
@@ -2115,6 +2295,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
       throw new ApiError("too_many_tester_links", { message: `${game.slug} has ${MAXIMUM_TESTER_LINK_COUNT} tester links on, the most a game can.`, fix: "Turn one off with remove_tester_link (its tester_id from get_game) first." });
     }
     const link = await addTesterLink(env.DB, game.id, name, choices);
+    await reviewForTesterLink(env, game, link, caller.actor);
     await audit(env.DB, game.id, "tester-link-added", name, caller.actor);
     await logCallerEvent(env, caller, "tester_link_added", { gameId: game.id, subjectName: name });
     return [{ tester: testerJson(env, link), next_steps: [] satisfies NextStep[] }, 201];
@@ -2130,6 +2311,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
       const name = body.name === undefined ? link.name : readTesterName(body.name);
       const choices = await readTesterChoices(env, game, body, { versionChoice: link.version_choice, pickedVersionId: link.picked_version_id, endsAtMs: link.ends_at_ms });
       const changed = await updateTesterLink(env.DB, link, { name, ...choices });
+      await reviewForTesterLink(env, game, changed, caller.actor);
       await audit(env.DB, game.id, "tester-link-changed", name, caller.actor);
       await logCallerEvent(env, caller, "tester_link_changed", { gameId: game.id, subjectName: name });
       return [{ tester: testerJson(env, changed), next_steps: [] satisfies NextStep[] }];
@@ -2140,6 +2322,15 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
     return [{ removed_tester_id: link.id, next_steps: [] satisfies NextStep[] }];
   }
   throw badMethod(request.method, new URL(request.url).pathname);
+}
+
+/** Testers are other people: what a link would open has its AI review asked for now, and opens when the review lets it through (or at once, for a developer who's earned it). */
+async function reviewForTesterLink(env: Env, game: Game, link: TesterLink, actor: string): Promise<void> {
+  const waiting = await testerLinkWaitingVersion(env.DB, game, link);
+  if (!waiting) return;
+  const { isReviewNeeded, isOpenBefore } = await routePublish(env, game, waiting);
+  await env.DB.prepare("UPDATE versions SET is_open_before_ai_review = ? WHERE id = ?").bind(isOpenBefore ? 1 : 0, waiting.id).run();
+  if (isReviewNeeded) await requestAiReview(env, game, (await versionById(env.DB, waiting.id))!, actor);
 }
 
 function readTesterName(given: unknown): string {
@@ -2469,7 +2660,20 @@ export async function performanceChecksFor(env: Env, versionIds: string[]): Prom
 
 /** A version's answer with its Chrome run, for one version. */
 export async function versionAnswer(env: Env, game: Game, version: Version) {
-  return versionJson(env, game, version, (await performanceChecksFor(env, [version.id])).get(version.id) ?? null);
+  return versionJson(env, game, version, (await performanceChecksFor(env, [version.id])).get(version.id) ?? null, await aiReviewFacts(env, game, [version]));
+}
+
+/** What a game's versions' AI review answers need, read once for all of them; null when every review has ended. */
+async function aiReviewFacts(env: Env, game: Game, versions: Version[]): Promise<AiReviewFacts | null> {
+  if (versions.every((version) => isAiReviewDone(version) || version.ai_review_status === "stopped")) return null;
+  const [publish, speed, usualDurationsMin] = await Promise.all([publishFacts(env, game), aiReviewSpeedFor(env, game), usualAiReviewDurations(env)]);
+  return { publish, speed, usualDurationsMin };
+}
+
+interface AiReviewFacts {
+  publish: PublishFacts;
+  speed: AiReviewSpeed;
+  usualDurationsMin: Record<AiReviewSpeed, number>;
 }
 
 /** How a version started in Chrome: null for zip versions and versions from before it ran. */
@@ -2489,7 +2693,8 @@ function performanceCheckJson(row: PerformanceCheckRow | null) {
   };
 }
 
-export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null) {
+export function versionJson(env: Env, game: Game, version: Version, performanceCheck: PerformanceCheckRow | null, aiReview: AiReviewFacts | null) {
+  const isReviewOpen = aiReview !== null && !isAiReviewDone(version) && version.ai_review_status !== "stopped";
   const preview = previewLinkToken(version);
   const report = scanReportOf(version);
   return {
@@ -2498,21 +2703,39 @@ export function versionJson(env: Env, game: Game, version: Version, performanceC
     size_bytes: version.size_bytes,
     // scanning, held (a person will look), approved or rejected.
     scan_status: version.scan_status,
+    ai_review_status: version.ai_review_status,
+    ai_review_speed: version.ai_review_speed,
+    ai_review_requested_at: iso(version.ai_review_requested_at_ms),
+    ai_review_finished_at: iso(version.ai_review_finished_at_ms),
+    ai_review_waiting_reason: version.ai_review_waiting_reason,
+    usual_ai_review_duration_min: isReviewOpen ? aiReview.usualDurationsMin[version.ai_review_speed ?? aiReview.speed] : null,
+    is_ai_review_needed_to_publish: isReviewOpen && version.ai_review_status === "not_started" && publishRouteOf(game, version, aiReview.publish).isReviewNeeded,
+    is_open_before_ai_review: version.is_open_before_ai_review === 1,
+    publish_after_ai_review_enabled: version.publish_after_ai_review_enabled === 1,
     has_threads: hasThreads(report),
     is_live: version.id === game.live_version_id,
     patch_notes: version.patch_notes,
     preview_url: preview ? `${env.SITE_ORIGIN}/p/${preview.token}` : null,
     preview_url_expires_at: preview ? iso(preview.expiresAtMs) : null,
     published_at: iso(version.published_at_ms),
+    first_published_at: iso(version.first_published_at_ms),
+    is_big_update: version.is_big_update === 1,
     scheduled_publish_at: iso(version.scheduled_publish_at_ms),
     // How running matches get it when it goes live by itself (publish later, or publish when approved).
     match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
-    findings: findingsFor(report),
+    findings: [...findingsFor(report), ...(isReviewOpen ? waitingFindingsFor(version) : [])],
     replaced_by_version_id: version.replaced_by_version_id,
     performance_check: performanceCheckJson(performanceCheck),
   };
+}
+
+/** What a review waiting for a free daily review tells the developer. A note: nothing is held. */
+function waitingFindingsFor(version: Version) {
+  const code = version.ai_review_waiting_reason;
+  if (!code) return [];
+  return [{ code, severity: "info" as const, message: dailyReviewMeaning(code), content_rule: null, path: null, fix: REVIEW_CODES[code].fix, message_for_people: REVIEW_CODES[code].messageForPeople }];
 }
 
 /** A person's or a report's decision about a version: a report paused this update, or a person rejected it. */
@@ -2649,6 +2872,7 @@ export async function gameJson(env: Env, game: Game) {
     title: game.title,
     description: game.description,
     visibility: game.visibility,
+    visibility_after_ai_review: game.visibility_after_ai_review,
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed, and why.
     review_status: game.review_status,
     review_reason: reasonAnswer(game.review_reason),
@@ -2685,6 +2909,10 @@ export async function gameJson(env: Env, game: Game) {
     demo_game_slug: game.demo_game_id ? ((await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(game.demo_game_id).first<{ slug: string }>())?.slug ?? null) : null,
     refund_policy: game.refund_policy,
     refund_policy_text: game.refund_policy_text,
+    first_published_at: iso(game.first_published_at_ms),
+    big_update_at: iso(game.big_update_at_ms),
+    // Where Browse's Recently updated places it: a marked big update moves it at most once every 30 days.
+    recently_updated_at: iso(game.recently_updated_at_ms ?? game.first_published_at_ms),
     updated_at: iso(game.updated_at_ms),
   };
 }
@@ -2694,6 +2922,7 @@ function standingJson(standing: Standing) {
   return {
     is_established_developer: standing.isEstablishedDeveloper,
     outside_links_enabled: standing.outsideLinksEnabled,
+    publish_before_ai_review_enabled: standing.publishBeforeAiReviewEnabled,
     search_engines_enabled: standing.searchEnginesEnabled,
     returning_player_count: standing.returningPlayerCount,
     minimum_returning_player_count: STANDING_LIMITS.minimumReturningPlayerCount,
@@ -2721,7 +2950,7 @@ function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
 const dollarsText = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -2738,7 +2967,7 @@ export interface GameAlert {
  * paused for the month (or the database full), a heads-up when NEARLY_USED_PCT of one of those
  * free allowances is used, players who deleted their accounts that Zaisma couldn't erase from the game
  * database, and player reports waiting for Zaisma. The developer home and a game's overview show the
- * same list, and list_games and get_game answer it. Four queries however many games there are, and one
+ * same list, and list_games and get_game answer it. Five queries however many games there are, and one
  * call to each game's database for its use alone.
  */
 export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, GameAlert[]>> {
@@ -2747,7 +2976,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
   const ownerIds = JSON.stringify([...new Set(games.map((game) => game.owner_id).filter(Boolean))]);
-  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }, { results: owners }] = await Promise.all([
+  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }, { results: owners }, spendingStop] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
@@ -2757,9 +2986,9 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .all<{ game_id: string; id: string; scan_status: "held" | "rejected"; report_held_at_ms: number | null; created_at_ms: number; is_newest: number }>(),
     // Each game's month on the meter, as the hosting job last wrote it (hosting-job.ts).
     env.DB
-      .prepare("SELECT game_id, used_cents, charged_cents, paused_at_ms, paused_reason FROM game_hosting_months WHERE game_id IN (SELECT value FROM json_each(?)) AND month_start_date = ?")
+      .prepare("SELECT game_id, used_cents, charged_cents, paused_at_ms, paused_reason, has_real_players FROM game_hosting_months WHERE game_id IN (SELECT value FROM json_each(?)) AND month_start_date = ?")
       .bind(gameIds, monthStartDate)
-      .all<{ game_id: string; used_cents: number; charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }>(),
+      .all<{ game_id: string; used_cents: number; charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null; has_real_players: number }>(),
     // Counted as get_reports counts them: the last 90 days, never child safety.
     env.DB
       .prepare("SELECT game_id, COUNT(*) AS report_count FROM reports WHERE game_id IN (SELECT value FROM json_each(?)) AND report_status = 'open' AND reported_at_ms > ? AND reason != 'child_safety' AND severity_index > 0 GROUP BY game_id")
@@ -2782,6 +3011,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       )
       .bind(ownerIds)
       .all<{ id: string; credit_balance_cents: number; credit_low_line_cents: number | null }>(),
+    // The month's spending stop (spending.ts), which reaches every free game.
+    spendingMonthRow(env.DB),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -2825,15 +3056,23 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
           ? `it used its ${dollarsText(budgetCents ?? month.charged_cents)} budget for this month`
           : month.paused_reason === "credit_used"
             ? "your credit ran out"
-            : `it used this month's free hosting (it's back on ${resetsOn})`;
+            : month.paused_reason === "no_real_players"
+              ? "it has no real players yet, and games with none have used their share of free hosting this month"
+              : month.paused_reason === "free_hosting_ended"
+                ? "Zaisma's free hosting for this month is used up across all games"
+                : `it used this month's free hosting (it's back on ${resetsOn})`;
       const fix =
         month.paused_reason === "budget_used"
           ? "Raise its budget with update_game (monthly_budget_cents) to start it again now. get_stats shows the month's use."
           : month.paused_reason === "credit_used"
             ? "Add credit with top_up_credit to start it again now. get_credit shows the balance."
-            : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
+            : month.paused_reason === "no_real_players"
+              ? `It starts again once real players play it (a minute on screen from a checked browser, off cloud networks; tester links count, and more are needed as it uses more), or on ${resetsOn}. Or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents).`
+              : month.paused_reason === "free_hosting_ended"
+                ? `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents). Servers of your own are never limited.`
+                : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
       const whatToDo =
-        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : "Add credit and give the game a budget in Hosting to start it again now.";
+        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : month.paused_reason === "no_real_players" ? `It starts again once real players play it, or on ${resetsOn}.` : "Add credit and give the game a budget in Hosting to start it again now.";
       const message = `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`;
       add("hosting_paused", message, fix, `${message} ${whatToDo}`);
     }
@@ -2841,13 +3080,25 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       const message = `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`;
       add("database_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
-    if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
+    const secondMonth = game.second_free_allowance_month_start_date;
+    const nearlyEndCents = (freeHostingEndCents(secondMonth, monthStartDate, month?.has_real_players !== 0) * NEARLY_USED_PCT) / 100;
+    const usedPct = (usedCents: number) => freeUsedPct(usedCents, freeAllowanceCents(secondMonth, monthStartDate));
+    // The month's stop reaches a free game only: its rooms stop, and what else it runs goes on.
+    if (spendingStop?.free_rooms_stopped_at_ms != null && !month?.paused_at_ms && (budgetCents === null || !canGoPastFree) && (month?.used_cents ?? 0) > 0) {
+      const message = `Zaisma's free room time for this month is used up across all games: no new rooms or connections between players start until ${resetsOn}, and matches already running get an hour to finish. The game's database and game server requests go on.`;
+      add("free_rooms_stopped", message, `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to start rooms again now. Rooms on your own server are never limited.`, `${message} Add credit and give the game a budget in Hosting to start rooms again now.`);
+    }
+    if (secondMonth === monthStartDate && !month?.paused_at_ms) {
+      const message = `The game filled its free hosting for the first time, so Zaisma gave it a second free allowance this month, once. Next month it has one again.`;
+      add("second_free_allowance_started", message, "To keep it going past free hosting, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents). get_stats shows what used it.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
+    }
+    if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= nearlyEndCents) {
+      const message = `${usedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
       add("hosting_nearly_paused", message, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
     }
     // A budget with nothing to spend stops at the free hosting all the same.
-    if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
+    if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= nearlyEndCents) {
+      const message = `${usedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
       add("hosting_nearly_paused", message, "Add credit with top_up_credit. get_credit shows the balance.", `${message} Add credit to keep it going.`);
     }
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {

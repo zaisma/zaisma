@@ -23,6 +23,8 @@ beforeEach(async () => {
   await createAccount(env.DB, { id: "dev-1", username: "Emma_Builds", ageBand: "18+" });
   ownerId = (await personOwner(env.DB, "dev-1")).id;
   game = await createGame(env.DB, { slug: "arena", title: "Arena", description: "", ownerId, visibility: "listed" });
+  // Its grace is long used, so these tests see one allowance; "the one-time grace" below starts without.
+  await env.DB.prepare("UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE id = ?").bind(game.id).run();
   const realFetch = globalThis.fetch;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -57,6 +59,55 @@ const month = () => gameHostingMonth(env.DB, game.id);
 const balance = async () => (await creditOf(env.DB, ownerId)).balanceCents;
 const notices = async () => (await env.DB.prepare("SELECT alert_kind FROM alert_notices WHERE game_id = ? ORDER BY noticed_at_ms, alert_kind").bind(game.id).all<{ alert_kind: string }>()).results.map((row) => row.alert_kind);
 const entries = async (kind: string) => (await env.DB.prepare("SELECT amount_cents FROM credit_entries WHERE owner_id = ? AND entry_kind = ?").bind(ownerId, kind).all<{ amount_cents: number }>()).results.map((row) => row.amount_cents);
+
+describe("the one-time grace", () => {
+  const noGrace = () => env.DB.prepare("UPDATE games SET second_free_allowance_month_start_date = NULL WHERE id = ?").bind(game.id).run();
+  const grantedMonth = async () => (await env.DB.prepare("SELECT second_free_allowance_month_start_date FROM games WHERE id = ?").bind(game.id).first<{ second_free_allowance_month_start_date: string | null }>())?.second_free_allowance_month_start_date;
+
+  it("gives a game a second allowance the first time it fills one, tells its developer once, and pauses at the end of it", async () => {
+    await noGrace();
+    // No heads-up at 80% of the first: no pause is near.
+    await setUseCents(840);
+    await runHostingJob(testEnv);
+    expect(await notices()).toEqual([]);
+
+    await setUseCents(1000);
+    await runHostingJob(testEnv);
+    await runHostingJob(testEnv);
+    expect(await grantedMonth()).toBe((await month()).month_start_date);
+    expect((await month()).paused_at_ms).toBeNull();
+    expect(await notices()).toEqual(["second_free_allowance_started"]);
+    expect(emails.map((email) => email.subject)).toEqual(["Arena filled its free hosting: it has a second allowance this month"]);
+
+    await setUseCents(1640);
+    await runHostingJob(testEnv);
+    expect(await notices()).toEqual(["second_free_allowance_started", "hosting_nearly_paused"]);
+
+    await setUseCents(2000);
+    await runHostingJob(testEnv);
+    expect(await month()).toMatchObject({ paused_reason: "free_used", written_off_cents: 0, charged_cents: 0 });
+  });
+
+  it("is never given twice: another month has one allowance", async () => {
+    await env.DB.prepare("UPDATE games SET second_free_allowance_month_start_date = '2026-01-01' WHERE id = ?").bind(game.id).run();
+    await setUseCents(1000);
+    await runHostingJob(testEnv);
+    expect(await grantedMonth()).toBe("2026-01-01");
+    expect((await month()).paused_reason).toBe("free_used");
+  });
+
+  it("doesn't charge a game with a budget for the second allowance, and charges past it", async () => {
+    await noGrace();
+    await setBudget(5000);
+    await topUp(2000);
+    await setUseCents(1500);
+    await runHostingJob(testEnv);
+    expect(await month()).toMatchObject({ charged_cents: 0, paused_at_ms: null });
+    await setUseCents(2300);
+    await runHostingJob(testEnv);
+    expect((await month()).charged_cents).toBe(300);
+  });
+});
 
 describe("a game without a budget", () => {
   it("hears once at 80% of its free hosting, and pauses at all of it", async () => {

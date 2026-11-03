@@ -946,7 +946,16 @@ describe("pages", () => {
 
   // The game page as the design test's own game shows it, and the gallery's pages (Screens is only on a local preview), besides the
   // states above: the rules below hold on each.
-  const STRUCTURE_PATHS = ["/g/design-farm", ...CHECKED_PAGES.filter((each) => each.isGallery && !each.path.startsWith("/design/screens")).map((each) => each.path)];
+  const STRUCTURE_PATHS = ["/g/design-farm", ...CHECKED_PAGES.filter((each) => each.isGallery && each.name !== "Screens").map((each) => each.path)];
+
+  it("leave the Screens bench and its link to the preview: production answers neither", async () => {
+    expect((await SELF.fetch("https://zaisma.test/design/screens")).status).toBe(404);
+    expect((await SELF.fetch("https://zaisma.test/__preview/bench/frame.js")).status).toBe(404);
+    expect((await SELF.fetch("https://zaisma.test/__preview/bench/forget-profile?profile=Pin_Keeper", { method: "POST" })).status).not.toBe(204);
+    expect(await (await SELF.fetch("https://zaisma.test/design")).text()).not.toContain('href="/design/screens"');
+    const asked = await SELF.fetch("https://zaisma.test/?bench_screen=main.phone.Pin_Keeper.still");
+    expect(await asked.text()).not.toContain("__preview/bench");
+  });
 
   it("keep the rules their markup can't break unseen: one title, headings in order, no capitals, no token's name, few equal choices, fields in groups, one runner", async () => {
     for (const state of PUBLIC_STATES) {

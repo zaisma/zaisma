@@ -39,7 +39,8 @@ export const EVIDENCE_KINDS = {
    * Content near a rule, by the rule's name; lifelike_gore, which plays only in games for 16 and up; and
    * allowed_content, what ALLOWED_CONTENT covers, recorded so a tweak can be compared.
    */
-  content: [...REVIEWED_CONTENT_RULES, "lifelike_gore", "allowed_content"],
+  // real_people: only what a re-check after a report lists, for a person to read. The judge never sees it (REPORT_ONLY_CONTENT_RULES).
+  content: [...REVIEWED_CONTENT_RULES, "real_people", "lifelike_gore", "allowed_content"],
   /** Code that hides what it does. */
   hidden_code: ["eval_of_encoded", "obfuscated", "downloads_code"],
   /** Text in the game that addresses the reviewer. */
@@ -245,11 +246,15 @@ export interface ModelUsage {
   cacheWriteTokenCount: number;
 }
 
+/** What Anthropic charges for a batched call, as a share of its price. */
+const BATCH_PRICE_PCT = 50;
+
 /** What a call cost in US cents. A model not in the table is priced as Opus, so a new one never looks cheap. */
-export function reviewCostCents(model: string, usage: ModelUsage): number {
+export function reviewCostCents(model: string, usage: ModelUsage, isBatched = false): number {
   const prices = MODEL_PRICES_PER_MILLION_TOKENS[model] ?? MODEL_PRICES_PER_MILLION_TOKENS["claude-opus-5-5"]!;
   return (
-    (usage.inputTokenCount * prices.inputCents + usage.cacheWriteTokenCount * prices.inputCents * 1.25 + usage.cacheReadTokenCount * prices.cacheReadCents + usage.outputTokenCount * prices.outputCents) /
-    1_000_000
+    ((usage.inputTokenCount * prices.inputCents + usage.cacheWriteTokenCount * prices.inputCents * 1.25 + usage.cacheReadTokenCount * prices.cacheReadCents + usage.outputTokenCount * prices.outputCents) /
+      1_000_000) *
+    (isBatched ? BATCH_PRICE_PCT / 100 : 1)
   );
 }

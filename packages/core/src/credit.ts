@@ -21,7 +21,7 @@ export const CREDIT_LIMITS = {
   creditLowPct: 20,
 } as const;
 
-export const CREDIT_ENTRY_KINDS = ["top_up", "hosting_charge", "refund", "written_off"] as const;
+export const CREDIT_ENTRY_KINDS = ["top_up", "hosting_charge", "storage_charge", "refund", "written_off"] as const;
 export type CreditEntryKind = (typeof CREDIT_ENTRY_KINDS)[number];
 
 export interface CreditEntry {
@@ -138,14 +138,38 @@ export async function addHostingCharge(
   return (claimed?.meta.changes ?? 0) > 0;
 }
 
-/** Writes off what a game used past its budget or the balance this month: one written_off entry per game per month, grown in place. */
-export async function addWrittenOff(database: D1Database, writtenOff: { ownerId: string; gameId: string; amountCents: number; nowMs?: number }): Promise<void> {
+/**
+ * Charges an account's storage past its allowance to its credit: one storage_charge entry per UTC day, grown in place.
+ * The month's row is the claim, as in addHostingCharge. Never takes the balance below zero; answers whether it charged.
+ */
+export async function addStorageCharge(database: D1Database, charge: { ownerId: string; amountCents: number; monthStartDate: string; monthChargedCents: number; nowMs?: number }): Promise<boolean> {
+  const nowMs = charge.nowMs ?? Date.now();
+  if (charge.amountCents <= 0) return false;
+  const dayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000;
+  const today = await database
+    .prepare("SELECT id FROM credit_entries WHERE owner_id = ? AND entry_kind = 'storage_charge' AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1")
+    .bind(charge.ownerId, dayStartMs)
+    .first<{ id: string }>();
+  const [claimed] = await database.batch([
+    database
+      .prepare("UPDATE owner_storage_months SET charged_cents = charged_cents + ? WHERE owner_id = ? AND month_start_date = ? AND charged_cents = ? AND (SELECT credit_balance_cents FROM owners WHERE id = ?) >= ?")
+      .bind(charge.amountCents, charge.ownerId, charge.monthStartDate, charge.monthChargedCents, charge.ownerId, charge.amountCents),
+    today
+      ? database.prepare("UPDATE credit_entries SET amount_cents = amount_cents - ? WHERE id = ? AND changes() > 0").bind(charge.amountCents, today.id)
+      : database.prepare("INSERT INTO credit_entries (id, owner_id, entry_kind, amount_cents, created_at_ms) SELECT ?, ?, 'storage_charge', ?, ? WHERE changes() > 0").bind(newId("credit_entry"), charge.ownerId, -charge.amountCents, nowMs),
+    database.prepare("UPDATE owners SET credit_balance_cents = credit_balance_cents - ? WHERE id = ? AND changes() > 0").bind(charge.amountCents, charge.ownerId),
+  ]);
+  return (claimed?.meta.changes ?? 0) > 0;
+}
+
+/** Writes off what a game (or, with no game, an account's storage) used past its budget or the balance this month: one written_off entry each per month, grown in place. */
+export async function addWrittenOff(database: D1Database, writtenOff: { ownerId: string; gameId: string | null; amountCents: number; nowMs?: number }): Promise<void> {
   const nowMs = writtenOff.nowMs ?? Date.now();
   if (writtenOff.amountCents <= 0) return;
   const now = new Date(nowMs);
   const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
   const grown = await database
-    .prepare("UPDATE credit_entries SET amount_cents = amount_cents + ? WHERE id = (SELECT id FROM credit_entries WHERE owner_id = ? AND game_id = ? AND entry_kind = 'written_off' AND created_at_ms >= ? LIMIT 1)")
+    .prepare("UPDATE credit_entries SET amount_cents = amount_cents + ? WHERE id = (SELECT id FROM credit_entries WHERE owner_id = ? AND game_id IS ? AND entry_kind = 'written_off' AND created_at_ms >= ? LIMIT 1)")
     .bind(writtenOff.amountCents, writtenOff.ownerId, writtenOff.gameId, monthStartMs)
     .run();
   if (!grown.meta.changes) await addCreditEntry(database, { ownerId: writtenOff.ownerId, entryKind: "written_off", amountCents: writtenOff.amountCents, gameId: writtenOff.gameId, createdAtMs: nowMs });

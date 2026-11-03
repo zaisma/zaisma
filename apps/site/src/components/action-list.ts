@@ -45,6 +45,7 @@ const LIST = {
   openStripe: { words: "Open Stripe", icon: "out-of-page" },
   // Moving around a page.
   back: { words: "Back", icon: "chevron-back" },
+  movingBackgrounds: { words: "Moving backgrounds", icon: "image" },
   close: { words: "Close", icon: "close" },
   more: { words: "More", icon: "more" },
   showAll: { words: "Show all", icon: "chevron-down" },

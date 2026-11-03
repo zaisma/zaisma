@@ -3,7 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { memoryCap, nextTurn, placeText, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
+import { IDLE_WHILE_WAITED_FOR_MS, isTurnToSleep, memoryCap, memoryHoldersText, nextTurn, placeText, previewToSleep, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
@@ -136,21 +136,111 @@ describe("a test run's turn", () => {
     const held = nextTurn({ entries: [running, testEntry(31, 1, { askedAtMs: 1 }), testEntry(32, 1, { askedAtMs: 2, isNodeOnly: true })], previews: [], testRuns: [{ pid: 30, sizeBytes: testRunSizeBytes(2) }], capBytes: 3 * GB, awakeSizeBytes: GB, nowMs: 1000 });
     expect(held.turnPid).toBeNull();
   });
-  it.skipIf(process.platform !== "darwin")("answers a Workers run at once while a preview is awake, and leaves the line", async () => {
-    const { mkdirSync } = await import("node:fs");
-    mkdirSync(directory, { recursive: true });
-    const savedCap = process.env.PREVIEW_MEMORY_CAP_BYTES;
-    process.env.PREVIEW_MEMORY_CAP_BYTES = String(3 * GB);
-    const measurement = { measured_at_ms: Date.now(), cap_bytes: 3 * GB, used_bytes: 1700 * MB, kept_bytes: 0, needed_bytes: 0, is_alone: false, previews: [{ offset: 0, size_bytes: 1700 * MB, is_awake: true }], test_runs: [] };
-    writeFileSync(join(directory, "line.json"), JSON.stringify({ entries: [], measurement, awake_size_bytes: null }));
-    const say = () => {};
-    try {
-      await expect(waitForTurn({ kind: "test", folder: "/checkout", requestedWorkerCount: 2, isNodeOnly: false, say, directory })).rejects.toThrow(/workers_tests_while_preview_awake.*Workers tests go to GitHub/);
-    } finally {
-      if (savedCap === undefined) delete process.env.PREVIEW_MEMORY_CAP_BYTES;
-      else process.env.PREVIEW_MEMORY_CAP_BYTES = savedCap;
-    }
-    expect(JSON.parse(readFileSync(join(directory, "line.json"), "utf8")).entries).toEqual([]);
+});
+
+describe("a look at the line", () => {
+  // This process stands in for the one asking: a Mac with a 3 GB cap, what's measured, and nothing of the real machine's.
+  const mac = () => {
+    writeFileSync(join(directory, "settings.json"), JSON.stringify({ memory_cap_bytes: 3 * GB }));
+    return { directory, platform: "darwin", say: () => {} };
+  };
+  const measuring = (previews: { offset: number; sizeBytes: number; folder?: string }[]) => (entries: { pid: number }[]) => ({
+    previews: previews.map((preview) => ({ folder: `/checkouts/${preview.offset}`, isAwake: true, isListening: false, ...preview })),
+    testRuns: [],
+    processes: new Map(entries.map((each) => [each.pid, { command: "scripts/preview/run.mjs vitest" }])),
+  });
+  const lineOnDisk = () => JSON.parse(readFileSync(join(directory, "line.json"), "utf8"));
+  const waitingStart = (awakeSizeBytes: number) => writeFileSync(join(directory, "line.json"), JSON.stringify({ entries: [entry(process.ppid, 100, "start", 1)], awake_size_bytes: awakeSizeBytes }));
+
+  it("ends a test run at once when not even one file fits, leaving nothing in line", async () => {
+    const asked = waitForTurn({ ...mac(), kind: "test", folder: "/checkout", requestedWorkerCount: 2, isNodeOnly: true, measure: measuring([{ offset: 0, sizeBytes: 2800 * MB }]) });
+    await expect(asked).rejects.toThrow(/^no_room_for_tests: .*2\.7 GB of the 3\.0 GB memory cap.*GitHub's check runs them/);
+    expect(lineOnDisk().entries).toEqual([]);
+  });
+  it("ends a Workers run at once beside an awake preview, and says node tests may still fit", async () => {
+    const asked = waitForTurn({ ...mac(), kind: "test", folder: "/checkout", requestedWorkerCount: 2, measure: measuring([{ offset: 0, sizeBytes: 1700 * MB }]) });
+    await expect(asked).rejects.toThrow(/^no_room_for_tests: .*Node tests may still fit here/);
+    expect(lineOnDisk().entries).toEqual([]);
+  });
+  it("runs as many test files as fit, and keeps the run in line while it goes", async () => {
+    const turn = await waitForTurn({ ...mac(), kind: "test", folder: "/checkout", requestedWorkerCount: 4, isNodeOnly: true, measure: measuring([{ offset: 0, sizeBytes: 2 * GB }]) });
+    expect(turn.workerCount).toBe(2);
+    expect(lineOnDisk().entries).toMatchObject([{ pid: process.pid, kind: "test", worker_count: 2 }]);
+  });
+  it("never lets a test run past a preview waiting for memory, though it would fit", async () => {
+    waitingStart(2 * GB);
+    const asked = waitForTurn({ ...mac(), kind: "test", folder: "/checkout", isNodeOnly: true, measure: measuring([{ offset: 0, sizeBytes: 1500 * MB }]) });
+    await expect(asked).rejects.toThrow(/no_room_for_tests/);
+    expect(lineOnDisk().entries.map((each: { pid: number }) => each.pid)).toEqual([process.ppid]);
+  });
+  it("answers a test run from what's left when the preview ahead of it just got its turn", async () => {
+    waitingStart(GB);
+    const turn = await waitForTurn({ ...mac(), kind: "test", folder: "/checkout", isNodeOnly: true, measure: measuring([{ offset: 0, sizeBytes: GB / 2 }]) });
+    expect(turn.workerCount).toBe(1);
+    const entries = lineOnDisk().entries;
+    expect(entries.every((each: { turn_given_at_ms: number | null }) => each.turn_given_at_ms !== null)).toBe(true);
+  });
+  it("has a start give up after its limit: no room, what holds the memory, the command, and nothing left in line", async () => {
+    const answer = await waitForTurn({ ...mac(), kind: "start", offset: 100, folder: "/checkout", maxWaitMs: 0, measure: measuring([{ offset: 0, sizeBytes: 2 * GB }, { offset: 200, sizeBytes: GB }]) });
+    expect(answer.noRoomText).toMatch(/^No room for it after \d+ s in line: .* Holding the memory: the preview in \/checkouts\/0 \(2\.0 GB\), the preview in \/checkouts\/200 \(1\.0 GB\)\. .*Try again: npm run preview:start$/);
+    expect(lineOnDisk().entries).toEqual([]);
+  });
+  it("gives a start its turn when it fits, with its limit unused", async () => {
+    const answer = await waitForTurn({ ...mac(), kind: "start", offset: 100, folder: "/checkout", maxWaitMs: 60_000, measure: measuring([{ offset: 0, sizeBytes: GB }]) });
+    expect(answer.noRoomText).toBeUndefined();
+  });
+  it("says what holds the memory, biggest first, leaving out asleep previews and the one asking", () => {
+    const previews = [{ offset: 0, folder: "/a", sizeBytes: GB, isAwake: true }, { offset: 100, folder: "/b", sizeBytes: 44 * MB, isAwake: false }, { offset: 200, folder: "/c", sizeBytes: 2 * GB, isAwake: true }, { offset: 300, folder: "/d", sizeBytes: 3 * GB, isAwake: true }];
+    const testRuns = [{ folder: "/e", sizeBytes: 1536 * MB, isRunning: true }, { folder: "/f", sizeBytes: 9 * GB, isRunning: false }];
+    expect(memoryHoldersText({ previews, testRuns, ownOffset: 300 })).toBe("the preview in /c (2.0 GB), the test run in /e (1.5 GB), the preview in /a (1.0 GB)");
+    expect(memoryHoldersText({ previews: [], testRuns: [] })).toMatch(/^nothing right now/);
+  });
+});
+
+describe("which preview sleeps to make room", () => {
+  const NOW_MS = 100 * 60 * 60_000;
+  const MINUTE_MS = 60_000;
+  const awakeFor = (offset: number, idleMinutes: number, notedMinutesAgo = 0) => ({ offset, pid: offset + 1, last_visit_at_ms: NOW_MS - idleMinutes * MINUTE_MS, noted_at_ms: NOW_MS - notedMinutesAgo * MINUTE_MS });
+  const asked = (kind = "start", minutesAgo = 5) => entry(11, 100, kind, NOW_MS - minutesAgo * MINUTE_MS);
+  const pick = (entries: object[], awakePreviews: object[], roomAskedAtMs: number | null = null) => previewToSleep({ entries, awakePreviews, roomAskedAtMs, nowMs: NOW_MS });
+
+  it("is none with nothing in line, however long nobody has looked: the 30 minutes stays", () => {
+    expect(pick([], [awakeFor(0, 29)])).toBeNull();
+    expect(pick([entry(11, 100, "start", NOW_MS, NOW_MS)], [awakeFor(0, 29)])).toBeNull();
+  });
+  it("is the one nobody has looked at for longest, once that's 10 minutes", () => {
+    expect(IDLE_WHILE_WAITED_FOR_MS).toBe(10 * MINUTE_MS);
+    expect(pick([asked()], [awakeFor(0, 12), awakeFor(100, 25), awakeFor(200, 3)])).toBe(100);
+    expect(pick([asked()], [awakeFor(0, 9), awakeFor(200, 3)])).toBeNull();
+    expect(pick([asked()], [awakeFor(0, 10)])).toBe(0);
+  });
+  it("counts a wake as waiting, and a test run never", () => {
+    expect(pick([asked("wake")], [awakeFor(0, 12)])).toBe(0);
+    expect(pick([{ ...asked("test") }], [awakeFor(0, 12)])).toBeNull();
+  });
+  it("waits until what's in line has had the time to get its turn if it fits", () => {
+    expect(pick([entry(11, 100, "start", NOW_MS - 5000)], [awakeFor(0, 12)])).toBeNull();
+    expect(pick([entry(11, 100, "start", NOW_MS - 30_000)], [awakeFor(0, 12)])).toBe(0);
+  });
+  it("skips a preview that has stopped noting, which is asleep or gone", () => {
+    expect(pick([asked()], [awakeFor(0, 40, 2), awakeFor(100, 11)])).toBe(100);
+  });
+  it("tells one at a time, and the next only if the first wasn't enough", () => {
+    expect(pick([asked()], [awakeFor(0, 12)], NOW_MS - 30_000)).toBeNull();
+    expect(pick([asked()], [awakeFor(0, 12)], NOW_MS - 2 * MINUTE_MS)).toBe(0);
+  });
+  it("is agreed between previews through the line, and answers false without a cap", async () => {
+    writeFileSync(join(directory, "settings.json"), JSON.stringify({ memory_cap_bytes: 3 * GB }));
+    const nowMs = Date.now();
+    const mac = { directory, platform: "darwin" };
+    writeFileSync(join(directory, "line.json"), JSON.stringify({ entries: [entry(process.ppid, 100, "start", nowMs - 5 * MINUTE_MS)], awake_previews: [{ offset: 200, pid: process.pid, last_visit_at_ms: nowMs - 20 * MINUTE_MS, noted_at_ms: nowMs }] }));
+    expect(await isTurnToSleep({ ...mac, offset: 0, lastVisitAtMs: nowMs - 12 * MINUTE_MS })).toBe(false);
+    expect(await isTurnToSleep({ ...mac, offset: 200, lastVisitAtMs: nowMs - 20 * MINUTE_MS })).toBe(true);
+    const line = JSON.parse(readFileSync(join(directory, "line.json"), "utf8"));
+    expect(line.awake_previews.map((preview: { offset: number }) => preview.offset)).toEqual([0]);
+    expect(line.room_asked_at_ms).toBeGreaterThanOrEqual(nowMs);
+    expect(await isTurnToSleep({ ...mac, offset: 0, lastVisitAtMs: nowMs - 12 * MINUTE_MS })).toBe(false);
+    expect(await isTurnToSleep({ directory, platform: "linux", offset: 0, lastVisitAtMs: 0 })).toBe(false);
   });
 });
 

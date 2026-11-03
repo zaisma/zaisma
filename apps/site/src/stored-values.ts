@@ -75,7 +75,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "games.title_listing_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   // Which law and what a country's notice names, as the admin wrote it (country-blocks.ts); its country_code is a closed list.
   { stored: "games.country_blocks[].review_reason", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
-  { stored: "versions.patch_notes", format: "shown_text_block", source: "developer", checked_by: checkedIn("apps/site/src/developer.ts", "shownTextOrThrow"), saved_by_door_ids: ["api:POST /games/:slug/versions"], shown_on_door_ids: [DASHBOARD, GAME_PAGE] },
+  { stored: "versions.patch_notes", format: "shown_text_block", source: "developer", checked_by: checkedIn("apps/site/src/developer.ts", "shownTextOrThrow"), saved_by_door_ids: ["api:POST /games/:slug/versions", "api:POST /games/:slug/versions/:version_id/publish"], shown_on_door_ids: [DASHBOARD, GAME_PAGE] },
   { stored: "versions.scan_report", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "versions.review_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [ADMIN_GAME] },
   { stored: "performance_checks.report", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -202,6 +202,9 @@ export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
+  "games.visibility_after_ai_review", "versions.ai_review_speed", "versions.ai_review_waiting_reason",
+  // What the AI review's readers found: only Zaisma's code writes it, and it's only read back into the judge's brief.
+  "read_files.evidence_items",
   "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",

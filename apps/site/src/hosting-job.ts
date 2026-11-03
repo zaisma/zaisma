@@ -5,13 +5,23 @@ import {
   NEARLY_USED_PCT,
   addCreditEntry,
   addHostingCharge,
+  addStorageCharge,
   addWrittenOff,
   creditOf,
+  freeAllowanceCents,
+  freeHostingEndCents,
   gameHostingMonth,
+  hasRealPlayers,
   hostingUseThisMonth,
   isCreditLow,
   monthStartDateOf,
   nextMonthStartDate,
+  spendingSettingsOf,
+  spendingStopsOf,
+  ownerStorageMonth,
+  storageDayCents,
+  storageOf,
+  utcDateOf,
   type Credit,
   type HostingAlertKind,
   type PausedReason,
@@ -19,6 +29,9 @@ import {
 import { authUserEmail, realEmail } from "./auth.ts";
 import { deliverEmail, hostingEmail, type HostingEmailDetails, type HostingEmailKind } from "./email-codes.ts";
 import type { Env } from "./env.ts";
+
+/** A game as the hosting job judges it. */
+type JudgedGame = { id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null; second_free_allowance_month_start_date: string | null };
 
 /**
  * Every 5 minutes, the one judge of every game's month on the meter (docs/DECISIONS.md, "Hosting is priced with a
@@ -28,6 +41,12 @@ import type { Env } from "./env.ts";
  * game with stored data, whose storage counts every day. Only the 5-minute cron runs it, so runs rarely overlap; when
  * they do, the month's row is the claim (addHostingCharge) and the use is charged once.
  *
+ * - The first time a game with real players reaches the free allowance, it gets a second one free that month, once
+ *   (second_free_allowance_month_start_date), so it doesn't stop before its developer can react. A game with no real
+ *   players doesn't get it yet, and doesn't lose it; a closed month never grants it. A Zaisma without the spending
+ *   settings has no bar: every game counts as played.
+ * - A free game (no budget, or no credit to spend) stops with the month's stops (spending.ts): when games with no real
+ *   players have used their share (no_real_players), and at the ceiling past the limit (free_hosting_ended).
  * - No budget: at its free allowance the game pauses (free_used), and what it used past it, its finishing hour
  *   included, is written off: a budget given later pays only from when it starts (Julius, Oct 26, 2026).
  * - A budget: past its free allowance it draws whole cents from credit (the fraction carried), never past its budget
@@ -45,24 +64,25 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const isHourly = new Date(nowMs).getUTCMinutes() < 5;
   const { results: games } = await env.DB.prepare(
-    `SELECT id, slug, title, owner_id, monthly_budget_cents FROM games WHERE owner_id IS NOT NULL AND id IN (
+    `SELECT id, slug, title, owner_id, monthly_budget_cents, second_free_allowance_month_start_date FROM games WHERE owner_id IS NOT NULL AND id IN (
        SELECT game_id FROM room_usage WHERE date >= date(?, '-1 day')
        UNION SELECT game_id FROM room_usage WHERE ? AND date >= date(?, '-1 month') AND database_size_bytes > 0
        UNION SELECT game_id FROM game_hosting_months WHERE month_start_date = ? AND paused_at_ms IS NOT NULL)`,
   )
     .bind(today, isHourly ? 1 : 0, monthStart, monthStart)
-    .all<{ id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null }>();
+    .all<JudgedGame>();
   const owners = new Map<string, Credit>();
+  const stops = await spendingStopsOf(env.DB, nowMs);
   // In the first two hours of the 1st (after the relay's read of the last hours), the month before is judged again
   // for the use its rooms, relay and database reported after its last run.
   if (new Date(nowMs).getUTCDate() === 1 && new Date(nowMs).getUTCHours() < 2) {
     const lastMonthEndMs = Date.parse(`${monthStart}T00:00:00Z`) - 1;
-    const { results: lastMonthGames } = await env.DB.prepare("SELECT id, slug, title, owner_id, monthly_budget_cents FROM games WHERE owner_id IS NOT NULL AND id IN (SELECT game_id FROM room_usage WHERE date = ?)")
+    const { results: lastMonthGames } = await env.DB.prepare("SELECT id, slug, title, owner_id, monthly_budget_cents, second_free_allowance_month_start_date FROM games WHERE owner_id IS NOT NULL AND id IN (SELECT game_id FROM room_usage WHERE date = ?)")
       .bind(new Date(lastMonthEndMs).toISOString().slice(0, 10))
-      .all<{ id: string; slug: string; title: string; owner_id: string; monthly_budget_cents: number | null }>();
+      .all<JudgedGame>();
     for (const game of lastMonthGames) {
       try {
-        await judgeGame(env, game, owners, lastMonthEndMs, { isClosedMonth: true });
+        await judgeGame(env, game, owners, null, lastMonthEndMs, { isClosedMonth: true });
       } catch (error) {
         console.error("Hosting job: a game's month before failed", game.id, error);
       }
@@ -70,23 +90,73 @@ export async function runHostingJob(env: Env, nowMs = Date.now()): Promise<void>
   }
   for (const game of games) {
     try {
-      await judgeGame(env, game, owners, nowMs);
+      await judgeGame(env, game, owners, stops, nowMs);
     } catch (error) {
       console.error("Hosting job: a game failed", game.id, error);
+    }
+  }
+  if (isHourly) await chargeStorage(env, nowMs);
+}
+
+/**
+ * Once a UTC day, what each account with a storage budget keeps past its allowance: a day of its price, drawn from
+ * credit in whole cents (the fraction carried), never past its budget or the balance. What's past either is written
+ * off, and nothing is deleted: the account's uploads just stop fitting (storage.ts). The account's row is the claim, so a day counts once.
+ */
+export async function chargeStorage(env: Env, nowMs: number): Promise<void> {
+  const today = utcDateOf(nowMs);
+  const monthStartDate = monthStartDateOf(nowMs);
+  const { results: owners } = await env.DB.prepare("SELECT id FROM owners WHERE monthly_storage_budget_cents IS NOT NULL AND stored_size_bytes > 0").all<{ id: string }>();
+  for (const { id: ownerId } of owners) {
+    try {
+      const storage = await storageOf(env.DB, ownerId, nowMs);
+      const pastAllowanceSizeBytes = storage.storedSizeBytes - storage.includedSizeBytes;
+      if (pastAllowanceSizeBytes <= 0 || storage.monthlyStorageBudgetCents === null) continue;
+      const counted = await env.DB
+        .prepare(
+          `INSERT INTO owner_storage_months (owner_id, month_start_date, used_cents, last_counted_date) VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT (owner_id, month_start_date) DO UPDATE SET used_cents = used_cents + excluded.used_cents, last_counted_date = excluded.last_counted_date WHERE last_counted_date < excluded.last_counted_date`,
+        )
+        .bind(ownerId, monthStartDate, storageDayCents(pastAllowanceSizeBytes, nowMs), today)
+        .run();
+      if (!counted.meta.changes) continue;
+      const month = await ownerStorageMonth(env.DB, ownerId, monthStartDate);
+      const credit = await creditOf(env.DB, ownerId);
+      const owedCents = Math.max(0, Math.floor(month.used_cents) - month.charged_cents - month.written_off_cents);
+      const chargeableCents = Math.max(0, Math.min(owedCents, storage.monthlyStorageBudgetCents - month.charged_cents, credit.balanceCents));
+      if (chargeableCents > 0 && (await addStorageCharge(env.DB, { ownerId, amountCents: chargeableCents, monthStartDate, monthChargedCents: month.charged_cents, nowMs }))) {
+        await tellCreditLow(env, ownerId, { ...credit, balanceCents: credit.balanceCents - chargeableCents }, credit.balanceCents, nowMs);
+      }
+      const writtenOffCents = owedCents - chargeableCents;
+      if (writtenOffCents > 0) {
+        await env.DB.prepare("UPDATE owner_storage_months SET written_off_cents = written_off_cents + ? WHERE owner_id = ? AND month_start_date = ?").bind(writtenOffCents, ownerId, monthStartDate).run();
+        await addWrittenOff(env.DB, { ownerId, gameId: null, amountCents: writtenOffCents, nowMs });
+      }
+    } catch (error) {
+      console.error("Hosting job: an account's storage failed", ownerId, error);
     }
   }
 }
 
 /** One game's month: charge, pause or clear, alert. A month that has ended is only charged: nothing it says reaches the game or its developer. */
-async function judgeGame(env: Env, game: { id: string; title: string; owner_id: string; monthly_budget_cents: number | null }, owners: Map<string, Credit>, nowMs: number, options = { isClosedMonth: false }): Promise<void> {
+async function judgeGame(env: Env, game: Omit<JudgedGame, "slug">, owners: Map<string, Credit>, stops: Awaited<ReturnType<typeof spendingStopsOf>>, nowMs: number, options = { isClosedMonth: false }): Promise<void> {
   const [use, month] = await Promise.all([hostingUseThisMonth(env.DB, game.id, nowMs), gameHostingMonth(env.DB, game.id, nowMs)]);
   const budgetCents = game.monthly_budget_cents;
   let credit = owners.get(game.owner_id) ?? (await creditOf(env.DB, game.owner_id));
   let chargedCents = month.charged_cents;
   let writtenOffCents = month.written_off_cents;
-  const isPastFree = use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH;
+  const settings = spendingSettingsOf(env);
+  const isPlayed = settings ? hasRealPlayers(month.real_player_count, use.totalCents, settings.meterCostSharePct) : true;
+  // The second free allowance: claimed on the game's row, so it's given once whatever else runs.
+  let secondFreeAllowanceMonthStartDate = game.second_free_allowance_month_start_date;
+  if (secondFreeAllowanceMonthStartDate === null && isPlayed && !options.isClosedMonth && use.totalCents >= FREE_HOSTING_CENTS_PER_MONTH) {
+    const claimed = await env.DB.prepare("UPDATE games SET second_free_allowance_month_start_date = ? WHERE id = ? AND second_free_allowance_month_start_date IS NULL").bind(month.month_start_date, game.id).run();
+    if (claimed.meta.changes) secondFreeAllowanceMonthStartDate = month.month_start_date;
+  }
+  const allowanceCents = freeAllowanceCents(secondFreeAllowanceMonthStartDate, month.month_start_date);
+  const isPastFree = use.totalCents >= allowanceCents;
   // Past the free allowance, and neither charged nor written off yet.
-  const owedCents = Math.max(0, Math.floor(use.totalCents - FREE_HOSTING_CENTS_PER_MONTH) - chargedCents - writtenOffCents);
+  const owedCents = Math.max(0, Math.floor(use.totalCents - allowanceCents) - chargedCents - writtenOffCents);
   let reason: PausedReason | null = null;
   if (budgetCents === null) {
     if (isPastFree) reason = "free_used";
@@ -107,6 +177,11 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
     if (chargedCents >= budgetCents && isPastFree) reason = "budget_used";
     else if (isPastFree && credit.balanceCents <= 0) reason = "credit_used";
   }
+  // The month's stops reach only a game Zaisma pays for all of.
+  if (!reason && (budgetCents === null || credit.balanceCents <= 0)) {
+    if (stops?.free_hosting_ended_at_ms != null) reason = "free_hosting_ended";
+    else if (stops?.unplayed_games_stopped_at_ms != null && !isPlayed) reason = "no_real_players";
+  }
   // What it used past its free allowance without a budget, past its budget or past the balance is Zaisma's: never
   // charged later, even once a budget comes (Julius, Oct 26, 2026: "Your picks: write it off").
   const leftOverCents = owedCents - (chargedCents - month.charged_cents);
@@ -119,10 +194,10 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   // A pause keeps its first moment, so every room of the game ends an hour after it, together.
   const pausedAtMs = reason ? (month.paused_at_ms ?? nowMs) : null;
   await env.DB.prepare(
-    `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, written_off_cents = excluded.written_off_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`,
+    `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason, has_real_players) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (game_id, month_start_date) DO UPDATE SET has_real_players = excluded.has_real_players, used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, written_off_cents = excluded.written_off_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`,
   )
-    .bind(game.id, month.month_start_date, use.totalCents, chargedCents, writtenOffCents, pausedAtMs, reason)
+    .bind(game.id, month.month_start_date, use.totalCents, chargedCents, writtenOffCents, pausedAtMs, reason, isPlayed ? 1 : 0)
     .run();
   if (options.isClosedMonth) return;
   // Told again every run while paused: a restore of the database rolls back what it was told.
@@ -131,7 +206,9 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   const details: HostingEmailDetails = { gameTitle: game.title, monthName: monthName(nowMs), resetsOnText: resetsOnText(nowMs), pausedReason: reason ?? undefined, spentCents: chargedCents, budgetCents: budgetCents ?? undefined };
   // Each notice with what it's about: a pause by its moment and a budget's heads-up by the budget, so a second pause or a raised budget's 80% is told again.
   const reached: [HostingAlertKind, string][] = [];
-  const isNearlyFree = use.totalCents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100;
+  // A game with its second allowance still to come hears when it starts, not before: no pause is near.
+  if (secondFreeAllowanceMonthStartDate === month.month_start_date) reached.push(["second_free_allowance_started", ""]);
+  const isNearlyFree = use.totalCents >= (freeHostingEndCents(secondFreeAllowanceMonthStartDate, month.month_start_date, isPlayed) * NEARLY_USED_PCT) / 100;
   // The heads-up comes before the pause, and with it when one run went straight past it: never skipped.
   if (isNearlyFree && (budgetCents === null || (chargedCents === 0 && !canGoPastFree(credit)))) reached.push(["hosting_nearly_paused", ""]);
   else if (budgetCents !== null && chargedCents >= (budgetCents * NEARLY_USED_PCT) / 100) reached.push(["hosting_budget_nearly_used", String(budgetCents)]);
@@ -140,7 +217,7 @@ async function judgeGame(env: Env, game: { id: string; title: string; owner_id: 
   else if (use.use.databaseSizeBytes >= (MAXIMUM_GAME_STORAGE_SIZE_BYTES * NEARLY_USED_PCT) / 100) reached.push(["database_nearly_full", ""]);
   for (const [kind, subject] of reached) {
     const noticed = await env.DB.prepare("INSERT OR IGNORE INTO alert_notices (game_id, alert_kind, month_start_date, alert_subject, noticed_at_ms) VALUES (?, ?, ?, ?, ?)").bind(game.id, kind, month.month_start_date, subject, nowMs).run();
-    if (noticed.meta.changes && (kind === "hosting_paused" || kind === "hosting_nearly_paused" || kind === "hosting_budget_nearly_used")) await emailOwner(env, game.owner_id, kind, details);
+    if (noticed.meta.changes && (kind === "hosting_paused" || kind === "hosting_nearly_paused" || kind === "hosting_budget_nearly_used" || kind === "second_free_allowance_started")) await emailOwner(env, game.owner_id, kind, details);
   }
 }
 
@@ -175,7 +252,7 @@ export async function clearPauses(env: Env, ownerId: string, nowMs = Date.now(),
   const { results: cleared } = await env.DB.prepare(
     `UPDATE game_hosting_months SET paused_at_ms = NULL, paused_reason = NULL
      WHERE month_start_date = ? AND paused_at_ms IS NOT NULL AND game_id IN (SELECT id FROM games WHERE owner_id = ? AND monthly_budget_cents IS NOT NULL AND (? IS NULL OR id = ?))
-       AND (paused_reason = 'credit_used' OR (paused_reason IN ('budget_used', 'free_used') AND charged_cents < (SELECT monthly_budget_cents FROM games WHERE id = game_hosting_months.game_id)))
+       AND (paused_reason IN ('credit_used', 'no_real_players', 'free_hosting_ended') OR (paused_reason IN ('budget_used', 'free_used') AND charged_cents < (SELECT monthly_budget_cents FROM games WHERE id = game_hosting_months.game_id)))
        AND (SELECT credit_balance_cents FROM owners WHERE id = ?) > 0
      RETURNING game_id`,
   )

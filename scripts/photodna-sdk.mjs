@@ -6,12 +6,13 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const PHOTODNA_SDK_FOLDER = process.env.PHOTODNA_SDK_FOLDER || join(homedir(), "zaisma-private", "photodna-sdk");
 const PHOTODNA_SDK_SCRIPT = "webassembly/photoDnaEdgeHashS.js";
+const COLIMA_STOP_TIMEOUT_MS = 120_000;
 
 /**
  * Puts the PhotoDNA hasher's SDK file into the checkout. Answers why it couldn't, or null when it's in
@@ -33,13 +34,51 @@ export function placePhotoDnaSdk(checkoutFolder) {
   return null;
 }
 
+const works = (command, commandArguments, options = {}) => spawnSync(command, commandArguments, { stdio: "ignore", ...options }).status === 0;
+
 /**
  * wrangler builds the photodna container with Docker and its buildx plugin. On Julius's machine that's
  * Colima: started here if it's stopped. Answers why Docker can't build, or null.
  */
-export function ensureDocker() {
-  const works = (command, commandArguments) => spawnSync(command, commandArguments, { stdio: "ignore" }).status === 0;
-  if (!works("docker", ["info"]) && (!works("colima", ["start"]) || !works("docker", ["info"]))) return "Docker isn't running and colima start didn't start it";
-  if (!works("docker", ["buildx", "version"])) return "Docker's buildx plugin is missing (brew install docker-buildx, then link it into ~/.docker/cli-plugins)";
+export function ensureDocker({ runs = works, onColimaStarted = () => {} } = {}) {
+  if (!runs("docker", ["info"])) {
+    if (!runs("colima", ["start"])) return "Docker isn't running and colima start didn't start it";
+    onColimaStarted();
+    if (!runs("docker", ["info"])) return "Docker isn't running and colima start didn't start it";
+  }
+  if (!runs("docker", ["buildx", "version"])) return "Docker's buildx plugin is missing (brew install docker-buildx, then link it into ~/.docker/cli-plugins)";
   return null;
+}
+
+/**
+ * Docker for one ship, which stops the Colima it started when it ends: its VM takes 2 GB of an 8 GB Mac, outside the memory cap
+ * (Julius, Nov 2, 2026). Colima that was already running at its first look stays running, even if the ship has to start it again after
+ * the Mac slept. markerFile says a ship started it, so a ship killed before it could stop it (no stop runs) leaves the next one
+ * to stop it. An interrupted ship stops it too, and the run that picks up starts it again: that run's own.
+ */
+export function dockerForShip({ markerFile, say = () => {}, runs = works }) {
+  let hasLooked = false;
+  let isStartedByShip = false;
+  return {
+    ensure() {
+      const isFirstLook = !hasLooked;
+      hasLooked = true;
+      if (isFirstLook) isStartedByShip = existsSync(markerFile);
+      return ensureDocker({
+        runs,
+        onColimaStarted: () => {
+          if (!isFirstLook && !isStartedByShip) return;
+          isStartedByShip = true;
+          writeFileSync(markerFile, new Date().toISOString());
+        },
+      });
+    },
+    stopIfStarted() {
+      if (!isStartedByShip) return;
+      isStartedByShip = false;
+      say("Stopping the Colima this ship started…");
+      if (runs("colima", ["stop"], { timeout: COLIMA_STOP_TIMEOUT_MS })) rmSync(markerFile, { force: true });
+      else say(`Colima didn't stop; the next ship tries again, or run colima stop.`);
+    },
+  };
 }

@@ -21,7 +21,7 @@ import { LATER_MARKER, MATCH_MARKER, startFakeShield } from "./fake-shield.mjs";
 import { startFakeSite } from "./fake-site.mjs";
 import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
-import { finishTurn, noteMemoryFreed, waitForTurn } from "./memory.mjs";
+import { finishTurn, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -292,7 +292,7 @@ function previewConfig(app, settings) {
   // Each runs its Worker through scripts/preview/workers/<app>.mjs, which tries database calls again when another
   // process has the database locked; the Workers themselves, and production, are unchanged.
   config.main = join(ROOT, "scripts/preview/workers", `${app}.mjs`);
-  config.vars = { ...config.vars, ...settings };
+  config.vars = { ...config.vars, ...settings, ...(app === "site" && process.env.PREVIEW_SPENDING_STOP ? { MONTHLY_SPENDING_LIMIT_CENTS: "1", FIXED_COST_CENTS_PER_MONTH: "1", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "1", METER_COST_SHARE_PCT: "25", UNPLAYED_GAMES_COST_CENTS_PER_MONTH: "1", PAST_LIMIT_CEILING_CENTS: "100000000" } : {}) };
   if (config.assets?.directory) config.assets.directory = resolve(appFolder, config.assets.directory);
   for (const database of config.d1_databases ?? []) if (database.migrations_dir) database.migrations_dir = resolve(appFolder, database.migrations_dir);
   return writeConfig(app, config);
@@ -308,7 +308,8 @@ function writeConfig(name, config) {
 // Asleep when nobody's looked (Julius, Oct 23, 2026): after IDLE_MINUTES with no request but the preview's own (its jobs'
 // ticks and test data), the servers and the feedback server stop, and only this process stays, holding the ports. The next
 // request wakes them: a page a browser opens gets a short "Waking the preview…" page that loads the real one once they're
-// up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps.
+// up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps. While something waits in the line
+// for memory it's 10 minutes, for the preview nobody has looked at for longest (Julius, Nov 2, 2026; memory.mjs, previewToSleep).
 const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 30);
 let lastVisitAtMs = Date.now();
 let serversProcess = null;
@@ -321,7 +322,7 @@ let lineText = "";
 const isAwake = () => serversProcess !== null && wakingUp === null;
 const wakingPage = () => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Waking the preview…</title>
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#16191d;color:#eceef0;font:15px/1.5 system-ui,sans-serif">
-<div style="max-width:40em;padding:16px"><p>Waking the preview… it slept after ${IDLE_MINUTES} minutes with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
+<div style="max-width:40em;padding:16px"><p>Waking the preview… it slept with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
 <script>(async()=>{for(;;){try{await fetch(location.href,{method:"HEAD",cache:"no-store"});break}catch{}await new Promise(r=>setTimeout(r,1000))}location.reload()})()</script>`;
 
 /** Starts the servers (and the feedback server), and resolves once they answer. */
@@ -367,8 +368,8 @@ async function startServers() {
 }
 
 /** Stops the servers and the feedback server, until the next request. */
-async function sleep() {
-  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${IDLE_MINUTES} minutes. Opening one wakes it.`);
+async function sleep({ isMakingRoom = false } = {}) {
+  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${Math.round((Date.now() - lastVisitAtMs) / 60_000)} minutes${isMakingRoom ? ", and something waits in line for its memory" : ""}. Opening one wakes it.`);
   testPlayers.isPaused = true;
   const stopped = [serversProcess, feedbackProcess].map((child) => new Promise((done) => (child.exitCode !== null ? done() : (child.once("exit", done), child.kill()))));
   serversProcess = feedbackProcess = null;
@@ -452,8 +453,12 @@ async function waitFor(url) {
 }
 
 // Its turn in the line for memory comes first (memory.mjs): a start that would take every preview on this machine over
-// the cap waits here, holding no port yet, and says its place.
-const { waitedMs } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT) });
+// the cap waits here, holding no port yet, and says its place. It gives up after START_WAIT_LIMIT_MS, and background.mjs answers with what it says.
+const { waitedMs, noRoomText } = await waitForTurn({ kind: "start", offset: OFFSET, folder: realpathSync(ROOT), maxWaitMs: START_WAIT_LIMIT_MS });
+if (noRoomText) {
+  console.log(noRoomText);
+  process.exit(1);
+}
 // The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
 if (waitedMs) {
   const isFree = (port, address) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, address, function () { this.close(() => resolve(true)); }));
@@ -519,7 +524,8 @@ if (IDLE_MINUTES > 0)
   setInterval(() => {
     if (!isAwake()) return;
     noteVisits();
-    if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) void sleep();
+    if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) return void sleep();
+    isTurnToSleep({ offset: OFFSET, lastVisitAtMs }).then((isTurn) => isTurn && isAwake() && sleep({ isMakingRoom: true })).catch(() => {});
   }, 15_000);
 if (ENGINES_ONLY) {
   const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
@@ -591,13 +597,57 @@ runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, creat
      INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
+/** Each state the AI review leaves a version in: pending behind a live version, waiting to go live, rolled back, taken down, and past the budget. */
+function seedAiReviewStates() {
+  const nowMs = Date.now();
+  const report = (finding, decision) => JSON.stringify({ finished_at_ms: nowMs, decision, findings: finding ? [finding] : [], outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: null, is_child_safety: false }).replaceAll("'", "''");
+  const stop = { stage: "ai", severity: "reject", code: "ai_phishing_or_scam", message: "A page in the game asks players for their Steam password." };
+  const stopReason = JSON.stringify({ code: stop.code, message: stop.message, content_rule: "malware" }).replaceAll("'", "''");
+  const budgetNote = { stage: "ai", severity: "info", code: "ai_review_budget_used", message: "This month's AI reviews are used up, so this version went on with the fixed checks alone." };
+  const row = (id, slug, scanStatus, reportJson, reviewStatus, speed, isOpen, isPublished) =>
+    `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled, ai_review_status, ai_review_speed, ai_review_requested_at_ms, ai_review_queued_at_ms, is_open_before_ai_review, preview_link_key, published_at_ms)
+       SELECT '${id}', id, 'manifests/${id}', 3, 12000, '${scanStatus}', '${reportJson}', ${nowMs + 1000}, 'files', 'A new level.', 1, '${reviewStatus}', ${speed ? `'${speed}'` : "NULL"}, ${speed ? nowMs - 600_000 : "NULL"}, ${speed ? nowMs : "NULL"}, ${isOpen}, 'previewkey${id}', ${isPublished ? nowMs : "NULL"} FROM games WHERE slug = '${slug}';`;
+  const developer = (username) => `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
+  runSql(`INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewfirststeps01', 'first-steps', 'First Steps', 'A first game, waiting for its AI review.', 'pending', ${developer("New_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, visibility_after_ai_review, created_at_ms, updated_at_ms) VALUES ('game_previewhiddenpath01', 'hidden-path', 'Hidden Path', 'Set listed, and waiting for its AI review.', 'live', ${developer("New_Studio")}, 'private', 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewbrokenbridge', 'broken-bridge', 'Broken Bridge', 'Stopped by its AI review, with no earlier version.', 'pending', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewpastbudget01', 'past-budget', 'Past Budget', 'Went on with the fixed checks alone.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewgoesfirst0001', 'goes-first', 'Goes First', 'Live, with its AI review pending.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewrolledback01', 'rolled-back', 'Rolled Back', 'Its update was stopped, and players are back on the version before.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     ${row("version_previewfirststeps1", "first-steps", "approved", report(null, "approved"), "waiting", "at_once", 0, false)}
+     ${row("version_previewhiddenpath1", "hidden-path", "approved", report(null, "approved"), "waiting", "batch", 0, true)}
+     UPDATE games SET live_version_id = 'version_previewhiddenpath1' WHERE slug = 'hidden-path';
+     ${row("version_previewbrokenbridg", "broken-bridge", "rejected", report(stop, "rejected"), "stopped", "batch", 1, true)}
+     UPDATE games SET review_reason = '${stopReason}', live_version_id = NULL WHERE slug = 'broken-bridge';
+     ${row("version_previewpastbudget1", "past-budget", "approved", report(budgetNote, "approved"), "skipped", null, 0, true)}
+     UPDATE games SET live_version_id = 'version_previewpastbudget1' WHERE slug = 'past-budget';
+     ${row("version_previewgoesfirst01", "goes-first", "approved", report(null, "approved"), "waiting", "batch", 1, true)}
+     UPDATE games SET live_version_id = 'version_previewgoesfirst01' WHERE slug = 'goes-first';
+     ${row("version_previewgoesfirst02", "goes-first", "approved", report(null, "approved"), "not_started", null, 1, false)}
+     ${row("version_previewrolledbak01", "rolled-back", "approved", report(null, "approved"), "passed", "batch", 0, true)}
+     UPDATE games SET live_version_id = 'version_previewrolledbak01' WHERE slug = 'rolled-back';
+     ${row("version_previewrolledbak02", "rolled-back", "rejected", report(stop, "rejected"), "stopped", "batch", 1, true)}
+     DELETE FROM audit_log WHERE action = 'ai-review-rolled-back' AND game_id = 'game_previewrolledback01';
+     INSERT INTO audit_log (game_id, action, reason, actor, review_reason, happened_at_ms) SELECT id, 'ai-review-rolled-back', 'Stopped; players are back on the version before', 'system', '${stopReason}', ${nowMs} FROM games WHERE slug = 'rolled-back'`);
+}
+
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
+// A preview started with PREVIEW_SPENDING_STOP=1 has tiny spending amounts, so the real job puts Zaisma past the limit and
+// past what games with no real players share. Harbor Lights has none; the others have plenty, so only it pauses and they stop rooms.
+if (process.env.PREVIEW_SPENDING_STOP) {
+  runSql("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 100000 FROM games WHERE slug = 'harbor-lights' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec");
+  runSql("UPDATE game_hosting_months SET real_player_count = CASE WHEN game_id = (SELECT id FROM games WHERE slug = 'harbor-lights') THEN 0 ELSE 500 END WHERE month_start_date = date('now', 'start of month')");
+}
 seedFriendsNow();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
+// The AI review's states, again this run, for the links under AI review below.
+seedAiReviewStates();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
+// Search and updates, again this run: names to search, a quiet patch and a big update.
+seedSearchAndUpdates();
 // Country blocks, again this run: Night Drive in the United States, where the preview's own requests come from (its 451 page,
 // and the home leaves it out), and Four in a Row in the United Kingdom, which still plays here (its dashboard's alert).
 const countryBlock = (countryCode, words) =>
@@ -703,7 +753,16 @@ Zaisma preview is running. Nothing here touches the live site.
   Started in Chrome ${SITE}/dashboard/texture-tour/versions  (Texture Tour's real run in this preview's Chrome: its first frame, a missing file
                   and two files that could be smaller, under "2 notes"; each engine sample's under /dashboard/<sample>/versions;
                   versions past the account's 20 runs today say so). On ${SITE}/g/texture-tour its first files download before Play.
+  AI review       ${SITE}/dashboard/goes-first/versions  (as Preview_Studio: live with its review pending, and a build with the expected time, Go live only once it passes and Start AI review);
+                  ${SITE}/dashboard/rolled-back/versions  (stopped, players back on the version before);  ${SITE}/dashboard/broken-bridge/versions  (stopped with no earlier version);
+                  ${SITE}/dashboard/past-budget/versions  (past the budget: fixed checks alone);
+                  ${SITE}/dashboard/first-steps/versions and ${SITE}/dashboard/hidden-path  (as New_Studio: goes live once it passes, goes listed once it passes)
   Preview links   ${SITE}/dashboard/rocket-lab/versions  (Preview on the unpublished build: a fresh link for a day; Preview links to turn them off)
+  Best match      ${SITE}/games?search_text=ember  (the exact name first, then word starts, then inside a word); ?search_text=embr  (the closest title);
+                  ?search_text=racing  (a genre word: no exact place); ?search_text=a  (the game named A behind real games); ${SITE}/games  (the daily shuffle)
+  Big updates     ${SITE}/dashboard/rocket-lab/versions  (Publish with What changed and the Big update switch);
+                  ${SITE}/g/tiny-farm  (the Updated fact), ${SITE}/g/shard-dodge  (a quiet patch in Updates), ${SITE}/  (as Preview_Studio: Updated on Tiny Farm)
+  Title rules     ${SITE}/dashboard/search-word-list  (off lists for a title that lists what the game is); as New_Studio, the word Zaisma in its game's title is refused
   Your games      ${SITE}/dashboard
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
@@ -738,6 +797,9 @@ Zaisma preview is running. Nothing here touches the live site.
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
+  Second allowance ${SITE}/dashboard/tiny-farm/players#hosting  (filled its free hosting: a second allowance this month, once), ${SITE}/dashboard/settings#hosting  (its row)
+  No real players ${SITE}/dashboard/harbor-lights/players#hosting  (as New_Studio: paused until it has real players, or the 1st)
+  Spending stop   Started with PREVIEW_SPENDING_STOP=1: ${SITE}/dashboard/cave-crew/players#hosting  (a free game: New matches can't start), ${SITE}/dashboard/arena/players#hosting  (a budget and credit: untouched)
   Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit"),
                   ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
@@ -770,6 +832,9 @@ Zaisma preview is running. Nothing here touches the live site.
   Terms of service ${SITE}/legal/terms  (the whole page; ${SITE}/legal/dmca has Repeat infringers, and the footer's Terms links here)
   Pro's refund    ${SITE}/dashboard/settings#pro  (as Preview_Studio: Pro started 3 days ago, so Cancel Pro has two ways out: cancel at renewal, or end now and refund; as Key_Maker, Pro past its 14 days: Cancel Pro is one button. On #hosting the $25 top-up's row has its Refund and the 40-day $10 one's doesn't; /account's delete box names the $4.60 that won't come back)
   Add credit      ${SITE}/dashboard/settings#hosting  (as Quiet_Builder, no passkey or email: Add credit, then Pay on Stripe, says to add one first; as Key_Maker, with an email, it goes on to Stripe)
+  Storage         ${SITE}/dashboard/settings#hosting  (the Storage rows: as Quiet_Builder, new and nearly full, with what raises it; as Many_Things, over what it can store, with no budget and the day what's past it is deleted, which Your games says too; as Moss_Runner, buying room with a $10 budget, $1.23 spent this month; as Preview_Studio, Pro's 500 GB)
+  Pro's limits    ${SITE}/dashboard/settings#pro  (as Quiet_Builder: storage, new data and checks by plan, and the line that reviews and versions are the same)
+  Delete          ${SITE}/dashboard/tiny-farm/versions  (as Preview_Studio: Delete under a version that isn't in use), ${SITE}/dashboard/arena/details#delete  (Delete this game, with its link name typed in)
   Credit plan     ${SITE}/dashboard/settings#hosting  (as Key_Maker: the monthly plan's row, back to $40 on the 1st, which pays $12.40 so far, with Change level and Stop plan; as Moss_Runner: its card declined; as Preview_Studio: Start a monthly plan and its sheet)
   Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
                   Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
@@ -1566,6 +1631,11 @@ async function seedHolds(api, upload, go, form) {
       "UPDATE room_usage SET room_awake_duration_sec = 500000, room_connection_count = 2000, object_request_count = 10000, bookkeeping_written_row_count = 50000, game_server_session_count = 5000, game_server_startup_cpu_duration_ms = 500000, outside_call_count = 20000, log_file_count = 2000, object_awake_duration_sec = 200000, database_call_count = 500000, database_written_row_count = 200000, database_read_row_count = 10000000, database_awake_duration_sec = 300000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
       "UPDATE room_usage SET outside_room_cpu_duration_ms = 40000000 WHERE date = date('now', 'start of month') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
       ...[0, 1, 2].map((dayCount) => `INSERT OR IGNORE INTO loaded_versions (game_id, date, version_id) SELECT id, date('now', '-${dayCount} days'), live_version_id FROM games WHERE slug = 'arena' AND live_version_id IS NOT NULL`),
+      // These have had their second free allowance, so one allowance is what they have. Tiny Farm is in its month of it.
+      "UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug IN ('rocket-lab', 'four-in-a-row', 'cave-crew', 'star-haul', 'arena')",
+      "UPDATE games SET second_free_allowance_month_start_date = date('now', 'start of month') WHERE slug = 'tiny-farm'",
+      "INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 1875000 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec",
+      "INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, date('now', 'start of month'), 1200 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents",
       "UPDATE games SET monthly_budget_cents = 500 WHERE slug = 'arena'",
       "UPDATE games SET monthly_budget_cents = 200 WHERE slug = 'star-haul'",
       ...[
@@ -1780,7 +1850,7 @@ async function seedFriends(go, form) {
   await (await signedIn(hornet, "198.51.100.211"))(`/friends/add/${new URL(invited.headers.get("location"), SITE).searchParams.get("invite")}`, {});
   const hornetPlayerId = (await (await go("/friends")).text()).match(/Loud_Hornet[\s\S]*?\/friends\/(player_[a-z0-9]+)\/remove/)?.[1];
   if (hornetPlayerId) await go(`/friends/blocks/${hornetPlayerId}`, form({}));
-  seedFriendsNow();
+seedFriendsNow();
   // A 16-year-old who chose open and social while joining, not a friend.
   people.Bright_Reed = await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
   return people;
@@ -1886,6 +1956,29 @@ function seedPlayingNow() {
       `INSERT OR REPLACE INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player) SELECT 'play_ticket_preview${slug.replaceAll("-", "")}${i}', id, ${now}, ${now}, '${new Date(now).toISOString().slice(0, 10)}', 0, 0 FROM games WHERE slug = '${slug}'`);
   const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2), ...tickets("cave-crew", 12), ...tickets("four-in-a-row", 3)];
   runSql(sql.join("; "));
+}
+
+/**
+ * For Best match: a game named A with no players, two named Ember, names around it and a title that lists what the game is. For updates: Shard
+ * Dodge has a quiet patch in its Updates, and Tiny Farm a big update since Preview_Studio last played it. Games copied by SQL get their release
+ * date here, as a publish would give them.
+ */
+function seedSearchAndUpdates() {
+  const now = Date.now();
+  const games = [["search-a", "A", 0], ["search-aa", "Aa", 0], ["search-ember", "Ember", 40], ["search-ember-too", "Ember", 4], ["search-ember-court", "Ember Court", 30], ["search-embers", "Embers of the Deep", 20], ["search-remembered", "Remembered Shores", 50], ["search-word-list", "Neon Rush: Racing Drift Car Driving Simulator", 0]];
+  const wordListReason = JSON.stringify({ code: "search_words_in_title", message: "The title lists what the game is instead of naming it: \"Racing Drift Car Driving Simulator\".", content_rule: null, fix: "Send the game's name alone with update_game." }).replace(/'/g, "''");
+  runSql(
+    [
+      ...games.map(([slug, title]) => `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms) SELECT 'game_${slug.replaceAll("-", "")}', '${slug}', '${title.replace(/'/g, "''")}', '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms FROM games WHERE slug = 'night-drive'`),
+      ...games.flatMap(([slug, , playerCount]) => (playerCount ? [7922, 3320, 5089, 2856, 701].map((asn) => `INSERT OR REPLACE INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES ('game_${slug.replaceAll("-", "")}', date('now', '-1 days'), ${asn}, ${playerCount})`) : [])),
+      `UPDATE games SET title_listing_reason = '${wordListReason}' WHERE slug = 'search-word-list'`,
+      "UPDATE games SET first_published_at_ms = COALESCE(first_published_at_ms, created_at_ms) WHERE live_version_id IS NOT NULL",
+      `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, kind, patch_notes, publish_when_approved_enabled, published_at_ms, first_published_at_ms) SELECT 'version_previewquietpatch01', id, 'manifests/version_previewquietpatch01', 1, 1000, 'approved', ${now - 86_400_000}, 'files', 'Fixed the jump on ladders.', 0, ${now - 86_400_000}, ${now - 86_400_000} FROM games WHERE slug = 'shard-dodge'`,
+      `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, kind, patch_notes, publish_when_approved_enabled, published_at_ms, first_published_at_ms, is_big_update) SELECT 'version_previewbigupdate01', id, 'manifests/version_previewbigupdate01', 1, 1000, 'approved', ${now - 2 * 86_400_000}, 'files', 'Three new farms and a harvest festival.', 0, ${now - 2 * 86_400_000}, ${now - 2 * 86_400_000}, 1 FROM games WHERE slug = 'tiny-farm'`,
+      `UPDATE games SET big_update_at_ms = ${now - 2 * 86_400_000} WHERE slug = 'tiny-farm'`,
+      `INSERT OR REPLACE INTO played (account_id, game_id, played_at_ms) SELECT accounts.id, games.id, ${now - 3 * 86_400_000} FROM accounts, games WHERE accounts.username = 'Preview_Studio' AND games.slug = 'tiny-farm'`,
+    ].join("; "),
+  );
 }
 
 /** A browser of its own, from this address: answers a function that posts as it. */
@@ -2241,6 +2334,24 @@ function seedDeveloperSettings() {
           `UPDATE owners SET credit_plan_subscription_id = 'sub_preview_credit_plan_declined', credit_plan_refill_level_cents = 2500, credit_plan_status = 'payment_failing', credit_plan_started_at_ms = ${now - 40 * 86400_000}, credit_plan_event_at_ms = ${now - 86400_000} WHERE account_id = (SELECT id FROM accounts WHERE username = 'Moss_Runner')`,
           `UPDATE owners SET credit_plan_subscription_id = NULL, credit_plan_refill_level_cents = NULL, credit_plan_status = NULL, credit_plan_started_at_ms = NULL WHERE id = ${owner}`,
         ]),
+    // Storage: Quiet_Builder is new and nearly full, Many_Things is over what it can store, and Moss_Runner buys room with a budget.
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewquietbuilder', 'person', id, ${now} FROM accounts WHERE username = 'Quiet_Builder'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmanythings', 'person', id, ${now} FROM accounts WHERE username = 'Many_Things'`,
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_previewmossrunner', 'person', id, ${now} FROM accounts WHERE username = 'Moss_Runner'`,
+    ...[["Quiet_Builder", 9.6, 8.2, "NULL", 0], ["Many_Things", 12.4, 0.4, "NULL", 0], ["Moss_Runner", 40, 2.5, 1000, 2500]].flatMap(([username, storedGigabytes, todayGigabytes, budgetCents, balanceCents]) => {
+      const previewOwner = `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
+      // A real row for the size, so deleting something here recounts to the same number instead of to nothing.
+      const previewSha256 = Buffer.from(username).toString("hex").padEnd(64, "0");
+      return [
+        `INSERT OR REPLACE INTO blobs (sha256, size_bytes, created_at_ms) VALUES ('${previewSha256}', ${Math.round(storedGigabytes * 1024 ** 3)}, ${now})`,
+        `INSERT OR REPLACE INTO blob_owners (owner_id, sha256, created_at_ms) VALUES (${previewOwner}, '${previewSha256}', ${now})`,
+        `UPDATE owners SET stored_size_bytes = ${Math.round(storedGigabytes * 1024 ** 3)}, monthly_storage_budget_cents = ${budgetCents}${balanceCents ? `, credit_balance_cents = ${balanceCents}` : ""} WHERE id = ${previewOwner}`,
+        `INSERT INTO owner_new_data_days (owner_id, date, new_data_size_bytes) VALUES (${previewOwner}, '${new Date(now).toISOString().slice(0, 10)}', ${Math.round(todayGigabytes * 1024 ** 3)}) ON CONFLICT (owner_id, date) DO UPDATE SET new_data_size_bytes = excluded.new_data_size_bytes`,
+      ];
+    }),
+    `UPDATE owners SET storage_unpaid_since_ms = ${now - 3 * 86400_000} WHERE id = (SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Many_Things')`,
+    `INSERT INTO owner_storage_months (owner_id, month_start_date, used_cents, charged_cents, last_counted_date) VALUES ((SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Moss_Runner'), '${new Date(now).toISOString().slice(0, 8)}01', 123.4, 123, '${new Date(now).toISOString().slice(0, 10)}') ON CONFLICT (owner_id, month_start_date) DO UPDATE SET charged_cents = 123`,
+    `INSERT OR REPLACE INTO credit_entries (id, owner_id, entry_kind, amount_cents, created_at_ms) SELECT 'credit_entry_previewstorage', owners.id, 'storage_charge', -123, ${now - 3600_000} FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Moss_Runner'`,
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,

@@ -1,0 +1,10 @@
+{
+  "title": "Car Mechanic Simulator",
+  "description": "",
+  "pictures": [],
+  "is_honest": true,
+  "expected": {
+    "title": "fine"
+  },
+  "why": "Three plain words, and players say all of them as the game's name."
+}

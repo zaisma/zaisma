@@ -4,16 +4,19 @@
 //   everything under it) and each test run's (its vitest and everything under it) are measured by their physical footprint,
 //   what Activity Monitor shows: what's in memory and its compressed part. ps's resident memory leaves the compressed part out,
 //   and on a full Mac that's most of it.
-//   A start, a wake from sleep or a test run that would go over it waits in a line every checkout shares: line.json in
-//   LINE_DIRECTORY, changed only under one lock. The process that waits is the preview's own run.mjs, or the test run's vitest
-//   (vitest.config.ts asks for its turn before anything runs), so a place in line outlives the command that asked for it, and it
-//   starts by itself once a preview stops, sleeps or shrinks, or a test run ends. Wakes go first: someone is at a page. A test
-//   run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), and waits only when not even one does.
-//   One preview or test run may always run on its own, even over the cap. A run that waits costs the line nothing (its alive
-//   processes aren't counted), one that can never fit beside the awake previews doesn't hold the ones behind it, and a Workers test
-//   run that can never fit beside an awake preview isn't queued: it ends at once with workers_tests_while_preview_awake. Only one
-//   Workers test run goes at a time on the machine, whatever the cap (Julius, Oct 26, 2026: the Workers tests run on GitHub, and a
-//   build runs only its own new ones here); node runs behind a waiting one go first.
+//   A start or a wake from sleep that would go over it waits in a line every checkout shares: line.json in LINE_DIRECTORY, changed
+//   only under one lock. The process that waits is the preview's own run.mjs, so a place in line outlives the command that asked
+//   for it, and it starts by itself once a preview stops, sleeps or shrinks, or a test run ends. Wakes go first: someone is at a
+//   page. A wait ends by itself (Julius, Nov 2, 2026): while something waits, the awake preview nobody has looked at for longest
+//   sleeps once that's IDLE_WHILE_WAITED_FOR_MS (previewToSleep), and a start gives up after START_WAIT_LIMIT_MS and answers
+//   why (noRoomText), leaving the line. A wake has no limit: someone opened a page, and it opens once there's room.
+//   A test run never waits: GitHub's check runs its tests anyway (Julius, Nov 2, 2026). vitest.config.ts asks before anything runs,
+//   and a run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), or ends at once with
+//   no_room_for_tests when not even one does or a preview is ahead of it in line, which scripts/check.mjs reads to leave those files
+//   to GitHub. Only one Workers test run goes at a time on the machine, whatever the cap (Julius, Oct 26, 2026: the Workers tests run
+//   on GitHub, and a build runs only its own new ones here).
+//   One preview or test run may always run on its own, even over the cap. A start that waits costs the line nothing (its alive
+//   process isn't counted).
 //   PREVIEW_MEMORY_CAP_BYTES sets the cap for one shell, memory_cap_bytes in LINE_DIRECTORY/settings.json for the machine,
 //   and without either it's 3/8 of this machine's memory (3 GB on an 8 GB Mac). 0 is no cap. macOS only: elsewhere (GitHub's
 //   check, one preview a runner) there's no cap and no line.
@@ -47,6 +50,20 @@ const KEPT_DURATION_MS = 10 * 60_000;
 const LOCK_STALE_MS = 20_000;
 // A waiter says its place again when it changes, or this often.
 const PLACE_REPEAT_MS = 5 * 60_000;
+// An awake preview nobody has looked at for this long sleeps when something waits in line (30 minutes when nothing does, run.mjs's
+// IDLE_MINUTES). A start gives up a minute later, so a preview last looked at just as it asked still makes room in time (each
+// preview looks every 15 seconds, and stopping and measuring take seconds). PREVIEW_START_WAIT_MINUTES changes the limit for one shell.
+export const IDLE_WHILE_WAITED_FOR_MS = 10 * 60_000;
+export const START_WAIT_LIMIT_MS = Number(process.env.PREVIEW_START_WAIT_MINUTES ?? 11) * 60_000;
+// Something counts as waiting after this long in line: long enough for one that fits to have been measured and given its turn.
+const WAITING_BEFORE_SLEEP_MS = 20_000;
+// After one preview is told to sleep, the next is told only after this long, so one sleep that makes enough room stays the only one.
+const SLEEP_ROOM_DURATION_MS = 60_000;
+// An awake preview says when it was last looked at every 15 seconds: one that hasn't for this long is asleep or gone.
+const AWAKE_NOTE_STALE_MS = 45_000;
+// How a start that gave up in line says so, in its log (background.mjs answers with that line), and a test run that didn't fit.
+export const NO_ROOM_LINE_START = "No room for it";
+export const NO_ROOM_FOR_TESTS = "no_room_for_tests";
 
 /** The cap in bytes and where it came from: "environment", "settings_file", "default" or "not_macos" (0 is no cap). */
 export function memoryCap({ env = process.env, directory = LINE_DIRECTORY, platform = process.platform, totalMemoryBytes = totalmem() } = {}) {
@@ -139,7 +156,8 @@ export async function withLock(fn, { directory = LINE_DIRECTORY } = {}) {
 }
 
 /**
- * The line: { entries, measurement, awake_size_bytes }. Each entry is a preview's run.mjs asking for memory:
+ * The line: { entries, measurement, awake_size_bytes, awake_previews, room_asked_at_ms }. awake_previews is each awake preview's
+ * { offset, pid, last_visit_at_ms, noted_at_ms }, and room_asked_at_ms when one was last told to sleep to make room. Each entry is a preview's run.mjs asking for memory:
  * { pid, folder, offset, kind: "start" or "wake", asked_at_ms, turn_given_at_ms } (null until its turn comes), or a test run's
  * vitest: { pid, folder, offset: null, kind: "test", asked_at_ms, turn_given_at_ms, requested_worker_count, is_node_only,
  * worker_count } (the files at once its turn gave it, null until then). A test run's entry stays until its vitest ends.
@@ -147,9 +165,9 @@ export async function withLock(fn, { directory = LINE_DIRECTORY } = {}) {
 export function readLine({ directory = LINE_DIRECTORY } = {}) {
   try {
     const line = JSON.parse(readFileSync(join(directory, "line.json"), "utf8"));
-    return { entries: line.entries ?? [], measurement: line.measurement ?? null, awake_size_bytes: line.awake_size_bytes ?? null };
+    return { entries: line.entries ?? [], measurement: line.measurement ?? null, awake_size_bytes: line.awake_size_bytes ?? null, awake_previews: line.awake_previews ?? [], room_asked_at_ms: line.room_asked_at_ms ?? null };
   } catch {
-    return { entries: [], measurement: null, awake_size_bytes: null };
+    return { entries: [], measurement: null, awake_size_bytes: null, awake_previews: [], room_asked_at_ms: null };
   }
 }
 
@@ -231,29 +249,24 @@ export function nextTurn({ entries, previews, testRuns = [], capBytes, awakeSize
 }
 
 /**
- * Waits for this process's turn in the line, as a preview's run.mjs before it starts ("start") or wakes ("wake"), or as a test
- * run's vitest before its files run ("test", asking for requestedWorkerCount files at once), and says its place and why through
- * say(). Resolves once its turn has come, with how long it waited and, for a test run, how many files it may run at once; at once
- * without a cap.
+ * Waits for this process's turn in the line, as a preview's run.mjs before it starts ("start") or wakes ("wake"), and says its place
+ * and why through say(). Resolves once its turn has come, with how long it waited; at once without a cap. With maxWaitMs it stops
+ * waiting after that long and leaves the line, resolving with noRoomText, what it says about it. A test run's vitest ("test", asking
+ * for requestedWorkerCount files at once) never waits: it resolves with how many files it may run at once, or throws no_room_for_tests.
  */
-export async function waitForTurn({ kind, offset = null, folder, requestedWorkerCount = 1, isNodeOnly = false, say = console.log, directory = LINE_DIRECTORY }) {
-  let { capBytes } = memoryCap({ directory });
+export async function waitForTurn({ kind, offset = null, folder, requestedWorkerCount = 1, isNodeOnly = false, maxWaitMs = null, say = console.log, directory = LINE_DIRECTORY, platform = process.platform, measure = measurePreviews }) {
+  let { capBytes } = memoryCap({ directory, platform });
   if (!capBytes) return { waitedMs: 0, workerCount: requestedWorkerCount };
   const askedAtMs = Date.now();
   const what = { start: ["starting", "starts"], wake: ["waking up", "wakes"], test: ["running its tests", "runs its tests"] }[kind];
   let shown = "";
   let shownAtMs = 0;
   for (;;) {
-    // Read again at each look, so a cap raised in the settings file while previews and tests wait lets them in.
+    // Read again at each look, so a cap raised in the settings file while previews wait lets them in.
     try {
-      capBytes = memoryCap({ directory }).capBytes;
+      capBytes = memoryCap({ directory, platform }).capBytes;
     } catch {}
-    const status = await withLock(() => lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory }), { directory });
-    // A Workers run that can never fit beside the awake previews is answered at once, not queued.
-    if (!status.isTurn && kind === "test" && !isNodeOnly && status.awakePreviewBytes > 0 && status.awakePreviewBytes + testRunSizeBytes(1, false) > capBytes) {
-      await leaveLine((entry) => entry.pid === process.pid, { directory });
-      throw new Error(`workers_tests_while_preview_awake: a preview is awake (${sizeText(status.awakePreviewBytes)}) and a Workers test run needs at least ${sizeText(testRunSizeBytes(1, false))}, which never fits under the ${sizeText(capBytes)} memory cap. While a preview is awake, the Workers tests go to GitHub: push, open the pull request as a draft, and let its check run them (the slice-tests skill). Node tests still run here: name only test/node files, or --project=node. npm run preview:list shows the previews.`);
-    }
+    const status = await withLock(() => lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory, measure }), { directory });
     if (status.isTurn) {
       const waitedMs = Date.now() - askedAtMs;
       const filesText = kind === "test" ? `, ${status.workerCount === 1 ? "one file at a time" : `${status.workerCount} files at once`}` : "";
@@ -262,7 +275,13 @@ export async function waitForTurn({ kind, offset = null, folder, requestedWorker
       else if (kind === "test" && status.workerCount < requestedWorkerCount) say(`Memory for ${status.workerCount === 1 ? "one test file at a time" : `${status.workerCount} test files at once`} of the ${requestedWorkerCount} asked for: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap (npm run test:list).`);
       return { waitedMs, workerCount: status.workerCount ?? requestedWorkerCount };
     }
-    const text = `Waiting in line for memory, ${status.place === 1 ? "next up" : `${placeText(status.place)} of ${status.waitingCount}`}: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap, and this ${kind === "test" ? "run" : "one"} needs about ${sizeText(status.neededBytes)} more. It ${what[1]} by itself when a preview stops, sleeps or shrinks, or a test run ends (npm run test:list shows the line).`;
+    if (kind === "test") throw new Error(`${NO_ROOM_FOR_TESTS}: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} memory cap, and a ${isNodeOnly ? "node" : "Workers"} test run needs at least ${sizeText(status.neededBytes)}, or a preview is waiting in line ahead of it${isNodeOnly ? "" : ", or another Workers test run is going (one at a time)"}. Test runs never wait for memory, because GitHub's check runs them: push, open the pull request as a draft, and read npm run check -- --pr <number>.${isNodeOnly ? "" : " Node tests may still fit here: name only test/node files, or --project=node."} npm run preview:list shows what holds the memory.`);
+    if (maxWaitMs !== null && Date.now() - askedAtMs >= maxWaitMs) {
+      const noRoomText = noRoomTextFor({ status, capBytes, waitedMs: Date.now() - askedAtMs, offset, directory, measure });
+      await leaveLine((entry) => entry.pid === process.pid, { directory });
+      return { waitedMs: Date.now() - askedAtMs, noRoomText };
+    }
+    const text = `Waiting in line for memory, ${status.place === 1 ? "next up" : `${placeText(status.place)} of ${status.waitingCount}`}: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} cap, and this one needs about ${sizeText(status.neededBytes)} more. It ${what[1]} by itself when a preview stops, sleeps or shrinks, or a test run ends${maxWaitMs === null ? "" : `, or gives up after ${durationText(maxWaitMs)}`} (npm run preview:list shows the line).`;
     if (text.replace(/[\d.]+ [GM]B/g, "") !== shown.replace(/[\d.]+ [GM]B/g, "") || Date.now() - shownAtMs > PLACE_REPEAT_MS) {
       say(text);
       shown = text;
@@ -272,8 +291,54 @@ export async function waitForTurn({ kind, offset = null, folder, requestedWorker
   }
 }
 
+/** What a start that gave up says: that there was no room, what holds the memory and the command to try again. */
+function noRoomTextFor({ status, capBytes, waitedMs, offset, directory, measure }) {
+  const { previews, testRuns } = measure(readLine({ directory }).entries);
+  return `${NO_ROOM_LINE_START} after ${durationText(waitedMs)} in line: previews and test runs take ${sizeText(status.usedBytes + status.keptBytes)} of the ${sizeText(capBytes)} memory cap, and this one needs about ${sizeText(status.neededBytes)} more. Holding the memory: ${memoryHoldersText({ previews, testRuns, ownOffset: offset })}. It left the line and nothing of it is running. Try again: npm run preview:start`;
+}
+
+/** What holds the memory, biggest first, from measurePreviews's answer: awake previews and running test runs, each with its folder and size. */
+export function memoryHoldersText({ previews, testRuns, ownOffset = null }) {
+  const holders = [
+    ...previews.filter((preview) => preview.isAwake && preview.offset !== ownOffset).map((preview) => ({ text: `the preview in ${preview.folder ?? "an unknown folder"}`, sizeBytes: preview.sizeBytes })),
+    ...testRuns.filter((run) => run.isRunning).map((run) => ({ text: `the test run in ${run.folder}`, sizeBytes: run.sizeBytes })),
+  ].sort((a, b) => b.sizeBytes - a.sizeBytes);
+  return holders.length ? holders.map((holder) => `${holder.text} (${sizeText(holder.sizeBytes)})`).join(", ") : "nothing right now, so another try may fit";
+}
+
+/**
+ * Which awake preview sleeps to make room for what waits in line, by its offset, or null: the one nobody has looked at for longest,
+ * once that's IDLE_WHILE_WAITED_FOR_MS. Only starts and wakes count as waiting, once they've been in line long enough to have had
+ * their turn if they fit. One at a time, so a sleep that makes enough room stays the only one. entries: the line's, alive;
+ * awakePreviews: [{ offset, last_visit_at_ms, noted_at_ms }]. A preview's own jobs and a session's checks count as they do for its
+ * 30 minutes: run.mjs's lastVisitAtMs is the same clock.
+ */
+export function previewToSleep({ entries, awakePreviews, roomAskedAtMs = null, nowMs = Date.now() }) {
+  const isSomethingWaiting = entries.some((entry) => entry.kind !== "test" && entry.turn_given_at_ms === null && nowMs - entry.asked_at_ms >= WAITING_BEFORE_SLEEP_MS);
+  if (!isSomethingWaiting || (roomAskedAtMs !== null && nowMs - roomAskedAtMs < SLEEP_ROOM_DURATION_MS)) return null;
+  const unwatched = awakePreviews.filter((preview) => nowMs - preview.noted_at_ms < AWAKE_NOTE_STALE_MS && nowMs - preview.last_visit_at_ms >= IDLE_WHILE_WAITED_FOR_MS);
+  return unwatched.sort((a, b) => a.last_visit_at_ms - b.last_visit_at_ms)[0]?.offset ?? null;
+}
+
+/**
+ * An awake preview's look at the line every 15 seconds: notes when it was last looked at, for the others, and answers whether it's
+ * the one to sleep now to make room (previewToSleep).
+ */
+export async function isTurnToSleep({ offset, lastVisitAtMs, directory = LINE_DIRECTORY, platform = process.platform }) {
+  if (!memoryCap({ directory, platform }).capBytes) return false;
+  return withLock(() => {
+    const line = readLine({ directory });
+    const nowMs = Date.now();
+    const others = line.awake_previews.filter((preview) => preview.offset !== offset && isAlive(preview.pid));
+    const awakePreviews = [...others, { offset, pid: process.pid, last_visit_at_ms: lastVisitAtMs, noted_at_ms: nowMs }];
+    const isTurn = previewToSleep({ entries: line.entries.filter((entry) => isAlive(entry.pid)), awakePreviews, roomAskedAtMs: line.room_asked_at_ms, nowMs }) === offset;
+    writeLine({ ...line, awake_previews: isTurn ? others : awakePreviews, room_asked_at_ms: isTurn ? nowMs : line.room_asked_at_ms }, { directory });
+    return isTurn;
+  }, { directory });
+}
+
 /** One look at the line under its lock: makes sure this process is in it, drops the dead, gives the next turn when it's time. */
-function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory }) {
+function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, capBytes, directory, measure }) {
   const line = readLine({ directory });
   const nowMs = Date.now();
   line.entries = line.entries.filter((entry) => isAlive(entry.pid) && (entry.turn_given_at_ms === null || isComing(entry, nowMs)));
@@ -283,15 +348,21 @@ function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, ca
     mine = { pid: process.pid, folder, offset, kind, asked_at_ms: nowMs, turn_given_at_ms: null, ...asked };
     line.entries.push(mine);
   } else if (mine.kind !== kind || mine.offset !== offset) Object.assign(mine, { kind, offset, asked_at_ms: nowMs, turn_given_at_ms: null, ...asked });
-  if (mine.turn_given_at_ms === null && (!line.measurement || nowMs - line.measurement.measured_at_ms >= MEASURE_INTERVAL_MS)) {
-    const { previews, testRuns, processes } = measurePreviews(line.entries);
+  // A test run has only this look, so it's always measured.
+  if (mine.turn_given_at_ms === null && (kind === "test" || !line.measurement || nowMs - line.measurement.measured_at_ms >= MEASURE_INTERVAL_MS)) {
+    const { previews, testRuns, processes } = measure(line.entries);
     // The dead were dropped above; this drops an entry whose process number now belongs to something else.
     line.entries = line.entries.filter((entry) => processes.get(entry.pid)?.command.includes(entry.kind === "test" ? "vitest" : "scripts/preview/run.mjs"));
     if (!line.entries.includes(mine)) line.entries.push(mine);
     line.awake_size_bytes = awakeSize(previews, line.entries) ?? line.awake_size_bytes;
     const awakeSizeBytes = line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES;
-    const turn = nextTurn({ entries: line.entries, previews, testRuns, capBytes, awakeSizeBytes, nowMs });
-    if (turn.turnPid !== null) Object.assign(line.entries.find((entry) => entry.pid === turn.turnPid), { turn_given_at_ms: nowMs }, turn.turnWorkerCount === null ? {} : { worker_count: turn.turnWorkerCount });
+    let turn = nextTurn({ entries: line.entries, previews, testRuns, capBytes, awakeSizeBytes, nowMs });
+    for (;;) {
+      if (turn.turnPid !== null) Object.assign(line.entries.find((entry) => entry.pid === turn.turnPid), { turn_given_at_ms: nowMs }, turn.turnWorkerCount === null ? {} : { worker_count: turn.turnWorkerCount });
+      // A preview ahead of a test run just got its turn: what's left is the test run's answer.
+      if (kind !== "test" || turn.turnPid === null || turn.turnPid === process.pid) break;
+      turn = nextTurn({ entries: line.entries, previews, testRuns, capBytes, awakeSizeBytes, nowMs });
+    }
     line.measurement = {
       measured_at_ms: nowMs,
       cap_bytes: capBytes,
@@ -303,6 +374,8 @@ function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, ca
       test_runs: testRuns.map(({ pid, sizeBytes }) => ({ pid, size_bytes: sizeBytes })),
     };
   }
+  // A test run with no room never stays in line.
+  if (kind === "test" && mine.turn_given_at_ms === null) line.entries = line.entries.filter((entry) => entry !== mine);
   writeLine(line, { directory });
   const waiting = waitingInOrder(line.entries);
   // Cleared by a stop since its turn came (it isn't measured again once its turn has come).
@@ -317,13 +390,12 @@ function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, ca
     keptBytes: measurement.kept_bytes,
     neededBytes: Math.max(0, (kind === "test" ? testRunSizeBytes(1, isNodeOnly) : (line.awake_size_bytes ?? DEFAULT_AWAKE_SIZE_BYTES)) - ownSizeBytes),
     isAlone: measurement.is_alone,
-    awakePreviewBytes: measurement.previews.filter((preview) => preview.is_awake).reduce((sum, preview) => sum + preview.size_bytes, 0),
   };
 }
 
 /**
- * A test run's turn (vitest.config.ts, before anything runs): it waits in line with the previews, then answers how many files it
- * may run at once. requestedWorkerCount is what it asks for; isNodeOnly, that it runs only node files, which take less.
+ * A test run's turn (vitest.config.ts, before anything runs): answers how many files it may run at once, or throws no_room_for_tests
+ * and never waits. requestedWorkerCount is what it asks for; isNodeOnly, that it runs only node files, which take less.
  */
 export function waitForTestTurn({ requestedWorkerCount, isNodeOnly = false, folder = process.cwd(), directory = LINE_DIRECTORY }) {
   return waitForTurn({ kind: "test", folder, requestedWorkerCount, isNodeOnly, directory });

@@ -134,6 +134,7 @@ export const GAME = object({
   title: text(),
   description: text(),
   visibility: VISIBILITY,
+  visibility_after_ai_review: nullable(choice({ listed: "listed", unlisted: "unlisted" }, "The visibility the game takes once its live version's AI review passes; null when it's waiting for none.")),
   review_status: REVIEW_STATUS,
   review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
   country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open the game, on a notice from a court, regulator or police there under a law US law doesn't share; everyone else still can. [] for none."),
@@ -163,6 +164,9 @@ export const GAME = object({
   refund_policy_text: nullable(text("The refund policy in the developer's own words, with refund_policy own_words; null otherwise.")),
   full_game_item_name: nullable(text("The permanent content item a player must own to play; null: free to play.")),
   demo_game_slug: nullable(text("Another of the developer's games, free to play, that the page links as Play the demo; null: none.")),
+  first_published_at: nullable(isoTime("When the game first went live; it never moves. null until then.")),
+  big_update_at: nullable(isoTime("The last marked big update (is_big_update on a publish): the Updated tag and the game page's Updated fact. null for none.")),
+  recently_updated_at: nullable(isoTime("Where Browse's Recently updated places the game: its first release, moved by a marked big update at most once every 30 days. null until it's live.")),
   updated_at: isoTime(),
 });
 
@@ -175,7 +179,9 @@ export const GAME_ALERT = object({
     version_held: "a version is waiting for a person at Zaisma",
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
     game_off_lists: "the listing check found something on a cover or the title that keeps the listed game off Zaisma's lists (home, All games, browse, search engines) until it's fixed; it still plays by its link",
-    hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget, or your credit is used): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget or your credit is used, it has no real players and games with none used their share of free hosting, or Zaisma's free hosting for the month ended): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    free_rooms_stopped: "Zaisma's free room time for the month is used up across all games, and this game has no budget with credit: no new rooms or relayed connections start until the month resets, and running matches get an hour to finish. Its database and game server requests go on",
+    second_free_allowance_started: "the game filled its free hosting for the first time, so it has a second free allowance this month, once",
     database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
     hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
     hosting_budget_nearly_used: "80% of the game's monthly budget is used",
@@ -229,7 +235,7 @@ export const PERFORMANCE_CHECK = object(
       waiting: "the version passed and waits for Chrome, usually under a minute",
       checking: "running in Chrome now",
       checked: "done; see the numbers and notes",
-      over_daily_limit: `not measured: the developer's ${PLAN_LIMITS.free.maximumDailyCheckCount} checks today (${PLAN_LIMITS.pro.maximumDailyCheckCount} with Zaisma Pro) are used; versions are measured again from midnight UTC`,
+      over_daily_limit: `not measured: the developer's daily checks are used (${PLAN_LIMITS.free.maximumDailyCheckCount}, or ${PLAN_LIMITS.pro.maximumDailyCheckCount} with Zaisma Pro); versions are measured again from midnight UTC`,
       could_not_run: "Chrome couldn't run it on Zaisma's side; nothing for the developer to fix",
     }),
     checked_at: nullable(isoTime("When the run finished; null until it has.")),
@@ -249,17 +255,40 @@ const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", 
 /** When running matches get a version as it goes live (match_update_mode). */
 export const MATCH_UPDATE_MODE = choice({ next_match: "running matches finish on the version they started; new ones get it (the default)", now: "every live match switches to it within seconds, in the same room; the game server may hold it until a good moment, up to 5 minutes" });
 
+const AI_REVIEW_STATUS = choice(
+  {
+    not_started: "nobody asked: only its developer can reach it",
+    waiting: "asked for, and not sent yet: a free daily review (ai_review_waiting_reason), or the next run",
+    reviewing: "with the readers or the judge",
+    passed: "it passed, or a person passed it",
+    stopped: "held or rejected: scan_status says which, and findings say why",
+    skipped: "past the review's monthly budget, it went on with the fixed checks alone",
+  },
+  "Where it stands with the AI review, which follows the fixed checks for what other people can reach.",
+);
+
 export const VERSION = object({
   id: idOf("version"),
   file_count: countOf(),
   size_bytes: countOf(),
   scan_status: SCAN_STATUS,
+  ai_review_status: AI_REVIEW_STATUS,
+  ai_review_speed: nullable(choice({ at_once: "full price, about a minute: a game's first review by a developer still earning it, or a game with many players", batch: "half price, usually under an hour" }, "How its review runs; null until one is asked for.")),
+  ai_review_requested_at: nullable(isoTime("When its review was asked for.")),
+  ai_review_finished_at: nullable(isoTime("When its review ended.")),
+  ai_review_waiting_reason: nullable(choice({ daily_large_reviews_used: "today's large reviews are used", daily_small_reviews_used: "today's small reviews are used" }, "The daily review it waits for a free one of; null when it doesn't.")),
+  usual_ai_review_duration_min: nullable(countOf("How long a review like this one usually takes, from recent real ones, not a promise: a batch can take much longer. null once its review has ended.")),
+  is_ai_review_needed_to_publish: yes("Publishing it now starts an AI review, since other people can reach the game. false for a game only its developer can reach, and once its review has ended."),
+  is_open_before_ai_review: yes("Other people may reach it before its review ends: its developer has earned that (get_access standing.publish_before_ai_review_enabled)."),
+  publish_after_ai_review_enabled: yes("Its developer chose to go live only once the review passes."),
   has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   preview_url: nullable(url("A private link to play this version, for the developer and their AI, once it's approved. A fresh one comes every time; each works for a day.")),
   preview_url_expires_at: nullable(isoTime("When this preview_url stops working: at least a day from now.")),
   published_at: nullable(isoTime("When it last went live.")),
+  first_published_at: nullable(isoTime("When it first went live; a rollback doesn't move it. The game page's Updates tab shows its notes under this date.")),
+  is_big_update: yes("The developer marked it a big update. It counts as news only when it goes live for the first time, on a game already released."),
   scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
   match_update_mode: MATCH_UPDATE_MODE,
   created_at: isoTime(),
@@ -460,6 +489,7 @@ export const STANDING = object(
   {
     is_established_developer: yes("Whether the account is established: 14 days old, 20 different returning players on its games, and nothing ruled against it in 30 days. Zaisma's own accounts are established from the start."),
     outside_links_enabled: yes("Whether the games' links to sites outside the trusted list open (for signed-in adults): once established, or at once with a card that paid Zaisma or a Stripe account that can take payments. Until then those links answer who_can_open waiting_for_standing."),
+    publish_before_ai_review_enabled: yes("Whether your versions go live before their AI review ends, with the review pending: the same facts as links to other sites. Until then what other people can reach waits for the review."),
     search_engines_enabled: yes("Whether search engines find the games (the sitemap, and no noindex on their pages): only once established. Zaisma's own lists show listed games from the first day either way."),
     returning_player_count: countOf("Different players who came back to your games on 2 days or more, each with an account at least 7 days old that played on 3 days, as the daily count last counted them. Your own account never counts."),
     minimum_returning_player_count: countOf("Returning players needed to be established: 20."),
@@ -589,7 +619,9 @@ export const PLAYER_PERFORMANCE = object(
 /** A game's month on the one hosting meter (docs/DEVELOPER-API.md, Hosting and credit). */
 export const HOSTING_USE = object(
   {
-    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100. Never shown in dollars."),
+    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100, a second free allowance included. Never shown in dollars."),
+    second_free_allowance_month_start_date: nullable(date("The month the game had its second free allowance, the first time it filled its free hosting. It comes once. null: not yet.")),
+    free_rooms_stopped_at: nullable(isoTime("When Zaisma's free room time for the month ran out across all games, for a game with no budget with credit: no new rooms or relayed connections start until resets_on_date, and running matches end an hour after. Its database and requests go on. null: rooms run as usual.")),
     shares: list(
       object({
         kind: choice({
@@ -605,7 +637,7 @@ export const HOSTING_USE = object(
       "What used it, biggest first; [] before any use.",
     ),
     is_paused: yes("Whether the game's hosting is paused: no new rooms, relayed connections or requests start, and running matches get an hour to finish."),
-    paused_reason: nullable(choice({ free_used: "its free hosting is used and it has no budget", budget_used: "its monthly budget is used", credit_used: "your credit ran out" }, "null when it isn't paused.")),
+    paused_reason: nullable(choice({ free_used: "its free hosting is used and it has no budget", budget_used: "its monthly budget is used", credit_used: "your credit ran out", no_real_players: "it has no real players yet, and games with none have used their share of free hosting this month: it starts again once real players play it, or when the month resets", free_hosting_ended: "Zaisma's free hosting for this month is used up across all games" }, "null when it isn't paused.")),
     paused_at: nullable(isoTime("When it paused; running matches end an hour after. null when it isn't paused.")),
     resets_on_date: date("When the month resets (UTC): the free allowance starts again and a pause ends."),
     monthly_budget_cents: nullable(countOf("What it may draw from credit this month; null: no paid hosting.")),
@@ -644,7 +676,7 @@ const CREDIT_PLAN = object(
   },
   "The monthly credit plan (start_credit_plan); null with none.",
 );
-const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
+const CREDIT_ENTRY_KIND = choice({ top_up: "credit bought", hosting_charge: "a game's hosting past its free allowance, one entry per game per day", storage_charge: "the account's storage past what's included, one entry per day, with no game", refund: "credit refunded to its card", written_off: "what a game used past its budget, your credit, or its free hosting while it had no budget, which Zaisma took on: never charged" });
 /** A developer's hosting credit (get_credit). */
 export const CREDIT = object({
   credit: object({
@@ -668,16 +700,16 @@ export const CREDIT = object({
     ),
   }),
 });
-const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's monthly budget; null: no paid hosting.")) }, "game_budget's");
+const BUDGET_CHANGE = object({ monthly_budget_cents: nullable(countOf("A game's or the account's storage's monthly budget; null: none.")) }, "game_budget's and storage_budget's");
 const PLAN_LEVEL_CHANGE = object({ refill_level_cents: nullable(countOf("The monthly credit plan's level; null: no plan.")) }, "credit_plan_refill_level's");
 /** A raise in spending the developer approves or declines on zaisma.com (get_spending_request). */
 export const SPENDING_REQUEST = object({
   spending_request: object({
     id: idOf("spending_request"),
-    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level" }),
+    request_kind: choice({ game_budget: "a game's monthly budget", credit_plan_refill_level: "the monthly credit plan's level", storage_budget: "the account's monthly storage budget" }),
     game_slug: nullable(text("The game; null once it's deleted, and for the credit plan's level.")),
     game_title: nullable(text()),
-    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a game's budget, refill_level_cents for the credit plan's level." },
+    requested_change: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The change asked for: monthly_budget_cents for a budget, refill_level_cents for the credit plan's level." },
     current_setting: { anyOf: [BUDGET_CHANGE, PLAN_LEVEL_CHANGE], description: "The same field as it is now." },
     request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: the change is made", declined: "the developer declined", expired: "a day passed without an answer" }),
     created_at: isoTime(),
@@ -685,14 +717,12 @@ export const SPENDING_REQUEST = object({
     answered_at: nullable(isoTime()),
   }),
 });
-const PLAN_CHOICES = choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits, $10 a month" }, "The developer's plan.");
-/** One plan's daily limits, in the same words for both (get_pro). */
+const PLAN_CHOICES = choice({ free: "storage and performance checks by the account's standing", pro: "Zaisma Pro: more storage and performance checks, $10 a month" }, "The developer's plan.");
+/** What one plan gives, in the same words for both (get_pro). */
 const PLAN_LIMITS_SCHEMA = object({
-  maximum_large_review_count: countOf("Large reviews a day across all their games: a new game or a real change, read and judged."),
-  maximum_small_review_count: countOf("Small reviews a day across all their games: versions the AI reads."),
   maximum_performance_check_count: countOf("Performance checks a day, from UTC midnight; past them a version just isn't measured."),
-  maximum_version_count: countOf("Versions a game can get in a day."),
-  maximum_game_size_bytes: countOf("The biggest a game's files can be together, in bytes."),
+  included_size_bytes: countOf("What the account stores with no storage budget, in bytes: everything counts, drafts and old versions too, and a file shared between versions counts once."),
+  maximum_new_data_size_bytes: countOf("New data the account can send in a day, from UTC midnight, in bytes."),
 });
 /** A developer's plan (get_pro). */
 export const PRO = object({
@@ -702,7 +732,12 @@ export const PRO = object({
     is_pro_cancelled: yes("Whether Pro ends at pro_ends_at instead of renewing (cancel_pro did it; resume_pro takes it back)."),
     refund_ends_at: nullable(isoTime("Until when refund_pro refunds the first payment: 14 days after it, while it's the only one. null after that, on the free plan, or when Stripe didn't answer within 3 seconds.")),
     monthly_price_cents: countOf("What Zaisma Pro costs a month on the developer's card, in cents (1000 is $10). Apart from hosting credit."),
-    limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }),
+    limits: object({ free: PLAN_LIMITS_SCHEMA, pro: PLAN_LIMITS_SCHEMA }, "free: what this account has without Pro, by its standing. pro: what Pro gives."),
+    limits_for_everyone: object({
+      maximum_large_review_count: countOf("Large reviews a day across all their games: a new game or a real change, read and judged. The same on every plan."),
+      maximum_small_review_count: countOf("Small reviews a day across all their games: versions the AI reads. The same on every plan."),
+      maximum_version_count: countOf("Versions a game can get in a day. The same on every plan."),
+    }),
     used_today: object({
       large_review_count: countOf("Large reviews used in the last 24 hours."),
       small_review_count: countOf("Small reviews used in the last 24 hours."),
@@ -710,6 +745,26 @@ export const PRO = object({
     }),
   }),
 });
+/** What an account stores (get_storage). */
+const STORAGE_FIELDS = object({
+  stored_size_bytes: countOf("Everything the account stores now, in bytes: drafts and old versions too, and a file shared between versions counts once."),
+  included_size_bytes: countOf("What it stores with no storage budget, in bytes, by allowance_kind."),
+  maximum_stored_size_bytes: countOf("What it can hold now, in bytes: what's included, and what its budget and credit buy. Over it, new uploads must fit, and unpaid_files_delete_at says when what isn't live goes."),
+  allowance_kind: choice({ new: "a new account", established: "an established account (get_access, standing)", paid_by_card: "a card paid Zaisma", pro: "Zaisma Pro" }, "What sets what's included."),
+  new_data_today_size_bytes: countOf("New data it sent today, from UTC midnight, in bytes, whether or not it became a version."),
+  maximum_new_data_size_bytes: countOf("New data it can send in a day, in bytes. Files it already stores don't count."),
+  monthly_storage_budget_cents: nullable(countOf("What it may draw from credit each month for storage past what's included, in cents (1000 is $10); null: none, so uploads stop at what's included.")),
+  unpaid_files_delete_at: nullable(isoTime("When what's past the limit is deleted because nothing pays for it: files no version uses, then drafts, then the oldest versions, until it fits. Live versions stay. Setting a budget with credit, starting Pro or deleting enough stops it. null when nothing is due.")),
+  spent_this_month_cents: countOf("What storage drew from credit this month, in cents."),
+  price_per_gigabyte_month_cents: countOf("What a GB past what's included costs from credit each month, in cents."),
+  deletable_versions: describe(
+    list(object({ game_slug: text(), version_id: idOf("version"), size_bytes: countOf("The version's whole size. Deleting it frees only the files no other version has."), created_at: isoTime() })),
+    "The biggest 20 versions delete_version can delete now: not live, set to publish, picked by a tester link, being scanned or kept for a person at Zaisma. A key limited to some games sees only those.",
+  ),
+});
+export const STORAGE = object({ storage: STORAGE_FIELDS });
+export const STORAGE_CHANGED = object({ storage: STORAGE_FIELDS, next_steps: NEXT });
+export const DELETED_WITH_STORAGE = object({ is_deleted: yes("Always true."), storage: STORAGE_FIELDS, next_steps: NEXT });
 /** The plan after cancel_pro or resume_pro. */
 export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
 /** A refund of Zaisma Pro's first payment (refund_pro). */
@@ -1293,6 +1348,7 @@ export const WEBHOOK_EVENT = object({
       bug_reported: "report triage sorted a player's report as a bug (bug_report)",
       player_reported: "Zaisma passed you a report about one of your game's players: bullying, cheating or other behavior that's the game's call (player_report)",
       scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
+      ai_review_finished: "a version's AI review ended: version.ai_review_status says how, and a stop also changes scan_status and sends players back (version)",
       live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
       review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
       country_blocks_changed: "Zaisma blocked the game for players in one country on a notice under that country's law, or lifted it (game.country_blocks)",
@@ -1625,6 +1681,7 @@ const ADMIN_GAME = object({
 const ADMIN_VERSION = object({
   id: idOf("version"),
   scan_status: SCAN_STATUS,
+  ai_review_status: AI_REVIEW_STATUS,
   has_threads: yes("Whether the build needs threads (SharedArrayBuffer): it runs only in Chrome and Edge, and the game page tells other browsers' players."),
   is_live: yes("This is the version players get."),
   patch_notes: text(),

@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { APPEAL_EMAIL } from "./bans.ts";
 import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
@@ -37,6 +37,7 @@ interface GameJson {
   visibility: "draft" | "listed" | "unlisted" | "private";
   review_status: "pending" | "live" | "held" | "removed";
   review_reason: ReviewReasonJson | null;
+  visibility_after_ai_review: "listed" | "unlisted" | null;
   devices: string[];
   controls: string[];
   genres: string[];
@@ -127,15 +128,21 @@ interface VersionJson {
   file_count: number;
   size_bytes: number;
   scan_status: "scanning" | "held" | "approved" | "rejected";
+  ai_review_status: "not_started" | "waiting" | "reviewing" | "passed" | "stopped" | "skipped";
+  ai_review_waiting_reason: string | null;
+  usual_ai_review_duration_min: number | null;
+  is_ai_review_needed_to_publish: boolean;
+  is_open_before_ai_review: boolean;
   is_live: boolean;
   patch_notes: string;
+  is_big_update: boolean;
   preview_url: string | null;
   preview_url_expires_at: string | null;
   published_at: string | null;
   scheduled_publish_at: string | null;
   created_at: string;
   review_reason: ReviewReasonJson | null;
-  findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
+  findings: (ReviewReasonJson & { severity: "reject" | "hold" | "info"; path: string | null })[];
   replaced_by_version_id: string | null;
   performance_check: PerformanceCheckJson | null;
 }
@@ -183,8 +190,11 @@ const DONE: Record<string, string> = {
   "shader-removed": "Shader removed.",
   tint: "Glass tint saved.",
   published: "Published. Players get this version now.",
+  "waiting-for-ai-review": "It goes live once its AI review passes.",
+  "ai-review": "Its AI review is on its way.",
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
+  "version-deleted": "Version deleted. The files no other version has stopped counting.",
   "tester-added": "Tester link made. Copy it below and send it to your testers.",
   "tester-removed": "Tester link turned off. It stopped working straight away, and its testers leave their multiplayer matches within 10 seconds.",
   "tester-changed": "Tester link changed. Its testers keep the same link and their progress.",
@@ -212,7 +222,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (path === "/dashboard" && !post) return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
     if (post || !/^\/dashboard\/[a-z0-9-]+\/export\.zip$/.test(path)) return done(redirect("/dashboard"));
   }
-  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
+  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail(), url.searchParams.get("done") === "game-deleted" ? "Game deleted." : undefined));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
@@ -356,20 +366,35 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("PATCH", `/games/${slug}/testers/${tester[1]}`, { name: field("name"), ...testerChoicesFrom(field), ends_at: field("at") || null });
       return back("versions", "tester-changed", "#testers");
     }
+    if (action === "/delete") {
+      await call("DELETE", `/games/${slug}`, { confirm_slug: field("confirm_slug") });
+      return done(redirect("/dashboard?done=game-deleted"));
+    }
     const previewsPath = action.match(/^\/versions\/([a-z0-9_]+)\/end-previews$/);
     if (previewsPath) {
       await call("DELETE", `/games/${slug}/versions/${previewsPath[1]}/preview-links`);
       return back(sectionOfAction, "previews-ended");
     }
-    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule)$/);
+    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule|ai-review|delete)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
       // "Update running games now": live matches switch now instead of at their next match.
       const matchUpdate = field("match_update_mode") === "now" ? { match_update_mode: "now" } : {};
-      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, matchUpdate);
-      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate });
+      if (what === "ai-review") {
+        await call("POST", `/games/${slug}/versions/${id}/ai-review`);
+        return back(sectionOfAction, "ai-review");
+      }
+      // A version that has never been live says what changed and whether it's a big update; left off, it's a quiet patch.
+      const mark = { ...(form.has("patch_notes") ? { patch_notes: field("patch_notes") } : {}), ...(field("is_big_update") === "true" ? { is_big_update: true } : {}) };
+      const reviewChoice = field("publish_after_ai_review_enabled") === "on" ? { publish_after_ai_review_enabled: true } : {};
+      if (what === "publish") {
+        const published = (await call("POST", `/games/${slug}/versions/${id}/publish`, { ...matchUpdate, ...mark, ...reviewChoice })) as { version: VersionJson };
+        return back(sectionOfAction, published.version.is_live ? "published" : "waiting-for-ai-review");
+      }
+      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate, ...mark });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
-      return back(sectionOfAction, what === "publish" ? "published" : `${what}d`);
+      if (what === "delete") await call("DELETE", `/games/${slug}/versions/${id}`);
+      return back(sectionOfAction, what === "publish" ? "published" : what === "delete" ? "version-deleted" : `${what}d`);
     }
   } catch (error) {
     if (error instanceof ApiError) return done(await managerPage(env, call, account, slug, sectionOfAction, { error: error.messageForPeople }, error.httpStatus));
@@ -431,12 +456,13 @@ function coverOf(images: ImageJson[]): ImageJson | undefined {
 
 // --- Your games ---
 
-async function gamesPage(env: Env, call: Call, account: Account | null, error?: string, title = "", isAskingForEmail = false): Promise<Response> {
+async function gamesPage(env: Env, call: Call, account: Account | null, error?: string, title = "", isAskingForEmail = false, doneWords?: string): Promise<Response> {
   const [{ games: listedGames, unread_topic_count: unreadTopicCount }, { can_publish: canPublish }, { unseen_security_alerts: unseenSecurityAlerts }] = (await Promise.all([call("GET", "/games"), call("GET", "/access"), call("GET", "/activity")])) as [
     { games: (GameJson & { alerts: GameAlertJson[] })[]; unread_topic_count: number },
     { can_publish: boolean },
     { unseen_security_alerts: UnseenSecurityAlert[] },
   ];
+  const { storage: { unpaid_files_delete_at: unpaidFilesDeleteAt } } = (await call("GET", "/storage")) as { storage: { unpaid_files_delete_at: string | null } };
   // Games that need attention first, the most urgent first (a kind this page doesn't know after the known ones); the rest keep the API's order, last changed first.
   const urgency = (game: { alerts: GameAlertJson[] }) => (game.alerts.length ? Math.min(...game.alerts.map((alert) => GAME_ALERT_KINDS.indexOf(alert.kind as GameAlertKind) >>> 0)) : Infinity);
   const games = [...listedGames].sort((first, second) => urgency(first) - urgency(second));
@@ -453,6 +479,8 @@ ${metalButton("Make a game", { type: "submit" })}
 ${notice({ error })}
 ${securityAlertsBox(unseenSecurityAlerts, "/dashboard")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed: false, backTo: "/dashboard" }) : ""}
+${doneWords ? html`<p class="done" role="status">${doneWords}</p>` : ""}
+${unpaidFilesDeleteAt ? html`<p class="error" role="alert">Your account is past its storage limit. On ${new Date(unpaidFilesDeleteAt).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, Zaisma deletes what's past it. Live versions stay. <a href="/dashboard/settings#hosting">See your storage</a></p>` : ""}
 ${unreadTopicCount ? html`<p class="done" role="status">Zaisma replied to ${unreadTopicCount === 1 ? "one of your forum topics" : `${unreadTopicCount} of your forum topics`}. <a href="/forum?tab=yours">Read ${unreadTopicCount === 1 ? "it" : "them"}</a></p>` : ""}
 ${canPublish
       ? ""
@@ -621,6 +649,7 @@ ${options.confirmHide
 <form class="row" method="post" action="/dashboard/${slug}/visibility"><input type="hidden" name="visibility" value="${options.confirmHide}"><input type="hidden" name="confirm" value="yes">${sectionField(section)}
 <button class="btn danger" type="submit">Hide it from players</button><a class="btn ghost" href="${sectionPath(slug, section)}">Keep it</a></form></div>`
       : ""}
+${game.visibility_after_ai_review ? html`<p class="note small">Goes ${game.visibility_after_ai_review} once the AI review passes.</p>` : ""}
 ${game.review_reason ? html`<div class="note held-game" role="status">${reasonPanel(slug, game.review_reason, removed ? "Zaisma took this game down." : "Players can't open this game right now.")}</div>` : ""}
 ${notice(options)}
 ${body}
@@ -636,6 +665,8 @@ const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: stri
   version_rejected: { section: "versions", hash: "", label: "See why" },
   version_held: { section: "versions", hash: "", label: "See why" },
   hosting_paused: { section: "players", hash: "#hosting", label: "Hosting" },
+  free_rooms_stopped: { section: "players", hash: "#hosting", label: "Hosting" },
+  second_free_allowance_started: { section: "players", hash: "#hosting", label: "Hosting" },
   database_full: { section: "database", hash: "", label: "Database" },
   hosting_nearly_paused: { section: "players", hash: "#hosting", label: "Hosting" },
   hosting_budget_nearly_used: { section: "players", hash: "#hosting", label: "Hosting" },
@@ -714,7 +745,8 @@ function detailsSection(slug: string, { game, images, backgrounds, shaders }: Lo
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game, access)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
-<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
+<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}
+<h2 class="rule-h" id="delete">Delete</h2>${deleteGamePanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
 <h2 class="rule-h" id="background">Background</h2>${backgroundPanel(slug, game, images, backgrounds, shaders, gameAddress)}
 <h2 class="rule-h" id="qr-code">QR code</h2>${qrCodePanel(slug, qrCode)}</aside>
@@ -753,27 +785,36 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
       ? "This month's budget is used: raise it to start again."
       : use.paused_reason === "credit_used"
         ? "Your credit ran out: add credit to start again."
-        : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
+        : use.paused_reason === "no_real_players"
+          ? `It has no real players yet, and games with none have used their share of free hosting. It's back once real players play it, or on ${resetDay}.`
+          : use.paused_reason === "free_hosting_ended"
+            ? `Zaisma's free hosting for this month is used up across all games. It's back on ${resetDay}, or sooner with credit and a budget.`
+            : `This month's free hosting is used: it's back on ${resetDay}, or sooner with credit and a budget.`;
   const paused = use.is_paused
     ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
+  const roomsStopped = use.free_rooms_stopped_at
+    ? html`<div class="hosting-paused" role="status"><strong>New matches can't start</strong><p>Zaisma's free room time for this month is used up across all games. Running matches end within the hour, and everything else in the game keeps working.</p><small>It's back on ${resetDay}, or sooner with credit and a budget.</small></div>`
+    : "";
+  const isSecondAllowance = use.second_free_allowance_month_start_date === new Date().toISOString().slice(0, 7) + "-01";
+  const freeWords = isSecondAllowance ? "Free this month, with a second allowance this once" : "Free this month";
   // The meter and its key are Zaisma's own (the gallery's usage meter), in this page's older plate, which is always dark: what used it in a color each, with its share.
   const meter = html`<div class="not-steel" data-theme-choice="dark">${usageMeter({ ...hostingMeter(`${game.title}'s hosting this month`, use), isTrackOnly: true })}</div>`;
   const budgetCents = use.monthly_budget_cents;
   if (budgetCents === null) {
     return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
-${paused}<div class="numbers hosting">
-<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${meter}</div>
+${paused}${roomsStopped}<div class="numbers hosting">
+<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>${freeWords}: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${meter}</div>
 </div>`;
   }
   // Paid hosting carries on where the free allowance ends: one meter, the free part first, then the budget. The free
   // part is a share of the bar, never sized by dollars, and a game living on its budget isn't warned about it.
   const isIntoBudget = use.free_used_pct >= 100;
   return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
-${paused}<div class="numbers hosting">
+${paused}${roomsStopped}<div class="numbers hosting">
 <div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}">${isIntoBudget
     ? html`<strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget, after this month's free hosting. Resets ${resetDay}.</span>`
-    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}${meter}<span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span></div>
+    : html`<strong>${use.free_used_pct}%</strong><span>${freeWords}: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}${meter}<span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span></div>
 </div>`;
 }
 
@@ -878,14 +919,25 @@ ${removed ? "" : html`<form class="row make-tester" method="post" action="/dashb
 function uploadPanel(slug: string): Raw {
   return html`<form class="drop bevel" id="drop" data-slug="${slug}">
 <p><strong>Upload a new version.</strong> Drop your game's folder here, or <label class="pick">choose it<input type="file" id="folder" webkitdirectory multiple hidden></label>. It needs an index.html at the top.</p>
-<div class="row"><input name="notes" id="notes" maxlength="2000" placeholder="What changed (optional, shown with the update)" aria-label="What changed"><label class="check"><input type="checkbox" id="auto"> Publish when it passes</label></div>
+<div class="row"><input name="notes" id="notes" maxlength="2000" placeholder="What changed (optional, shown with the update)" aria-label="What changed"><label class="check"><input type="checkbox" id="auto"> Publish when it passes</label><label class="check" title="With Publish when it passes. Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" id="big"> Big update: tell players with the Updated tag</label></div>
 <p class="hint" id="upload-status" role="status" aria-live="polite">Only new and changed files are sent. Files over 95 MB go through <code>npx @zaisma/cli upload</code>.</p>
 </form>
 ${scriptTags(UPLOAD_SCRIPT)}`;
 }
 
+/** What a publish of a version that has never been live asks: what changed, and whether it's a big update, off until the developer says so. */
+const bigUpdateFields = (version: VersionJson): Raw =>
+  html`<input class="publish-notes" name="patch_notes" maxlength="2000" value="${version.patch_notes}" placeholder="What changed, shown in the game's Updates" aria-label="What changed"><label class="check" title="Off, it's a quiet patch: its notes show in the game's Updates and nothing else changes."><input type="checkbox" name="is_big_update" value="true"${version.is_big_update ? " checked" : ""}> Big update: tell players with the Updated tag</label>`;
+
 function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   const action = (what: string) => `/dashboard/${slug}/versions/${version.id}/${what}`;
+  const reviewTime = version.usual_ai_review_duration_min === null ? null : usualDurationWords(version.usual_ai_review_duration_min);
+  const isReviewRunning = version.ai_review_status === "waiting" || version.ai_review_status === "reviewing";
+  const reviewLine = !isReviewRunning || !reviewTime
+    ? ""
+    : version.is_live
+      ? html`<p class="muted">Live, AI review pending. It usually takes ${reviewTime}.</p>`
+      : html`<p class="muted">Goes live once the AI review passes, usually in ${reviewTime}.</p>`;
   const scheduled = version.scheduled_publish_at
     ? html`<form class="row" method="post" action="${action("unschedule")}">${sectionField(section)}<span>Goes live ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? " if it has passed by then" : ""}.</span><button class="btn ghost" type="submit">Cancel</button></form>`
     : "";
@@ -893,9 +945,11 @@ function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   if (version.scan_status === "approved" && !version.is_live) {
     acts = html`<div class="row">
 ${version.preview_url ? html`<a class="btn ghost" href="${version.preview_url}" target="_blank" rel="noopener" title="For you and your AI: each link works for a day">Preview</a>` : ""}
-<form class="row" method="post" action="${action("publish")}">${sectionField(section)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
+${reviewTime && version.is_ai_review_needed_to_publish ? html`<p class="muted">The AI review usually takes ${reviewTime}.</p>` : ""}
+<form class="row" method="post" action="${action("publish")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button>${version.is_ai_review_needed_to_publish && version.is_open_before_ai_review ? html`<label class="check now-check"><input type="checkbox" name="publish_after_ai_review_enabled" value="on"> Go live only once it passes</label>` : ""}<label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
 ${version.preview_url ? html`<details class="later"><summary>Preview links</summary><form class="row" method="post" action="${action("end-previews")}">${sectionField(section)}<span class="muted">Each preview link is for you and your AI and works for a day. Shared one too widely? Turn them all off; Preview gets a fresh one.</span><button class="btn ghost" type="submit">Turn off preview links</button></form></details>` : ""}
-${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
+${version.ai_review_status === "not_started" ? html`<form class="row" method="post" action="${action("ai-review")}">${sectionField(section)}<button class="btn ghost" type="submit">Start AI review</button></form>` : ""}
+${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
@@ -907,7 +961,7 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   const findings = isHeldBack ? version.findings : [];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
-${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
+${version.patch_notes && !(version.scan_status === "approved" && !version.published_at) ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
 ${isReplaced ? html`<p class="muted">Replaced by a newer version</p>` : ""}
 ${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
 ${findings.length
@@ -916,7 +970,8 @@ ${findings.length
         )}</ul></div>`
       : ""}
 ${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
-${scheduled}${acts}
+${reviewLine}${version.findings.filter((finding) => finding.code === "ai_review_budget_used" || finding.code === version.ai_review_waiting_reason).map((finding) => html`<p class="muted">${finding.message_for_people}</p>`)}${scheduled}${acts}
+${version.is_live || version.scan_status === "scanning" || version.scheduled_publish_at ? "" : html`<details class="later"><summary>Delete</summary><form class="row" method="post" action="${action("delete")}">${sectionField(section)}<span class="muted">Deletes this version for good, and frees the files no other version has.</span><button class="btn danger" type="submit">Delete this version</button></form></details>`}
 </li>`;
 }
 
@@ -1025,6 +1080,15 @@ function exportPanel(slug: string): Raw {
 </div>`;
 }
 
+/** Delete this game: its link name typed in, since nothing brings it back. */
+function deleteGamePanel(slug: string): Raw {
+  return html`<form class="stack" method="post" action="/dashboard/${slug}/delete">${sectionField("details")}
+<p class="hint">The game stops for every player, its link is never used again, and its versions, database, saves and purchases go for good. Export it first to keep a copy.</p>
+<label>Type <strong>${slug}</strong> to delete it <input name="confirm_slug" required autocomplete="off" spellcheck="false"></label>
+<div class="row"><button class="btn danger" type="submit">Delete this game</button></div>
+</form>`;
+}
+
 const MULTIPLAYER_LABELS = {
   none: { label: "None", hint: "Single-player, or only your own servers." },
   relay: { label: "Relay", hint: "Zaisma passes each player's messages to the others. No server code." },
@@ -1125,7 +1189,7 @@ type FindingPlace = "images" | "background" | "details" | "message";
 const FINDING_PLACES: Partial<Record<ReviewCodeName, FindingPlace>> = {
   image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", famous_name: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
   text_on_background: "background", overlay_on_background: "background", famous_name_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
-  unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details",
+  unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details", search_words_in_title: "details",
   matches_another_developers_game: "message", matches_banned_account_files: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
   ai_private_details_or_threats: "message", ai_protection_dodged: "message", ai_real_money_gambling: "message", ai_paid_random_rewards: "message", ai_coin_price_without_real_price: "message",
   ai_free_text_chat: "message", ai_disallowed_crypto: "message", ai_other: "message", ai_concern: "message", rejected_by_zaisma: "message", taken_down: "message",
@@ -1316,9 +1380,11 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
+    second_free_allowance_month_start_date: string | null;
+    free_rooms_stopped_at: string | null;
     shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
-    paused_reason: "free_used" | "budget_used" | "credit_used" | null;
+    paused_reason: "free_used" | "budget_used" | "credit_used" | "no_real_players" | "free_hosting_ended" | null;
     monthly_budget_cents: number | null;
     spent_from_credit_cents: number;
     request_count: number;
@@ -1455,6 +1521,7 @@ const STYLES = `
 .drop .row input[name=notes]{flex:1;min-width:200px}
 .drop .hint{margin:12px 0 0}
 .pick{display:inline;color:var(--text);text-decoration:underline;cursor:pointer;font-size:inherit}
+.publish-notes{flex:1 1 100%}
 .check{display:inline-flex;flex-direction:row;align-items:center;gap:8px;min-height:44px;color:var(--text-2);font-size:15px}
 .check input{min-height:0;width:18px;height:18px;accent-color:#c9cace}
 .track{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
@@ -1799,7 +1866,7 @@ const plan=await api("POST","/games/"+slug+"/uploads",{files:list});const seen=n
 const total=todo.reduce((n,f)=>n+f.file.size,0);let sent=0;const mb=n=>(n/1048576).toFixed(1)+" MB";
 const queue=[...todo];await Promise.all(Array.from({length:4},async()=>{for(let f=queue.shift();f;f=queue.shift()){await api("PUT","/files/"+f.sha256,f.file,true);sent+=f.file.size;say("Sending "+todo.length+" new or changed files… "+mb(sent)+" of "+mb(total))}}));
 say("Making the version…");
-await api("POST","/games/"+slug+"/versions",{files:list,patch_notes:document.getElementById("notes").value,publish_when_approved:document.getElementById("auto").checked});
+await api("POST","/games/"+slug+"/versions",{files:list,patch_notes:document.getElementById("notes").value,publish_when_approved:document.getElementById("auto").checked,...(document.getElementById("big").checked?{is_big_update:true}:{})});
 location.href=location.pathname+"?done=uploaded"}catch(e){say(e.message);status.classList.add("error")}finally{busy=false}}
 input.addEventListener("change",()=>{status.classList.remove("error");upload([...input.files].map(f=>({file:f,path:f.webkitRelativePath||f.name})))});
 form.addEventListener("submit",e=>e.preventDefault());

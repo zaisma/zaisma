@@ -225,6 +225,7 @@ describe("get_access", () => {
     expect(waiting.standing).toEqual({
       is_established_developer: false,
       outside_links_enabled: false,
+      publish_before_ai_review_enabled: false,
       search_engines_enabled: false,
       returning_player_count: 12,
       minimum_returning_player_count: 20,

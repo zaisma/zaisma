@@ -1,3 +1,4 @@
+import { isOpenToOthers, OPEN_TO_OTHERS_SQL } from "./ai-review.ts";
 import { sha256Hex } from "./ids.ts";
 import type { TesterLink } from "./db.ts";
 import type { Game, Version } from "./types.ts";
@@ -157,6 +158,12 @@ export async function testerLinkVersion(
   game: Pick<Game, "id" | "review_status" | "live_version_id">,
   link: Pick<TesterLink, "version_choice" | "picked_version_id">,
 ): Promise<Version | null> {
+  const target = await testerLinkTarget(database, game, link);
+  return target && isOpenToOthers(target) ? target : null;
+}
+
+/** What a tester link points at, whether or not its testers may open it yet. newest_passed is the newest one they may. */
+async function testerLinkTarget(database: D1Database, game: Pick<Game, "id" | "review_status" | "live_version_id">, link: Pick<TesterLink, "version_choice" | "picked_version_id">): Promise<Version | null> {
   if (link.version_choice === "live") {
     if (game.review_status !== "live" || !game.live_version_id) return null;
     return database.prepare("SELECT * FROM versions WHERE id = ?").bind(game.live_version_id).first<Version>();
@@ -164,5 +171,12 @@ export async function testerLinkVersion(
   if (link.version_choice === "picked") {
     return database.prepare("SELECT * FROM versions WHERE id = ? AND game_id = ? AND scan_status = 'approved'").bind(link.picked_version_id, game.id).first<Version>();
   }
-  return database.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1").bind(game.id).first<Version>();
+  const open = await database.prepare(`SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' AND ${OPEN_TO_OTHERS_SQL} ORDER BY created_at_ms DESC LIMIT 1`).bind(game.id).first<Version>();
+  return open ?? database.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1").bind(game.id).first<Version>();
+}
+
+/** A version a tester link would open, waiting for its AI review: the link opens when that lets it through. */
+export async function testerLinkWaitingVersion(database: D1Database, game: Pick<Game, "id" | "review_status" | "live_version_id">, link: Pick<TesterLink, "version_choice" | "picked_version_id">): Promise<Version | null> {
+  const target = await testerLinkTarget(database, game, link);
+  return target && !isOpenToOthers(target) ? target : null;
 }

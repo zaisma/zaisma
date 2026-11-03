@@ -57,6 +57,7 @@ export function restoreRuleOf(backupKey: string): RestoreRule {
   if (area === "report-pictures" && areaParts.length === 1 && name.endsWith(".jpg")) return owned("SELECT 1 AS has_owner FROM reports WHERE id = ? AND has_picture = 1", [name.slice(0, -".jpg".length)], "image/jpeg");
   if (area === "logs") return { kind: "never", reason: "logs last days, and their listing reads metadata older copies lack" };
   if (area === "shader-checks") return { kind: "never", reason: "shader check sheets last a day" };
+  if (area === "review-answers") return { kind: "never", reason: "a review's answers last until it ends, and a review asks again without them" };
   if (area === "shader-check-runs") return { kind: "never", reason: "counts of shader checks before sending last a day" };
   if (area === "brotli") return { kind: "never", reason: "Brotli copies are made again from the files" };
   return { kind: "never", reason: "no rule for this kind of game file" };

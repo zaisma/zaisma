@@ -1599,15 +1599,32 @@ export const LOAD_MORE_SCRIPT = `/* load more */(function () {
       if (words) { words.textContent = ${JSON.stringify(LOAD_FAILED_TEXT)}; words.hidden = false; }
     }));
   });
-  // One that loads on scroll is pressed once it's within a screen of view; a failed one waits to be pressed again.
+  // One that loads on scroll is pressed once it's within a screen of view, and only after the player has moved the page (a scroll, a wheel or
+  // a swipe, even on a page that fits its screen and can't scroll), so a page just opened stays as it first painted. A failed one waits to be
+  // pressed again.
   var nearScreen = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       var link = entry.target.querySelector("a.shell[href]");
       if (entry.isIntersecting && link && !entry.target.classList.contains("is-failed")) link.click();
     });
   }, { rootMargin: "100% 0px" }) : null;
-  function watch(holder) { if (nearScreen && holder.hasAttribute("data-loads-on-scroll")) nearScreen.observe(holder); }
+  var untilMoved = [], MOVES = ["scroll", "wheel", "touchmove"];
+  function moved() {
+    if (!untilMoved) return;
+    untilMoved.forEach(function (holder) { nearScreen.observe(holder); });
+    untilMoved = null;
+    MOVES.forEach(function (name) { removeEventListener(name, moved, true); });
+  }
+  function watch(holder) {
+    if (!nearScreen || !holder.hasAttribute("data-loads-on-scroll")) return;
+    if (untilMoved) untilMoved.push(holder); else nearScreen.observe(holder);
+  }
   document.querySelectorAll("[data-loads-on-scroll]").forEach(watch);
+  if (nearScreen) {
+    MOVES.forEach(function (name) { addEventListener(name, moved, { capture: true, passive: true }); });
+    // Back on a page the browser put part way down: it has already moved.
+    if (window.scrollY > 0) moved();
+  }
   // A page that swaps its list for another (Browse, as you type a search) hands the new one's Load more here.
   window.zaismaLoadMore = { watch: watch };
 })();

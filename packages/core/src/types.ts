@@ -1,3 +1,4 @@
+import type { AiReviewSpeed, AiReviewStatus, AiReviewWaitingReason } from "./ai-review.ts";
 import type { FindingCode } from "./review.ts";
 import type { EvidenceItem } from "./review-evidence.ts";
 import { ownServerUrlsOf } from "./own-servers.ts";
@@ -46,6 +47,8 @@ export interface Game {
   performance_measuring_enabled: number;
   /** What the game may draw from its developer's credit in a month, in cents; NULL: no paid hosting, so it stops at its free allowance. */
   monthly_budget_cents: number | null;
+  /** The month the game had its second free allowance, the first time it filled one (hosting.ts); null: not yet. */
+  second_free_allowance_month_start_date: string | null;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */
@@ -105,6 +108,14 @@ export interface Game {
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */
   live_version_published_at_ms: number | null;
+  /** The visibility it takes once its live version's AI review passes; null when it's waiting for none. */
+  visibility_after_ai_review: "listed" | "unlisted" | null;
+  /** When the game first went live; it never moves. */
+  first_published_at_ms: number | null;
+  /** The last marked big update: the Updated tag and fact. A first release is never one. */
+  big_update_at_ms: number | null;
+  /** Where Browse's Recently updated places it, moved at most once every RECENTLY_UPDATED_MOVE_DAYS; NULL is first_published_at_ms. */
+  recently_updated_at_ms: number | null;
   /** 1 when the live version changed the game's own files, not only its game server: a room switching to it now reloads its players' games. */
   has_live_version_game_file_changes: number;
   created_at_ms: number;
@@ -141,6 +152,10 @@ export interface Version {
   /** The key this version's preview links are made with (apps/site/src/preview-links.ts); a new one ends every link made so far. Null until it passes. */
   preview_link_key: string | null;
   published_at_ms: number | null;
+  /** When it first went live; unlike published_at_ms, a rollback doesn't move it. */
+  first_published_at_ms: number | null;
+  /** 1 when the developer marked it a big update; it counts as news only when it goes live for the first time. */
+  is_big_update: number;
   created_at_ms: number;
   /** When a child-safety or illegal-content report paused this version, until a person looks. */
   report_held_at_ms: number | null;
@@ -152,6 +167,20 @@ export interface Version {
   replaced_by_version_id: string | null;
   /** When this version's small review ran (its reads called the reader model); null when nothing was read. */
   read_at_ms: number | null;
+  /** Where it stands with the AI review (ai-review.ts). */
+  ai_review_status: AiReviewStatus;
+  /** How its review runs; null until one is asked for. */
+  ai_review_speed: AiReviewSpeed | null;
+  ai_review_requested_at_ms: number | null;
+  /** When a job was last queued to move its review on. */
+  ai_review_queued_at_ms: number | null;
+  ai_review_finished_at_ms: number | null;
+  /** The daily review it waits for a free one of; null when it doesn't. */
+  ai_review_waiting_reason: AiReviewWaitingReason | null;
+  /** 1 when other people may reach it before its review ends: its developer has earned that. */
+  is_open_before_ai_review: number;
+  /** 1 when its developer chose to go live only once the review passes. */
+  publish_after_ai_review_enabled: number;
 }
 
 export type Severity = "reject" | "hold" | "info";
@@ -231,6 +260,8 @@ export interface ScanJob {
   recheck?: { reportId: string };
   /** Image matching on a version that already passed (before matching was connected). Takes it off only on a match. */
   isImageRecheck?: true;
+  /** Move this version's AI review on: send what it still needs read, or finish it (apps/site/src/review-batches.ts). */
+  isAiReviewStep?: true;
 }
 
 /** The listing check on a game's covers, screenshots and words ("No slop"), on the scan queue beside ScanJob. */

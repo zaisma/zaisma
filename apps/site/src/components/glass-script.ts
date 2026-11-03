@@ -688,8 +688,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function facing(p, q) { var dx = q[0] - p[0], dy = q[1] - p[1], degrees = Math.atan2(dx, dy) * 180 / Math.PI; return FACING[((Math.round(degrees / 45) % 8) + 8) % 8]; }
   function cutLine(el) {
     var svg = el.querySelector(":scope > .cut-line");
-    if (!svg) { svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "cut-line"); svg.setAttribute("aria-hidden", "true"); svg.appendChild(document.createElementNS(SVG, "polygon")); el.insertBefore(svg, el.firstChild); }
-    var poly = svg.querySelector("polygon"), bands = [], last = "";
+    if (!svg) { svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "cut-line"); svg.setAttribute("aria-hidden", "true"); el.insertBefore(svg, el.firstChild); }
+    // The page is drawn as it arrives, and the browser can stop reading between the two tags of a cut line written in it (CUT_LINE), so its
+    // polygon may be still to come. The line is drawn on one made here; the one that follows has no points and draws nothing.
+    var poly = svg.querySelector("polygon") || svg.appendChild(document.createElementNS(SVG, "polygon")), bands = [], last = "";
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     // A glide: a part moving to another place (a switch's slab) blends from the shape it had there to its new one as it goes,
     // over the same time as its move, instead of taking the new shape before it has left.

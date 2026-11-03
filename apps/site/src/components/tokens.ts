@@ -319,7 +319,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --touch-target: 44px;
   /* An icon alone in a control: its size, and the room each side of it. */
   --size-icon: 20px; --pad-icon: 12px;
-  --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
+  --control-height-tiny: 1.625rem; --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
   --size-cover: 180px; --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;

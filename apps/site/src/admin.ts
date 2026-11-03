@@ -18,6 +18,7 @@ import {
   closeReportGroup,
   UploadError,
   aiUsage,
+  spendingMonthRow,
   allGames,
   audit,
   auditLog,
@@ -93,7 +94,7 @@ import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { isAiHold, isAiStop, proposedReviewPrecedent, releaseAiStop, reviewPrecedentAction, reviewPrecedentProblem, reviewPrecedentsPage, saveReviewPrecedent, teachTheReviewBlock } from "./review-precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
-import { KNOWN_IMAGE_ALERT, changesSince, passVersion, type ChangesSince } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, changesSince, passVersion, stopLiveVersion, type ChangesSince } from "./scan.ts";
 import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -295,7 +296,9 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     } else {
       const rejectedReason = decidedReason("rejected_by_zaisma", pickedRule(form), reason);
       await saveScan(env.DB, version.id, "rejected", null);
-      await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      await env.DB.prepare("UPDATE versions SET review_reason = ?, ai_review_status = 'stopped', ai_review_waiting_reason = NULL WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      const rejectedGame = await gameById(env.DB, version.game_id);
+      if (rejectedGame) await stopLiveVersion(env, rejectedGame, { ...version, review_reason: JSON.stringify(rejectedReason) }, null);
       await noteRulingOnGame(env, version.game_id);
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
@@ -573,7 +576,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage, images, shaders, words, spikes, feedback] = await Promise.all([
+  const [queue, reports, games, usage, images, shaders, words, spikes, feedback, spending] = await Promise.all([
     heldVersions(env.DB),
     openReports(env.DB),
     allGames(env.DB),
@@ -583,6 +586,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     gamesWithDetailsWaitingForReview(env.DB),
     playSpikes(env.DB),
     feedbackSummary(env),
+    spendingMonthRow(env.DB),
   ]);
   const offShelves = games.filter((game) => game.is_off_shelves);
   const groups = groupReports(reports);
@@ -590,6 +594,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     env,
     "Admin",
     html`<h1>Admin</h1>
+${spending?.limit_cents ? html`<p class="lead">Spending this month: $${(spending.spent_cents / 100).toFixed(2)} of $${(spending.limit_cents / 100).toFixed(2)}${spending.free_rooms_stopped_at_ms ? ", free rooms stopped" : ""}.</p>` : html`<p class="lead">The monthly spending limit isn't measured yet: its secrets aren't set, or the job hasn't run this month.</p>`}
 <p class="lead">AI this month: ${usage.scan_call_count} scans; reviews $${(usage.review_cost_cents / 100).toFixed(2)} of $${(Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) / 100).toFixed(2)} (${usage.review_call_count} calls); ${usage.report_triage_call_count} reports and ${usage.forum_call_count} feedback items sorted, ${usage.input_token_count.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
 
 <h2>Waiting for review (${queue.length})</h2>

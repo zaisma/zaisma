@@ -8,8 +8,8 @@ import { WEBHOOK_RETRY_DELAYS_MIN } from "./webhooks.ts";
 
 const now = () => Date.now();
 
-/** Who asked for a game to be deleted: its developer, by deleting their account, or Zaisma, from the admin page. */
-export type GameDeletionRequestedByKind = "account_deleted" | "zaisma";
+/** Who asked for a game to be deleted: its developer, on its own or by deleting their account, or Zaisma, from the admin page. */
+export type GameDeletionRequestedByKind = "account_deleted" | "developer" | "zaisma";
 
 export interface GameDeletion {
   game_id: string;
@@ -32,6 +32,14 @@ export function childSafetyKeptCondition(gameIdSql: string): string {
   return `(EXISTS (SELECT 1 FROM versions kept_version WHERE kept_version.game_id = ${gameIdSql} AND ((kept_version.scan_status IN ('held', 'scanning', 'rejected') AND json_extract(kept_version.scan_report, '$.is_child_safety') = 1) OR EXISTS (SELECT 1 FROM json_each(kept_version.scan_report, '$.findings') kept_finding WHERE json_extract(kept_finding.value, '$.code') = '${KNOWN_IMAGE_CODE}')))`
     + ` OR EXISTS (SELECT 1 FROM reports kept_report WHERE kept_report.game_id = ${gameIdSql} AND (kept_report.reason = 'child_safety' OR kept_report.severity_index = 0) AND kept_report.report_status != 'dismissed')`
     + ` OR EXISTS (SELECT 1 FROM audit_log kept_audit WHERE kept_audit.game_id = ${gameIdSql} AND kept_audit.action = 'image-held'))`;
+}
+
+/**
+ * True for one version a person at Zaisma must keep: a report holds it, an AI flagged it for child safety, or it has
+ * known abuse material. `versionSql` names the versions row in the surrounding query.
+ */
+export function versionKeptSql(versionSql: string): string {
+  return `(${versionSql}.report_held_at_ms IS NOT NULL OR (${versionSql}.scan_status IN ('held', 'scanning', 'rejected') AND json_extract(${versionSql}.scan_report, '$.is_child_safety') = 1) OR EXISTS (SELECT 1 FROM json_each(${versionSql}.scan_report, '$.findings') kept_finding WHERE json_extract(kept_finding.value, '$.code') = '${KNOWN_IMAGE_CODE}'))`;
 }
 
 export async function isKeptForChildSafety(database: D1Database, gameId: string): Promise<boolean> {
@@ -60,7 +68,7 @@ export function ownerGameDeletions(database: D1Database, ownerId: string, nowMs 
   ];
 }
 
-/** Zaisma deletes one game for good (one an account left behind): its link name is retired and its deletion queued. */
+/** One game deleted for good, by its developer or by Zaisma (one an account left behind): its link name is retired and its deletion queued. */
 export async function queueGameDeletion(database: D1Database, gameId: string, requestedByKind: GameDeletionRequestedByKind, nowMs = now()): Promise<void> {
   await database.batch([
     database.prepare("INSERT OR IGNORE INTO retired_game_slugs (slug, retired_at_ms) SELECT slug, ? FROM games WHERE id = ?").bind(nowMs, gameId),

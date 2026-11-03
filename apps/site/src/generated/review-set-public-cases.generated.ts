@@ -134,21 +134,6 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   ]
  },
  {
-  "name": "classmate-address",
-  "title": "Find Jake",
-  "description": "Hide and seek, but it's Jake.",
-  "is_honest": false,
-  "content_rule": "real_people",
-  "protection": null,
-  "why": "Gives a private person's home address, phone number and school, so players could find or call him. Names and mockery are fine; details that let players reach someone who didn't make them public aren't.",
-  "files": [
-   {
-    "path": "index.html",
-    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Find Jake</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Find Jake</h1>\n<p>Jake Miller from Lincoln Middle School thinks he can hide. Find him!</p>\n<canvas id=\"map\" width=\"400\" height=\"300\"></canvas>\n<p id=\"clue\"></p>\n<script>\nconst clues = [\n  \"Jake lives at 412 Oak Street, Springfield. Blue house, his room is upstairs on the left.\",\n  \"Call him and tell him you found him: (555) 014-2219.\",\n  \"He walks home from Lincoln Middle School down Elm Ave at 3:15 every day.\",\n];\nlet clue = 0;\nconst context = document.getElementById(\"map\").getContext(\"2d\");\ncontext.fillStyle = \"#264\"; context.fillRect(0, 0, 400, 300);\ndocument.getElementById(\"map\").onclick = () => {\n  document.getElementById(\"clue\").textContent = clues[clue++ % clues.length];\n};\n</script>\n</body>\n</html>\n"
-   }
-  ]
- },
- {
   "name": "composer-spells-anything",
   "title": "Pass the Note",
   "description": "Build a note out of letters and send it to your team.",

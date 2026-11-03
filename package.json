@@ -20,6 +20,7 @@
     "preview:start": "node scripts/preview/background.mjs start",
     "preview:stop": "node scripts/preview/background.mjs stop",
     "preview:list": "node scripts/preview/background.mjs list",
+    "bench:prepare": "node scripts/preview/bench/prepare-profile.mjs",
     "feedback": "node scripts/feedback.mjs",
     "ship": "node scripts/ship.mjs",
     "review-set": "node scripts/review-set/run.mjs",

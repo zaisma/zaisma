@@ -124,6 +124,15 @@ export interface Env {
   LISTING_CHECK_MODEL: string;
   /** The game review's monthly budget in US cents; Julius hears at 80%, and past it versions wait for a person. */
   AI_REVIEW_MONTHLY_BUDGET_CENTS: string;
+  /** The monthly spending stop's private amounts, as secrets since how the meter's prices relate to their cost isn't published (spending.ts). Until all six are set, nothing limits what Zaisma spends. */
+  MONTHLY_SPENDING_LIMIT_CENTS?: string;
+  FIXED_COST_CENTS_PER_MONTH?: string;
+  STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH?: string;
+  METER_COST_SHARE_PCT?: string;
+  UNPLAYED_GAMES_COST_CENTS_PER_MONTH?: string;
+  PAST_LIMIT_CEILING_CENTS?: string;
+  /** The listing check's and new review rulings' monthly ceiling, on the same count as the review's. */
+  AI_CHECKS_MONTHLY_BUDGET_CENTS: string;
   /** Chat's own monthly cap on AI input tokens (chat-check.ts), apart from AI_MONTHLY_INPUT_TOKENS. */
   AI_CHAT_MONTHLY_INPUT_TOKENS: string;
   /** The model that reviews sexual messages from adults to teens the chat filter stopped (chat-review.ts). */

@@ -53,6 +53,7 @@ import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { FIRST_PAINT_BROTLI_LEVEL, FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SIZE_LIMIT_BYTES, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
+import { STATE_IDS_ON_THE_PAGE, statesWithNoButton } from "./preview/bench/places.ts";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -74,7 +75,7 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
-/** The screens every page is measured at unless told otherwise, and the pages: the same Screens shows (checked-pages.ts). */
+/** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
 export const LAYOUT_CHECK_PAGES = CHECKED_PAGES;
@@ -145,7 +146,7 @@ export function pageFingerprint(html, page, looks, tiers) {
     .replace(/<input\b[^>]*\btype="hidden"[^>]*>/g, (input) => input.replace(/\svalue="[^"]*"/, ' value=""'))
     .replace(/\s([\w-]+-ms)="[^"]*"/g, ' $1=""');
   const hash = createHash("sha256");
-  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
+  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), String(statesWithNoButton([])), STATE_IDS_ON_THE_PAGE, MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
   return hash.digest("hex");
 }
 
@@ -323,6 +324,9 @@ const PRESS_EVERY_ANSWER = `(async () => {
  * button's face and cut line, a field's box round its input), so what's compared is the component, as at rest and as focused: the element
  * and up to three levels round it, inside the cell or pane it sits in, with everything in it. Frames are made inert for it, so Tab never
  * walks a game's pages or Screens', and the page is left as it was for the next screen: its scrolling, what was open, nothing focused.
+ * What the page adds while Tab goes (a long list's next page, asked for as it nears the screen, which can come at any press) counts the
+ * same as what was there: its look at rest taken as it arrives, before Tab can reach it, and one press more for each. A control that has
+ * left the page by the end (a Load more swapped for the next one) no longer counts.
  */
 const KEYBOARD_START = `(() => {
   const OUTSIDE = "[data-glass], .pane-in, .sheet-in, .stack-cell, .row-cell, .grid-cell, .example-stage, main, body";
@@ -348,41 +352,88 @@ const KEYBOARD_START = `(() => {
   const frames = [...document.querySelectorAll("iframe:not([inert])")];
   frames.forEach((frame) => frame.setAttribute("inert", ""));
   document.activeElement?.blur?.();
-  const scrollers = [document.scrollingElement, ...document.querySelectorAll("body *")].filter((el) => el === document.scrollingElement || ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && /auto|scroll/.test(getComputedStyle(el).overflow)));
+  const scrollersNow = () => [document.scrollingElement, ...document.querySelectorAll("body *")].filter((el) => el === document.scrollingElement || ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && /auto|scroll/.test(getComputedStyle(el).overflow)));
+  const scrollers = scrollersNow();
   // While a sheet is open over the page (a modal dialog), the page under it is out of Tab's reach by design: only the top one's controls count.
   const modal = [...document.querySelectorAll(":modal")].pop();
-  const controls = [...(modal ?? document).querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter((el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut"));
+  const isShown = (el) => !el.matches(":disabled") && el.checkVisibility({ visibilityProperty: true }) && !el.closest("[inert], [hidden], template, dialog:not([open]), details:not([open]) > :not(summary), .dropdown.shut");
+  const controlsNow = () => [...(modal ?? document).querySelectorAll(${JSON.stringify(FOCUSABLE_SELECTOR)})].filter(isShown);
+  const controls = controlsNow();
   settle();
   // One shown open (a picker in place) already wears its focus look as it rests: being open marks it.
   const opened = new Set(controls.filter((el) => el.getAttribute("aria-expanded") === "true"));
-  window.zaismaKeyboard = { controls, rest: controls.map(lookOf), reached: new Set(), reachedGroups: new Set(), unseen: new Set(), shownOpen: opened, first: null, frames, scrollerPlaces: scrollers.map((el) => [el, el.scrollTop, el.scrollLeft]), opened: new Set(document.querySelectorAll("dialog[open], :popover-open")), lookOf, settle, groupOf };
-  return { controlCount: controls.length, scrollerCount: scrollers.length };
+  const state = { rest: new Map(controls.map((el) => [el, lookOf(el)])), arrived: new Set(), arrivedThisRound: new Set(), scrollerCount: scrollers.length, reached: new Set(), reachedGroups: new Set(), unseen: new Set(), shownOpen: opened, first: null, frames, scrollerPlaces: scrollers.map((el) => [el, el.scrollTop, el.scrollLeft]), opened: new Set(document.querySelectorAll("dialog[open], :popover-open")), lookOf, settle, groupOf };
+  state.isReached = (el) => state.reached.has(el) || state.reachedGroups.has(groupOf(el));
+  // One that arrived and went again, or that only showed for a moment, was never there to reach.
+  state.isThere = (el) => el.isConnected && (!state.arrived.has(el) || isShown(el));
+  // An observer's turn comes straight after what the page changed, ahead of any press, so what arrives is at rest when it's taken.
+  state.arrivals = new MutationObserver(() => {
+    const arrivals = controlsNow().filter((el) => !state.rest.has(el));
+    if (!arrivals.length) return;
+    settle();
+    for (const el of arrivals) {
+      state.rest.set(el, lookOf(el));
+      state.arrived.add(el);
+      state.arrivedThisRound.add(el);
+      if (el.getAttribute("aria-expanded") === "true") state.shownOpen.add(el);
+    }
+    state.scrollerCount = scrollersNow().length;
+  });
+  state.arrivals.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  window.zaismaKeyboard = state;
+  return { controlCount: state.rest.size, scrollerCount: state.scrollerCount };
 })()`;
 
-/** After a Tab: whether focus is back on the first control it reached (round the page, or held where it is), so the presses stop. */
+/** After a Tab: whether focus is back on the first control it reached (round the page, or held where it is), and the counts its presses go by. */
 const KEYBOARD_STEP = `(() => {
   const state = window.zaismaKeyboard;
   let el = document.activeElement;
   while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
-  const index = state.controls.indexOf(el);
-  if (index < 0) return false;
-  if (state.first === el) return true;
+  const counts = { controlCount: state.rest.size, scrollerCount: state.scrollerCount, arrivedCount: state.arrived.size };
+  if (!state.rest.has(el)) return { isRound: false, ...counts };
+  if (state.first === el) return { isRound: true, ...counts };
   state.first ??= el;
-  state.reached.add(el);
-  if (state.groupOf(el)) state.reachedGroups.add(state.groupOf(el));
-  state.settle();
-  if (!state.shownOpen.has(el) && state.lookOf(el) === state.rest[index]) state.unseen.add(el);
-  return false;
+  if (!state.reached.has(el)) {
+    state.reached.add(el);
+    if (state.groupOf(el)) state.reachedGroups.add(state.groupOf(el));
+    state.settle();
+    if (!state.shownOpen.has(el) && state.lookOf(el) === state.rest.get(el)) state.unseen.add(el);
+  }
+  return { isRound: false, ...counts };
+})()`;
+
+/**
+ * A load on its way, waited for so what it brings counts: an observer that starts one runs with a frame, and it's busy until what it brought
+ * is in the page (Load more with isLoadedOnScroll, the one piece that loads as it nears the screen). Never more than
+ * LOAD_ON_ITS_WAY_LIMIT_MS: an answer that never comes leaves the page as it is.
+ */
+const LOAD_ON_ITS_WAY_LIMIT_MS = 15_000;
+const LOAD_ON_ITS_WAY = `(async () => {
+  const timer = (ms) => new Promise((done) => setTimeout(done, ms));
+  const frame = () => new Promise((done) => requestAnimationFrame(done));
+  await Promise.race([frame().then(frame), timer(450)]);
+  for (const end = Date.now() + ${LOAD_ON_ITS_WAY_LIMIT_MS}; document.querySelector('[data-loads-on-scroll] [aria-busy="true"]') && Date.now() < end;) await timer(16);
+})()`;
+
+/** Once focus is back where it began, with any load on its way in: whether to go round again, for a control that arrived this time round behind focus. */
+const KEYBOARD_ROUND_END = `(async () => {
+  const state = window.zaismaKeyboard;
+  await ${LOAD_ON_ITS_WAY};
+  const isAnotherRoundNeeded = [...state.arrivedThisRound].some((el) => state.isThere(el) && !state.isReached(el));
+  state.arrivedThisRound.clear();
+  return isAnotherRoundNeeded;
 })()`;
 
 /** What Tab never reached or reached unseen, after pressCount presses, with the page put back as it was. */
 const keyboardEnd = (pressCount) => `(() => {
   const state = window.zaismaKeyboard;
   delete window.zaismaKeyboard;
+  state.arrivals.disconnect();
   const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute("aria-label") || el.textContent || el.getAttribute("name") || el.className || "").trim().replace(/\\s+/g, " ").slice(0, 48) + '"';
   const failures = [];
-  for (const el of state.controls) {
-    if (!state.reached.has(el) && !state.reachedGroups.has(state.groupOf(el))) failures.push({ check: "a control the keyboard doesn't reach", element: describe(el), said: "Tab never focused it in ${pressCount} presses" });
+  for (const el of state.rest.keys()) {
+    if (!state.isThere(el)) continue;
+    if (!state.isReached(el)) failures.push({ check: "a control the keyboard doesn't reach", element: describe(el), said: "Tab never focused it in ${pressCount} presses" });
     else if (state.unseen.has(el)) failures.push({ check: "a focused control with no visible focus", element: describe(el), said: "focused, nothing about it changed: outline, border, shadow and background as at rest" });
   }
   document.activeElement?.blur?.();
@@ -398,25 +449,42 @@ const keyboardEnd = (pressCount) => `(() => {
  * end and its start again.
  */
 const EXTRA_TAB_PRESS_COUNT = 5;
+/** Controls a page may add while Tab goes round before the check says it's still adding them: past any real list's pages, and a page that never stops adding them still ends. */
+const MAXIMUM_ARRIVED_CONTROL_COUNT = 2000;
 const TAB_KEY = { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 };
 
-/** Tabs round the page (KEYBOARD_START, KEYBOARD_STEP, keyboardEnd): its failures. */
-async function checkKeyboardReach(send) {
+/**
+ * Tabs round the page (KEYBOARD_START, KEYBOARD_STEP, KEYBOARD_ROUND_END, keyboardEnd): its failures. A round has one press for each control
+ * and box that scrolls as the page stands at that press, however many came since it began, so a control that holds Tab still uses them up
+ * and what's past it still fails. Going round again takes something that arrived behind focus, so it ends once nothing does.
+ */
+async function checkKeyboardReach(send, maximumArrivedControlCount = MAXIMUM_ARRIVED_CONTROL_COUNT) {
   const failed = (details) => [{ check: "the check couldn't measure the page", element: "", said: details.exception?.description ?? details.text }];
   const started = await send("Runtime.evaluate", { expression: KEYBOARD_START, returnByValue: true });
   if (started.exceptionDetails) return failed(started.exceptionDetails);
-  const maximumPressCount = started.result.value.controlCount + started.result.value.scrollerCount + EXTRA_TAB_PRESS_COUNT;
-  let pressCount = 0;
-  while (pressCount < maximumPressCount) {
+  let maximumPressCount = started.result.value.controlCount + started.result.value.scrollerCount + EXTRA_TAB_PRESS_COUNT;
+  let pressCount = 0, roundPressCount = 0, tooMany = [];
+  while (roundPressCount < maximumPressCount) {
     await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...TAB_KEY });
     await send("Input.dispatchKeyEvent", { type: "keyUp", ...TAB_KEY });
     pressCount++;
+    roundPressCount++;
     const step = await send("Runtime.evaluate", { expression: KEYBOARD_STEP, returnByValue: true });
     if (step.exceptionDetails) return failed(step.exceptionDetails);
-    if (step.result.value) break;
+    const { isRound, controlCount, scrollerCount, arrivedCount } = step.result.value;
+    if (arrivedCount > maximumArrivedControlCount) {
+      tooMany = failed({ text: `the page kept adding controls while Tab went round: ${arrivedCount} so far, past the ${maximumArrivedControlCount} it counts` });
+      break;
+    }
+    maximumPressCount = controlCount + scrollerCount + EXTRA_TAB_PRESS_COUNT;
+    if (!isRound) continue;
+    const roundEnd = await send("Runtime.evaluate", { expression: KEYBOARD_ROUND_END, awaitPromise: true, returnByValue: true });
+    if (roundEnd.exceptionDetails) return failed(roundEnd.exceptionDetails);
+    if (!roundEnd.result.value) break;
+    roundPressCount = 0;
   }
   const ended = await send("Runtime.evaluate", { expression: keyboardEnd(pressCount), returnByValue: true });
-  return ended.exceptionDetails ? failed(ended.exceptionDetails) : ended.result.value;
+  return ended.exceptionDetails ? failed(ended.exceptionDetails) : [...tooMany, ...ended.result.value];
 }
 
 /** Opens each pane a button in the gallery opens (a dropdown, a sheet, a popover), measures its size alone, and closes it: its failures, each naming the button. */
@@ -476,11 +544,13 @@ async function checkPage(chrome, contextId, url, looks, options) {
     // Measuring needs no WebGL drawing: a page asks for a context and is told there's none (as on a machine without it), which skips the
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
+    if (options.scriptOnNewDocument) await send("Page.addScriptToEvaluateOnNewDocument", { source: options.scriptOnNewDocument });
     // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS).
-    if (!options.pictureOf) {
-      await send("Network.enable");
-      await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
-    }
+    await send("Network.enable");
+    if (!options.pictureOf) await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
+    // Every page opens as its own first visit, with no browser cache: one Chrome plays every screen here, and the cache it would share across
+    // tabs holds pages others fetched ahead (prepared-pages.ts) for half a minute, sent under Chrome's own name and so drawn for a computer.
+    await send("Network.setCacheDisabled", { cacheDisabled: true });
     await look(looks[0]);
     const loaded = () => new Promise((done) => {
       const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done()));
@@ -540,6 +610,8 @@ async function checkPage(chrome, contextId, url, looks, options) {
     for (const [lookIndex, { size, theme }] of looks.entries()) {
       if (lookIndex > 0) await look({ size, theme });
       await plain();
+      // A page that loads more by itself has moved by the time it's compared, however fast its answer comes: never only when the answer wins the race.
+      if (isFirstPaintChecked && lookIndex === 0) await send("Runtime.evaluate", { expression: LOAD_ON_ITS_WAY, awaitPromise: true, returnByValue: true });
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       const isMainActionChecked = size.isRunnerChecked !== false && (options.mainActionShows === "everywhere" || (options.mainActionShows === "desktop" && !size.isPhone));
       const measured = { isMainActionChecked, isCoverAboveFold: Boolean(options.isCoverAboveFold) && size.isRunnerChecked !== false, isTouch: Boolean(size.hasTouch), tiers: options.tiers };
@@ -560,6 +632,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
           if (sizeBytes > limitBytes) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${limitBytes / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
         }
       }
+      // A sheet, menu or card on a page needs its button on the Screens bench, so none reaches a page unseen (scripts/preview/bench/places.ts). The sign-in site is another address, off the bench.
+      if (lookIndex === 0 && !options.isGallery && !options.isOnSignInSite) {
+        const { result: stateIds } = await send("Runtime.evaluate", { expression: STATE_IDS_ON_THE_PAGE, returnByValue: true });
+        for (const id of statesWithNoButton(stateIds.value ?? [])) found.push({ check: "the page has a state with no button on the Screens bench", element: `#${id}`, said: "give it a button in scripts/preview/bench/places.ts, or a reason in NOT_A_STATE" });
+      }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
@@ -567,7 +644,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
         found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
       // Tab round the page, on a screen without touch: before the gallery's panes and the presses, which move focus.
-      if (!size.hasTouch) found.push(...(await checkKeyboardReach(send)));
+      if (!size.hasTouch) found.push(...(await checkKeyboardReach(send, options.maximumArrivedControlCount)));
       // The gallery's panes, each opened from its button, measured on their own, and closed (docs/DESIGN.md, Pane sizes).
       if (options.isGallery) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
@@ -661,7 +738,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
   // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
   // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
-  let runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
+  const looksOf = (page) => looks.filter((one) => !page.screenNames || page.screenNames.includes(one.size.name));
+  let runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks: looksOf(page) }] : themes.map((theme) => ({ page, looks: looksOf(page).filter((one) => one.theme === theme) })))).filter((run) => run.looks.length);
   const foundByRun = [];
   const fingerprintByPage = new Map();
   const skippedPageNames = [];

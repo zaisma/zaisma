@@ -1,4 +1,4 @@
-import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
+import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, searchLetterCount, searchWords, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
 import { action, tertiaryButton } from "./components/actions.ts";
 import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
@@ -21,13 +21,16 @@ import type { CheckedPageName } from "./components/checked-pages.ts";
 /**
  * Browse (/games): every listed game in one grid of covers on Zaisma's own glass, with players now under each, a calm search tool you find
  * a game with and leave (docs/DECISIONS.md, "Browse is every listed game in one grid"). Sorted by Popular, Trending, New or Recently
- * updated, filtered by genre, players and price in one Filter menu, searched by title, developer or genre; games for the viewer's device
- * first, the rest after a divider saying what they're made for, each with its note. The sort, filters, search and page are all in the link.
+ * updated, with Best match in Popular's place while searching, filtered by genre, players and price in one Filter menu, searched by title,
+ * developer or genre; games for the viewer's device first, the rest after a divider saying what they're made for, each with its note. The
+ * sort, filters, search and page are all in the link. Nothing here can be bought: a title buys only its own name, and a republish nothing.
  */
 
-export const BROWSE_SORTS = ["popular", "trending", "new", "updated"] as const;
+export const BROWSE_SORTS = ["popular", "best_match", "trending", "new", "updated"] as const;
 export type BrowseSort = (typeof BROWSE_SORTS)[number];
-const SORT_LABELS: Record<BrowseSort, string> = { popular: "Popular", trending: "Trending", new: "New", updated: "Updated" };
+const SORT_LABELS: Record<BrowseSort, string> = { popular: "Popular", best_match: "Best match", trending: "Trending", new: "New", updated: "Updated" };
+/** The first tab: Best match while searching, Popular otherwise. Neither is ever in the link: the search says which. */
+const firstSortOf = (searchText: string): BrowseSort => (searchText ? "best_match" : "popular");
 
 /** Browse's players filter (?players=): games that play alone, games with multiplayer, or any. */
 export const BROWSE_PLAYERS = ["any", "single", "multiplayer"] as const;
@@ -44,6 +47,10 @@ const MAXIMUM_SEARCH_CHARACTER_COUNT = 80;
 export interface BrowseGame extends ShowGame {
   /** Why it may not suit the viewer's device ("Needs a keyboard"), for a game made for other devices; null when it fits. */
   device_note: string | null;
+  /** Players in the last 7 days as the shelves count them; 0 for a game kept off them. */
+  week_player_count: number;
+  /** It holds Best match's exact-name place, which comes before the viewer's device. */
+  is_exact_name: boolean;
 }
 
 export interface BrowseQuery {
@@ -58,19 +65,20 @@ export interface BrowseQuery {
   pageNumber: number;
 }
 
-/** What the link asks for; anything unknown falls back to the default (Popular, any genre, players and price, no search, the first page). */
+/** What the link asks for; anything unknown falls back to the default (Popular, or Best match while searching; any genre, players and price; no search; the first page). */
 export function browseQuery(url: URL): BrowseQuery {
   const sort = url.searchParams.get("sort");
   const genre = url.searchParams.get("genre");
   const players = url.searchParams.get("players");
   const priceRange = url.searchParams.get("price");
   const pageNumber = Number(url.searchParams.get("page"));
+  const searchText = (url.searchParams.get("search_text") ?? "").trim().slice(0, MAXIMUM_SEARCH_CHARACTER_COUNT);
   return {
-    sort: (BROWSE_SORTS as readonly string[]).includes(sort ?? "") ? (sort as BrowseSort) : "popular",
+    sort: (BROWSE_SORTS as readonly string[]).includes(sort ?? "") && sort !== "popular" && sort !== "best_match" ? (sort as BrowseSort) : firstSortOf(searchText),
     genre: (GENRES as readonly string[]).includes(genre ?? "") ? (genre as Genre) : "any",
     players: (BROWSE_PLAYERS as readonly string[]).includes(players ?? "") ? (players as BrowsePlayers) : "any",
     priceRange: (PRICE_RANGES as readonly string[]).includes(priceRange ?? "") ? (priceRange as PriceRange) : "any",
-    searchText: (url.searchParams.get("search_text") ?? "").trim().slice(0, MAXIMUM_SEARCH_CHARACTER_COUNT),
+    searchText,
     pageNumber: Number.isInteger(pageNumber) && pageNumber > 1 ? pageNumber : 1,
   };
 }
@@ -90,53 +98,120 @@ export function deviceNote(game: Pick<ShowGame, "devices" | "controls" | "screen
   return madeFor(game.devices);
 }
 
-/** Whether a game matches a search: its title, its developer's name or one of its genres, ignoring case. */
+/** A text as a search compares it; one that's all punctuation or emoji, as it's written. */
+const comparedWords = (text: string): string => searchWords(text) || text.toLowerCase();
+const wordsOfGame = (game: ShowGame): string[] => [game.title, game.developer ?? "", ...game.genres.map((genre) => GENRE_LABELS[genre as Genre] ?? genre)];
+const hasWordStart = (words: string, needle: string): boolean => ` ${words}`.includes(` ${needle}`);
+
+/** Whether a game matches a search: its title, its developer's name or one of its genres, ignoring case, accents and punctuation. */
 function matchesSearch(game: ShowGame, searchText: string): boolean {
   if (!searchText) return true;
-  const needle = searchText.toLowerCase();
-  const words = [game.title, game.developer ?? "", ...game.genres.map((genre) => GENRE_LABELS[genre as Genre] ?? genre)];
-  return words.some((word) => word.toLowerCase().includes(needle));
+  const needle = comparedWords(searchText);
+  return wordsOfGame(game).some((word) => comparedWords(word).includes(needle));
+}
+
+/** Text under this much (searchLetterCount) has no exact-name place and no closest title. */
+const MINIMUM_EXACT_NAME_LETTER_COUNT = 3;
+const GENRE_WORDS = new Set(Object.values(GENRE_LABELS).map((label) => searchWords(label)));
+
+/** Best match's tiers after the exact-name place: 1, the title's whole word or word start, or a developer's or genre's; 2, inside a word; 3, the closest title, found by no words at all. */
+function matchTierOf(game: ShowGame, needle: string): 1 | 2 | 3 {
+  const words = wordsOfGame(game).map(comparedWords);
+  if (words.some((word) => hasWordStart(word, needle))) return 1;
+  return words.some((word) => word.includes(needle)) ? 2 : 3;
+}
+
+/** Levenshtein, giving up past `maximumEditCount`: anything further is `maximumEditCount + 1`. */
+function editDistance(first: string, second: string, maximumEditCount: number): number {
+  const [from, to] = [[...first], [...second]];
+  if (Math.abs(from.length - to.length) > maximumEditCount) return maximumEditCount + 1;
+  let previous = Array.from({ length: to.length + 1 }, (_, index) => index);
+  for (let fromIndex = 1; fromIndex <= from.length; fromIndex++) {
+    const current = [fromIndex];
+    for (let toIndex = 1; toIndex <= to.length; toIndex++) current[toIndex] = Math.min(previous[toIndex]! + 1, current[toIndex - 1]! + 1, previous[toIndex - 1]! + (from[fromIndex - 1] === to[toIndex - 1] ? 0 : 1));
+    if (Math.min(...current) > maximumEditCount) return maximumEditCount + 1;
+    previous = current;
+  }
+  return previous[to.length]!;
+}
+
+/** A search that finds nothing: the games whose title, or a run of as many of its words, is closest, within a third of the text's letters. A typo finds its game; a stranger's text finds nothing. */
+function closestTitles<GameFound extends ShowGame>(games: GameFound[], searchText: string): GameFound[] {
+  const needle = searchWords(searchText);
+  const maximumEditCount = Math.floor([...needle].length / 3);
+  if (!maximumEditCount || searchLetterCount(needle) < MINIMUM_EXACT_NAME_LETTER_COUNT) return [];
+  const needleWordCount = needle.split(" ").length;
+  const distanceOf = (game: GameFound): number => {
+    const words = searchWords(game.title).split(" ");
+    const runs = [words.join(" "), ...words.slice(0, Math.max(0, words.length - needleWordCount + 1)).map((_, index) => words.slice(index, index + needleWordCount).join(" "))];
+    return Math.min(...runs.map((run) => editDistance(needle, run, maximumEditCount)));
+  };
+  const distances = new Map(games.map((game) => [game.id, distanceOf(game)]));
+  const closestEditCount = Math.min(maximumEditCount + 1, ...distances.values());
+  return closestEditCount > maximumEditCount ? [] : games.filter((game) => distances.get(game.id) === closestEditCount);
+}
+
+/** A game's place in today's shuffle: a hash of the UTC day and its ID (FNV-1a, mixed), so everyone sees one order all day and nothing a developer can pick buys a place in it. */
+function dailyPlaceOf(gameId: string, utcDate: string): number {
+  let hashNumber = 2166136261;
+  for (const character of `${utcDate}:${gameId}`) hashNumber = Math.imul(hashNumber ^ character.charCodeAt(0), 16777619);
+  hashNumber = Math.imul(hashNumber ^ (hashNumber >>> 15), 2246822507);
+  return (hashNumber ^ (hashNumber >>> 13)) >>> 0;
 }
 
 /**
  * Every listed game the viewer can find, in the sort's order, those for their device first, each with its device note. Popular and
- * Trending rank by the home shelves' own counting (shelfCounts), with every game below a shelf's floor after the ranked ones, newest
- * update first, so nothing listed is left out; a game Zaisma keeps off the shelves is listed but ranks as if nobody played it.
+ * Trending rank by the home shelves' own counting (shelfCounts), with every game below a shelf's floor after the ranked ones in a daily
+ * shuffle, so nothing listed is left out and each gets its turn; a game Zaisma keeps off the shelves is listed but ranks as if nobody played
+ * it. Best match lists the game named exactly what was typed, then the tiers of matchTierOf, each in Popular's order. A search that finds
+ * nothing falls back to the closest title.
  */
 export async function browseGames(env: Env, options: { sort: BrowseSort; genre: Genre | "any"; players: BrowsePlayers; priceRange: BrowsePriceRange; searchText: string; deviceKind: DeviceKind; viewerAgeFloorYears: number; countryCode: string | null; nowMs?: number }): Promise<BrowseGame[]> {
+  const nowMs = options.nowMs ?? Date.now();
   const [games, { counts }] = await Promise.all([
     showcase(env, options.viewerAgeFloorYears, Number.MAX_SAFE_INTEGER, options.countryCode),
-    shelfCounts(env, options.viewerAgeFloorYears, options.nowMs),
+    shelfCounts(env, options.viewerAgeFloorYears, nowMs),
   ]);
-  const updatedAtMs = (game: ShowGame) => game.published_at_ms ?? 0;
-  const byUpdate = (first: ShowGame, second: ShowGame) => updatedAtMs(second) - updatedAtMs(first);
+  const utcDate = new Date(nowMs).toISOString().slice(0, 10);
+  const dailyPlaces = new Map(games.map((game) => [game.id, dailyPlaceOf(game.id, utcDate)]));
+  const byDailyPlace = (first: ShowGame, second: ShowGame) => dailyPlaces.get(first.id)! - dailyPlaces.get(second.id)!;
+  const updatedAtMs = (game: ShowGame) => game.recently_updated_at_ms ?? game.first_published_at_ms ?? 0;
   const countsOf = (game: ShowGame): ShelfCount | undefined => counts.get(game.slug);
   type Order = (first: ShowGame, second: ShowGame) => number;
-  // Games a rule ranks first, by their score; the rest after them in the fallback's order (newest update first unless said).
-  const ranked = (isRanked: (gameCounts: ShelfCount) => boolean, score: (gameCounts: ShelfCount) => number, fallback: Order = byUpdate): Order => (first, second) => {
+  // Games a rule ranks first, by their score; the rest after them in the fallback's order (today's shuffle unless said).
+  const ranked = (isRanked: (gameCounts: ShelfCount) => boolean, score: (gameCounts: ShelfCount) => number, fallback: Order = byDailyPlace): Order => (first, second) => {
     const [firstCounts, secondCounts] = [countsOf(first), countsOf(second)];
     const [isFirstRanked, isSecondRanked] = [Boolean(firstCounts && isRanked(firstCounts)), Boolean(secondCounts && isRanked(secondCounts))];
     if (isFirstRanked !== isSecondRanked) return isFirstRanked ? -1 : 1;
-    if (isFirstRanked) return score(secondCounts!) - score(firstCounts!) || byUpdate(first, second);
+    if (isFirstRanked) return score(secondCounts!) - score(firstCounts!) || byDailyPlace(first, second);
     return fallback(first, second);
   };
   const popularOrder = ranked((gameCounts) => gameCounts.weekPlayerCount >= MINIMUM_POPULAR_PLAYER_COUNT, (gameCounts) => gameCounts.weekPlayerCount);
+  const filtered = games
+    .filter((game) => options.genre === "any" || game.genres.includes(options.genre))
+    .filter((game) => options.players === "any" || (options.players === "multiplayer" ? game.is_multiplayer : game.is_single_player))
+    .filter((game) => matchesPriceRange(game, options.priceRange));
+  const matching = filtered.filter((game) => matchesSearch(game, options.searchText));
+  const found = matching.length || !options.searchText ? matching : closestTitles(filtered, options.searchText);
+  const needle = comparedWords(options.searchText);
+  const matchTiers = new Map(options.sort === "best_match" && options.searchText ? found.map((game) => [game.id, matchTierOf(game, needle)]) : []);
+  const tierOrder: Order = (first, second) => (matchTiers.get(first.id) ?? 0) - (matchTiers.get(second.id) ?? 0) || popularOrder(first, second);
+  // The exact-name place holds one game, more players first when two titles match. Genre words and short text have none.
+  const canHaveExactName = matchTiers.size > 0 && searchLetterCount(needle) >= MINIMUM_EXACT_NAME_LETTER_COUNT && !GENRE_WORDS.has(needle);
+  const exactName = canHaveExactName ? found.filter((game) => comparedWords(game.title) === needle).sort(popularOrder)[0] : undefined;
   const order: Record<BrowseSort, Order> = {
     popular: popularOrder,
+    best_match: (first, second) => Number(second === exactName) - Number(first === exactName) || tierOrder(first, second),
     // Trending games first by how strongly they trend, then the rest as Popular has them.
     trending: ranked(isTrending, trendingScore, popularOrder),
     new: (first, second) => (second.first_published_at_ms ?? 0) - (first.first_published_at_ms ?? 0),
-    updated: byUpdate,
+    updated: (first, second) => updatedAtMs(second) - updatedAtMs(first),
   };
-  const chosen = games
-    .filter((game) => options.genre === "any" || game.genres.includes(options.genre))
-    .filter((game) => options.players === "any" || (options.players === "multiplayer" ? game.is_multiplayer : game.is_single_player))
-    .filter((game) => matchesSearch(game, options.searchText))
-    .filter((game) => matchesPriceRange(game, options.priceRange))
-    .sort(order[options.sort])
-    .map((game): BrowseGame => ({ ...game, device_note: deviceNote(game, options.deviceKind) }));
-  // The device's own first, each part keeping the sort's order.
-  return [...chosen.filter((game) => !game.device_note), ...chosen.filter((game) => game.device_note)];
+  const chosen = [...found].sort(order[options.sort === "best_match" && !options.searchText ? "popular" : options.sort]).map(
+    (game): BrowseGame => ({ ...game, device_note: deviceNote(game, options.deviceKind), week_player_count: countsOf(game)?.weekPlayerCount ?? 0, is_exact_name: game === exactName }),
+  );
+  // The device's own first, each part keeping the sort's order; typing a game's name finds that game on any device.
+  return [...chosen.filter((game) => game.is_exact_name), ...chosen.filter((game) => !game.device_note && !game.is_exact_name), ...chosen.filter((game) => game.device_note && !game.is_exact_name)];
 }
 
 /**
@@ -158,7 +233,7 @@ function priceRangeLabels(countryCode: string | null): Record<BrowsePriceRange, 
 /** A link to Browse with this query, leaving out what's the default. */
 export function browseHref(query: Partial<BrowseQuery>): string {
   const parameters = new URLSearchParams();
-  if (query.sort && query.sort !== "popular") parameters.set("sort", query.sort);
+  if (query.sort && query.sort !== "popular" && query.sort !== "best_match") parameters.set("sort", query.sort);
   if (query.genre && query.genre !== "any") parameters.set("genre", query.genre);
   if (query.players && query.players !== "any") parameters.set("players", query.players);
   if (query.priceRange && query.priceRange !== "any") parameters.set("price", query.priceRange);
@@ -259,9 +334,9 @@ function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: Readonly
   }
   const firstIndex = (query.pageNumber - 1) * BROWSE_PAGE_GAME_COUNT;
   const pageGames = games.slice(firstIndex, firstIndex + BROWSE_PAGE_GAME_COUNT);
-  const fitting = pageGames.filter((game) => !game.device_note);
-  const others = pageGames.filter((game) => game.device_note);
-  const allOthers = games.filter((game) => game.device_note);
+  const fitting = pageGames.filter((game) => !game.device_note || game.is_exact_name);
+  const others = pageGames.filter((game) => game.device_note && !game.is_exact_name);
+  const allOthers = games.filter((game) => game.device_note && !game.is_exact_name);
   const hasMore = firstIndex + BROWSE_PAGE_GAME_COUNT < games.length;
   return [
     // Both lists are always there, so Load more can add to either; an empty one takes no room until a page brings it covers.
@@ -286,7 +361,8 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
   const games = await browseGames(env, { ...query, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode });
   const firstIndex = (query.pageNumber - 1) * BROWSE_PAGE_GAME_COUNT;
   const ownedGameIds = await paidGamesOwnedBy(env, viewer.account, games.slice(firstIndex, firstIndex + BROWSE_PAGE_GAME_COUNT));
-  const sortTabs: SwitchTab[] = BROWSE_SORTS.map((sort) => ({ label: SORT_LABELS[sort], href: browseHref({ ...query, sort, pageNumber: 1 }), isCurrent: query.sort === sort }));
+  const sortTabs: SwitchTab[] = [firstSortOf(query.searchText), "trending" as const, "new" as const, "updated" as const].map((sort) => ({ label: SORT_LABELS[sort], href: browseHref({ ...query, sort, pageNumber: 1 }), isCurrent: query.sort === sort }));
+  const isClosestTitle = Boolean(query.searchText && games.length) && !games.some((game) => matchesSearch(game, query.searchText));
   const priceLabels = priceRangeLabels(countryCode);
   const tags = filtersInUse(query, priceLabels);
   const body = html`<div id="browse" data-device-kind="${deviceKind}">${glassPane({
@@ -294,7 +370,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     label: "Browse",
     body: stack({
       items: [
-        { kind: "words", markup: html`<h1>${query.searchText ? `Games matching "${query.searchText}"` : "Browse"}</h1>` },
+        { kind: "words", markup: html`<h1>${isClosestTitle ? `Closest to "${query.searchText}"` : query.searchText ? `Games matching "${query.searchText}"` : "Browse"}</h1>` },
         {
           kind: "block",
           markup: row({
@@ -320,7 +396,7 @@ export async function browsePage(env: Env, request: Request): Promise<Response> 
     viewer,
     checkedPage: browseState(query, viewer.account !== null && viewer.account !== undefined, games.length),
     pageShape: "wide",
-    search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.sort !== "popular" ? { sort: query.sort } : {}), ...(query.genre !== "any" ? { genre: query.genre } : {}), ...(query.players !== "any" ? { players: query.players } : {}), ...(query.priceRange !== "any" ? { price: query.priceRange } : {}) } },
+    search: { ...GAME_SEARCH, searchText: query.searchText, keep: { ...(query.genre !== "any" ? { genre: query.genre } : {}), ...(query.players !== "any" ? { players: query.players } : {}), ...(query.priceRange !== "any" ? { price: query.priceRange } : {}) } },
     body: html`${body}${scriptTags(BROWSE_SCRIPT)}`,
   });
   // The order depends on the device, so a cache keeps one copy per device cookie.
@@ -335,30 +411,27 @@ const MAXIMUM_SUGGESTION_COUNT = 3;
 const SUGGESTIONS_KEPT_MS = 60_000;
 
 /**
- * What the header's search suggests as you type (GET /games/suggestions?search_text=, SearchSuggestions): the games Browse would find,
- * in its Popular order with the viewer's device first, so nothing shows that a stranger couldn't find on Browse; and the ways to finish
- * what's typed, from those games' titles, developers and genres, the one that finds the most games first. What's typed exactly leads: a game of
- * that title leads the games (the search's script lights it), and a developer or genre of those words leads the finishes.
+ * What the header's search suggests as you type (GET /games/suggestions?search_text=, SearchSuggestions): the games Browse's search found,
+ * in its Best match order, so nothing shows that a stranger couldn't find on Browse; and the ways to finish what's typed, from those games'
+ * titles, developers and genres, the one whose games have the most players first, so a short title with no players falls behind real games.
+ * What's typed exactly leads: a game of that title is what Enter opens (the search's script lights it), and a developer or genre of those words leads the finishes.
  */
 export function suggestionsFor(games: BrowseGame[], searchText: string): SearchSuggestions {
-  const needle = searchText.toLowerCase();
+  const needle = comparedWords(searchText);
   if (!needle) return { finishes: [], games: [] };
-  const isTitled = (game: BrowseGame) => game.title.toLowerCase() === needle;
-  const matches = games.filter((game) => matchesSearch(game, searchText));
-  const found = [...matches.filter(isTitled), ...matches.filter((game) => !isTitled(game))];
-  // Each finish once, however it's written, with how many games searching it finds and where it first shows in the order.
-  const finishes = new Map<string, { finish: string; gameCount: number; firstIndex: number }>();
-  found.forEach((game, gameIndex) => {
-    const words = [game.title, game.developer ?? "", ...game.genres.map((genre) => GENRE_LABELS[genre as Genre] ?? genre)];
-    for (const word of words) {
-      const key = word.toLowerCase();
+  // Each finish once, however it's written, with what searching it finds and where it first shows in the order.
+  const finishes = new Map<string, { finish: string; playerCount: number; gameCount: number; firstIndex: number }>();
+  games.forEach((game, gameIndex) => {
+    for (const word of wordsOfGame(game)) {
+      const key = comparedWords(word);
       if (!key.startsWith(needle) || finishes.has(key) || (key === needle && word === game.title)) continue;
-      finishes.set(key, { finish: word, gameCount: found.filter((each) => matchesSearch(each, word)).length, firstIndex: gameIndex });
+      const finding = games.filter((each) => matchesSearch(each, word));
+      finishes.set(key, { finish: word, playerCount: finding.reduce((totalPlayerCount, each) => totalPlayerCount + each.week_player_count, 0), gameCount: finding.length, firstIndex: gameIndex });
     }
   });
   return {
-    finishes: [...finishes.values()].sort((first, second) => Number(second.finish.toLowerCase() === needle) - Number(first.finish.toLowerCase() === needle) || second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
-    games: found.slice(0, MAXIMUM_SUGGESTION_COUNT).map((game) => ({
+    finishes: [...finishes.values()].sort((first, second) => Number(comparedWords(second.finish) === needle) - Number(comparedWords(first.finish) === needle) || second.playerCount - first.playerCount || second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
+    games: games.slice(0, MAXIMUM_SUGGESTION_COUNT).map((game) => ({
       title: game.title,
       page_url: `/g/${game.slug}`,
       cover_url: game.cover ?? game.square ?? "",
@@ -382,7 +455,7 @@ export async function browseSuggestions(env: Env, request: Request): Promise<Res
   let body: string;
   if (kept) body = await kept.text();
   else {
-    const games = searchText ? await browseGames(env, { sort: "popular", genre: "any", players: "any", priceRange: "any", searchText, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode }) : [];
+    const games = searchText ? await browseGames(env, { sort: "best_match", genre: "any", players: "any", priceRange: "any", searchText, deviceKind, viewerAgeFloorYears: viewer.ageFloorYears, countryCode }) : [];
     body = JSON.stringify(suggestionsFor(games, searchText));
     if (searchText && cache) await cache.put(cacheKey, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${SUGGESTIONS_KEPT_MS / 1000}` } }));
   }
@@ -416,7 +489,9 @@ function swap(next) {
     // The Filter menu beside the sorts keeps the new sort in its links.
     const menuHere = row.querySelector(".filter-menu"), menuThere = to.querySelector(".filter-menu");
     if (menuHere && menuThere) menuHere.replaceWith(document.importNode(menuThere, true));
-    if (switchHere && switchThere) {
+    const labelsOf = (each) => Array.from(each.querySelectorAll(":scope > a")).map((tab) => tab.textContent).join();
+    // Across a search the first tab changes its name (Best match, Popular): then the switch is drawn again instead.
+    if (switchHere && switchThere && labelsOf(switchHere) === labelsOf(switchThere)) {
       const tabsThere = switchThere.querySelectorAll(":scope > a");
       switchHere.querySelectorAll(":scope > a").forEach((tab, index) => {
         const tabThere = tabsThere[index]; if (!tabThere) return;
@@ -427,9 +502,9 @@ function swap(next) {
   });
   there.slice(here.length).forEach((row) => parent.append(document.importNode(row, true)));
 }
-function show(href, isNewEntry, isSearch, reopenedGroupName) {
+function show(href, isNewEntry, isSearch, reopenedGroupName, slideLanded) {
   const asked = ++latest;
-  fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)).then((text) => {
+  Promise.all([fetch(href, { headers: { accept: "text/html" }, credentials: "same-origin" }).then((response) => response.ok ? response.text() : Promise.reject(response.status)), slideLanded]).then(([text]) => {
     if (asked !== latest) return;
     const page = new DOMParser().parseFromString(text, "text/html"), next = page.getElementById("browse");
     if (!next) return;
@@ -441,7 +516,8 @@ function show(href, isNewEntry, isSearch, reopenedGroupName) {
     if (typeof reopenedGroupName === "string") reopenFilter(reopenedGroupName);
   }).catch(() => { if (isNewEntry === "push") location.href = href; });
 }
-// A sort or a genre: its tab slides at once, and the grid follows when the page's games come.
+// A sort or a genre: its tab slides at once, and the grid follows when the page's games have come and the slab has landed. The slide runs
+// on the page's one thread and drawing a grid of covers holds that thread longer than the slide lasts, so a grid drawn on the way stops the slab.
 browse.addEventListener("click", (event) => {
   const tab = event.target.closest && event.target.closest(".tab-switch > a[href]");
   if (!tab || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -451,7 +527,9 @@ browse.addEventListener("click", (event) => {
   sw.querySelectorAll(":scope > a").forEach((each) => each.removeAttribute("aria-current"));
   tab.setAttribute("aria-current", "page");
   if (sw.pickTab) sw.pickTab(tab);
-  show(tab.getAttribute("href"), "push");
+  const slab = sw.querySelector(".switch-slab");
+  const slideMs = slab && !matchMedia("(prefers-reduced-motion: reduce)").matches ? parseFloat(getComputedStyle(slab).getPropertyValue("--slide-ms")) || 0 : 0;
+  show(tab.getAttribute("href"), "push", false, undefined, new Promise((landed) => setTimeout(landed, slideMs)));
 });
 // A filter picked or taken away: the pane is drawn again in place, its menu and tags with it. The open menu floats outside the pane (in
 // the page's top layer), so its picks are heard on the whole page; picked there, the menu opens again at once on its ways, the way just
@@ -481,7 +559,8 @@ if (search) {
   const searched = () => {
     const url = new URL(location.href);
     const searchText = search.value.trim();
-    if (searchText) url.searchParams.set("search_text", searchText); else url.searchParams.delete("search_text");
+    // A new search goes to Best match, whichever sort was picked before it.
+    if (searchText) { url.searchParams.set("search_text", searchText); url.searchParams.delete("sort"); } else url.searchParams.delete("search_text");
     url.searchParams.delete("page");
     return url.pathname + url.search;
   };

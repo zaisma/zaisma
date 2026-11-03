@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -20,8 +20,9 @@ const INSTRUCTIONS = `Zaisma hosts browser games: a game is a folder with an ind
 How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see. Until the beta, only accounts Zaisma adds can make, upload and publish games: others get publishing_not_open, and get_access says can_publish.
 2. Check, then upload a version. Small games (under 5 MB, like single-file HTML games): check_game, then upload_files, with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it runs the same check first (\`npx @zaisma/cli check <folder>\` runs it alone, with no key), downloads files the game loads from other sites and unpacks pre-compressed builds in what it sends, and only sends changed files.
-3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day, or, when its findings say daily_large_reviews_used or daily_small_reviews_used, for the next of the developer's daily reviews (5 large, 30 small; 20 and 100 with Zaisma Pro). Passed versions get a private preview link.
-4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
+3. Every version is scanned, usually in under a minute: malware, known images and Zaisma's own file checks. get_version shows the result. A held version waits for a person, usually within a day. Passed versions get a private preview link, which opens only for the developer until an AI review lets the version through; a developer's AI tests with play-locally until then, or starts the review with start_ai_review.
+3b. The AI review follows for what other people can reach. A game only its developer can reach never gets one. publish_version on a game others can reach starts it, and is_ai_review_needed_to_publish and usual_ai_review_duration_min on the version say so first: tell the developer how long it usually takes before publishing, never as a promise. A developer who has earned it (get_access standing.publish_before_ai_review_enabled) goes live straight away with the review pending, or with publish_after_ai_review_enabled only once it passes; anyone else stays off until it passes. A stop sends players back to the last version that passed. The ai_review_finished webhook says when it ends. Each developer has daily reviews (5 large, 30 small); past them it waits for a free one, with ai_review_waiting_reason saying which.
+4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time; with match_update_mode "now", running matches switch to it within seconds too, instead of at their next match. A publish is a quiet patch unless is_big_update is true: only that shows players the Updated tag. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link. Listed games show in Zaisma's own lists from the first day; links to sites outside the trusted list and search engines wait for the account's standing, and get_access's standing says what's left.
 
 To earn, a game can sell itself once (set_item a permanent content item, then update_game full_game_item_name) or sell items inside it with the buy sheet; both pay the developer's own Stripe with no cut.
 
@@ -417,6 +418,8 @@ export const TOOLS: Tool[] = [
           },
           patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
           publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan; that's publishing, so it needs a key with version_access publish" },
+          publish_after_ai_review_enabled: { type: "boolean", description: "With publish_when_approved: go live only once the AI review passes, for a developer who could go first." },
+          is_big_update: { type: "boolean", description: "With publish_when_approved true: mark it a big update, with patch_notes saying what's new. Left out, it goes live as a quiet patch." },
           match_update_mode: { ...{ type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" }, description: "With publish_when_approved: when running matches get it, next_match (the default) or now" },
         },
         ["slug", "files"],
@@ -496,14 +499,25 @@ export const TOOLS: Tool[] = [
       "Make a version that passed review live now, or later at scheduled_publish_at (from a few minutes to 90 days ahead). Publishing an older version rolls back to it. The live version and the last 5 are kept.\n\n" +
       'Not: { "scheduled_publish_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", not a number)\n' +
       'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")\n' +
-      'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")',
+      'A fix live matches need at once (an exploit, a crash): { "match_update_mode": "now" }. Not: { "match_update_mode": true } (give "now" or "next_match")\n' +
+      "A publish is a quiet patch: its notes show in the game page's Updates tab and nothing else changes. Only for an update players should come back for, mark it: " + '{ "is_big_update": true, "patch_notes": "Three new worlds and online co-op." }. That shows the Updated tag to players who have played, and moves the game up Recently updated at most once every 30 days. ' + 'Not: { "is_big_update": true } on a version with no notes (a big update says what\'s new), or on a rollback (only a version going live for the first time counts).',
     inputSchema: object(
-      { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
+      { slug, version_id: versionId, publish_after_ai_review_enabled: { type: "boolean", description: "Go live only once the AI review passes, for a developer who could go first. Everyone else waits for it anyway." }, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time. Its AI review starts by itself up to a day ahead when other people can reach the game.", examples: ["2026-11-01T17:00:00Z"] }, match_update_mode: { type: "string", enum: ["next_match", "now"], description: "When running matches get it: next_match (they finish on the version they started; the default) or now (every live match switches within seconds, in the same room, and players' games reload into it when its files changed; the game server can hold it until a good moment with onVersionUpdate, up to 5 minutes). Games not in a match get it when the game or the player says, never forced" } },
       ["slug", "version_id"],
     ),
     outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode"])),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes", "publish_after_ai_review_enabled"])),
+  },
+  {
+    name: "start_ai_review",
+    title: "Start a version's AI review",
+    description:
+      "Start a version's AI review without publishing it, so it's done ahead of a launch or a tester link. A version only its developer can reach needs none. Asked again, it answers where the review stands. usual_ai_review_duration_min says how long it usually takes, not a promise: a batch can take much longer. get_version or the ai_review_finished webhook says when it ends.",
+    inputSchema: object({ slug, version_id: versionId }, ["slug", "version_id"]),
+    outputSchema: answer({ version: VERSION, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/ai-review`),
   },
   {
     name: "cancel_scheduled_publish",
@@ -850,10 +864,54 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("DELETE", "/stripe-account"),
   },
   {
+    name: "get_storage",
+    title: "My storage",
+    description:
+      "What the developer's account stores and can store. A game can be any size: the limits are the account's storage and its new data a day. A new account stores 10 GB and sends 10 GB of new data a day; established or paid by card, 50 GB and 25 GB; Zaisma Pro, 500 GB and 100 GB. Everything stored counts, drafts and old versions too; a file shared between versions counts once. Answers what's stored, what can be, today's new data, the storage budget, the biggest versions delete_version can delete now, and unpaid_files_delete_at: when what's past the limit goes because nothing pays for it, live versions kept.",
+    inputSchema: object({}),
+    outputSchema: STORAGE,
+    annotations: read,
+    run: (_, call) => call("GET", "/storage"),
+  },
+  {
+    name: "set_storage_budget",
+    title: "Set my storage budget",
+    description:
+      "Set what the account may draw from credit each month for storage past what's included, at 12¢ per GB a month, or null to stop. $10 of budget and credit buys room for about 83 GB. When credit runs out, uploads stop fitting, and 14 days later what isn't live goes until the account fits. A first or higher budget answers confirmation_needed: give the developer confirm_url, where they approve with a passkey tap. Off or lower works at once. Ask the developer first.\n" +
+      'Not: { "monthly_storage_budget_cents": 10 } (that\'s 10 cents: cents, not dollars, so $10 is 1000)',
+    inputSchema: {
+      ...object({ monthly_storage_budget_cents: { type: ["integer", "null"], minimum: 100, maximum: 1000000, description: "Cents a month: 1000 is $10. null: no budget." } }, ["monthly_storage_budget_cents"]),
+      examples: [{ monthly_storage_budget_cents: 1000 }, { monthly_storage_budget_cents: null }],
+    },
+    outputSchema: STORAGE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", "/storage", { monthly_storage_budget_cents: toolArguments.monthly_storage_budget_cents }),
+  },
+  {
+    name: "delete_version",
+    title: "Delete a version",
+    description:
+      "Deletes one version for good, and frees the files no other version has at once. Not for a version that's live, set to publish, picked by a tester link (version_in_use), being scanned (still_scanning) or kept for a person at Zaisma (kept_for_review). get_storage lists the ones that can go. Ask the developer first: it can't be rolled back to afterwards.",
+    inputSchema: { ...object({ slug, version_id: versionId }, ["slug", "version_id"]), examples: [{ slug: "sky-hopper", version_id: "version_abc123" }] },
+    outputSchema: DELETED_WITH_STORAGE,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}`),
+  },
+  {
+    name: "delete_game",
+    title: "Delete a game",
+    description:
+      "Deletes a whole game for good: it stops at once for every player, its link is never used again, and its versions, database, saves and purchases all go. Frees its files at once. export_game keeps a copy first. Nothing brings it back, so ask the developer first, and send its slug again as confirm_slug. A game kept for a person at Zaisma answers kept_for_review.",
+    inputSchema: { ...object({ slug, confirm_slug: { type: "string", description: "The game's slug again: the check that this is the game meant." } }, ["slug", "confirm_slug"]), examples: [{ slug: "sky-hopper", confirm_slug: "sky-hopper" }] },
+    outputSchema: DELETED_WITH_STORAGE,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}`, { confirm_slug: toolArguments.confirm_slug }),
+  },
+  {
     name: "get_pro",
     title: "My plan",
     description:
-      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro raises the daily limits: 20 large and 100 small AI reviews a day (free 5 and 30), 60 performance checks (20), 100 versions a game (20), and games up to 10 GB (2 GB). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
+      "The developer's plan: free, or Zaisma Pro ($10 a month on their card, apart from credit). Pro gives 500 GB of storage, 100 GB of new data a day and 60 performance checks a day (free: 10 GB and 10 GB for a new account, 50 GB and 25 GB once established or paid by card, and 20 checks). Reviews and versions a day are the same on every plan (limits_for_everyone). Answers both plans' limits, what today used, when Pro ends or renews (pro_ends_at), whether it is cancelled, and until when its first payment refunds (refund_ends_at, refund_pro). Seats come with Teams and custom domains with Custom game domains, not Pro.",
     inputSchema: object({}),
     outputSchema: PRO,
     annotations: read,
@@ -871,7 +929,7 @@ export const TOOLS: Tool[] = [
   {
     name: "cancel_pro",
     title: "Cancel Zaisma Pro",
-    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back; a live version over 2 GB stays live, and only new uploads must fit. resume_pro takes the cancelling back before then. Ask the developer first.",
+    description: "Cancel Zaisma Pro: it stays until the end of the paid month (pro_ends_at), then isn't charged again and the free limits come back: new uploads must fit, and 14 days later what's past the limit and isn't live goes. resume_pro takes the cancelling back before then. Ask the developer first.",
     inputSchema: object({}),
     outputSchema: PRO_CHANGED,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1239,7 +1297,7 @@ export const TOOLS: Tool[] = [
       banned_at: nullable(isoTime("When Zaisma banned this account; null when it isn't banned.")),
       ban_scope: nullable(choice({ developer: "its games are down, and only get_access, list_games and export_game work; playing still works", whole_account: "the account is closed" }, "How far the ban goes; null when it isn't banned.")),
       credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
-      plan: choice({ free: "the free daily limits", pro: "Zaisma Pro: the higher daily limits" }, "The developer's plan; get_pro has its limits."),
+      plan: choice({ free: "storage and performance checks by the account's standing", pro: "Zaisma Pro: more storage and performance checks" }, "The developer's plan; get_pro has its limits."),
       standing: STANDING,
       next_steps: NEXT,
     }),
@@ -2037,7 +2095,9 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
     files: list,
     patch_notes: typeof toolArguments.patch_notes === "string" ? toolArguments.patch_notes : "",
     publish_when_approved: toolArguments.publish_when_approved === true,
+    ...(toolArguments.publish_after_ai_review_enabled === true ? { publish_after_ai_review_enabled: true } : {}),
     ...(toolArguments.match_update_mode !== undefined ? { match_update_mode: toolArguments.match_update_mode } : {}),
+    ...(toolArguments.is_big_update !== undefined ? { is_big_update: toolArguments.is_big_update } : {}),
   });
   return { version, sent_file_count: sent.size, next_steps: nextSteps };
 }

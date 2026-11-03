@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, checkIdKind, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, checkIdKind, freeAllowanceCents, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
@@ -67,10 +67,10 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
       .bind(ownerId, sinceMs)
       .all<{ id: string; entry_kind: CreditEntryKind; amount_cents: number; game_slug: string | null; created_at_ms: number }>(),
     env.DB.prepare(
-      "SELECT games.slug, games.title, games.monthly_budget_cents, COALESCE(game_hosting_months.charged_cents, 0) AS charged_cents, COALESCE(last_month.used_cents, 0) AS last_month_used_cents FROM games LEFT JOIN game_hosting_months ON game_hosting_months.game_id = games.id AND game_hosting_months.month_start_date = ? LEFT JOIN game_hosting_months AS last_month ON last_month.game_id = games.id AND last_month.month_start_date = ? WHERE games.owner_id = ? AND (games.monthly_budget_cents IS NOT NULL OR game_hosting_months.charged_cents > 0 OR last_month.used_cents > ?) ORDER BY games.title",
+      "SELECT games.slug, games.title, games.monthly_budget_cents, games.second_free_allowance_month_start_date, COALESCE(game_hosting_months.charged_cents, 0) AS charged_cents, COALESCE(last_month.used_cents, 0) AS last_month_used_cents FROM games LEFT JOIN game_hosting_months ON game_hosting_months.game_id = games.id AND game_hosting_months.month_start_date = ? LEFT JOIN game_hosting_months AS last_month ON last_month.game_id = games.id AND last_month.month_start_date = ? WHERE games.owner_id = ? AND (games.monthly_budget_cents IS NOT NULL OR game_hosting_months.charged_cents > 0 OR last_month.used_cents > ?) ORDER BY games.title",
     )
       .bind(monthStartDateOf(nowMs), lastMonthStartDate, ownerId, FREE_HOSTING_CENTS_PER_MONTH)
-      .all<{ slug: string; title: string; monthly_budget_cents: number | null; charged_cents: number; last_month_used_cents: number }>(),
+      .all<{ slug: string; title: string; monthly_budget_cents: number | null; second_free_allowance_month_start_date: string | null; charged_cents: number; last_month_used_cents: number }>(),
   ]);
   return {
     balance_cents: credit.balanceCents,
@@ -79,7 +79,7 @@ export async function creditAnswer(env: Env, ownerId: string, nowMs = Date.now()
     top_ups: topUps
       .filter((topUp) => topUp.createdAtMs >= nowMs - CREDIT_LIMITS.refundableDurationDays * DAY_MS)
       .map((topUp) => ({ id: topUp.id, amount_cents: topUp.amountCents, refundable_cents: topUp.refundableCents, refund_ends_at: iso(topUp.refundableUntilMs), created_at: iso(topUp.createdAtMs) })),
-    games: games.map((game) => ({ slug: game.slug, title: game.title, monthly_budget_cents: game.monthly_budget_cents, spent_from_credit_this_month_cents: game.charged_cents, last_month_beyond_free_cents: Math.max(0, Math.round(game.last_month_used_cents) - FREE_HOSTING_CENTS_PER_MONTH) })),
+    games: games.map((game) => ({ slug: game.slug, title: game.title, monthly_budget_cents: game.monthly_budget_cents, spent_from_credit_this_month_cents: game.charged_cents, last_month_beyond_free_cents: Math.max(0, Math.round(game.last_month_used_cents) - freeAllowanceCents(game.second_free_allowance_month_start_date, lastMonthStartDate)) })),
     entries: entries.map((entry) => ({ id: entry.id, entry_kind: entry.entry_kind, amount_cents: entry.amount_cents, game_slug: entry.game_slug, created_at: iso(entry.created_at_ms) })),
   };
 }

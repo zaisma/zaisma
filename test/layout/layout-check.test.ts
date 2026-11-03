@@ -11,11 +11,13 @@ import { stack, type LayoutMarkup } from "../../apps/site/src/components/layout.
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { dropdown } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
-import { MEASURED_SCREEN_NAMES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
+import { MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { openChrome } from "../../scripts/chrome.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
 
@@ -119,7 +121,10 @@ describe.skipIf(!sites)("the layout check", () => {
     // For PAGE_COSTS_SEC in scripts/layout-check.mjs, when the shares stop finishing together.
     console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
     // A skipped page sends no form, so it's one look per screen and theme.
-    expect(checkedCount + skippedPageNames.length * layoutRun.sizes.length * layoutRun.themes.length).toBe(pages.length * layoutRun.sizes.length * layoutRun.themes.length);
+    const looksOf = (page: { name: string }) => { const only = (page as { screenNames?: string[] }).screenNames; return (only ? (layoutRun.sizes as { name: string }[]).filter((size) => only.includes(size.name)).length : layoutRun.sizes.length) * layoutRun.themes.length; };
+    const sumOfLooks = (some: { name: string }[]) => some.reduce((sum, page) => sum + looksOf(page), 0);
+    const listed = pages as { name: string }[];
+    expect(checkedCount + sumOfLooks(listed.filter((page) => skippedPageNames.includes(page.name)))).toBe(sumOfLooks(listed));
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
@@ -131,6 +136,39 @@ describe.skipIf(!sites)("the layout check", () => {
   };
   const fullPane = (body: string) => glassPane({ paneWidth: "full", body: forged(raw(body)) }).html;
   const choices = (count: number) => Array.from({ length: count }, (_, index) => ({ label: `Choice ${index + 1}`, href: "#menu" }));
+
+  it.skipIf(!isFirstShare)("measures each page as its own first visit, whatever the page before it fetched ahead", async () => {
+    // A game's page has Browse's link on a phone's screen, so it fetches /games ahead, under Chrome's own name: a computer's page, which the
+    // browser may keep for half a minute. Answered from there, Browse would draw itself again for the phone after its first paint.
+    const pagesInOrder = ["Game page", "Games"].map((name) => layoutRun.pages.find((page) => page.name === name));
+    const { failures } = (await checkPages({ ...sites!, pages: pagesInOrder, sizes: SCREEN_SIZES.filter((size) => size.name === "Phone"), themes: ["light"], tabCount: 1, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures).toEqual([]);
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home while its played list is on its way", async () => {
+    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+    try {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      await signIn(chrome, browserContextId, sites!.site, "Many_Things");
+      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      // The list is asked for after the shelf is first filled, and never answered here, so this is what a slow connection shows until it comes.
+      const isAsked = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") done(); }));
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
+      await send("Page.navigate", { url: `${sites!.site}/` });
+      await isAsked;
+      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-continue").hidden`, returnByValue: true });
+      expect(result.value).toBe(false);
+    } finally {
+      await chrome.close();
+    }
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a sheet on a page with no button on the Screens bench, and passes one with its own", async () => {
+    const failures = await brokenOnLaptop(`<dialog class="sheet" id="sheet-with-no-button"></dialog><dialog class="sheet" id="share-dialog"></dialog>`);
+    expect(failures.filter((failure) => failure.includes("no button on the Screens bench"))).toEqual([expect.stringContaining("#sheet-with-no-button")]);
+  });
 
   it.skipIf(!isFirstShare)("catches panes over the page past the screen or overflowing unscrolled, and passes one that scrolls inside itself", async () => {
     // A menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
@@ -163,4 +201,115 @@ describe.skipIf(!sites)("the layout check", () => {
     const unreached = failures.filter((failure) => failure.check === "a control the keyboard doesn't reach");
     expect(unreached.some((failure) => /Past the hold/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`).join("\n")).toBe(true);
   }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a page that loads more by itself after its first paint, however late its answer comes", async () => {
+    // Its answer comes well after the page has settled, counted in frames, and only the wait for what's on its way sees it.
+    const scriptOnNewDocument = `if (window === top) addEventListener("load", () => {
+      const holder = document.createElement("div");
+      holder.setAttribute("data-loads-on-scroll", "");
+      holder.innerHTML = '<a href="#next" aria-busy="true"></a>';
+      document.body.append(holder);
+      let framesLeft = 90;
+      const frame = () => {
+        if (--framesLeft > 0) return requestAnimationFrame(frame);
+        const late = document.createElement("div");
+        late.style.height = "400px";
+        late.textContent = "Late page of covers";
+        document.querySelector("main").append(late);
+        holder.querySelector("a").removeAttribute("aria-busy");
+      };
+      requestAnimationFrame(frame);
+    })`;
+    const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", scriptOnNewDocument };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], tiersOf: () => ["page"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures.some((failure) => failure.check === "moved after the first paint" && /Late page of covers/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(true);
+  }, 300_000);
+
+  // On Desktop the whole of Browse fits its screen, More games and the footer on it; on a laptop they're a screen below it.
+  it.skipIf(!isFirstShare).each(["Desktop", "Laptop"] as const)("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
+    const size = SCREEN_SIZES.find((each) => each.name === screenName)!;
+    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+    try {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      await send("Page.enable");
+      await send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await send("Emulation.setDeviceMetricsOverride", { width: size.widthPx, height: size.heightPx, deviceScaleFactor: 1, mobile: false });
+      const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
+      let askedRequestId: string | null = null, onAsked = () => {};
+      chrome.listen(sessionId, (method: string, params: { requestId: string }) => { if (method === "Fetch.requestPaused") { askedRequestId = params.requestId; onAsked(); } });
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/games?page=2", requestStage: "Request" }] });
+      await send("Page.navigate", { url: `${sites!.site}/games` });
+      await loaded;
+      // Once its script is watching, and a watcher of the same reach has had its first answer: an old Load more would be pressed by now, and busy.
+      const isNear = await evaluate(`(async () => {
+        while (!window.zaismaLoadMore) await new Promise((done) => requestAnimationFrame(done));
+        const holder = document.querySelector("[data-loads-on-scroll]");
+        const isNear = await new Promise((done) => new IntersectionObserver((entries, observer) => { observer.disconnect(); done(entries[0].isIntersecting); }, { rootMargin: "100% 0px" }).observe(holder));
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        return isNear;
+      })()`);
+      expect(isNear).toBe(true);
+      expect(await evaluate(`document.querySelector("[data-loads-on-scroll] a").getAttribute("aria-busy")`)).toBe(null);
+      expect(askedRequestId).toBe(null);
+      const asked = new Promise<void>((done) => { onAsked = done; });
+      await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 100, y: 100, deltaX: 0, deltaY: 100 });
+      await asked;
+      await send("Fetch.continueRequest", { requestId: askedRequestId });
+      const coverCount = await evaluate(`(async () => {
+        const count = () => document.querySelectorAll("#browse-games > *, #browse-other-games > *").length;
+        while (count() <= 48) await new Promise((done) => requestAnimationFrame(done));
+        return count();
+      })()`);
+      expect(coverCount).toBeGreaterThan(48);
+    } finally {
+      await chrome.close();
+    }
+  }, 300_000);
+
+  describe("controls that arrive while Tab goes round", () => {
+    // New controls added the way the next page of a long list arrives: past what the check counted when it started.
+    const addArrivals = `(count, label, list) => { for (let index = 0; index < count; index++) { const control = document.createElement("button"); control.type = "button"; control.textContent = label + " " + index; list.append(control); } }`;
+    const onTab = async (markup: string, setUp: string, more: Record<string, unknown> = {}) => {
+      const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup: fullPane(markup), setUp: `const addArrivals = ${addArrivals}; ${setUp}; true`, ...more };
+      const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], chromePath: await chromeToRun() })) as { failures: Failure[] };
+      return failures.map((failure) => `${failure.check}: ${failure.element}: ${failure.said}`);
+    };
+    const reachRules = (said: string[]) => said.filter((line) => /keyboard|focused control|couldn't measure/.test(line));
+
+    it.skipIf(!isFirstShare)("reaches what's past a list when its next page arrives ahead of focus, with Load more swapped for the next one", async () => {
+      const markup = '<button type="button" id="before-list">Before the list</button><div id="list"></div><div id="load-more"><a href="#old">Old Load more</a></div><button type="button">Past the list</button>';
+      const said = await onTab(markup, `document.getElementById("before-list").addEventListener("focus", () => { addArrivals(20, "Arrived", document.getElementById("list")); document.getElementById("load-more").innerHTML = '<a href="#new">New Load more</a>'; }, { once: true })`);
+      expect(reachRules(said), said.join("\n")).toEqual([]);
+    }, 300_000);
+
+    it.skipIf(!isFirstShare)("catches one that arrives past a control that holds Tab", async () => {
+      const markup = '<div id="holds-tab" tabindex="0">Holds Tab</div><div id="list"></div>';
+      const said = await onTab(markup, `const hold = document.getElementById("holds-tab"); hold.addEventListener("keydown", (event) => { if (event.key === "Tab") event.preventDefault(); }); hold.addEventListener("focus", () => addArrivals(1, "Arrived past the hold", document.getElementById("list")), { once: true })`);
+      expect(said.some((line) => /a control the keyboard doesn't reach/.test(line) && /Arrived past the hold/.test(line)), said.join("\n")).toBe(true);
+    }, 300_000);
+
+    it.skipIf(!isFirstShare)("goes round again for what arrives behind focus, and holds it to the same look", async () => {
+      // Its own cell, so its look at rest isn't read with the focused button beside it.
+      const markup = '<div id="list" class="stack-cell"></div><button type="button" id="past-list">Past the list</button>';
+      const said = await onTab(markup, `document.getElementById("past-list").addEventListener("focus", () => { const quiet = document.createElement("div"); quiet.tabIndex = 0; quiet.style.outline = "none"; quiet.textContent = "Quiet arrival"; document.getElementById("list").append(quiet); }, { once: true })`);
+      expect(said.some((line) => /a focused control with no visible focus/.test(line) && /Quiet arrival/.test(line)), said.join("\n")).toBe(true);
+    }, 300_000);
+
+    it.skipIf(!isFirstShare)("waits for a load on its way when focus is back where it began", async () => {
+      // Nothing comes until focus has gone round: the answer is asked for only then, as a slow connection brings it after the walk.
+      const markup = '<div id="list"></div><div data-loads-on-scroll><button type="button" id="load" aria-busy="true">Waiting load</button></div>';
+      const said = await onTab(markup, `let first = null; document.addEventListener("focusin", (event) => { if (!first) { first = event.target; return; } if (event.target !== first) return; first = document.body; fetch(location.href).then(() => { const quiet = document.createElement("div"); quiet.tabIndex = 0; quiet.style.outline = "none"; quiet.textContent = "Late arrival"; document.getElementById("list").append(quiet); document.getElementById("load").removeAttribute("aria-busy"); }); })`);
+      expect(said.some((line) => /a focused control with no visible focus/.test(line) && /Late arrival/.test(line)), said.join("\n")).toBe(true);
+    }, 300_000);
+
+    it.skipIf(!isFirstShare)("says so when a page never stops adding controls, past the most it will count", async () => {
+      const markup = '<button type="button" id="seed">Seed</button><div id="list"></div>';
+      const said = await onTab(markup, `const list = document.getElementById("list"); document.getElementById("seed").addEventListener("focus", () => addArrivals(1, "Endless", list), { once: true }); list.addEventListener("focusin", () => addArrivals(1, "Endless", list))`, { maximumArrivedControlCount: 12 });
+      expect(said.some((line) => /the check couldn't measure the page/.test(line) && /kept adding controls/.test(line)), said.join("\n")).toBe(true);
+    }, 300_000);
+  });
 });

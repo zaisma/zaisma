@@ -1,4 +1,3 @@
-import { PLAN_LIMITS, type PlanKind, type PlanLimits } from "./plans.ts";
 import type { ScanReport } from "./types.ts";
 
 /**
@@ -19,7 +18,7 @@ export const CONTENT_RULES = {
   sexual: "Sexually explicit content.",
   malware: "Malware, crypto mining, phishing, scams or anything that tries to break out of the game.",
   illegal: "Content that is illegal in the United States, including real-money gambling.",
-  real_people: "Private details about real people, or real threats.",
+  real_people: "Private details about real people, real threats, or calls for real violence.",
   copyright: "Other people's games, art, music or characters used without permission.",
   defamation: "False claims that a real private person committed a crime.",
   personal_details:
@@ -65,11 +64,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
   },
   real_people: {
     title: "Real people",
-    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
+    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), make a real threat of violence against a real person, or urge players to commit real violence against real people?",
     explanation:
       "Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that is gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
-    notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
+    notFine: "a celebrity's leaked phone number, the school a kid goes to, a message that means a real threat, or a call for players to go out and hurt real people, whoever they are.",
   },
   copyright: {
     title: "Copyright",
@@ -123,8 +122,14 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
  * Oct 18, 2026), and whether a claim about a real person is true isn't Zaisma's to judge.
  */
 export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation"];
+/**
+ * Rules Zaisma acts on only when someone reports the game: the review judges only what a stranger could prove from
+ * a game's files alone (Julius, Nov 2, 2026), and no file shows whether a person is real. On a report, the files are
+ * read for the lines it's about, and a person decides.
+ */
+export const REPORT_ONLY_CONTENT_RULES: readonly ContentRule[] = ["real_people"];
 /** The rules the review looks for, in the page's order. */
-export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule));
+export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule) && !REPORT_ONLY_CONTENT_RULES.includes(rule));
 /**
  * What other platforms often ban that's fine on Zaisma, so developers and their AI don't hedge: the
  * rules page lists it, and the AI review and report triage treat it as fine.
@@ -187,14 +192,11 @@ interface ReviewCode {
 }
 
 
-/** The two daily review findings' message: the developer's own limit, with the Pro number added on the free plan (plans.ts). */
-export function dailyReviewMeaning(code: "daily_large_reviews_used" | "daily_small_reviews_used", plan: PlanKind): string {
-  const [kind, limit, what, waits]: [string, keyof PlanLimits, string, string] =
-    code === "daily_large_reviews_used"
-      ? ["large", "maximumLargeReviewsPerDay", "a new game or a real change, judged", "waits"]
-      : ["small", "maximumSmallReviewsPerDay", "versions read by the AI", "waits unread"];
-  const proNote = plan === "free" ? ` Zaisma Pro has ${PLAN_LIMITS.pro[limit]} ${kind} reviews a day.` : "";
-  return `This developer's ${PLAN_LIMITS[plan][limit]} ${kind} reviews for today (${what}) are used, so this version ${waits} for the next one to free up.${proNote}`;
+/** The two daily review findings' message: the same limit for every developer, the numbers in REVIEW_LIMITS (review-evidence.ts imports this file, so plans.test.ts keeps them the same). */
+export function dailyReviewMeaning(code: "daily_large_reviews_used" | "daily_small_reviews_used"): string {
+  return code === "daily_large_reviews_used"
+    ? "This developer's 5 large reviews for today (a new game or a real change, judged) are used, so this version waits for the next one to free up."
+    : "This developer's 30 small reviews for today (versions read by the AI) are used, so this version waits unread for the next one to free up.";
 }
 
 /**
@@ -274,23 +276,21 @@ export const REVIEW_CODES = {
 
   // Checks that couldn't finish: no rule is broken, and a person looks instead
   too_much_code: { meaning: "The game has more code than the review reads (about 19 MB of text), so a person at Zaisma looks first.", messageForPeople: "The game has more code than the review reads, so a person at Zaisma looks first, usually within a day. Leaving unused files out keeps the next version under the limit.", contentRule: null, fix: `${PERSON_LOOKS} Leaving unused files out keeps the next version under the limit.` },
-  too_many_files_to_check: { meaning: "The game has more files than the scan checks for hidden pictures (5,000), so a person at Zaisma looks at the rest.", messageForPeople: "The game has more files than the scan checks for hidden pictures, so a person at Zaisma looks at the rest, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
-  too_many_images_to_check: { meaning: "The game has more pictures and videos than image matching checks (5,000), so a person at Zaisma looks at the rest.", messageForPeople: "The game has more pictures and videos than image matching checks, so a person at Zaisma looks at the rest, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   too_many_pictures_inside_packs: { meaning: "The game's packs hold more pictures than image matching checks inside them (10,000), so the first 10,000 were matched.", messageForPeople: "The game's packs hold more pictures than image matching checks, so the first 10,000 were matched. Nothing is held: this is a note.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   image_matching_off: { meaning: "Image matching isn't connected, so a person at Zaisma approves each version.", messageForPeople: "Image matching isn't connected here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   image_matching_failed: { meaning: "Image matching couldn't check every picture and video, so a person at Zaisma looks first.", messageForPeople: "Image matching couldn't check every picture and video, so a person at Zaisma looks first, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_off: { meaning: "AI review isn't set up, so a person at Zaisma approves each version.", messageForPeople: "AI review isn't set up here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
-  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so a person at Zaisma approves each version.", messageForPeople: "This month's AI reviews are used, so a person at Zaisma approves each version, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
+  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so this version went on with the fixed checks alone.", messageForPeople: "This month's AI reviews are used, so this version went on with the fixed checks alone. Nothing is held: this is a note.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", messageForPeople: "The AI review wouldn't review the game, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", messageForPeople: "The AI review didn't finish, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   daily_large_reviews_used: {
-    meaning: dailyReviewMeaning("daily_large_reviews_used", "free"),
+    meaning: dailyReviewMeaning("daily_large_reviews_used"),
     messageForPeople: "Today's large reviews are used, so this version waits for the next one to free up, within a day. Nothing to change.",
     contentRule: null,
     fix: "Nothing to do: it's checked by itself within a day, as soon as one of your daily large reviews frees up. A tweak of a game that already passed (levels, sprites, balance) uses a small review instead.",
   },
   daily_small_reviews_used: {
-    meaning: dailyReviewMeaning("daily_small_reviews_used", "free"),
+    meaning: dailyReviewMeaning("daily_small_reviews_used"),
     messageForPeople: "Today's small reviews are used, so this version waits for the next one to free up, within a day. Nothing to change.",
     contentRule: null,
     fix: "Nothing to do: it's read by itself within a day, as soon as one of your daily small reviews frees up.",
@@ -430,6 +430,12 @@ export const REVIEW_CODES = {
     contentRule: null,
     fix: "Nothing to change: the game is deleted with the account.",
   },
+  developer_deleted_game: {
+    meaning: "The game's developer deleted it.",
+    messageForPeople: "The developer deleted this game.",
+    contentRule: null,
+    fix: "Nothing to change: the game is deleted.",
+  },
   image_rejected: {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",
     messageForPeople: "A person at Zaisma didn't approve this picture for the reason given. Send a different one in Add image: covers and screenshots show the game itself.",
@@ -479,6 +485,13 @@ export const REVIEW_CODES = {
     messageForPeople: "The picture is built around something that isn't in any screenshot. Send a cover of something players meet in the game in Add image, or add a screenshot that shows it.",
     contentRule: null,
     fix: `Send a cover built around something players meet in the game with add_image, or add a screenshot that shows it. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  search_words_in_title: {
+    meaning: "The title lists what the game is instead of naming it: \"Neon Rush: Racing Drift Car Driving Simulator\". A name that says what its game is, however long, is fine: \"Car Mechanic Simulator\".",
+    messageForPeople: "The title lists what the game is instead of naming it. Write the name alone in the game's details; the description and genres say what it is.",
+    contentRule: null,
+    fix: `Send the game's name alone with update_game; the description and genres say what it is, and search finds those too. ${BACK_ON_LISTS} ${IF_THE_CHECK_IS_WRONG}`,
     hasOwnMessage: true,
   },
   tag_in_title: {
@@ -549,7 +562,7 @@ export const REVIEW_CODES = {
 export type ReviewCodeName = keyof typeof REVIEW_CODES;
 
 /** Codes whose findings are only notes (severity info), yet the developer is told: the version isn't held or rejected for them. */
-export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address"];
+export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address", "ai_review_budget_used"];
 
 /**
  * Codes on scan findings that only Zaisma sees: notes for a person (severity info), and child-safety

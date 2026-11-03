@@ -5,15 +5,15 @@ import type { Env } from "./env.ts";
 
 /**
  * Spending requests (docs/DECISIONS.md, "The dashboard is three kinds of page", Developer settings): when an API key or an
- * AI app asks for a game's first or higher budget, or a higher level for the monthly credit plan, Zaisma keeps the exact change. The developer approves it on Developer settings with
+ * AI app asks for a game's or the account's storage's first or higher budget, or a higher level for the monthly credit plan, Zaisma keeps the exact change. The developer approves it on Developer settings with
  * a passkey tap, or declines it; the AI checks the answer with get_spending_request. A request is for that account alone,
  * and expires a day after it was asked, so a stolen key can ask but never approve.
  */
 
-export type SpendingRequestKind = "game_budget" | "credit_plan_refill_level";
+export type SpendingRequestKind = "game_budget" | "credit_plan_refill_level" | "storage_budget";
 
-/** The change asked for: a game's monthly budget, or the monthly credit plan's level. */
-export type SpendingChange = { requestKind: "game_budget"; gameId: string; monthlyBudgetCents: number } | { requestKind: "credit_plan_refill_level"; refillLevelCents: number };
+/** The change asked for: a game's monthly budget, the monthly credit plan's level, or the account's storage budget. */
+export type SpendingChange = { requestKind: "game_budget"; gameId: string; monthlyBudgetCents: number } | { requestKind: "credit_plan_refill_level"; refillLevelCents: number } | { requestKind: "storage_budget"; monthlyBudgetCents: number };
 
 const REQUEST_DURATION_MS = 86_400_000;
 const MAXIMUM_WAITING_COUNT = 20;
@@ -41,7 +41,7 @@ export async function askForSpending(env: Env, accountId: string, change: Spendi
     env.DB.prepare("DELETE FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' AND id IN (SELECT id FROM spending_requests WHERE account_id = ? AND request_status = 'waiting' ORDER BY created_at_ms DESC, rowid DESC LIMIT -1 OFFSET ?)").bind(accountId, accountId, MAXIMUM_WAITING_COUNT - 1),
     env.DB.prepare(
       "INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, refill_level_cents, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(id, accountId, change.requestKind, gameId, change.requestKind === "game_budget" ? change.monthlyBudgetCents : null, change.requestKind === "credit_plan_refill_level" ? change.refillLevelCents : null, nowMs, nowMs + REQUEST_DURATION_MS),
+    ).bind(id, accountId, change.requestKind, gameId, change.requestKind === "credit_plan_refill_level" ? null : change.monthlyBudgetCents, change.requestKind === "credit_plan_refill_level" ? change.refillLevelCents : null, nowMs, nowMs + REQUEST_DURATION_MS),
   ];
   await env.DB.batch(statements);
   return id;
@@ -63,13 +63,14 @@ export async function spendingRequestAnswer(env: Env, accountId: string, id: str
   const game = row.game_id ? await env.DB.prepare("SELECT slug, title, monthly_budget_cents FROM games WHERE id = ?").bind(row.game_id).first<{ slug: string; title: string; monthly_budget_cents: number | null }>() : null;
   const isPlan = row.request_kind === "credit_plan_refill_level";
   const plan = isPlan ? await env.DB.prepare("SELECT credit_plan_refill_level_cents FROM owners WHERE account_id = ?").bind(accountId).first<{ credit_plan_refill_level_cents: number | null }>() : null;
+  const storage = row.request_kind === "storage_budget" ? await env.DB.prepare("SELECT monthly_storage_budget_cents FROM owners WHERE account_id = ?").bind(accountId).first<{ monthly_storage_budget_cents: number | null }>() : null;
   return {
     id: row.id,
     request_kind: row.request_kind,
     game_slug: game?.slug ?? null,
     game_title: game?.title ?? null,
     requested_change: isPlan ? { refill_level_cents: row.refill_level_cents } : { monthly_budget_cents: row.monthly_budget_cents },
-    current_setting: isPlan ? { refill_level_cents: plan?.credit_plan_refill_level_cents ?? null } : { monthly_budget_cents: game?.monthly_budget_cents ?? null },
+    current_setting: isPlan ? { refill_level_cents: plan?.credit_plan_refill_level_cents ?? null } : { monthly_budget_cents: (storage ? storage.monthly_storage_budget_cents : game?.monthly_budget_cents) ?? null },
     request_status: statusOf(row, nowMs),
     created_at: iso(row.created_at_ms),
     expires_at: iso(row.expires_at_ms),
@@ -89,6 +90,7 @@ export async function answerSpendingRequest(env: Env, caller: Caller, id: string
       throw new ApiError("confirmation_needed", { message: "Approving spending needs the developer's passkey tap.", fix: "Tap the passkey, then approve.", confirmUrl: spendingRequestUrl(env, id) });
     }
     if (row.request_kind === "credit_plan_refill_level") await apiCall(env, caller, "PATCH", "/credit/plan", { refill_level_cents: row.refill_level_cents });
+    else if (row.request_kind === "storage_budget") await apiCall(env, caller, "PATCH", "/storage", { monthly_storage_budget_cents: row.monthly_budget_cents });
     else {
       const game = await env.DB.prepare("SELECT slug FROM games WHERE id = ?").bind(row.game_id).first<{ slug: string }>();
       if (!game) return "not_waiting";

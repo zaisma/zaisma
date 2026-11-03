@@ -124,6 +124,8 @@ export interface SecondaryButtonOptions extends ButtonTarget {
   isBig?: boolean;
   /** 36px, inside a field (Copy). */
   isSmall?: boolean;
+  /** As short as a button goes, for a computer's tool that must hold many at once (the Screens bench's rail): never on a page a phone sees, since its 26px can't take a finger. */
+  isTiny?: boolean;
   /** 30px, inside a carved strip of its own (the end of a search), which it fills but for the strip's inset. */
   isInWell?: boolean;
   /** Can't be pressed now: it's carved flat into the glass, its cut and edge kept, its words quieter. In a well of its own (a row's arrow at its end) it lies flat, faded. */
@@ -153,6 +155,8 @@ export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig
   isPressed: boolean;
   /** Off, only its icon or words show, flush with what it's on, until it's pointed at or pressed: one in each row of a list (a player's Mute), where a slab on every row would outweigh the rows. On, it rises as any toggle does. */
   isQuietWhenOff?: boolean;
+  /** Its piece was looked at and hasn't changed since (the Screens bench's state buttons): its words turn green while it rests. */
+  isSeen?: boolean;
 }
 
 /**
@@ -224,7 +228,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & 
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
   const isIconOnly = options.isLabelHidden && !hasCount;
   const tint = options.tint ?? (options.wayIn ? WAY_TINTS[options.wayIn] : undefined);
-  const className = classes("cut-btn", isToggle && "toggle-btn", options.isQuietWhenOff && "is-quiet-off", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
+  const className = classes("cut-btn", isToggle && "toggle-btn", options.isQuietWhenOff && "is-quiet-off", options.isBig && "big", options.isSmall && "small", options.isTiny && "tiny", isToggle && (options as ToggleButtonOptions).isSeen && "is-seen", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}${tint ? html` data-tint="${tint}"` : ""}`;
   // Its icon and count with the label hidden: the label is still said, before the count ("Like, 12"), so a page that changes the count changes what's said.
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
@@ -232,7 +236,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & 
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall || options.isTiny ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 const GOOGLE = raw(
@@ -483,6 +487,8 @@ component({
 .cut-btn { --control-height: var(--control-height-regular); flex: none; vertical-align: middle; max-width: 100%; }
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
+.cut-btn.tiny { --control-height: var(--control-height-tiny); }
+.cut-btn.tiny > .face { gap: var(--pad-frame-compact); --slab-words: 4px; font: var(--type-note); }
 .cut-btn.is-full { display: flex; width: 100%; }
 /* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
 .cut-btn > .face { flex: auto; gap: 8px; }
@@ -496,6 +502,7 @@ component({
 .cut-btn > .face[data-slanted="end"] { --slab-shift: calc(var(--control-slant) / -4); }
 /* Only its icon, and never narrower, even sharing a row's width. */
 ${iconAloneFace(".cut-btn.icon-only > .face")}
+.cut-btn.tiny.icon-only > .face { width: 34px; }
 .cut-btn.in-well { --control-height: calc(var(--control-height-small) - 2 * var(--pad-frame-compact)); }
 .cut-btn.in-well > .face { color: var(--ink-2); }
 .cut-btn:focus-visible { outline: none; }
@@ -673,6 +680,9 @@ component({
 /* How high the face stands (--toggle-rise), animated once on the button, moves the face and the front surface's upper edges together. */
 .toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: --toggle-rise var(--motion-arrive) var(--ease-glide); }
 .toggle-btn.small { --toggle-lift: 4px; }
+.toggle-btn.tiny { --toggle-lift: 3px; }
+/* Seen on the Screens bench: its words turn green while it rests. */
+.toggle-btn.is-seen[aria-pressed="false"] > .face { color: var(--tag-new-ink); }
 .toggle-btn[aria-pressed="true"] { --toggle-rise: var(--toggle-lift); }
 /* Pressed: off, it carves in where it is (the carving is its sinking: it never moves); on, it goes down a little, as a key would; both quickly. */
 /* Pressed while off, even mid-landing, its glow or shadow goes at once too: cast by its own shape, it would show through the carved face. */
@@ -725,6 +735,7 @@ component({
     { label: "Only its icon, off and on", markup: controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: true })), isStill: true },
     { label: "With a count, off and on", markup: controlsBeside(toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
     { label: "Small, off and on: a password's Show", markup: controlsBeside(passwordToggle({ isPasswordShown: false }), passwordToggle({ isPasswordShown: true })), isStill: true },
+    { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Hint", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
     { label: "Can't press", markup: toggleButton(action("follow"), { type: "button", isPressed: false, isDisabled: true }), isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton(action("follow", "Following Ashen Crown and every update from its studio"), { type: "button", isPressed: true })}</div>` },
   ],

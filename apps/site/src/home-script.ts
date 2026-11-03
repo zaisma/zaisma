@@ -170,10 +170,10 @@ function setFocus(slug) {
 
 /* ---- Covers ---- */
 // The same markup as components/panes.ts's gameCard: the art in its well, its foot's edge light in the game's tint, Updated in its top left
-// corner (a game played before its last update, in Continue playing), and its line: its title and players now.
+// corner (a game played before its last big update, in Continue playing), and its line: its title and players now.
 function coverFor(game, list, at) {
   const cover = make("div", "cover"), art = make("a", "cover-art carving holds-art");
-  const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
+  const isUpdated = list === "continue" && game.big_update_at_ms && game.big_update_at_ms > at;
   cover.dataset.slug = game.slug;
   if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) { cover.classList.add("has-tint"); cover.style.setProperty("--card-tint", game.glass_tint_color); }
   art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("data-edge-light", "bottom"); art.setAttribute("data-lights", ""); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : "")); art.append(iconNode(DATA.parts.cut_line));
@@ -200,9 +200,10 @@ function coverFor(game, list, at) {
 let sort = "played";
 function fillContinue() {
   const row = $("home-continue"), list = playedList();
-  row.hidden = !list.length;
+  // An account's covers from the server stay while its list is on its way.
+  row.hidden = !list.length && !$("track-continue").querySelector(".cover");
   if (!list.length) return;
-  if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].published_at_ms || 0) - (bySlug[a.slug].published_at_ms || 0));
+  if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].big_update_at_ms || 0) - (bySlug[a.slug].big_update_at_ms || 0));
   // What the page already shows (an account's, from the server) stays as it is.
   const shown = Array.from($("track-continue").querySelectorAll(".cover")).map((cover) => cover.dataset.slug || (cover.querySelector(".cover-art") || { getAttribute: () => "" }).getAttribute("href").slice(3));
   if (shown.join(" ") === list.map((entry) => entry.slug).join(" ")) return;

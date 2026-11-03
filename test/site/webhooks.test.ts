@@ -735,6 +735,7 @@ describe("room events", () => {
 
   it("tell a webhook when free hosting is nearly used, once a month, then when it pauses", async () => {
     await publishedGame("sky-hopper");
+    await env.DB.exec("UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug = 'sky-hopper'");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
     // Rooms awake for 1,312,500 seconds: 84% of the free allowance.
     await setUse("sky-hopper", { room_awake_duration_sec: 1_312_500 });
@@ -761,6 +762,7 @@ describe("room events", () => {
 
   it("tell an address that hosting paused, but not the game's own game server", async () => {
     await publishedGame("sky-hopper");
+    await env.DB.exec("UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug = 'sky-hopper'");
     await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["alert_raised"] });
     await tool("create_webhook", { destination_kind: "game_server", event_kinds: ["alert_raised"], game_slugs: ["sky-hopper"] });
     // 5,600,000 requests are past the whole free allowance.
@@ -775,6 +777,7 @@ describe("room events", () => {
 
   it("go only to webhooks that take alert_raised, for the developer's own games", async () => {
     await publishedGame("sky-hopper");
+    await env.DB.exec("UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug = 'sky-hopper'");
     await tool("create_webhook", { endpoint_url: `${HOOKS}/bugs`, event_kinds: ["bug_reported", "game_server_error_found"] });
     await tool("create_webhook", { endpoint_url: `${HOOKS}/theirs`, event_kinds: ["alert_raised"] }, other);
     await tool("create_webhook", { endpoint_url: `${HOOKS}/alerts`, event_kinds: ["alert_raised"] });

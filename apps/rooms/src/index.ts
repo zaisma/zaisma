@@ -1,4 +1,4 @@
-import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, isHostingPaused, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
@@ -591,7 +591,7 @@ export default {
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't connect to other players. Reload the game to try again.", 403, cors);
         if (!key.accountId && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         if (key.accountId && (await isTooYoungFor(env.DB, game, { accountId: key.accountId }))) return failure("game_not_open_to_player", ERROR_TEXT.game_not_open_to_player, 403, cors);
-        if ((await isHostingPaused(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
+        if ((await roomHostingOf(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
         const relay = await relayCredentials(env, env.DB, game.id);
         if (!relay) return failure("busy", "Zaisma's relay isn't available right now, so players can't connect to each other. Try again in a minute.", 503, cors);
         return json({ iceServers: relay.iceServers, expiresAt: iso(relay.expiresAtMs) }, 200, cors);
@@ -624,7 +624,7 @@ export default {
 
       if (!usesRooms(gameServerOf(game))) return failure("zaisma_rooms_not_used", "This game doesn't use Zaisma rooms.", 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
-      if ((await isHostingPaused(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
+      if ((await roomHostingOf(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
       return json({ roomCode: roomCode() }, 200, cors);
     }
 

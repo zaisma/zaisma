@@ -1,128 +1,73 @@
 import { html, type Raw } from "../markup.ts";
-import { pageScript, pageScriptPath } from "../page-scripts.ts";
+import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
-import { glassPane, tag } from "./foundations.ts";
-import { sheet } from "./panes.ts";
-import { action, secondaryButton, primaryButton, textLink } from "./actions.ts";
-import { cutField } from "./inputs.ts";
-import { checkField } from "./choices.ts";
-import { grid, paneParts, row, stack, stackOfOne } from "./layout.ts";
-import { stateNote } from "./data.ts";
-import { MEASURE_LAYOUT_SOURCE } from "./layout-measure.ts";
-import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, type CheckedPage, type ScreenName, type StepToTake, UNIQUE_WORD } from "./checked-pages.ts";
-
-/** Zaisma's branches, in the order Screens shows them. */
-const AREAS: CheckedPage["area"][] = ["Playing", "Signing in", "Developers", "Gallery"];
+import { tag } from "./foundations.ts";
 
 /*
- * Screens: one page on Julius's phone and a laptop (or any of the seven screens the check measures), light and dark, side by side, each measured by the layout check. It's where a
- * page's look is reviewed, never made: AI builds pages from the components and the layout, the check holds them to the rules, and a
- * person judges what they see here. Pointing at anything in a screen says what it is and which rule placed it, so feedback names the
- * rule (a token, an option, a check) and holds on every page. The Screens page is /design/screens?page=…, on a local preview only.
+ * Screens: the bench's look. One page on a phone, the same phone turned and a laptop, side by side, as one live page: what's wrong on any of
+ * them shows without flipping a phone or opening a link. It's where a page is reviewed, never made. The bench itself, its copying,
+ * profiles and states, is the preview's (scripts/preview/bench/): only its look is here, and the gallery's one link to it shows only on a local site.
  */
 
 export const SCREENS_PATH = "/design/screens";
-export const screensHref = (paths: string[]): string => `${SCREENS_PATH}?${paths.map((path) => `page=${encodeURIComponent(path)}`).join("&")}`;
-/** Screens showing one state on the checks' list by its name (checked-pages.ts), forms sent and all. */
-export const screensStateHref = (name: string): string => `${SCREENS_PATH}?state=${encodeURIComponent(name)}`;
 
-/** A path on this site (never another site's address), as the Screens page takes it. */
-export const isSitePath = (path: string): boolean => /^\/(?![/\\])/.test(path);
+/** The three screens: a common phone (an iPhone 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
+export const BENCH_SCREENS = [
+  { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, statusBarPx: 59, scalePct: 82, isPhone: true },
+  { screenName: "turned", name: "Turned", widthPx: 852, heightPx: 393, scalePct: 64, isPhone: true },
+  { screenName: "laptop", name: "Laptop", widthPx: 1440, heightPx: 900, scalePct: 57, isPhone: false },
+] as const;
 
-export interface ScreensOptions {
-  /** The page shown: a path on this site. A gallery group with its #component works too. */
-  path: string;
-  /** What it's called, for its frames' titles. */
-  title: string;
-  /** Taken in each screen once its page loads, to show a state only forms and links reach (checked-pages.ts). */
-  stepsToTake?: readonly StepToTake[];
-  /** The screens it's shown on (checked-pages.ts's SCREEN_SIZES, by name): a phone and a laptop when left out. */
-  screenNames?: readonly ScreenName[];
-  /** The Screens page's own address, to come back to after signing in when the page needs an account. */
-  screensPath?: string;
-  /** The test account a state is seen as (checked-pages.ts): the screens show whoever this browser is signed in as, so its pane says who. */
-  account?: string;
+export interface BenchScreenOptions {
+  screenName: string;
+  name: string;
+  widthPx: number;
+  heightPx: number;
+  /** The status bar's height on a phone held upright: the page starts under it, as in a browser, and the Dynamic Island sits in it. */
+  statusBarPx?: number;
+  isPhone: boolean;
+  scalePct: number;
+  /** The page in it, only for the gallery: on the bench its script loads each. */
+  framePath?: string;
 }
 
-/** The screens asked for in the address (?screen=, more than once for several), as the check names them; a phone and a laptop when none is. */
-export const screenNamesOf = (url: URL): ScreenName[] => {
-  const asked = url.searchParams.getAll("screen").flatMap((name) => SCREEN_SIZES.filter((screenSize) => screenSize.name === name).map((screenSize) => screenSize.name));
-  return asked.length ? asked : [...LOCAL_SCREEN_NAMES];
-};
-
-/** The measuring check, as a script each screen puts in its page to run once it has drawn (scripts/layout-check.mjs runs the same). */
-export const LAYOUT_MEASURE_SCRIPT = pageScript("layout-measure", `window.zaismaMeasureLayout = ${MEASURE_LAYOUT_SOURCE};`);
-
-/** One page on its screens, the widest first, light over dark, each with what the measuring check finds under it. */
-export function screens(options: ScreensOptions): Raw {
-  const names = options.screenNames ?? LOCAL_SCREEN_NAMES;
-  const shownSizes = [...SCREEN_SIZES].reverse().filter((screenSize) => names.includes(screenSize.name));
-  const shown = SCREEN_THEMES.flatMap((theme) => shownSizes.map((screenSize) => ({ theme, screenSize })));
-  // One sheet for the page's screens, which Larger fills with the screen pressed.
-  const largeId = `${options.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-screen-large`;
-  return html`<div class="screens" data-screens${options.stepsToTake ? html` data-steps-to-take="${JSON.stringify(options.stepsToTake)}"` : ""} data-measure-script="${pageScriptPath(LAYOUT_MEASURE_SCRIPT)}" data-inspect-script="${pageScriptPath(LAYOUT_INSPECT_SCRIPT)}"><div class="screens-in">${shown.map(({ theme, screenSize }) => {
-    const name = `${screenSize.name}, ${theme}`;
-    return html`<figure class="screen" data-screen data-width-px="${String(screenSize.widthPx)}" data-height-px="${String(screenSize.heightPx)}" data-screen-theme="${theme}">
-<div class="screen-view" data-cut-line="0"><iframe src="${options.path}" title="${options.title}: ${name}" width="${String(screenSize.widthPx)}" height="${String(screenSize.heightPx)}" loading="lazy"></iframe><div class="screen-pointer" hidden></div></div>
-<figcaption class="screen-caption"><span>${name} · ${String(screenSize.widthPx)} × ${String(screenSize.heightPx)}</span><span data-screen-verdict>${tag("Measuring", "count")}</span>${secondaryButton(action("fullScreen", `${name}, larger`), { type: "button", isLabelHidden: true, isSmall: true, controls: largeId })}</figcaption>
-<ul class="screen-problems" data-screen-problems hidden></ul>
-<p class="screen-pointed" data-screen-pointed hidden></p>
+/** One live screen: a frame at the screen's own size, so its media queries and layout are the screen's, scaled to fit. A phone's sits in a black body shaped like a real one, which shows where the screen ends. */
+export function benchScreen(options: BenchScreenOptions): Raw {
+  const scaleNumber = options.scalePct / 100;
+  return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" style="--screen-scale: ${String(scaleNumber)}; --screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
+<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx)}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
-  })}</div>${sheet({ id: largeId, title: options.title, body: stackOfOne(html`<div class="screen-large" data-screen-large></div>`), closeLabel: "Close", isPicture: true })}</div>`;
 }
 
-/** The Screens page's first pane: what it is, the pages the check measures in Zaisma's branches, and any page to show, on the screens picked. */
-export function screensPicker(path: string, screenNames: readonly ScreenName[] = LOCAL_SCREEN_NAMES): Raw {
-  const ownPages = CHECKED_PAGES.filter((page) => !page.isOnSignInSite && !page.isOffScreens && !page.path.startsWith(SCREENS_PATH));
-  return glassPane({
-    paneWidth: "full",
-    label: "Pick a page",
-    body: stack({
-      items: [
-        { kind: "words", markup: html`<p>A page on the screens you pick, a phone and a laptop to start, light and dark, each measured by the layout check. Point at or tap anything in a screen to see what it is and what placed it.</p>` },
-        // The pages the check measures, in Zaisma's branches: each branch's name over its pages.
-        {
-          kind: "block",
-          markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No pages measured yet", text: "Each page shows here once the layout check measures it." }),
-            itemSize: "card",
-            label: "Pages the check measures",
-            items: AREAS.filter((area) => ownPages.some((page) => page.area === area)).map((area) => ({
-              kind: "block" as const,
-              markup: stack({
-                label: area,
-                items: [
-                  { kind: "words", markup: html`<p><strong>${area}</strong></p>` },
-                  { kind: "words", markup: row({ widths: "fit", items: ownPages.filter((page) => page.area === area).map((page) => ({ kind: "words" as const, markup: textLink(page.name.replace(/^Gallery: (.)/, (_, first: string) => first.toUpperCase()), screensStateHref(page.name)) })) }) },
-                ],
-              }),
-            })),
-          }),
-        },
-        {
-          kind: "block",
-          markup: html`<form method="get" action="${SCREENS_PATH}">${stack({
-            items: [
-              { kind: "words", markup: html`<h2>On these screens</h2>` },
-              { kind: "block", markup: grid({ itemSize: "figure", label: "Screens", items: SCREEN_SIZES.map((screenSize) => ({ kind: "block" as const, markup: checkField({ id: `screens-screen-${screenSize.name.toLowerCase().replace(/ /g, "-")}`, name: "screen", checkValue: screenSize.name, label: `${screenSize.name}, ${screenSize.widthPx} × ${screenSize.heightPx}`, isChecked: screenNames.includes(screenSize.name) }) })) }) },
-              { kind: "words", markup: html`<h2>The page</h2>` },
-              { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "screens-page", name: "page", label: "Page", type: "text", icon: "globe", text: path, placeholder: "/signin" }) }, { kind: "control", markup: primaryButton("Show", { type: "submit" }) }] }) },
-            ],
-          })}</form>`,
-        },
-      ],
-    }),
-  });
+/** A screen's name and percent, with "Didn't follow" beside it when a press had nothing to land on there. */
+const screenLabel = (options: { screenName: string; name: string; scalePct: number }): Raw => html`<span class="bench-screen-label"><span class="bench-screen-name" data-bench-screen-name="${options.screenName}">${options.name}, ${String(options.scalePct)}%</span><span data-bench-follow-note="${options.screenName}" hidden>${tag("Didn't follow", "warning")}</span></span>`;
+
+export interface BenchLayoutOptions {
+  /** The left rail: everything that can grow. It never pushes the screens. */
+  rail: Raw;
+  /** Replay, Slow, Dark and On my phone, under the phone. */
+  tools: Raw;
+  /** What sits beside the phone's name: Moving backgrounds, which isn't a tool for the moment at hand. */
+  phoneHeadEnd: Raw;
+  /** The light box's tools, under the screen pressed. */
+  bigTools: Raw;
+  /** The phone, the turned phone and the laptop, in that order (benchScreen). */
+  screens: Raw[];
 }
 
-/** A page on the four screens, in a pane with its name, its path and a way to open it alone. */
-export function screensPane(options: ScreensOptions): Raw {
-  return glassPane({
-    paneWidth: "full",
-    label: options.title,
-    body: paneParts({ head: { words: html`<h2>${options.title}</h2><p>${options.path}</p>
-${options.account ? html`<p>Seen as ${options.account}: the screens show whoever this browser is signed in as.</p>` : ""}
-<p data-screens-signed-out hidden>It needs an account, and the screens show it as this browser sees it, signed out. ${textLink(options.account ? `Sign in as ${options.account}` : "Sign in", `/signin?next=${encodeURIComponent(options.screensPath ?? SCREENS_PATH)}`)} to see it.</p>`, end: secondaryButton("Open it", { href: options.path }) }, body: screens(options) }),
-  });
+/** The bench: a rail and the screens, always in view, the page never scrolling. A light box dims the screens behind the one pressed, and leaves the rail working. */
+export function benchLayout(options: BenchLayoutOptions): Raw {
+  const [phone, turned, laptop] = options.screens;
+  const [phoneScreen, turnedScreen, laptopScreen] = BENCH_SCREENS;
+  return html`<div class="bench" data-bench>
+<aside class="bench-rail glass" aria-label="What to show">${options.rail}</aside>
+<div class="bench-stage">
+<div class="bench-phone-column">${phone}<div class="bench-under-phone"><div class="bench-phone-head">${screenLabel(phoneScreen)}${options.phoneHeadEnd}</div><div class="bench-tools">${options.tools}</div></div></div>
+<div class="bench-wide-column"><div class="bench-turned-row">${turned}<div class="bench-screen-labels">${screenLabel(turnedScreen)}${screenLabel(laptopScreen)}</div></div>${laptop}</div>
+<div class="bench-dim"></div>
+<div class="bench-big-tools" hidden>${options.bigTools}</div>
+</div>
+</div>`;
 }
 
 /**
@@ -132,7 +77,7 @@ ${options.account ? html`<p>Seen as ${options.account}: the screens show whoever
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
+  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {
@@ -177,143 +122,54 @@ export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(fu
 })();
 `);
 
-/**
- * The screens' script. Each frame is scaled to fit its cell at its screen's size (its own window keeps that size, so its media queries
- * and the measuring check see the screen's), takes its light or dark once loaded (data-theme-choice, which the page's theme script
- * follows), then runs the measuring check in the page and shows what it found. Pointing at anything in a frame outlines the component
- * under the pointer and says what it is and what placed it (LAYOUT_INSPECT_SCRIPT, in the frame's page).
- */
-export const SCREENS_SCRIPT = pageScript("screens", String.raw`(function () {
-  // One of the site's scripts, put in a screen's page once.
-  function loaded(doc, src, done) {
-    if (doc.querySelector('script[src="' + src + '"]')) return done();
-    var script = doc.createElement("script"); script.src = src; script.onload = done; doc.head.append(script);
-  }
-  // A state only forms and links reach (checked-pages.ts): each step is taken in a frame once its page is there, and ready(doc) runs on the
-  // last one's answer, or with what went wrong.
-  function stepsOf(figure) { var holder = figure.closest("[data-screens]").dataset; return holder.stepsToTake ? JSON.parse(holder.stepsToTake) : []; }
-  function stepThrough(frame, steps, ready) {
-    var stepIndex = 0;
-    frame.addEventListener("load", function () {
-      var doc = null; try { doc = frame.contentDocument; } catch (error) {}
-      if (!doc || !doc.documentElement) return ready(null, "Not a page on this site");
-      if (stepIndex >= steps.length) return ready(doc, null);
-      var step = steps[stepIndex++];
-      if (step.path) { frame.contentWindow.location.assign(step.path); return; }
-      var found = Array.prototype.find.call(doc.querySelectorAll("form"), function (each) { return each.getAttribute("action") === step.formAction; });
-      if (!found) return ready(null, "Couldn't send the form for " + step.formAction);
-      var word = Math.random().toString(36).slice(2, 10);
-      Object.keys(step.fieldValues).forEach(function (name) {
-        var field = found.elements.namedItem(name);
-        if (!field) { field = doc.createElement("input"); field.type = "hidden"; field.name = name; found.append(field); }
-        field.value = step.fieldValues[name].split(${JSON.stringify(UNIQUE_WORD)}).join(word);
-      });
-      // As a browser without the page's scripts would send it (checked-pages.ts, FormToSend): its answer loads whole, and measures.
-      HTMLFormElement.prototype.submit.call(found);
-    });
-  }
-  document.querySelectorAll("[data-screen]").forEach(function (figure) {
-    var view = figure.querySelector(".screen-view"), frame = view.querySelector("iframe"), pointer = view.querySelector(".screen-pointer");
-    var verdict = figure.querySelector("[data-screen-verdict]"), problems = figure.querySelector("[data-screen-problems]"), pointed = figure.querySelector("[data-screen-pointed]");
-    var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), theme = figure.dataset.screenTheme, scale = 1;
-    var scripts = figure.closest("[data-screens]").dataset;
-    function fit() { scale = Math.min(1, view.clientWidth / widthPx); frame.style.transform = "scale(" + scale + ")"; view.style.height = Math.round(heightPx * scale) + "px"; }
-    fit(); window.zaismaWatch.size(view, fit);
-    function found(failures) {
-      verdict.textContent = "";
-      var mark = document.createElement("span"); mark.className = "tag " + (failures.length ? "warning" : "new"); mark.textContent = failures.length ? failures.length + " out of line" : "Nothing out of line"; verdict.append(mark);
-      problems.replaceChildren.apply(problems, failures.map(function (failure) { var item = document.createElement("li"); item.textContent = failure.check + ": " + failure.element + ", " + failure.said; return item; }));
-      problems.hidden = !failures.length;
-    }
-    // What's pointed at shows under its screen only while something is: the page says once, at its top, that pointing tells you.
-    function hide() { pointer.hidden = true; pointed.hidden = true; }
-    stepThrough(frame, stepsOf(figure), ready);
-    function ready(doc, problem) {
-      if (!doc) { verdict.textContent = problem; return; }
-      // A page that needs an account sends a signed-out browser to sign in: its pane says so once, with the way to sign in and come back.
-      if (frame.contentWindow.location.pathname === "/signin" && new URL(frame.getAttribute("src"), location.href).pathname !== "/signin") {
-        figure.closest(".glass-pane").querySelector("[data-screens-signed-out]").hidden = false;
-      }
-      var inside = frame.contentWindow;
-      doc.documentElement.setAttribute("data-theme-choice", theme);
-      frame.classList.add("is-shown");
-      loaded(doc, scripts.measureScript, function () {
-        (doc.fonts ? doc.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { found(inside.zaismaMeasureLayout({ isMainActionChecked: false, isTouch: inside.matchMedia("(pointer: coarse)").matches })); }, 600); });
-      });
-      loaded(doc, scripts.inspectScript, function () {
-        // Pointed at with a mouse, or tapped on a touch screen.
-        ["pointermove", "pointerdown"].forEach(function (kind) { doc.addEventListener(kind, function (event) {
-          if (!event.target.closest) return;
-          var at = inside.zaismaInspect(event.target), r = at.element.getBoundingClientRect();
-          pointer.hidden = false;
-          pointer.style.left = r.left * scale + "px"; pointer.style.top = r.top * scale + "px"; pointer.style.width = r.width * scale + "px"; pointer.style.height = r.height * scale + "px";
-          pointed.hidden = false;
-          pointed.textContent = [(at.component || "Words") + (at.label ? ' "' + at.label + '"' : ""), at.layoutRule].filter(Boolean).join(" · ");
-        }, { passive: true }); });
-        doc.documentElement.addEventListener("mouseleave", hide);
-      });
-    }
-  });
-  // Larger: the screen's page again, live, in a picture's sheet, at the screen's own size scaled to all the room the sheet has in the window.
-  var EDGE_PX = 24, shownLarge = null;
-  // The sheet as wide as it goes for a moment gives the room across, and what's left of the window's height under its head the room down;
-  // the screen is scaled to fit both, and the sheet fits it again. Again whenever the window changes.
-  function fitLarge() {
-    if (!shownLarge || !shownLarge.sheet.open) return;
-    var large = shownLarge.sheet, box = shownLarge.box;
-    box.style.width = ""; box.style.height = "0px"; large.style.width = "100%";
-    var tallestPx = Math.min(window.innerHeight - 2 * EDGE_PX, parseFloat(getComputedStyle(large).maxHeight) || Infinity);
-    var scale = Math.min(box.clientWidth / shownLarge.widthPx, (tallestPx - large.offsetHeight) / shownLarge.heightPx, 2);
-    large.style.width = "";
-    box.style.width = Math.floor(shownLarge.widthPx * scale) + "px"; box.style.height = Math.floor(shownLarge.heightPx * scale) + "px"; shownLarge.frame.style.transform = "scale(" + scale + ")";
-  }
-  window.addEventListener("resize", fitLarge);
-  document.addEventListener("click", function (event) {
-    var button = event.target.closest && event.target.closest(".screen-caption [aria-controls]");
-    if (!button) return;
-    var figure = button.closest("[data-screen]"), large = document.getElementById(button.getAttribute("aria-controls")), box = large && large.querySelector("[data-screen-large]");
-    if (!box) return;
-    var widthPx = Number(figure.dataset.widthPx), heightPx = Number(figure.dataset.heightPx), small = figure.querySelector(".screen-view > iframe");
-    large.querySelector(".sheet-title").textContent = small.title;
-    var frame = document.createElement("iframe"); frame.title = small.title; frame.width = String(widthPx); frame.height = String(heightPx);
-    box.replaceChildren(frame);
-    shownLarge = { sheet: large, box: box, frame: frame, widthPx: widthPx, heightPx: heightPx };
-    // Once it's open.
-    setTimeout(fitLarge);
-    stepThrough(frame, stepsOf(figure), function (doc) { if (doc) doc.documentElement.setAttribute("data-theme-choice", figure.dataset.screenTheme); frame.classList.add("is-shown"); });
-    frame.src = small.getAttribute("src");
-  });
-  // Closed, the page in it goes.
-  document.addEventListener("close", function (event) { if (shownLarge && event.target === shownLarge.sheet) { shownLarge.box.replaceChildren(); shownLarge = null; } }, true);
-})();
-`);
-
 component({
   name: "Screens",
   slug: "screens",
   group: "layout",
-  summary: "One page on the screens players bring (a phone and a laptop to start; a big phone, a phone on its side, an iPad, a Steam Deck and a 2560 desktop as asked), light and dark, side by side, each with what the measuring check finds. Point at or tap anything in a screen to see what it is and which rule placed it. It's where a page is reviewed, never made: the Screens page shows any page this way on a local preview.",
+  summary: "The bench: one page on a phone, the same phone turned and a laptop, side by side, as one live page, with a rail of everything that can be pressed. It's where a page is reviewed, never made: only on a local preview, which adds what copies a press across the screens. A press on a screen, anywhere but a control in its page, opens it large, the others dimmed behind it.",
   styles: `
-/* Screens: a desktop beside a phone (the phone at its own size), light over dark; one under the other where the desktop would get less
-   than a phone's width. Each frame is carved into the pane and cut by the edge rule, scaled down to fit its cell, so the page inside keeps
-   the screen's size; it shows once it has taken its light or dark. */
-/* Its words at its foot keep the pane's margin, --pad-words under them. */
-.screens { container-type: inline-size; padding-bottom: var(--pad-words); }
-.screens-in { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, ${SCREEN_SIZES[0].widthPx}px), 1fr)); gap: var(--gap-block-block); align-items: start; }
-.screen { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); }
-.screen-view { position: relative; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.screen-view > iframe, .screen-large > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); visibility: hidden; }
-.screen-view > iframe.is-shown, .screen-large > iframe.is-shown { visibility: visible; }
-/* Larger: a screen's page in a picture's sheet, sized by the script to the screen's shape, scaled to fit. */
-.screen-large { position: relative; max-width: 100%; overflow: hidden; background: var(--well); }
-/* What's pointed at, outlined in the runner's orange over the frame. */
-.screen-pointer { position: absolute; pointer-events: none; box-shadow: inset 0 0 0 2px var(--run); }
-/* Larger sits at the caption's end. */
-.screen-caption > :last-child { margin-inline-start: auto; }
-.screen-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); padding-inline: var(--pad-words); font: var(--type-facts); color: var(--ink-2); }
-.screen-problems { margin: 0; padding: 0 var(--pad-words); list-style: none; display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
-.screen-pointed { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--muted); }
+/* The bench fills the window and never scrolls: the rail holds what can grow, so nothing pushes the screens. */
+html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
+.bench { --bench-bezel: 6px; position: fixed; inset: 0; display: grid; grid-template-columns: 16.25rem minmax(0, 1fr); gap: var(--pad-frame-compact); padding: var(--pad-frame-compact); box-sizing: border-box; background: var(--page); color: var(--ink); }
+.bench-rail > * { flex: none; }
+.bench-rail > .find { flex: none; --control-height: var(--control-height-small); }
+.bench-rail { --control-height: var(--control-height-small); display: flex; flex-direction: column; gap: var(--gap-words-words); min-height: 0; overflow-y: auto; padding: var(--pad-frame); scrollbar-width: none; }
+.bench-menus, .bench-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--pad-frame-compact); }
+.bench-menus > *, .bench-buttons > * { min-width: 0; }
+.bench-menus .cut-btn, .bench-buttons .cut-btn { display: flex; width: 100%; }
+.bench-group-name { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); }
+.bench-seen { display: flex; align-items: center; justify-content: space-between; gap: var(--pad-frame-compact); }
+.bench-group { display: flex; flex-direction: column; gap: var(--pad-frame-compact); }
+.bench-rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; gap: var(--gap-words-words); }
+.bench-note { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); }
+.bench-stage { position: relative; display: flex; gap: var(--pad-frame-compact); min-width: 0; min-height: 0; }
+.bench-phone-column { display: flex; flex-direction: column; gap: var(--gap-words-words); flex: none; width: min-content; }
+.bench-phone-head { display: flex; align-items: center; justify-content: space-between; gap: var(--pad-frame-compact); }
+.bench-under-phone { display: flex; flex-direction: column; gap: var(--pad-frame-compact); }
+.bench-tools, .bench-screen-label, .bench-screen-labels { display: flex; flex-wrap: wrap; gap: var(--pad-frame-compact); align-items: center; }
+.bench-screen-labels { flex-direction: column; align-items: flex-start; justify-content: flex-end; min-width: 0; }
+.bench-screen-name { padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); cursor: zoom-in; }
+.bench-wide-column { display: flex; flex-direction: column; gap: var(--pad-frame-compact); min-width: 0; }
+.bench-turned-row { display: flex; gap: var(--gap-words-words); }
+.bench-screen { margin: 0; width: var(--screen-width); height: var(--screen-height); flex: none; }
+.bench-body { width: 100%; height: 100%; box-sizing: border-box; }
+.bench-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); }
+.bench-view > iframe { position: absolute; left: 0; top: calc(var(--status-bar) * var(--screen-scale)); border: 0; transform-origin: 0 0; background: var(--page); }
+/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar, as in a browser, so nothing reaches behind the island, and the bar takes the color the browser would (the screen's script says which); turned, the screen's script gives it a phone's safe areas. */
+.bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
+.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: calc(var(--phone-corner) + var(--bench-bezel)); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
+.bench-screen.is-phone .bench-view { border-radius: var(--phone-corner); background: var(--status-bar-color, var(--well)); }
+.bench-screen.is-phone .bench-view::after { content: ""; position: absolute; z-index: 1; background: #000; border-radius: var(--phone-island-short); pointer-events: none; }
+.bench-screen.is-phone:not(.is-turned) .bench-view::after { top: var(--phone-island-inset); left: 50%; width: var(--phone-island-long); height: var(--phone-island-short); transform: translateX(-50%); }
+.bench-screen.is-turned .bench-view::after { left: var(--phone-island-inset); top: 50%; height: var(--phone-island-long); width: var(--phone-island-short); transform: translateY(-50%); }
+/* The light box: the others dimmed behind the one pressed, the rail still working. */
+.bench-dim { display: none; position: absolute; inset: 0; z-index: 3; background: var(--page); opacity: 0.88; }
+.bench-is-big .bench-dim { display: block; }
+.bench-screen.is-big > .bench-body { position: fixed; z-index: 4; cursor: auto; }
+.bench-big-tools { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gap-words-control); }
+.bench-big-tools[hidden] { display: none; }
+.bench-big-tools .slider { flex: 0 1 18rem; }
 `,
-  render: screens,
-  examples: [{ label: "The example page on a phone and a laptop", isWide: true, markup: screensPane({ path: "/design/example", title: "Example page" }) }],
+  render: benchLayout,
+  examples: [{ label: "A phone screen showing the example page", isWide: true, markup: benchScreen({ screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, statusBarPx: 59, isPhone: true, scalePct: 40, framePath: "/design/example" }) }],
 });
