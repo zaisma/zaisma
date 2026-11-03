@@ -162,6 +162,11 @@ describe.skipIf(!sites)("the layout check", () => {
     }
   }, 300_000);
 
+  it.skipIf(!isFirstShare)("catches a sheet on a page with no button on the Screens bench, and passes one with its own", async () => {
+    const failures = await brokenOnLaptop(`<dialog class="sheet" id="sheet-with-no-button"></dialog><dialog class="sheet" id="share-dialog"></dialog>`);
+    expect(failures.filter((failure) => failure.includes("no button on the Screens bench"))).toEqual([expect.stringContaining("#sheet-with-no-button")]);
+  });
+
   it.skipIf(!isFirstShare)("catches panes over the page past the screen or overflowing unscrolled, and passes one that scrolls inside itself", async () => {
     // A menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
     const menu = dropdown({ id: "fixture-menu", label: "Fine menu", items: choices(30), isOpen: true }).html.replace('class="floating-pane placed-under dropdown glass in-place"', 'style="position:fixed;top:8px;left:8px" class="floating-pane placed-under dropdown glass in-place"');

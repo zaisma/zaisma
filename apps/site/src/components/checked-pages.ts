@@ -1,7 +1,7 @@
 import { GALLERY_PLACES, galleryPagePath, type ComponentGroup, type GalleryPlace } from "./component.ts";
 
 /*
- * The screens and pages the layout check measures (scripts/layout-check.mjs), which Screens (screens.ts) shows and offers. A module with
+ * The screens and pages the layout check measures (scripts/layout-check.mjs). A module with
  * no imports but component.ts (whose own are only types), so the check reads it in Node as it is.
  */
 
@@ -87,7 +87,7 @@ export interface CheckedPage {
   isOnSignInSite?: boolean;
   /**
    * What the page starts hidden (a sheet, a card over the game) is opened before it's measured: a script in the page, run once it has settled
-   * (an expression the check waits for). Screens shows the page as it opens, without this.
+   * (an expression the check waits for).
    */
   setUp?: string;
   /** With setUp: the state the page says it is at its address, before setUp opens what it hides. */
@@ -100,8 +100,8 @@ export interface CheckedPage {
   isGallery?: boolean;
   /** Taken in order once the page has loaded, each answer's page taking the next: the state is the last one's answer. */
   stepsToTake?: readonly StepToTake[];
-  /** Left off Screens' list, since showing it there leaves a mark on whoever looks (too young sets a cookie that keeps them from joining for a day). */
-  isOffScreens?: boolean;
+  /** The only screens it's measured on, where it isn't for the others: the Screens bench, a computer's tool. */
+  screenNames?: readonly ScreenName[];
   /**
    * A page that carries more than FIRST_PAINT_SIZE_LIMIT_BYTES on purpose, and its own limit (layout-measure.ts): Developer settings holds a
    * sheet for each of a developer's games and webhooks, and is a developer's page on a computer more than a player's on a phone.
@@ -172,7 +172,7 @@ const WRONG_SIGN_IN = { username: "Nobody_Here", password: "not the password", .
 const CLOSED_ACCOUNT_SIGN_IN = { username: "Closed_Player", password: "preview password", ...BOT_CHECK_PASSED } as const;
 
 /**
- * Every page and state the layout check opens (scripts/layout-check.mjs), and the Screens page offers. A page built in Zaisma's look
+ * Every page and state the layout check opens (scripts/layout-check.mjs). A page built in Zaisma's look
  * names the state it renders from this list (layout's checkedPage), so typecheck fails for a rebuilt state that isn't here, and the layout
  * check fails when an entry's address shows another.
  */
@@ -227,7 +227,7 @@ const CHECKED_PAGE_LIST = [
   { name: "New account, no birthday", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: { birthday: "" } }] },
   { name: "How will you sign in", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }] },
   { name: "Account closed", area: "Signing in", path: "/signin", ...CITY, stepsToTake: [{ formAction: "/signin", fieldValues: CLOSED_ACCOUNT_SIGN_IN }] },
-  { name: "Make an account, too young", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: TOO_YOUNG_BIRTHDAY }], isOffScreens: true },
+  { name: "Make an account, too young", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: TOO_YOUNG_BIRTHDAY }] },
   // A new player back from Google with no account yet (the preview's stand-in sign-in answers for it), after the age step.
   { name: "Pick a username", area: "Signing in", path: "/join", ...CITY, stepsToTake: [{ formAction: "/join/age", fieldValues: ADULT_BIRTHDAY }, { path: "/signin/with/google" }] },
   { name: "How do you play", area: "Signing in", path: "/join/play", account: "Moss_Runner", ...CITY },
@@ -244,7 +244,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },
   ...GALLERY_PLACES().map((place) => ({ name: galleryPageName(place), path: galleryPagePath(place.group, place.subgroup), ...GALLERY })),
   { name: "Gallery: the sidebar over the page", path: "/design/inputs/fields", ...GALLERY, stateBeforeSetUp: "Gallery: inputs fields", setUp: `(async () => { const sheet = document.getElementById("gallery-places-sheet"); sheet.showModal(); await new Promise((done) => setTimeout(done, 400)); return sheet.open; })()` },
-  { name: "Screens", path: "/design/screens?page=%2Fdesign%2Fexample", ...GALLERY },
+  { name: "Screens", path: "/design/screens", ...GALLERY, screenNames: ["Laptop"] },
 ] as const satisfies readonly CheckedPage[];
 export const CHECKED_PAGES: readonly CheckedPage[] = CHECKED_PAGE_LIST;
 

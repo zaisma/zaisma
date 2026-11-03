@@ -526,7 +526,7 @@ const STRIPE_API_ORIGIN = "https://api.stripe.com";
 
 /**
  * formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. On a local
- * preview every page may be framed by the site's own, for the Screens page (components/screens.ts); live, only those that ask.
+ * preview every page may be framed by the site's own, for the Screens bench (scripts/preview/bench/); live, only those that ask.
  */
 export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'", hasStripePayments = false, hasStripeFrame = false): Headers {
   const headers = new Headers({
