@@ -188,6 +188,7 @@ import {
   purchaseLabelFor,
   CREDIT_LIMITS,
   isCreditLow,
+  type DoorContract,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
 import { checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, reserveOrRefuse, storageRoute } from "./storage-api.ts";
@@ -791,6 +792,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/webhooks/:webhook_id/test", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" } }),
   call({ method: "GET", path: "/webhooks/:webhook_id/deliveries", reaches: "webhook", access: needs("webhook_access", "read"), pathParts: { webhook_id: "webhook" }, query: plainInputs("cursor") }),
 ];
+
+/** A call's contract (docs/DOORS.md), from its declarations: the router below proves its caller and everything the call names. */
+export const apiRouteContract = (apiRoute: ApiRoute): DoorContract => ({ whoMayCall: "api_caller", reaches: apiRoute.reaches, trusts: ["api_key", "session"], provenBy: { source_path: "apps/site/src/developer.ts", symbol_name: "checkCall" } });
 
 const routePatterns = new Map(
   API_ROUTES.map((apiRoute) => [apiRoute, new RegExp(`^${apiRoute.path.replace(/:([a-z0-9_]+)/g, (_, name: string) => `(?<${name}>${name === "sha256" ? "[0-9a-f]{64}" : "[^/]+"})`)}$`)]),

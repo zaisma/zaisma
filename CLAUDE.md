@@ -9,6 +9,7 @@ Open-source, browser-first game platform: any web game, from any engine, plays f
 - [`docs/ADMIN-MCP.md`](docs/ADMIN-MCP.md): the admin MCP for reports and precedents, and how to connect it. Keep it in step with `apps/site/src/admin-mcp.ts`.
 - [`docs/COVERS.md`](docs/COVERS.md): the cover guide: the lines covers, screenshots and titles keep to show in Zaisma's lists, and what good covers do. Keep it in step with `apps/site/src/cover-guide.ts`.
 - [`docs/BACKGROUNDS.md`](docs/BACKGROUNDS.md): the background guide: what reads well under Zaisma's glass, and the stand-in backgrounds whose sources are open to start from. Keep it in step with `apps/site/src/background-guide.ts`.
+- [`docs/DOORS.md`](docs/DOORS.md): every way into Zaisma states who may call it, what it may reach and what it trusts, behind one guard. Keep it in step with `apps/site/src/doors.ts` and `apps/site/src/guard.ts`.
 - [`docs/DESIGN.md`](docs/DESIGN.md): Glass, the design system: rules, tokens, glass, shapes and components. Follow it for every page.
 - [`brand/README.md`](brand/README.md): logo files and usage rules.
 
@@ -27,6 +28,7 @@ Open-source, browser-first game platform: any web game, from any engine, plays f
 - **No secrets in the repo.** It's public. Keys live in Cloudflare/Supabase settings and `.dev.vars` (gitignored).
 - **Guests collect no personal data.** Guest IDs are temporary and only run the session.
 - **Self-hosting must keep working.** Anything a game uses on our servers (rooms, player identity) needs a path that works on the developer's own server: signed player passes that any server can verify, room links that can point anywhere.
+- **Every door has a contract.** A new page, form, address, room message or admin tool gets its row in its table first (`docs/DOORS.md`); one without a contract fails the build, and the guard refuses it.
 - **Nothing for an AI to guess.** Names in the API, MCP, SDK, game server and Zaisma's own code (columns, types, functions, variables) follow `docs/NAMING.md`: whole words, the kind of value and its unit in the name, one type per field, one name per meaning. Close inputs, and answer with structured errors and the next call. `test/node/naming.test.ts` checks the code and the migrations.
 - **Cheap by design.** Multiplayer is most of the cost at scale; keep rooms hibernating and storage free of egress fees.
 - **Pages are only gallery components, layout included:** no page styles. `npm run layout:check` must pass for any page change: while you work, `-- --only <path>` for the pages you changed, and the full run once before you push.

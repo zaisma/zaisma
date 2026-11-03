@@ -135,14 +135,11 @@ const isWaiting = (post: PostJson) => post.check_status === "pending" || post.ch
 export async function handleForum(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path !== "/forum" && !path.startsWith("/forum/")) return null;
   const isPost = request.method === "POST";
-  if (isPost && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
   const url = new URL(request.url);
   const session = await currentSession(request, env);
   const caller = session ? await callerFor(env, request, session.userId, session.cookies) : null;
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);
   const signIn = () => done(redirect(`/signin?next=${encodeURIComponent(path + url.search)}`));
-  // A banned developer reads the forum but posts nothing, as through the API (bans.ts); Your games says why.
-  if (isPost && caller?.banScope) return done(redirect("/dashboard"));
   const account = caller ? await accountById(env.DB, caller.accountId) : null;
   const ctx: Ctx = { env, viewer: caller, me: caller ? mePerson(account) : null, account, url, isPrepared: isPreparedRequest(request) };
 

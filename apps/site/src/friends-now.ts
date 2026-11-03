@@ -18,11 +18,6 @@ import { gameKeyDetails } from "./components/data.ts";
 export async function handleFriendsNow(request: Request, env: Env, path: string): Promise<Response | null> {
   const playingMatch = path.match(/^\/g\/([a-z0-9-]+)\/friends$/);
   if (path !== "/api/presence" && !playingMatch) return null;
-  if (path === "/api/presence" && request.method !== "POST") return new Response(null, { status: 405 });
-  if (playingMatch && request.method !== "GET") return new Response(null, { status: 405 });
-  // Only Zaisma's own pages check in.
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(env.SITE_ORIGIN).origin) return new Response(null, { status: 403 });
   const session = await currentSession(request, env);
   if (!session) return new Response(null, { status: 401, headers: { "Cache-Control": "no-store" } });
   const done = (response: Response) => {

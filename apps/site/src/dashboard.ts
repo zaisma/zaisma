@@ -204,7 +204,6 @@ const DONE: Record<string, string> = {
 export async function handleDashboard(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path !== "/dashboard" && !path.startsWith("/dashboard/")) return null;
   const post = request.method === "POST";
-  if (post && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
 
   const session = await currentSession(request, env);
   if (!session) return redirect(`/signin?next=${encodeURIComponent(path)}`, []);
@@ -218,10 +217,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const account = await accountById(env.DB, caller.accountId);
   const isAskingForEmail = async () => (account ? isEmailAskDue(env, account, realEmail(session.email)) : false);
   // A banned developer keeps the games page, to export their games, and nothing else (bans.ts).
-  if (caller.banScope) {
-    if (path === "/dashboard" && !post) return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
-    if (post || !/^\/dashboard\/[a-z0-9-]+\/export\.zip$/.test(path)) return done(redirect("/dashboard"));
-  }
+  if (caller.banScope && path === "/dashboard") return done(await bannedGamesPage(env, call, account, accountBanned(caller).messageForPeople));
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, account, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail(), url.searchParams.get("done") === "game-deleted" ? "Game deleted." : undefined));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));

@@ -1,5 +1,6 @@
-import { finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { checkDoor, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
+import { roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
 import { publishedReceiptKeys, signingKey } from "./signing.ts";
@@ -488,6 +489,10 @@ export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("origin");
+
+    // The guard in front of every address (doors.ts): nothing below runs for one with no row.
+    const door = roomAddressDoorAt(url.pathname, request.method);
+    if (!door || !checkDoor(door.contract, [])) return new Response("Not found", { status: 404 });
 
     if (url.pathname === "/.well-known/jwks.json") {
       return Response.json(jwks([(await signingKey(env)).publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });

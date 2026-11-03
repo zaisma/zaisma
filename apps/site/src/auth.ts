@@ -407,7 +407,20 @@ export function clearSessionCookies(env: Env): string[] {
  * below read it (null with none yet), before any birthday since is applied: viewerOf passes it through
  * accountWithBirthday, so a page reads the row once.
  */
-export async function currentSession(request: Request, env: Env): Promise<(Session & { cookies: string[]; accountRow: Account | null }) | null> {
+export function currentSession(request: Request, env: Env): Promise<CurrentSession | null> {
+  // Read once per request: the guard (guard.ts) and the door's own code ask for the same one, and an expired token can be swapped only once.
+  let session = sessionByRequest.get(request);
+  if (!session) {
+    session = readSession(request, env);
+    sessionByRequest.set(request, session);
+  }
+  return session;
+}
+
+type CurrentSession = Session & { cookies: string[]; accountRow: Account | null };
+const sessionByRequest = new WeakMap<Request, Promise<CurrentSession | null>>();
+
+async function readSession(request: Request, env: Env): Promise<CurrentSession | null> {
   if (!authConfigured(env)) return null;
   const raw = readCookie(request, env, "zaisma");
   if (!raw) return null;

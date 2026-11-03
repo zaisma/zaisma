@@ -203,12 +203,7 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   // The admin MCP: Claude Code signs in through Cloudflare Access with a service token, so it sends no Origin of ours.
   if (path === "/admin/mcp") return handleAdminMcp(request, env, actor);
 
-  if (request.method === "POST") {
-    // Admin forms only come from our own pages.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-    return adminAction(request, env, path, actor);
-  }
+  if (request.method === "POST") return adminAction(request, env, path, actor);
 
   if (path === "/admin") return dashboard(env);
   if (path === "/admin/audit") return auditPage(env);

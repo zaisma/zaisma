@@ -51,11 +51,6 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
   const [, wantedUsername, sub] = match as unknown as [string, string, string | undefined];
   const post = request.method === "POST";
-  if (post) {
-    // Forms only come from our own pages.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
   const owner = await accountByUsername(env.DB, wantedUsername);
   if (!owner) return message(env, "No one here", "No player has that username. They may have changed it.", 404);
   // One address per profile: any other case goes to the username as it's kept.
