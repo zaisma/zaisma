@@ -147,7 +147,7 @@ ${checkedPageTag(options.checkedPage)}
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
-<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [...(isLocalSite(env) ? [{ kind: "control" as const, markup: secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true }) }] : []), { kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
+${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: "gallery" }),
     main: html`<main class="gallery-main">
@@ -177,6 +177,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
+/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. */
+.gallery-screens { margin-left: auto; }
+.gallery-screens + .gallery-buttons { margin-left: 0; }
+@media (max-width: 760px) { .gallery-screens { display: none; } }
 /* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
 @media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }

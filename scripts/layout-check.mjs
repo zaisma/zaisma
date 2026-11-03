@@ -632,8 +632,8 @@ async function checkPage(chrome, contextId, url, looks, options) {
           if (sizeBytes > limitBytes) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${limitBytes / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
         }
       }
-      // A sheet, menu or card on a page needs its button on the Screens bench, so none reaches a page unseen (scripts/preview/bench/places.ts).
-      if (lookIndex === 0 && !options.isGallery) {
+      // A sheet, menu or card on a page needs its button on the Screens bench, so none reaches a page unseen (scripts/preview/bench/places.ts). The sign-in site is another address, off the bench.
+      if (lookIndex === 0 && !options.isGallery && !options.isOnSignInSite) {
         const { result: stateIds } = await send("Runtime.evaluate", { expression: STATE_IDS_ON_THE_PAGE, returnByValue: true });
         for (const id of statesWithNoButton(stateIds.value ?? [])) found.push({ check: "the page has a state with no button on the Screens bench", element: `#${id}`, said: "give it a button in scripts/preview/bench/places.ts, or a reason in NOT_A_STATE" });
       }

@@ -107,7 +107,8 @@
     applyLook(screen);
   }
 
-  const labelOf = (button) => $(".face span:not(.ico), .face", button);
+  // A button's words, never its face: the face also holds the cut line that draws its edge and its focus.
+  const labelOf = (button) => [...$(".face", button).childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()) ?? $(".face > span:not(.ico)", button);
   const setPressed = (button, isPressed) => button && button.setAttribute("aria-pressed", String(isPressed));
   const activeScreens = () => (big ? [big.screen] : allScreens);
 
