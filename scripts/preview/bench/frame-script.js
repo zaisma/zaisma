@@ -340,8 +340,8 @@
       const isIn = entered.has(keyOf(state));
       await instantly(async () => { if (isExit && !isIn) await enterState(state); if (!isExit && isIn) { leaveState(state); finishSheetsLeaving(); } });
       const before = new Set(allAnimations()), caught = new Set();
-      // Only what's on a layer as it enters: a page that's still settling has animations of its own to finish. As one leaves, it may be no layer any more, and only what leaving started is new.
-      const isOnLayer = (animation) => isExit || animation.effect.target?.closest?.(LAYERS);
+      // Only what's on a layer as it enters, and the shadow a floating pane casts beside itself: a page that's still settling has animations of its own to finish. As one leaves, it may be no layer any more, and only what leaving started is new.
+      const isOnLayer = (animation) => isExit || animation.effect.target?.closest?.(`${LAYERS}, .floating-cast`);
       const catchNew = () => { for (const animation of allAnimations()) if (!before.has(animation) && !caught.has(animation) && animation.effect.getComputedTiming().iterations !== Infinity && isOnLayer(animation)) { animation.pause(); caught.add(animation); } };
       if (isExit) {
         // A sheet closes itself on a timer as well as when its animation ends: that waits until it's let go.
