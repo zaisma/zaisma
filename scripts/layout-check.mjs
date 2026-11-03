@@ -635,7 +635,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
       // A sheet, menu or card on a page needs its button on the Screens bench, so none reaches a page unseen (scripts/preview/bench/places.ts).
       if (lookIndex === 0 && !options.isGallery) {
         const { result: stateIds } = await send("Runtime.evaluate", { expression: STATE_IDS_ON_THE_PAGE, returnByValue: true });
-        for (const id of statesWithNoButton(stateIds.value ?? [])) found.push({ check: "a state with no button on the Screens bench", element: `#${id}`, said: "give it a button in scripts/preview/bench/places.ts, or a reason in NOT_A_STATE" });
+        for (const id of statesWithNoButton(stateIds.value ?? [])) found.push({ check: "the page has a state with no button on the Screens bench", element: `#${id}`, said: "give it a button in scripts/preview/bench/places.ts, or a reason in NOT_A_STATE" });
       }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
