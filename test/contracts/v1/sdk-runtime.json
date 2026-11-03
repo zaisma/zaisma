@@ -9,7 +9,6 @@
       "items",
       "joinRoom",
       "links",
-      "openPlayersPanel",
       "player",
       "rooms",
       "saves",
@@ -544,18 +543,6 @@
     "kind": "constant",
     "value": [
       "POST /v1/filter"
-    ]
-  },
-  "wire: Zaisma.openPlayersPanel, post zaisma:players-open": {
-    "kind": "values",
-    "values": [
-      "type"
-    ]
-  },
-  "wire: Zaisma.openPlayersPanel": {
-    "kind": "constant",
-    "value": [
-      "post zaisma:players-open"
     ]
   },
   "wire: Zaisma.friends.list, POST /v1/pass body": {

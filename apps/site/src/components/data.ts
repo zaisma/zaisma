@@ -1,6 +1,6 @@
 import { EmptyNoteMarkup, NO_EMPTY_NOTE, accountPicture, html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { secondaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
+import { ACTION_NAMES, action, NARROW_HOLDER_WIDTH, iconAloneFace, secondaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, MINUTE_MS, ago, glassPane, groove, icon, picture, tag, well, type IconName, type ShownPicture, type TagTone } from "./foundations.ts";
 import { STAND_IN_ACCOUNT_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -30,6 +30,16 @@ export function pictureFrame(username: string, pictureSize: PictureSize, options
     : accountPicture(username, pictureSize === "lg" ? "md" : pictureSize, { title: "" });
   return html`<span class="frame ${pictureSize} glass" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true"><span class="frame-picture">${shown}</span></span>`;
 }
+
+/** paint(picture, name) for a page's script: an account's picture as accountPicture draws it, initials in its own color, from the name. */
+export const PAINT_PICTURE = String.raw`function paint(picture, name) {
+    let hue = 7;
+    for (const c of name) hue = (hue * 31 + c.codePointAt(0)) % 360;
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    const letters = words.length > 1 ? [Array.from(words[0])[0], Array.from(words[1])[0]] : Array.from(words[0] || "?").slice(0, 2);
+    picture.style.setProperty("--h", String(hue));
+    picture.textContent = letters.join("").toUpperCase();
+  }`;
 
 /** A frame's side at each size, in CSS pixels (.frame's --frame). */
 const FRAME_PX: Record<PictureSize, number> = { xs: 24, sm: 32, md: 44, lg: 96 };
@@ -75,6 +85,10 @@ export interface KeyDetail {
   under?: Raw | string;
   /** What's under it is good news (more players): it's green. Otherwise it stays quiet. */
   isUnderGood?: boolean;
+  /** For a page's script to find it: a figure kept up to date, or a detail that arrives after the page. */
+  id?: string;
+  /** Not shown for now, its room given back; with every detail hidden, the whole strip takes none. */
+  isHidden?: boolean;
 }
 
 /**
@@ -85,7 +99,7 @@ export interface KeyDetail {
 export function keyDetails(options: { details: KeyDetail[]; label?: string }): Raw {
   return html`<dl class="key-details words-margin hairline-above"${options.label ? html` aria-label="${options.label}"` : ""}>${options.details.map(
     (detail) =>
-      html`<div class="key-detail"><dt>${detail.label}</dt><dd class="key-detail-value">${detail.unit ? html`<span class="key-detail-amount">${detail.detailValue}</span><span class="key-detail-unit">${detail.unit}</span>` : detail.detailValue}</dd>${
+      html`<div class="key-detail"${detail.id ? html` id="${detail.id}"` : ""}${detail.isHidden ? raw(" hidden") : ""}><dt>${detail.label}</dt><dd class="key-detail-value">${detail.unit ? html`<span class="key-detail-amount">${detail.detailValue}</span><span class="key-detail-unit">${detail.unit}</span>` : detail.detailValue}</dd>${
         detail.under ? html`<dd class="key-detail-under${detail.isUnderGood ? " good" : ""}">${detail.under}</dd>` : ""
       }</div>`,
   )}</dl>`;
@@ -135,6 +149,8 @@ export const KEY_DETAILS_STYLES = `
    something else in its pane (a game's title), a hairline parts them. */
 .key-details { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
 .key-detail { flex: none; min-width: var(--size-number); max-width: 100%; display: grid; align-content: start; gap: 2px; }
+.key-detail[hidden] { display: none; }
+.stack-cell:has(> .key-details:not(:has(> .key-detail:not([hidden])))) { display: none; }
 .key-detail > dt { font: var(--type-facts); color: var(--ink-2); }
 .key-detail > dd { margin: 0; min-width: 0; }
 /* A game's pane title grows with its key details, in a game's title's type. */
@@ -388,6 +404,8 @@ interface ListRowParts {
    * out-of-the-page arrow in place of the chevron.
    */
   isNewTab?: boolean;
+  /** Someone or something away for now (a friend offline): its picture and name go quieter, so what's here reads first. */
+  isAway?: boolean;
   /** Not shown for now: a page script shows it (a long list's rows past the first ten, after Show all). It takes no room and no hairline. */
   isHidden?: boolean;
   /** Unique on the page, on the row itself (its link or button), for a page's script to find it: a player's Block. */
@@ -396,6 +414,8 @@ interface ListRowParts {
 
 /** A row that does something, pressed as a whole: a button (a player's Block, Show QR code), its words and nothing at its end. */
 export interface RowPress {
+  /** It ends in a chevron, where rows that can't be pressed sit beside it, so it's plain which can (a missed notice that comes back). */
+  hasChevron?: boolean;
   /** The sheet or light box it opens (its id). */
   controls?: string;
   /** data-* attributes a page's script reads ({ "sheet-step-to": "report" }), names in lowercase words joined by dashes. */
@@ -436,11 +456,11 @@ export type RowFold = {
  * belongs on the page but out of the way (earlier entries, blocked people), or things to scan by a title and a line (the content rules).
  */
 export type ListRow = ListRowParts & (
-  | { href: string; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
+  | { href: string; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
   | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never; press?: never }
   | { href?: undefined; action?: never; switch: RowSwitch; rowsWhileOn?: ListRow[]; fold?: never; press?: never }
   | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold: RowFold; press?: never }
-  | { href?: undefined; action?: never; switch?: never; rowsWhileOn?: never; fold?: never; press: RowPress }
+  | { href?: undefined; action?: ControlMarkup | ControlMarkup[]; switch?: never; rowsWhileOn?: never; fold?: never; press: RowPress }
 );
 
 /** A switch's carved slot and its slab: the checkbox (role switch) lies over the slot, unseen, and the row round it is its label. */
@@ -455,13 +475,127 @@ const rowOf = (actions: ControlMarkup[]) => row({ widths: "fit", items: actions.
  * List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole.
  * whenEmpty (an Empty state) shows in its place while it has no rows shown, a page script's rows included (WHEN_EMPTY_STYLES).
  */
-export function listRows(options: { rows: ListRow[]; whenEmpty: EmptyNoteMarkup; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }): Raw {
+export function listRows(options: { rows: ListRow[]; whenEmpty: EmptyNoteMarkup; id?: string; label?: string; shownRowCount?: number; isAcrossSideways?: boolean; isCompact?: boolean; pages?: ListPages; moreRows?: ListMoreRows }): Raw {
   const cap = options.shownRowCount ? html` style="--shown-row-count:${String(options.shownRowCount)}"` : "";
   // The list is carved into whatever holds it, a well with edges of its own wherever it sits; one that holds rows you press lights its
   // edge beside the one you point at (Edge light).
   const isPressed = options.rows.some((row) => row.href || row.press || row.fold);
-  return html`${well({ kind: "list-well", body: listMarkup(options, cap), edgeLight: isPressed ? "left" : undefined })}${whenEmptyMarkup(options.whenEmpty, options.rows.some((row) => !row.isHidden))}`;
+  const foot = listFoot({ ...options, listId: options.id, rowCount: options.rows.length });
+  return html`${well({ kind: `list-well${footClass(options)}`, body: html`${listMarkup(options, cap)}${foot}`, edgeLight: isPressed ? "left" : undefined })}${whenEmptyMarkup(options.whenEmpty, options.rows.some((row) => !row.isHidden))}`;
 }
+
+/** A list or table read a page at a time. Give it shownRowCount too: the foot takes the last of those rows, and every page keeps that height, so the arrows never move. */
+export interface ListPages {
+  /** What's paged, for a screen reader: Replies, Versions. */
+  label: string;
+  pageNumber: number;
+  pageCount: number;
+  /** The address of the page before, where there is one: this same page with its page number. The foot adds the list's id, so without scripts it lands on the list. */
+  previousHref?: string;
+  /** The address of the page after, where there is one. */
+  nextHref?: string;
+}
+
+/** A list or table you add to in place: its Load more, which takes its last row while there's more. */
+export type ListMoreRows = Omit<LoadMoreOptions, "listId" | "moreListIds">;
+
+const footClass = (options: { pages?: ListPages; moreRows?: ListMoreRows }): string => (options.pages ? " has-foot has-pages" : options.moreRows ? " has-foot" : "");
+
+/** What a list or table has for its last row, inside its well, so it's never taller for having it: which page you're on and the way to the next, or Load more. */
+function listFoot(options: { listId?: string; rowCount: number; shownRowCount?: number; pages?: ListPages; moreRows?: ListMoreRows }): Raw | "" {
+  if (options.pages) {
+    if (!options.shownRowCount) throw new Error(`A list read a page at a time (${options.pages.label}) gives shownRowCount, so every page keeps its height.`);
+    const { label, pageNumber, pageCount, previousHref, nextHref } = options.pages;
+    if (!options.listId) throw new Error(`A list read a page at a time (${label}) names its id, for the next page's rows to find it.`);
+    // Only the rows the page shows are ever asked for: a query that fetched the whole list and hid the rest can't build.
+    if (options.rowCount > options.shownRowCount - 1) throw new Error(`A list read a page at a time (${label}) shows ${options.shownRowCount - 1} rows a page and was given ${options.rowCount}. Query only that page's rows.`);
+    const arrow = (name: "previousPage" | "nextPage", href?: string) => secondaryButton(action(name), { ...(href ? { href: `${href}#${options.listId}` } : { type: "button" as const, isDisabled: true }), isLabelHidden: true, isSmall: true });
+    return html`<nav class="list-foot" data-list-pages="${options.listId}" aria-label="${label}: pages"><p class="list-foot-words" aria-live="polite">Page ${String(pageNumber)} of ${String(pageCount)}</p>${row({ widths: "fit", items: [{ kind: "control", markup: arrow("previousPage", previousHref) }, { kind: "control", markup: arrow("nextPage", nextHref) }] })}</nav>`;
+  }
+  if (!options.moreRows) return "";
+  if (!options.listId) throw new Error("A list with Load more names its id, for the next page's rows to find it.");
+  return html`<div class="list-foot is-more">${loadMore({ ...options.moreRows, listId: options.listId })}</div>`;
+}
+
+/**
+ * What an arrow adds to its page's address when it fetches: the id of the list it wants. A page that knows the parameter answers with that list
+ * and its foot alone, so a press runs that list's one query and nothing else on the page; one that doesn't answers whole, which works too.
+ */
+export const ONLY_LIST_PARAMETER = "only_list_id";
+
+/**
+ * A list read a page at a time: an arrow fetches only that list's next page and takes its rows in place, so the list stays where it is on the
+ * screen, and the address follows, so the browser's back and a reload work. The arrows stay the same arrows, so the pressed one's glint leaves
+ * as any button's does, and only a list whose page changed is touched. It's busy while it waits; if the page doesn't come, its foot says so and
+ * the arrows can be pressed again; if the page has no list of that id, it goes there.
+ */
+export const LIST_PAGES_SCRIPT = `/* list pages */(function () {
+  var shown = location.pathname + location.search;
+  function takePage(foot, next) {
+    var id = foot.getAttribute("data-list-pages"), list = document.getElementById(id), rows = next.getElementById(id), nextFoot = next.querySelector('[data-list-pages="' + CSS.escape(id) + '"]');
+    if (!list || !rows || !nextFoot) return false;
+    var words = foot.querySelector(".list-foot-words"), nextWords = nextFoot.querySelector(".list-foot-words");
+    if (words.textContent === nextWords.textContent) return true;
+    list.replaceChildren.apply(list, Array.prototype.map.call(rows.childNodes, function (child) { return document.importNode(child, true); }));
+    var box = list.closest(".scrolls, .table-scroll");
+    if (box) { box.scrollTop = 0; box.dispatchEvent(new Event("scroll")); }
+    words.textContent = nextWords.textContent;
+    foot.classList.remove("is-failed");
+    var nextControls = nextFoot.querySelectorAll("a, button");
+    foot.querySelectorAll("a, button").forEach(function (control, index) {
+      var after = nextControls[index];
+      // A newer page decides what it becomes now, not the page it was settling for.
+      if (control.zaismaSettling) { control.zaismaSettling.disconnect(); control.zaismaSettling = null; }
+      if (control.tagName === after.tagName) { if (after.hasAttribute("href")) control.setAttribute("href", after.getAttribute("href")); return; }
+      // One waiting finishes its glint and lets go first, as any button does; it can't be pressed meanwhile, its way gone.
+      control.removeAttribute("href");
+      function place() {
+        var wasFocused = control === document.activeElement, placed = document.importNode(after, true);
+        placed.classList.add("is-arriving");
+        control.replaceWith(placed);
+        if (wasFocused && foot.querySelector("a")) foot.querySelector("a").focus();
+      }
+      function isSettled() { return control.getAttribute("aria-busy") !== "true" && !control.querySelector(".waiting-glint"); }
+      if (isSettled()) { place(); return; }
+      control.zaismaSettling = new MutationObserver(function () { if (isSettled()) { control.zaismaSettling.disconnect(); control.zaismaSettling = null; place(); } });
+      control.zaismaSettling.observe(control, { attributes: true, attributeFilter: ["aria-busy"], childList: true, subtree: true });
+    });
+    return true;
+  }
+  var ASKING = { headers: { accept: "text/html" }, credentials: "same-origin" };
+  function takeAnswer(response) {
+    if (!response.ok) throw new Error(String(response.status));
+    return response.text().then(function (text) {
+      var next = new DOMParser().parseFromString(text, "text/html"), isFound = false;
+      document.querySelectorAll("[data-list-pages]").forEach(function (foot) { if (takePage(foot, next)) isFound = true; });
+      return isFound;
+    });
+  }
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("[data-list-pages] a[href]");
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    var foot = link.closest("[data-list-pages]"), href = link.href;
+    var url = new URL(href);
+    url.searchParams.set(${JSON.stringify(ONLY_LIST_PARAMETER)}, foot.getAttribute("data-list-pages"));
+    window.zaismaWait(link, fetch(url, ASKING).then(takeAnswer)).then(function (isFound) {
+      if (!isFound) { location.href = href; return; }
+      history.pushState(null, "", href);
+      shown = location.pathname + location.search;
+    }).catch(function () {
+      foot.classList.add("is-failed");
+      foot.querySelector(".list-foot-words").textContent = "That didn't load.";
+    });
+  });
+  // The browser's back and forward: a change of address past the fragment shows that page's rows, in every paged list on the page.
+  window.addEventListener("popstate", function () {
+    var address = location.pathname + location.search;
+    if (address === shown || !document.querySelector("[data-list-pages]")) return;
+    shown = address;
+    window.zaismaWait(null, fetch(location.href, ASKING).then(takeAnswer)).then(function (isFound) { if (!isFound) location.reload(); }, function () { location.reload(); });
+  });
+})();
+`;
 
 /**
  * What shows in a list's place while it has nothing in it: right after the list, which hides itself while it's empty (WHEN_EMPTY_STYLES).
@@ -469,19 +603,25 @@ export function listRows(options: { rows: ListRow[]; whenEmpty: EmptyNoteMarkup;
  */
 const whenEmptyMarkup = (whenEmpty: EmptyNoteMarkup, isListShown: boolean): Raw => html`<div class="when-empty"${isListShown ? raw(" hidden") : ""}>${whenEmpty}</div>`;
 
-function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isCompact?: boolean }, cap: Raw | ""): Raw {
-  return html`<ul class="list-rows hairlines${options.shownRowCount ? " is-capped scrolls own-scroll" : ""}${options.isCompact ? " is-compact" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
+/** Whether a row's buttons include one with only words, which can't shrink to an icon: on a narrow row its buttons go under its words. */
+const hasWordButton = (action: ControlMarkup | ControlMarkup[] | undefined): boolean => [action ?? []].flat().some((control) => !/class="(ico|ico solid|play)"/.test(control.html));
+
+function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isAcrossSideways?: boolean; isCompact?: boolean }, cap: Raw | ""): Raw {
+  return html`<ul class="list-rows hairlines scrolls own-scroll${options.shownRowCount ? " is-capped" : ""}${options.isCompact ? " is-compact" : ""}${options.isAcrossSideways ? " is-across-sideways" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
-    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
+    // What a meter row opens says so on its name's line, so the meter under it has the row's whole width.
+    const opens = row.href || (row.press && (row.meter || row.action || row.press.hasChevron)) ? html`<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span>` : "";
+    const side = (row.href || row.press) && row.action ? html`<span class="list-row-action list-row-side">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : "";
+    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
-      ? html`<a class="list-row flush-row is-link${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span></a>`
+      ? html`<a class="list-row flush-row is-link${row.isAway ? " is-away" : ""}${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}${row.meter ? "" : opens}</a>${side}`
       : row.press
-        ? html`<button type="button" class="list-row flush-row is-press${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""}${row.press.controls ? html` aria-controls="${row.press.controls}"` : ""}${Object.entries(row.press.dataAttributes ?? {}).map(([name, text]) => html` data-${name}="${text}"`)} data-cut-line="8">${CUT_LINE}${inside}</button>`
+        ? html`<button type="button" class="list-row flush-row is-press${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""}${row.press.controls ? html` aria-controls="${row.press.controls}"` : ""}${Object.entries(row.press.dataAttributes ?? {}).map(([name, text]) => html` data-${name}="${text}"`)} data-cut-line="8">${CUT_LINE}${inside}${row.action || row.press.hasChevron ? opens : ""}</button>${side}`
       : row.switch
         ? switchRowMarkup(row, row.switch, inside)
         : row.fold
         ? foldRowMarkup(row, row.fold, inside)
-        : html`<div class="list-row flush-row quiet">${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
+        : html`<div class="list-row flush-row quiet${row.isAway ? " is-away" : ""}${hasWordButton(row.action) ? " has-word-button" : ""}"${row.id ? html` id="${row.id}"` : ""}>${inside}${row.action ? html`<span class="list-row-action">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : ""}</div>`}</li>`;
   })}</ul>`;
 }
 
@@ -499,22 +639,6 @@ function switchRowMarkup(row: ListRow, rowSwitch: RowSwitch, inside: Raw): Raw {
 function foldRowMarkup(row: ListRow, fold: RowFold, inside: Raw): Raw {
   return html`<details class="list-row-fold"${fold.id ? html` id="${fold.id}"` : ""}${fold.isOpen ? raw(" open") : ""}><summary class="list-row flush-row is-fold${row.state ? ` ${row.state}` : ""}" data-lights data-cut-line="8">${CUT_LINE}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span>${inside}</summary><div class="list-row-fold-body">${fold.rows ? listMarkup({ rows: fold.rows, isCompact: true }, "") : fold.body}</div></details>`;
 }
-
-/**
- * A row whose buttons have icons: measured with their words shown, it's narrow (is-narrow) when that leaves its own words less than a card's
- * third (ROW_WORDS_LEAST_PX), and its buttons then show their icons alone. Measured again whenever it changes size.
- */
-export const LIST_ROW_FIT_SCRIPT = `/* list row fit */(function () {
-  var ROW_WORDS_LEAST_PX = 120;
-  function fit(row) {
-    var words = row.querySelector(":scope > .list-row-words"); if (!words) return;
-    row.classList.remove("is-narrow");
-    if (words.getBoundingClientRect().width < ROW_WORDS_LEAST_PX) row.classList.add("is-narrow");
-  }
-  var watcher = typeof ResizeObserver === "function" ? new ResizeObserver(function (entries) { entries.forEach(function (entry) { fit(entry.target); }); }) : null;
-  window.zaismaWatch.each(".list-row:has(> .list-row-action .cut-btn > .face > .ico)", function (row) { fit(row); if (watcher) watcher.observe(row); });
-})();
-`;
 
 /** Opens the folding row a link points at (#<id>), on arrival and when the address's anchor changes. */
 export const LIST_ROW_FOLD_SCRIPT = `
@@ -551,6 +675,30 @@ const VERSION_LIST_ROWS: ListRow[] = [
 const listPane = (rows: ListRow[]) => glassPane({ paneWidth: "fit", body: stackOfOne(listRows({ rows, whenEmpty: stateNote({ stateKind: "empty", title: "No versions yet", text: "Each upload you check shows here." }) })) });
 const ROW_BUTTON = { type: "button", isSmall: true } as const;
 /** A list across a page's column, as the pages coming use them. */
+/** Which page a working example is on, from the gallery page's own address, and the address of another of its pages. */
+const examplePage = (url: URL, name: string, pageCount: number) => {
+  const askedPageNumber = Number(url.searchParams.get(name));
+  const pageNumber = Number.isInteger(askedPageNumber) && askedPageNumber >= 1 && askedPageNumber <= pageCount ? askedPageNumber : 1;
+  const hrefOf = (linkedPageNumber: number) => {
+    const address = new URL(url);
+    address.searchParams.set(name, String(linkedPageNumber));
+    return `${address.pathname}${address.search}`;
+  };
+  return { pageNumber, pageCount, ...(pageNumber > 1 ? { previousHref: hrefOf(pageNumber - 1) } : {}), ...(pageNumber < pageCount ? { nextHref: hrefOf(pageNumber + 1) } : {}) };
+};
+
+const PAGED_VERSIONS = [["Version 14", "Version 13", "Version 12", "Version 11"], ["Version 10", "Version 9", "Version 8", "Version 7"], ["Version 6"]];
+const pagedList = (url: URL) => {
+  const pages = examplePage(url, "versions_page", PAGED_VERSIONS.length);
+  return glassPane({ paneWidth: "full", body: stackOfOne(listRows({
+    whenEmpty: NO_EMPTY_NOTE,
+    id: "example-paged-list",
+    label: "Versions",
+    shownRowCount: 5,
+    rows: PAGED_VERSIONS[pages.pageNumber - 1]!.map((title) => ({ title, detail: "Replaced", href: "#list-rows" })),
+    pages: { label: "Versions", ...pages },
+  })) });
+};
 const fullListPane = (rows: ListRow[]) => glassPane({ paneWidth: "full", body: stackOfOne(listRows({ rows, whenEmpty: NO_EMPTY_NOTE })) });
 
 component({
@@ -563,7 +711,9 @@ component({
 /* List rows: one thing a row, hairlines between. A row that's a link ends in a small chevron; under the pointer the row brightens a little
    (a faint slab, cut by the edge rule), an orange mark rises at its start, and the chevron steps on, the way the guest button's arrow does.
    A row may lead with a picture or an icon, take a second line of details, and, when it isn't a link, end in a button. */
-.list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.list-rows { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); container: list-rows / inline-size; }
+/* A list takes its narrow rows from its own width, so it can't take its width from its rows: in a pane as wide as what's in it, it's as wide as a list needs to be wide, or what the pane has. */
+.fit .list-rows { width: calc(${NARROW_HOLDER_WIDTH} + 1px); max-width: 100%; }
 /* A row runs the list's whole width: the reading measure that keeps a pane's sentences short (75ch on its li) isn't for rows. */
 .list-rows > li { max-width: none; }
 /* The list's well: carved into what holds it, the rows right to its edges (each row keeps its own inset), hairlines between them. */
@@ -605,7 +755,30 @@ component({
 .list-rows { --fold-indent: calc(var(--pad-words) + 8px + var(--gap-words-control)); }
 .list-row-while-on, .list-row-fold-body { padding: 0 0 var(--gap-words-control) var(--fold-indent); }
 /* Capped: about shownRowCount rows in view, half of the next showing so it's clear the list scrolls inside itself, the page staying short. It holds a swipe or a wheel only while it has something to scroll (is-scrollable, tokens.ts): a short list passes it on to the page. */
-.list-rows.is-capped { --list-row-height: 65px; max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); }
+.list-rows { max-height: var(--list-ceiling); }
+.list-rows.is-capped { max-height: calc((var(--shown-row-count) + 0.5) * var(--list-row-height)); }
+.list-well, .table-well { --list-ceiling: min(40rem, 75dvh); }
+.list-well { --list-row-height: 65px; --foot-height: var(--list-row-height); }
+.list-well:has(> .well-body > .list-rows.is-compact) { --list-row-height: 45px; }
+/* Its foot takes its last row, so it's never taller for having one. Read a page at a time, every page keeps the same height, the last page's too, so the arrows never move. */
+.list-well.has-foot .list-rows { max-height: calc(var(--list-ceiling) - var(--foot-height)); }
+.list-well.has-foot .list-rows.is-capped { max-height: calc((var(--shown-row-count) - 0.5) * var(--list-row-height)); }
+.list-well.has-pages .list-rows.is-capped { height: calc((var(--shown-row-count) - 1) * var(--list-row-height)); max-height: none; }
+/* Every row of a page is one height and fills it, so a press carves right up to the hairlines, and a short last page's rows stay that height. */
+.list-well.has-pages .list-rows { grid-auto-rows: minmax(var(--list-row-height), max-content); align-content: start; }
+.list-well.has-pages .list-rows > li { display: grid; }
+.list-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-words-control); box-sizing: border-box; min-height: var(--foot-height); padding: var(--pad-frame) var(--pad-frame) var(--pad-frame) var(--pad-inside-words); border-top: var(--divider); }
+.list-foot-words { margin: 0; font: var(--type-note); color: var(--ink-2); white-space: nowrap; }
+.list-foot.is-failed .list-foot-words { color: var(--marked); }
+/* An arrow reaching the first or last page turns into the one that can't be pressed, or back: it eases there as a press lets go. */
+.list-foot a.is-arriving > .face { animation: list-arrow-wakes var(--motion-state); }
+.list-foot button.is-arriving > .face { animation: list-arrow-rests var(--motion-state); }
+@keyframes list-arrow-wakes { from { opacity: 0.35; } }
+@keyframes list-arrow-rests { from { opacity: 1; } }
+.list-foot.is-more { padding: var(--pad-frame); }
+.list-foot.is-more > .load-more { flex: 1; min-width: 0; }
+.list-foot.is-more > .load-more:has(> .load-more-words:only-child) { padding-inline: calc(var(--pad-inside-words) - var(--pad-frame)); }
+.list-foot.is-more:not(:has(> .load-more)) { display: none; }
 /* With its rail showing (the rail lies along its right edge), the rows keep clear of it, so a row's button never sits against the rail. */
 /* Every row has one shape, never stacked: what leads it, its words, and what ends it, on one line; when room runs out the words give way
    (wrapping in their own column), never the lead or the end. */
@@ -620,17 +793,24 @@ component({
 /* Compact: a long list in a narrow place (the players in a room): one line a row, its words taking what's left beside its picture and buttons. */
 .list-rows.is-compact > li > .list-row { flex-wrap: nowrap; --row-height: 44px; --row-block: calc(var(--gap-control-stack) * 0.75); }
 .list-rows.is-compact .list-row-words { flex: 1 1 0; }
+/* A few short steps read across on a phone on its side, all showing at once. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .list-rows.is-across-sideways { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .list-rows.is-across-sideways > li { border-block: 0; }
+}
 .list-row-lead > .ico { width: 20px; height: 20px; }
 .list-row-lead.is-problem { color: var(--tag-problem-ink); }
 .list-row-lead.is-warning { color: var(--tag-warning-ink); }
 /* The words keep a card's width at least: where the buttons don't fit beside that, they go under the words, at the row's end. */
-.list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1 1 0; }
+.list-row-words { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-words); min-width: 0; flex: 1 1 0; }
+/* The row's words and what they end in, side by side while there's room. */
+.list-row-body { display: flex; align-items: center; gap: var(--gap-words-control); flex: 1 1 0; min-width: 0; }
 /* Its words keep a block's gap from the buttons or facts at its end, so the row never reads as cramped, even where it's only as wide as
    what's in it. */
-.list-row:has(> .list-row-action, > .list-row-end) > .list-row-words { margin-inline-end: calc(var(--gap-block-block) - var(--gap-words-control)); }
+:is(.list-row:has(> .list-row-action) > .list-row-body, .list-row-body:has(> .list-row-end)) > .list-row-words { margin-inline-end: calc(var(--gap-block-block) - var(--gap-words-control)); }
 /* A long title wraps rather than being cut short, a web address anywhere. */
 .list-row-title { font: var(--type-label); color: var(--ink); overflow-wrap: anywhere; }
-.list-row-detail { font: var(--type-facts); color: var(--muted); }
+.list-row-detail { font: var(--type-facts); color: var(--muted); overflow-wrap: break-word; }
 /* What someone is doing now: green words, so the color only backs up what they say. */
 .list-row-activity { font: var(--type-facts); color: var(--tag-new-ink); }
 /* An icon after the title (a friend's mark), in the second words' color, on the title's line. */
@@ -642,15 +822,51 @@ component({
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
-/* In a row too narrow for its words and its buttons' words both (is-narrow, LIST_ROW_FIT_SCRIPT), an action that has an icon shows its icon
-   alone (its words still said to a screen reader), so its buttons always fit beside the words: Mute becomes its speaker, carved in while on. */
-.list-row.is-narrow .list-row-action .cut-btn:has(> .face > .ico) > .face { width: 52px; --slab-words: 0px; }
-.list-row.is-narrow .list-row-action .cut-btn.small:has(> .face > .ico) > .face { width: 42px; }
-.list-row.is-narrow .list-row-action .cut-btn:has(> .face > .ico) > .face > span:not([class]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* A row pressed as a whole keeps its own buttons, siblings of the press, just before its arrow: what's worth doing without opening it (a player's Mute, a friend's Join). They take a column as wide as they are, in the row's own columns, so its words stop short of them whatever they are, and its arrow keeps the same place as any other row's. */
+.list-rows > li:has(> .list-row-side) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: var(--gap-words-control); align-items: center; }
+.list-rows > li:has(> .list-row-side) > .list-row { grid-area: 1 / 1 / 2 / -1; display: grid; grid-template-columns: subgrid; }
+.list-rows > li:has(> .list-row-side) > .list-row > .list-row-lead { grid-column: 1; }
+.list-rows > li:has(> .list-row-side) > .list-row > .list-row-body { grid-column: 2; }
+.list-rows > li:has(> .list-row-side) > .list-row > .list-row-go { grid-column: 4; margin-inline-start: var(--gap-words-control); }
+.list-row-side { grid-area: 1 / 3; position: relative; z-index: 2; margin: 0; }
+/* On a phone, upright or on its side, a link's own buttons (Join, Accept) take the place of its arrow, for the name's room; the whole row still opens. A row that opens choices keeps its chevron: it's the only way to them. */
+@media (max-width: 760px), (orientation: landscape) and (max-height: 500px) {
+  .list-rows > li > .list-row.is-link:has(+ .list-row-side) { --row-end: 0px; }
+  .list-rows > li > .list-row.is-link:has(+ .list-row-side) > .list-row-go { display: none; }
+}
+.list-row.is-away .list-row-title { color: var(--ink-2); }
+.list-row.is-away .list-row-lead { opacity: 0.55; }
+/* A meter runs the row's whole width at any width, so meters can be compared: its name's line holds what ends the row, its lines and meter under it. */
+.list-row-body:has(.list-row-meter) { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--gap-words-words) var(--gap-words-control); }
+.list-row-body:has(.list-row-meter) > .list-row-words { display: contents; }
+.list-row-body:has(.list-row-meter) > .list-row-words > * { grid-column: 1 / -1; }
+.list-row-body:has(.list-row-meter) > .list-row-words > :first-child { grid-column: 1; grid-row: 1; }
+.list-row-body:has(.list-row-meter) > .list-row-end { grid-column: 2; grid-row: 1; }
+.list-row-body:has(.list-row-meter) > .list-row-go { grid-column: 3; grid-row: 1; }
+/* Narrow, nothing at a row's end takes width from its words but a chevron or an icon alone. What ended the row (a price, a date) goes under its
+   title. A tag does too, but keeps beside a title with nothing under it while they fit on one line, so the row's no taller for it. A button with an icon shows its icon alone, its words still said to a screen reader: Mute becomes its speaker, carved in while on. A
+   button with only words goes under them. */
+@container list-rows (max-width: ${NARROW_HOLDER_WIDTH}) {
+  .list-row-body:is(:has(.list-row-detail, .list-row-activity), :has(> .list-row-end:not(.is-piece))):has(> .list-row-end):not(:has(.list-row-meter)) { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-words-words); }
+  .list-row-body:is(:has(.list-row-detail, .list-row-activity), :has(> .list-row-end:not(.is-piece))):has(> .list-row-end):not(:has(.list-row-meter)) > .list-row-words { display: contents; }
+  .list-row-body:has(> .list-row-end.is-piece):not(:has(.list-row-detail, .list-row-activity, .list-row-meter)) { flex-wrap: wrap; }
+  .list-row-body:has(> .list-row-end.is-piece):not(:has(.list-row-detail, .list-row-activity, .list-row-meter)) > .list-row-words { flex-basis: max-content; margin-inline-end: 0; }
+  .list-row-body:has(> .list-row-end) > .list-row-words > * { order: 3; }
+  .list-row-body:has(> .list-row-end) > .list-row-words > :first-child { order: 1; }
+  .list-row-body > .list-row-end { order: 2; justify-self: start; }
+  .list-row-body:has(.list-row-meter) > .list-row-words > :first-child { grid-column: 1 / span 2; }
+  .list-row-body:has(.list-row-meter) > .list-row-end { grid-column: 1 / -1; grid-row: 2; }
+  .list-row:has(.list-row-detail, .list-row-activity) > .list-row-lead { align-self: flex-start; }
+  ${iconAloneFace(".list-row-action .cut-btn:has(> .face > :is(.ico, .play)) > .face")}
+  .list-row-action .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .list-rows:not(.is-compact) > li > .list-row.has-word-button { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .list-rows:not(.is-compact) > li > .list-row.has-word-button:has(> .list-row-lead) { grid-template-columns: auto minmax(0, 1fr); }
+  .list-rows:not(.is-compact) > li > .list-row.has-word-button > .list-row-action { grid-column: -2 / -1; justify-self: start; margin-left: 0; }
+}
 /* A switch row is pressed as a whole (its words are its switch's label): it shows its face as you point at it, as a link row does. */
 .list-row.toggle { flex-wrap: nowrap; cursor: pointer; }
 /* Its words take what's left beside the switch, however narrow, and wrap there: the switch stays on their line, at the row's end. */
-.list-row.toggle > .list-row-words { flex: 1 1 0; }
+.list-row.toggle > .list-row-body { flex: 1 1 0; }
 .list-row.toggle.is-disabled { cursor: default; }
 /* The rows a switch row turns on, and what a folding row opens to: in a well under it, a frame gap in from the list's sides and above the
    next row, shown while it's on or open. */
@@ -667,13 +883,18 @@ component({
 /* A row that opens a new tab ends in the out-of-the-page arrow, which steps up and out as you point. */
 .list-row-go.is-new-tab > .ico { width: 16px; height: 16px; stroke-width: 1.8; }
 /* The mark at its start: a short orange bar, cut at its ends, growing from its middle, halfway between the row's edge and its words. */
-.list-row.is-link:hover > .list-row-go, .list-row.is-link.is-pointed > .list-row-go { transform: translateX(3px); color: var(--ink); }
-.list-row.is-link:hover > .list-row-go.is-new-tab, .list-row.is-link.is-pointed > .list-row-go.is-new-tab { transform: translate(2px, -2px); }
+.list-row:is(.is-link, .is-press):is(:hover, .is-pointed) .list-row-go { transform: translateX(3px); color: var(--ink); }
+.list-row.is-link:is(:hover, .is-pointed) .list-row-go.is-new-tab { transform: translate(2px, -2px); }
 @media (prefers-reduced-motion: reduce) { .list-row-go { transition: none; } }
 `,
   render: listRows,
   examples: [
+    { label: "Read a page at a time: try it. The first page's way back can't be pressed; the last page has fewer rows, the same height, and its arrows where they were", isWide: true, markup: pagedList(new URL("/design/data/lists", "https://zaisma.com")), markupAt: pagedList },
     { label: "Rows that go somewhere", isWide: true, markup: listPane(VERSION_LIST_ROWS) },
+    {
+      label: "Pressed as a whole, with a button of its own: a player's Mute",
+      markup: html`<div style="width:min(320px,100%)">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "Players", rows: [{ lead: pictureFrame("Leo_Marsh", "sm"), title: "Leo_Marsh", press: {}, action: toggleButton(action("mute"), { type: "button", isSmall: true, isLabelHidden: true, isPressed: false, isQuietWhenOff: true }) }, { lead: pictureFrame("Noah_Berg", "sm"), title: "Noah_Berg", detail: "Muted", press: {}, action: toggleButton(action("mute", "Unmute"), { type: "button", isSmall: true, isLabelHidden: true, isPressed: true, isQuietWhenOff: true }) }] })) })}</div>`,
+    },
     {
       label: "Rows that do something: a player's things to do, in a sheet (Report pointed at)",
       markup: html`<div style="width:min(320px,100%)">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#list-rows" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: {}, state: "is-pointed" }] })) })}</div>`,
@@ -693,7 +914,7 @@ component({
     },
     {
       label: "Compact: a long list in a narrow place, one line a row (the players in a room)",
-      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ isCompact: true, whenEmpty: stateNote({ stateKind: "empty", title: "Nobody here yet", text: "Players show here as they join." }), rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(`Mute ${name}`, { type: "button", icon: "speaker", isLabelHidden: true, isSmall: true }), secondaryButton(`More for ${name}`, { type: "button", icon: "more", isLabelHidden: true, isSmall: true })] })) })) })}</div>`,
+      markup: html`<div style="width:320px">${glassPane({ paneWidth: "full", body: stackOfOne(listRows({ isCompact: true, whenEmpty: stateNote({ stateKind: "empty", title: "Nobody here yet", text: "Players show here as they join." }), rows: ["Liam", "Sofia", "Emma Charlotte Fairweather-Lindqvist"].map((name, index) => ({ lead: pictureFrame(name, "sm"), title: name, titleIcon: index ? undefined : { icon: "friends" as const, label: "Friend" }, action: [secondaryButton(action("mute", `Mute ${name}`), { type: "button", isLabelHidden: true, isSmall: true }), secondaryButton(action("more", `More for ${name}`), { type: "button", isLabelHidden: true, isSmall: true })] })) })) })}</div>`,
     },
     { label: "Pointed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pointed" }]), isStill: true },
     { label: "Pressed", markup: listPane([{ title: "Ashen Crown", detail: "Unlisted · 2,318 players this week", href: "#list-rows", state: "is-pressed" }]), isStill: true },
@@ -703,32 +924,41 @@ component({
       label: "Led by pictures, a button a row, what each is doing in green",
       isWide: true,
       markup: listPane([
-        { lead: pictureFrame("Sofia", "md", { picture: FRAME_SAMPLE_PICTURE }), title: "Sofia", activity: "Playing Ashen Crown", action: secondaryButton("Invite", ROW_BUTTON) },
-        { lead: pictureFrame("Liam", "md"), title: "Liam", activity: "Online", action: secondaryButton("Invite", ROW_BUTTON) },
-        { lead: pictureFrame("Noah", "md"), title: "Noah", detail: "Played 3 days ago", action: secondaryButton("Invite", ROW_BUTTON) },
+        { lead: pictureFrame("Sofia", "md", { picture: FRAME_SAMPLE_PICTURE }), title: "Sofia", activity: "Playing Ashen Crown", action: secondaryButton(action("invite"), ROW_BUTTON) },
+        { lead: pictureFrame("Liam", "md"), title: "Liam", activity: "Online", action: secondaryButton(action("invite"), ROW_BUTTON) },
+        { lead: pictureFrame("Noah", "md"), title: "Noah", detail: "Played 3 days ago", action: secondaryButton(action("invite"), ROW_BUTTON) },
+      ]),
+    },
+    {
+      label: "Open rooms: a game's rooms to join or watch, and a room that can't take more says why",
+      isWide: true,
+      markup: listPane([
+        { title: "3 of 8 players", detail: "2 watching · Germany", action: [secondaryButton(action("join"), ROW_BUTTON), secondaryButton(action("watch"), ROW_BUTTON)] },
+        { title: "Northwatch", detail: "5 of 8 players · Netherlands", action: secondaryButton(action("join"), ROW_BUTTON) },
+        { title: "8 of 8 players", detail: "Germany", end: "Full", action: secondaryButton(action("watch"), ROW_BUTTON) },
       ]),
     },
     {
       label: "A few buttons a row: players in a room (in a narrow row, each button its icon alone)",
       markup: listPane([
-        { lead: pictureFrame("Sofia", "md"), title: "Sofia", detail: "Friend", action: [toggleButton("Mute", { ...ROW_BUTTON, icon: "speaker", pressedIcon: "speaker-off", isPressed: false }), secondaryButton("More for Sofia", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
-        { lead: pictureFrame("Liam", "md"), title: "Liam", detail: "Muted", action: [toggleButton("Mute", { ...ROW_BUTTON, icon: "speaker", pressedIcon: "speaker-off", isPressed: true }), secondaryButton("More for Liam", { ...ROW_BUTTON, icon: "more", isLabelHidden: true })] },
+        { lead: pictureFrame("Sofia", "md"), title: "Sofia", detail: "Friend", action: [toggleButton(action("mute"), { ...ROW_BUTTON, isPressed: false }), secondaryButton(action("more", "More for Sofia"), { ...ROW_BUTTON, isLabelHidden: true })] },
+        { lead: pictureFrame("Liam", "md"), title: "Liam", detail: "Muted", action: [toggleButton(action("mute"), { ...ROW_BUTTON, isPressed: true }), secondaryButton(action("more", "More for Liam"), { ...ROW_BUTTON, isLabelHidden: true })] },
       ]),
     },
     {
       label: "Led by icons, with a second line",
       isWide: true,
       markup: listPane([
-        { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: secondaryButton("Remove", ROW_BUTTON) },
-        { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: secondaryButton("Remove", ROW_BUTTON) },
+        { lead: icon("passkey"), title: "MacBook Pro", detail: "iCloud Keychain · added Oct 2", secondDetail: "Used today", action: secondaryButton(action("remove"), ROW_BUTTON) },
+        { lead: icon("key"), title: "Claude", detail: "Reads, uploads · made Oct 12", secondDetail: "Used an hour ago", action: secondaryButton(action("remove"), ROW_BUTTON) },
       ]),
     },
     {
-      label: "With a meter under its lines: games' hosting this month",
+      label: "With a meter across the row, opening as a whole: games' hosting this month",
       isWide: true,
       markup: listPane([
-        { title: "Ashen Crown", detail: "Free part used · $3.54 of its $5 budget · Resets Nov 1", meter: { label: "Ashen Crown", usedNumber: 242, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: true }, action: secondaryButton("Budget", ROW_BUTTON) },
-        { title: "Kestrel", detail: "All of this month's free hosting · Resets Nov 1", secondDetail: "No budget: it stops at its free allowance.", end: tag("Paused", "warning"), meter: { label: "Kestrel", usedNumber: 100, limitNumber: 100, unit: "%" }, action: secondaryButton("Budget", ROW_BUTTON) },
+        { title: "Ashen Crown", detail: "Free part used · $3.54 of its $5 budget · Resets Nov 1", meter: { label: "Ashen Crown", usedNumber: 242, limitNumber: 300, warnFromNumber: 260, unit: "", isFullFine: true }, press: {} },
+        { title: "Kestrel", detail: "All of this month's free hosting · Resets Nov 1", secondDetail: "No budget: it stops at its free allowance.", end: tag("Paused", "warning"), meter: { label: "Kestrel", usedNumber: 100, limitNumber: 100, unit: "%" }, press: {} },
       ]),
     },
     {
@@ -783,7 +1013,7 @@ component({
       isWide: true,
       markup: fullListPane([
         { lead: icon("computer"), title: "Mac · Safari", detail: "Berlin · this device", end: tag("Now", "new") },
-        { lead: icon("phone"), title: "iPhone · Safari", detail: "Berlin · 2 days ago", action: secondaryButton("Sign out", ROW_BUTTON) },
+        { lead: icon("phone"), title: "iPhone · Safari", detail: "Berlin · 2 days ago", action: secondaryButton(action("signOut"), { ...ROW_BUTTON }) },
       ]),
     },
     { label: "Rows to read, not to open", markup: listPane([{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }]) },
@@ -843,7 +1073,7 @@ component({
     { label: "Empty, words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "empty", title: "No friends playing", text: "When a friend plays something, it shows here." })) }) },
     { label: "Problem, with what to do", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "problem", title: "Couldn't load your versions", text: "Zaisma didn't answer in time. Nothing is lost.", action: secondaryButton("Try again", { type: "button", isFullWidth: true }) })) }) },
     { label: "Problem, words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "problem", title: "This game isn't shown where you are", text: "Its developer keeps it from players in your country." })) }) },
-    { label: "Done, with the way on", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "done", title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton("Close", { type: "button", isFullWidth: true }) })) }) },
+    { label: "Done, with the way on", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "done", title: "Report sent", text: "Zaisma looks at it within a day and tells you what it did.", action: secondaryButton(action("close"), { type: "button", isFullWidth: true }) })) }) },
     { label: "Done, words alone", markup: glassPane({ paneWidth: "fit", body: stackOfOne(stateNote({ stateKind: "done", title: "Version 15 is live", text: "Players get it the next time they open the game." })) }) },
   ],
 });
@@ -882,8 +1112,10 @@ export interface TableOptions {
   whenEmpty: EmptyNoteMarkup;
   /** Unique on the page. Defaults to a slug of its caption. */
   id?: string;
-  /** Its next rows, a page at a time (a cursor's page): Load more under its last row adds them to it (Navigation's Load more), or its end words once there are no more. */
-  moreRows?: Omit<LoadMoreOptions, "listId" | "moreListIds">;
+  /** Its next rows, a page at a time (a cursor's page): Load more as its last row adds them to it, or its end words once there are no more. */
+  moreRows?: ListMoreRows;
+  /** Read a page at a time: its foot says which page, with arrows to the others, as its last row. */
+  pages?: ListPages;
 }
 
 /**
@@ -925,7 +1157,7 @@ export function table(options: TableOptions): Raw {
       return html`<th scope="col"${names ? html` class="${names}"` : ""}>${column.isActions ? html`<span><span class="sr">${column.label}</span></span>` : column.label}</th>`;
     },
   )}</tr></thead><tbody class="hairlines" id="${id}-rows">${body}</tbody></table></div>`;
-  return html`<div class="table"><p class="table-caption words-margin" id="${id}-caption">${options.caption}</p>${well({ kind: "table-well", body: scrollBox })}${options.moreRows ? loadMore({ ...options.moreRows, listId: `${id}-rows` }) : ""}</div>`;
+  return html`<div class="table"><p class="table-caption words-margin" id="${id}-caption">${options.caption}</p>${well({ kind: `table-well${footClass(options)}`, body: html`${scrollBox}${listFoot({ ...options, listId: `${id}-rows`, rowCount: options.rows.length })}` })}</div>`;
 }
 
 /** Sizes a table's slabs to what its well shows: the head slab as wide as the box and as tall as the header row, the row heads' slab as
@@ -975,6 +1207,38 @@ const MATCH_ROWS: (Raw | string)[][] = Array.from({ length: 16 }, (_, rowIndex) 
 ]);
 const tablePane = (options: Omit<TableOptions, "whenEmpty">) => glassPane({ paneWidth: "full", body: stackOfOne(table({ whenEmpty: stateNote({ stateKind: "empty", title: "No rows yet", text: "Rows show here as they come." }), ...options })) });
 
+const PAGED_SALES = [
+  [["Season pass", "Sofia", "$9.99", "Oct 30"], ["Starter pack", "Liam", "$4.99", "Oct 30"], ["Season pass", "Noah", "$9.99", "Oct 29"], ["Gold skin", "Emma", "$2.99", "Oct 29"]],
+  [["Starter pack", "Mia", "$4.99", "Oct 28"], ["Season pass", "Lucas", "$9.99", "Oct 27"], ["Gold skin", "Anna", "$2.99", "Oct 27"], ["Starter pack", "Oliver", "$4.99", "Oct 26"]],
+  [["Season pass", "Clara", "$9.99", "Oct 25"], ["Gold skin", "Felix", "$2.99", "Oct 24"]],
+];
+const pagedTable = (url: URL) => {
+  const pages = examplePage(url, "sales_page", PAGED_SALES.length);
+  return tablePane({
+    caption: "Sales this month",
+    id: "example-sales-pages",
+    shownRowCount: 5,
+    columns: [{ label: "Item" }, { label: "Player" }, { label: "Price", isNumeric: true }, { label: "When" }],
+    rows: PAGED_SALES[pages.pageNumber - 1]!,
+    pages: { label: "Sales", ...pages },
+  });
+};
+
+component({
+  name: "Action list",
+  slug: "action-list",
+  group: "foundations",
+  subgroup: "pictures",
+  after: "icons",
+  summary: "Everything you press that has an icon, each with its one word and one icon, in one list (components/action-list.ts). A button, tab, menu item or sidebar place names one with action() and can't be given an icon any other way; change a line and it changes everywhere. Something pressed with only words isn't on it.",
+  styles: "",
+  examples: [{
+    label: "The list: its word, its icon and the name a page asks for it by",
+    isWide: true,
+    markup: fullListPane(ACTION_NAMES.map((name) => ({ lead: icon(action(name).icon), title: action(name).label, detail: name }))),
+  }],
+});
+
 component({
   name: "Table",
   slug: "table",
@@ -990,16 +1254,22 @@ component({
 /* How tall its header and a row stand (a row holding a tag), for a capped table's height. */
 /* A row's height is its padding and a line of its words, which grow with the browser's text size: 37px and 51px at the browser's own 16px, 33px and 34px compact. */
 .table { display: grid; gap: var(--gap-words-control); min-width: 0; --table-head-height: calc(16px + 1.3125rem); --table-row-height: calc(28px + 1.4375rem); }
-.table:has(.compact) { --table-head-height: calc(16px + 1.0625rem); --table-row-height: calc(16px + 1.125rem); }
+.table:has(.data-table.compact) { --table-head-height: calc(16px + 1.0625rem); --table-row-height: calc(16px + 1.125rem); }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-well { display: block; min-width: 0; }
 .table-well > .well-body { padding: 0; }
 /* The box scrolls both ways; its table and its slabs share one cell, as wide as the table, so a slab can stay put across all of it. */
 .table-scroll { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(100%, max-content); max-width: 100%; }
 .table-scroll > * { grid-area: 1 / 1; }
-.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(40rem, 75dvh); }
+.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: var(--list-ceiling); }
 /* Capped: its rows down to the given count show, half the next peeking in under them. */
 .table-scroll[data-fades-sideways].is-capped { max-height: calc(var(--table-head-height) + (var(--shown-row-count) + 0.5) * var(--table-row-height)); }
+/* Its foot takes its last row and stays put, under what scrolls down and what scrolls sideways alike (List rows' foot). */
+.table-well { --foot-height: var(--table-row-height); }
+.table-well.has-foot .table-scroll[data-fades-sideways] { max-height: calc(var(--list-ceiling) - var(--foot-height)); }
+.table-well.has-foot .table-scroll[data-fades-sideways].is-capped { max-height: calc(var(--table-head-height) + (var(--shown-row-count) - 0.5) * var(--table-row-height)); }
+.table-well.has-pages .table-scroll[data-fades-sideways].is-capped { height: calc(var(--table-head-height) + (var(--shown-row-count) - 1) * var(--table-row-height)); max-height: none; }
+.table-well.has-pages .data-table { align-self: start; }
 /* A capped table's rows fade out under its head and over its foot while there's more that way (SCROLL_FADE_SCRIPT, from its head's height,
    --fade-from), as well as at its sides: both masks at once. */
 .table-scroll.is-capped.scroll-fades.is-fading {
@@ -1140,6 +1410,7 @@ component({
         moreRows: { href: "#table", label: "Load more" },
       }),
     },
+    { label: "Read a page at a time: try it. Its foot takes its last row, and the last page has fewer rows and the same height", isWide: true, markup: pagedTable(new URL("/design/data/lists", "https://zaisma.com")), markupAt: pagedTable },
     {
       label: "A first column that stays: a database table's many columns scroll sideways under it",
       isWide: true,
@@ -1231,11 +1502,11 @@ function gamePaneExample(facts: GameKeyDetails = { playerCount: 1204, friends: [
         { kind: "words", markup: html`<p>by ${textLink("Emberlight", "#details", { isQuiet: true })}</p>` },
         { kind: "block", markup: gameKeyDetails(facts) },
         { kind: "block", markup: stack({ items: [
-          { kind: "control", markup: primaryButton("Play", { type: "button", isBig: true, isFullWidth: true }) },
+          { kind: "control", markup: primaryButton(action("play"), { type: "button", isBig: true, isFullWidth: true }) },
           { kind: "block", markup: row({ widths: "lead-fills", label: "Details, Share and Report", items: [
             { kind: "control", markup: secondaryButton("Details", { href: "#details", isBig: true }) },
-            { kind: "control", markup: secondaryButton("Share", { type: "button", icon: "share", isLabelHidden: true, isBig: true }) },
-            { kind: "control", markup: secondaryButton("Report", { href: "#details", icon: "flag", isLabelHidden: true, isBig: true }) },
+            { kind: "control", markup: secondaryButton(action("share"), { type: "button", isLabelHidden: true, isBig: true }) },
+            { kind: "control", markup: secondaryButton(action("report"), { href: "#details", isLabelHidden: true, isBig: true }) },
           ] }) },
         ] }) },
         { kind: "words", markup: details({ arrangement: "across", label: "About playing it", details: [{ label: "Players", entries: [{ text: "Single-player", icon: "person" }, { text: "Online co-op", icon: "globe" }] }, { label: "Works on", entries: [{ text: "Computer", icon: "computer" }, { text: "Tablet", icon: "tablet" }] }, { label: "Last played", text: "3 days ago" }] }) },

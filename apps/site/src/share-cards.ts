@@ -5,13 +5,15 @@
  * sitemap of listed games; and a game's link, or a room's, comes as a QR code.
  */
 
+import { STAND_IN_QR_CODE } from "./components/qr-code.ts";
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { SEARCH_ENGINES_ENABLED_SQL, SHOWN_IN_LISTS_SQL, qrCodeSvg, type Game } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
 import { html, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
-import { secondaryButton } from "./components/actions.ts";
+import { visibilityButton } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { qrCode } from "./components/qr-code.ts";
 import { stack, type LayoutItem } from "./components/layout.ts";
@@ -136,19 +138,41 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
  * large in a light box (the room's during a match), and the system's share sheet where there is one. Tester links get no QR code: their address is a secret the code would only spread further. The game
  * page's script fills it in (shareFrom); with the room code hidden (streamer mode) the QR code, room code and link are masked until Show.
  */
-export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
+interface ShareOptions {
+  gameTitle: string;
+  hasQrCode: boolean;
+  link?: string;
+  roomCode?: string;
+  /** Shown where the browser has its own share sheet; a page's script says. */
+  isMoreShown?: boolean;
+  isMasked?: boolean;
+  qrImageUrl?: string;
+}
+const SHARE_SAMPLE = { gameTitle: "Neon Drift", hasQrCode: true, isMoreShown: true, qrImageUrl: STAND_IN_QR_CODE };
+
+export const shareDialog = gallerySheet<ShareOptions>({
+  name: "Share and invite sheet",
+  slug: "share-sheet",
+  summary: "Inviting to a room with its code, link and QR code, or sharing a game with its link and QR code. One sheet: its script fills in the room.",
+  states: [
+    { stateValue: "invite", label: "Inviting to a room: its code, its link, its QR code and more ways", options: { ...SHARE_SAMPLE, roomCode: "K7PQ2M", link: "zaisma.com/g/neon-drift?room=K7PQ2M" } },
+    { stateValue: "share", label: "Sharing the game, with no room", options: { ...SHARE_SAMPLE, link: "zaisma.com/g/neon-drift" } },
+    { stateValue: "streamer", label: "On a streamer's screen: masked until Show", options: { ...SHARE_SAMPLE, roomCode: "K7PQ2M", link: "zaisma.com/g/neon-drift?room=K7PQ2M", isMasked: true }, shownIds: ["share-reveal"] },
+  ],
+  make: ({ gameTitle, hasQrCode, link, roomCode, isMoreShown, isMasked, qrImageUrl }, isShown) => {
   const choices: ListRow[] = [
     ...(hasQrCode ? [{ title: "Show QR code", lead: icon("qr-code"), press: { controls: "share-qr-box" }, id: "share-qr-open" }] : []),
-    { title: "More ways to share", lead: icon("share"), press: {}, id: "share-more", isHidden: true },
+    { title: "More ways to share", lead: icon("share"), press: {}, id: "share-more", isHidden: !isMoreShown },
   ];
   const items: LayoutItem[] = [
-    { kind: "control", markup: secondaryButton("Show", { id: "share-reveal", type: "button", icon: "eye", isHidden: true }) },
-    { kind: "block", id: "share-room", isHidden: true, markup: copyField({ id: "share-room-code", label: "Room code", copiedText: "", isCode: true }) },
-    { kind: "control", markup: copyField({ id: "share-link", label: "Link", copiedText: "" }) },
+    { kind: "control", markup: visibilityButton({ show: "Show", hide: "Hide" }, { id: "share-reveal", type: "button", isContentHidden: true, isHidden: true }) },
+    { kind: "block", id: "share-room", isHidden: !roomCode, markup: copyField({ id: "share-room-code", label: "Room code", copiedText: roomCode ?? "", isCode: true, isMasked }) },
+    { kind: "control", markup: copyField({ id: "share-link", label: "Link", copiedText: link ?? "", isMasked }) },
     { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "More ways to share", rows: choices }) },
   ];
   const qrBox = hasQrCode
-    ? lightBox({ id: "share-qr-box", label: `QR code for ${gameTitle}`, closeLabel: "Close", body: qrCode({ id: "share-qr", label: `QR code for ${gameTitle}`, caption: "Scan with a phone's camera to play", isLarge: true }) })
+    ? lightBox({ id: "share-qr-box", label: `QR code for ${gameTitle}`, closeLabel: "Close", body: qrCode({ id: "share-qr", label: `QR code for ${gameTitle}`, caption: roomCode ? "Scan with a phone's camera to join this match" : "Scan with a phone's camera to play", imageUrl: qrImageUrl, isMasked, isLarge: true }) })
     : "";
-  return html`${sheet({ id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true })}${qrBox}`;
-}
+  return html`${sheet({ isShown, id: "share-dialog", title: `Share ${gameTitle}`, closeLabel: "Close", body: stack({ items }), isCompact: true })}${qrBox}`;
+},
+});

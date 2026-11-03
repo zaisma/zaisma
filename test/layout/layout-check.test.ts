@@ -74,6 +74,7 @@ describe("the measured rules", () => {
   it("judge only what a player would notice: see, read, reach, load and press, with style held by the components", () => {
     const playerRules = Object.keys(LAYOUT_RULE_TIERS).filter((name) => !/^the (check|page) /.test(name) || /^the page scrolls/.test(name));
     expect(playerRules.sort()).toEqual([
+      "a box that scrolls without its rail",
       "a control the keyboard doesn't reach", "a focused control with no visible focus", "a pane past the screen", "a pane that overflows without scrolling",
       "a picture without its placeholder", "a touch target under 44px",
       "first paint over its size", "moved after the first paint", "no answer within 400 ms", "overlaps another thing", "spills out of its pane", "the first cover below the fold",

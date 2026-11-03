@@ -6,6 +6,7 @@ import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 import { reportSheet } from "../../apps/site/src/report.ts";
 import { pageProblems } from "./page-rules.ts";
+import { pageScriptText } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
 
@@ -78,11 +79,11 @@ describe("game page controls", () => {
     const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
-    expect(page).toMatch(/href="\/g\/solo\/report"[^>]*data-report/);
-    expect(page).toContain('<div class="floating-pane placed-under dropdown glass" id="menu-dialog" role="menu"');
-    // The ⋯ button opens it, and Report this game is one of its choices.
-    expect(page).toMatch(/id="menu"[^>]*aria-controls="menu-dialog" aria-expanded="false"/);
-    expect(page.match(/<div class="floating-pane placed-under dropdown glass" id="menu-dialog"[\s\S]*?All games/)![0]).toContain('href="/g/solo/report"');
+    // The Z opens the menu, and Report this game is in its This game.
+    expect(page).toMatch(/id="zaisma-open"[^>]*aria-controls="players"/);
+    expect(page.match(/data-sheet-tab="game"[\s\S]*?data-sheet-tab="inbox"/)![0]).toContain('href="/g/solo/report"');
+    // Nothing a game sends opens it.
+    expect(await pageScriptText(page, (path) => SELF.fetch(`https://zaisma.test${path}`))).not.toContain("zaisma:players-open");
     expect(page).not.toContain("More games");
     // Content rules open beside the game instead of replacing it.
     expect(page).toContain('href="/legal/content-rules" target="_blank"');
@@ -92,21 +93,20 @@ describe("game page controls", () => {
     await addGame("solo");
     await addGame("arena", "relay");
     const solo = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
-    expect(solo).toContain('<dialog class="sheet glass" id="report" aria-labelledby="report-title"');
+    expect(solo).toContain('data-sheet-step="report"');
     expect(solo).not.toContain('id="report-reason-game-player"');
     expect(solo).toContain('href="/legal/dmca" target="_blank" rel="noopener"');
     const arena = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(arena).toContain('id="report-reason-game-player" value="player"');
-    // A game hands a player report to the sheet, and only from its own origin.
     expect(pageDataOf(arena, "report-data")).toMatchObject({ slug: "arena", gameOrigin: "https://games.zaisma.test" });
   });
 
   it("builds the report sheet from gallery components alone", () => {
     for (const isMultiplayer of [false, true]) {
-      const markup = String(reportSheet({ slug: "arena", title: "Arena" } as Game, { isMultiplayer, gameOrigin: "https://games.zaisma.test" }));
+      const markup = String(reportSheet({ game: { slug: "arena", title: "Arena" } as Game, isMultiplayer }));
       expect(pageProblems(markup)).toEqual([]);
       // What the sheet's script finds it by.
-      for (const id of ["report-title", "report-sub", "report-reasons-game", "report-reasons-player", "report-details", "report-pic", "report-pic-img", "report-picture", "report-hold", "report-context", "report-error", "report-notices", "report-tell", "report-sent", "report-done", "report-send", "report-data"]) expect(markup).toContain(`id="${id}"`);
+      for (const id of ["report-title", "report-sub", "report-reasons-game", "report-reasons-player", "report-details", "report-pic", "report-pic-img", "report-picture", "report-hold", "report-context", "report-error", "report-notices", "report-tell", "report-sent", "report-done", "report-send"]) expect(markup).toContain(`id="${id}"`);
     }
   });
 });
@@ -169,7 +169,7 @@ describe("room browsing on the game page", () => {
     expect(list).toMatch(/8 of 8 players<\/span>[\s\S]*?<span class="list-row-end">Full<\/span>/);
     expect(list).not.toContain("JKMN3P");
     // A match in progress is a row of its own, last: Join grayed and off with its reason, and no sentence about it. Rooms that stopped checking in aren't shown at all.
-    expect(list).toMatch(/2 of 8 players<\/span>[\s\S]*?<span class="list-row-end">In a match<\/span><span class="list-row-action"><button class="shell cut-btn small" type="button" disabled>/);
+    expect(list).toMatch(/2 of 8 players<\/span>[\s\S]*?<span class="list-row-end">In a match<\/span><\/span><span class="list-row-action"><button class="shell cut-btn small" type="button" disabled>/);
     expect(list.indexOf("In a match")).toBeGreaterThan(list.indexOf(">Full<"));
     expect(list).not.toContain("room=QRSTVW");
     expect(list).not.toContain("in progress that");
@@ -193,11 +193,11 @@ describe("room browsing on the game page", () => {
     await room(id, "CDFGHJ", 2, 0);
     await watching("CDFGHJ", 1, 20);
     const list = await roomsList();
-    expect(list).toMatch(/<span class="list-row-end">In a match<\/span><span class="list-row-action"><div[^>]*><div[^>]*><button class="shell cut-btn small" type="button" disabled>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=CDFGHJ&amp;watch=1">/);
+    expect(list).toMatch(/<span class="list-row-end">In a match<\/span><\/span><span class="list-row-action"><div[^>]*><div[^>]*><button class="shell cut-btn small" type="button" disabled>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=CDFGHJ&amp;watch=1">/);
     expect(list).toContain('<span class="list-row-title">3 of 8 players</span><span class="list-row-detail"><span class="list-row-fact">14\u00a0watching\u00a0·</span>');
     expect(list).toContain('href="/g/arena?room=BCDFGH&amp;watch=1"');
     // A full room can still be watched.
-    expect(list).toMatch(/<span class="list-row-end">Full<\/span><span class="list-row-action"><a class="shell cut-btn small" href="\/g\/arena\?room=JKMN3P&amp;watch=1">/);
+    expect(list).toMatch(/<span class="list-row-end">Full<\/span><\/span><span class="list-row-action"><a class="shell cut-btn small" href="\/g\/arena\?room=JKMN3P&amp;watch=1">/);
     // One whose audience is full shows how many watch, and no Watch.
     expect(list).toContain("5\u00a0watching");
     expect(list).not.toContain("room=QRSTVW&amp;watch=1");
@@ -218,7 +218,7 @@ describe("room browsing on the game page", () => {
     expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count" data-cut-line="0" data-cut-square><svg class="cut-line" aria-hidden="true"><polygon/></svg>12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
-    expect(list).toContain('class="list-rows hairlines is-capped scrolls own-scroll" style="--shown-row-count:6"');
+    expect(list).toContain('class="list-rows hairlines scrolls own-scroll is-capped" style="--shown-row-count:6"');
     expect(list.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     expect(list).not.toContain("<li hidden>");
     expect(list).toContain('data-load-more="rooms-rows"');

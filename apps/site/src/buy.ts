@@ -28,7 +28,7 @@ import {
 } from "@zaisma/core";
 import { tryPassword } from "./account.ts";
 import { currentSession, realEmail, sessionCookies, type Session } from "./auth.ts";
-import { BUY_SHEET_SCRIPT, STRIPE_FRAME_SCRIPT, buySheet, buySheetData, buySheetStripe } from "./buy-sheet.ts";
+import { BUY_SHEET_SCRIPT, STRIPE_FRAME_SCRIPT, buySheetParts, buySheetData, buySheetStripe } from "./buy-sheet.ts";
 import { isOpenHere } from "./game-links.ts";
 import { glassMessage, html, layout, pageData, scriptTags, securityHeaders, STRIPE_SCRIPT_TAG } from "./html.ts";
 import { viewerOf } from "./viewer.ts";
@@ -630,7 +630,7 @@ export async function buyWindowPage(env: Env, request: Request, slug: string, it
     isBare: true,
     isPrivate: true,
     hasStripeFrame: true,
-    body: html`${buySheet({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, cover: cover ? shownPictureOf(cover) : null })}
+    body: html`${buySheetParts({ joinHref: `/join?next=${encodeURIComponent(here)}`, signInHref: `/signin?next=${encodeURIComponent(here)}`, cover: cover ? shownPictureOf(cover) : null })}
 ${buySheetData({
       slug: game.slug,
       tester_token: null,

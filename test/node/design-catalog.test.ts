@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { COMPONENTS, COMPONENT_GROUPS } from "../../apps/site/src/components/index.ts";
 import { COMPONENT_SUBGROUPS, subgroupsOf } from "../../apps/site/src/components/component.ts";
 // @ts-expect-error plain JavaScript without type declarations
-import { DESIGN_PATH, catalogMarkdown, withCatalog } from "../../scripts/design-catalog.mjs";
+import { DESIGN_PATH, catalogMarkdown, wholeCatalog, withCatalog } from "../../scripts/design-catalog.mjs";
 
 /**
  * docs/DESIGN.md's component catalog is written from the gallery's registry by scripts/design-catalog.mjs, so it lists every
@@ -14,7 +14,7 @@ describe("docs/DESIGN.md's component catalog", () => {
   const catalog: string = catalogMarkdown(COMPONENTS(), COMPONENT_GROUPS);
 
   it("is current: run npm run design:catalog after changing a component", () => {
-    expect(designText).toBe(withCatalog(designText, catalog));
+    expect(designText).toBe(withCatalog(designText, wholeCatalog(COMPONENTS(), COMPONENT_GROUPS)));
   });
 
   it("lists every component by its gallery name, under its group", () => {
@@ -37,7 +37,8 @@ describe("the gallery's subgroups", () => {
       if (subgroups.length) expect(subgroups, each.slug).toContain(each.subgroup);
       else expect(each.subgroup, each.slug).toBeUndefined();
     }
-    for (const { group, subgroup } of COMPONENT_SUBGROUPS) expect(COMPONENTS().some((each) => each.group === group && each.subgroup === subgroup), `${group} ${subgroup}`).toBe(true);
+    // Over a game's Notices and Sheets show moments of Panes' pieces, with no component of their own.
+    for (const { group, subgroup } of COMPONENT_SUBGROUPS.filter((each) => !(each.group === "over-a-game" && (each.subgroup === "notices" || each.subgroup === "sheets")))) expect(COMPONENTS().some((each) => each.group === group && each.subgroup === subgroup), `${group} ${subgroup}`).toBe(true);
   });
 
   it("are named once in their group, as lowercase words joined by dashes", () => {

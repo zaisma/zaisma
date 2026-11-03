@@ -235,6 +235,13 @@ describe("the search's suggestions", () => {
     expect(answer.finishes[0]).toBe("Strategy");
   });
 
+  it("leads with what's typed exactly: a game of that title first, and a genre of those words as the first finish", async () => {
+    const { answer } = await suggest("quiet lake");
+    expect(answer.finishes).toEqual([]);
+    expect(answer.games[0]?.title).toBe("Quiet Lake");
+    expect((await suggest("strategy")).answer.finishes[0]).toBe("Strategy");
+  });
+
   it("shows nothing a stranger couldn't find on Browse", async () => {
     expect((await suggest("private pe")).answer).toEqual({ finishes: [], games: [] });
     expect((await suggest("held hol")).answer).toEqual({ finishes: [], games: [] });

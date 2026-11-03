@@ -1,5 +1,5 @@
 import { GENRE_LABELS, GENRES, PRICE_RANGES, currencyForCountry, priceRangeOf, requestCountryCode, searchLetterCount, searchWords, type DeviceKind, type Genre, type PriceRange } from "@zaisma/core";
-import { tertiaryButton } from "./components/actions.ts";
+import { action, tertiaryButton } from "./components/actions.ts";
 import { divider, glassPane } from "./components/foundations.ts";
 import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
 import { tagsInUse, type TagInUse } from "./components/data.ts";
@@ -294,21 +294,21 @@ function filterGroups(query: BrowseQuery, priceLabels: Record<BrowsePriceRange, 
     {
       groupName: "genre",
       label: "Genre",
-      icon: "games",
+      icon: action("genre").icon,
       pickedLabel: query.genre === "any" ? "Any" : GENRE_LABELS[query.genre],
       choices: (["any", ...GENRES] as (Genre | "any")[]).map((genre) => ({ label: genre === "any" ? "Any" : GENRE_LABELS[genre], href: picked({ genre }), isCurrent: query.genre === genre })),
     },
     {
       groupName: "players",
       label: "Players",
-      icon: "people",
+      icon: action("players").icon,
       pickedLabel: PLAYERS_LABELS[query.players],
       choices: BROWSE_PLAYERS.map((players) => ({ label: PLAYERS_LABELS[players], href: picked({ players }), isCurrent: query.players === players })),
     },
     {
       groupName: "price",
       label: "Price",
-      icon: "price-tag",
+      icon: action("price").icon,
       pickedLabel: priceLabels[query.priceRange],
       choices: (["any", ...PRICE_RANGES] as BrowsePriceRange[]).map((priceRange) => ({ label: priceLabels[priceRange], href: picked({ priceRange }), isCurrent: query.priceRange === priceRange })),
     },
@@ -414,6 +414,7 @@ const SUGGESTIONS_KEPT_MS = 60_000;
  * What the header's search suggests as you type (GET /games/suggestions?search_text=, SearchSuggestions): the games Browse's search found,
  * in its Best match order, so nothing shows that a stranger couldn't find on Browse; and the ways to finish what's typed, from those games'
  * titles, developers and genres, the one whose games have the most players first, so a short title with no players falls behind real games.
+ * What's typed exactly leads: a game of that title is what Enter opens (the search's script lights it), and a developer or genre of those words leads the finishes.
  */
 export function suggestionsFor(games: BrowseGame[], searchText: string): SearchSuggestions {
   const needle = comparedWords(searchText);
@@ -423,13 +424,13 @@ export function suggestionsFor(games: BrowseGame[], searchText: string): SearchS
   games.forEach((game, gameIndex) => {
     for (const word of wordsOfGame(game)) {
       const key = comparedWords(word);
-      if (!key.startsWith(needle) || key === needle || finishes.has(key)) continue;
+      if (!key.startsWith(needle) || finishes.has(key) || (key === needle && word === game.title)) continue;
       const finding = games.filter((each) => matchesSearch(each, word));
       finishes.set(key, { finish: word, playerCount: finding.reduce((totalPlayerCount, each) => totalPlayerCount + each.week_player_count, 0), gameCount: finding.length, firstIndex: gameIndex });
     }
   });
   return {
-    finishes: [...finishes.values()].sort((first, second) => second.playerCount - first.playerCount || second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
+    finishes: [...finishes.values()].sort((first, second) => Number(comparedWords(second.finish) === needle) - Number(comparedWords(first.finish) === needle) || second.playerCount - first.playerCount || second.gameCount - first.gameCount || first.firstIndex - second.firstIndex).slice(0, MAXIMUM_SUGGESTION_COUNT).map((each) => each.finish),
     games: games.slice(0, MAXIMUM_SUGGESTION_COUNT).map((game) => ({
       title: game.title,
       page_url: `/g/${game.slug}`,

@@ -45,11 +45,13 @@ export const WATCH_SCRIPT = `/* watch */(function () {
     if (kind === "resize") { hasResizeListener = true; window.addEventListener("resize", function () { runBatched(resizeCallbacks.slice()); }); }
     else { hasScrollListener = true; window.addEventListener("scroll", function () { runBatched(scrollCallbacks.slice()); }, { passive: true, capture: true }); }
   }
-  // The selectors of what scrolls: the browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; the page's sheets and an element's style, the rest. Found once.
+  // The selectors of what scrolls: the browser's own sheet scrolls a text box, a list box, a popover and a modal dialog; a material's part
+  // that scrolls is named outright, as its rule isn't on a page yet whose only one starts closed in a sheet (a page carries the rules of
+  // what shows, and the whole sheet follows); the page's sheets and an element's style, the rest. Found once.
   var scrollSelectorList = null;
   function scrollSelectors() {
     if (scrollSelectorList) return scrollSelectorList;
-    var selectors = ["textarea", "select", "[popover]", "dialog", "[style*='overflow']"];
+    var selectors = ["textarea", "select", "[popover]", "dialog", ".scrolls", "[style*='overflow']"];
     function visit(rules) {
       for (var i = 0; i < rules.length; i++) {
         var rule = rules[i], style = rule.style;
@@ -367,6 +369,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   function redrawEdges() {
     runBatch(function () { edgeDraws.forEach(function (draw, el) { if (el.isConnected) draw(); else edgeDraws.delete(el); }); });
   }
+  window.zaismaRedrawEdges = redrawEdges;
   // A font that finishes loading can move every control, so all are drawn again then; a control drawn once the fonts are in has nothing
   // to wait for. Where the browser can't say when a font loads, the fonts' ready promise stands in, once while they're loading.
   var hasFontEvents = Boolean(document.fonts && document.fonts.addEventListener);
@@ -434,17 +437,22 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         at = function (inset) { return insetShape(shape, inset); };
         lights = shape.map(function (p, i) { return FACING_LIGHT[facing(p, shape[(i + 1) % shape.length])]; });
       } else {
-        var c = cornersOf().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); }), cornerKey = c.join(",");
+        var c = cornersOf().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); }), cornerKey = c.join(",") + ":" + band;
         if (cornerKey !== lastCorners) {
           lastCorners = cornerKey;
           // The cut is the glass's own (its body and rim, --glass-clip), not the pane's: what stands on it can cast its shadow or glow past its edge.
           el.style.setProperty("--glass-clip", "polygon(0 " + c[0] + "px, " + c[0] + "px 0, calc(100% - " + c[1] + "px) 0, 100% " + c[1] + "px, 100% calc(100% - " + c[2] + "px), calc(100% - " + c[2] + "px) 100%, " + c[3] + "px 100%, 0 calc(100% - " + c[3] + "px))");
+          // What scrolls in it is cut inside its rim (.scrolls): the rim's width, measured on the diagonal.
+          ["top-left", "top-right", "bottom-right", "bottom-left"].forEach(function (corner, index) { el.style.setProperty("--glass-cut-" + corner, c[index] + band * Math.SQRT2 + "px"); });
           // An open floating pane's shadow is cast in this cut (zaismaCast), so it's cast again once the cut is known.
           if (window.zaismaCast && el.classList.contains("floating-pane") && el.matches(":popover-open")) window.zaismaCast(el);
         }
         // A pane whose glass in front isn't its whole box (a sheet whose chosen tab rises from it, el.zaismaEdgeShape) draws its rim along that
         // outline instead, with the same layers and light; what lies outside it in the box is behind (the clip stays the box's).
         var outlined = el.zaismaEdgeShape ? el.zaismaEdgeShape(w, h, c) : null;
+        // Glass leaning along its start (data-glass-lean, across per down, the Zaisma button's) has that edge for its outline, and its clip with it.
+        var lean = Number(el.getAttribute("data-glass-lean"));
+        if (!outlined && lean) { outlined = [[h * lean, 0], [w, 0], [w, h], [0, h]]; el.style.setProperty("--glass-clip", cssPolygon(outlined)); }
         if (outlined) outlined = distinct(outlined);
         // A rim drawn at this size, with these cuts, is already there: nothing is written again.
         var paneKey = w + "x" + h + ":" + band + ":" + cornerKey + (outlined ? ":" + pointList(outlined) : "");
@@ -707,6 +715,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (key === last) return;
       last = key;
       el.style.setProperty("--cut-shape", cssPolygon(shape));
+      // What's cut inside it to nest in it (data-cut-sizes: a rail's thumb, in its channel) reads its corners' cuts.
+      if (el.hasAttribute("data-cut-sizes")) ["top-left", "top-right", "bottom-right", "bottom-left"].forEach(function (corner, i) { el.style.setProperty("--cut-size-" + corner, ((el.cutCorners && el.cutCorners[i]) || 0).toFixed(1) + "px"); });
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
       // Stretched to its box exactly: measured in whole pixels, a box a fraction of a pixel off would otherwise shrink the whole line to keep
       // its proportions, and the edge would stop short of the face it lines.

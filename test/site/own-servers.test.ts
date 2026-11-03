@@ -64,8 +64,8 @@ const history = async () => (await api("/games/sky-hopper/history")).answer.even
 const storedText = async () => (await gameBySlug(env.DB, "sky-hopper"))!.own_server_urls;
 const stored = async () => ownServerUrlsOf((await gameBySlug(env.DB, "sky-hopper"))!);
 const gamePage = async () => (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-/** Where the game page says it: the ⋯ menu's lines, and nowhere else. */
-const ownServerLines = async () => [...(await gamePage()).matchAll(/<div class="dropdown-head[^"]*"><strong>[^<]*<\/strong><span>([^<]*own server[^<]*)<\/span>(?:<span id="save-line"[^>]*><\/span>)?<\/div>/g)].map((line) => ({ place: "menu", text: line[1] }));
+/** Where the game page says it: the menu's This game, and nowhere else. */
+const ownServerLines = async () => [...(await gamePage()).matchAll(/<p>([^<]*own server[^<]*)<\/p>/g)].map((line) => ({ place: "menu", text: line[1] }));
 
 beforeAll(async () => {
   signingKeys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -106,7 +106,7 @@ describe("a game's own servers through the API and MCP", () => {
     expect(await ownServerLines()).toEqual([{ place: "menu", text: "Online play runs on the developer&#39;s own server: play.example.com" }]);
     // The menu doesn't repeat the description the details already show.
     await env.DB.prepare("UPDATE games SET description = 'Hop between floating islands.' WHERE slug = 'sky-hopper'").run();
-    expect((await gamePage()).match(/<div class="floating-pane placed-under dropdown glass" id="menu-dialog"[\s\S]*?All games/)![0]).not.toContain("Hop between floating islands.");
+    expect((await gamePage()).match(/data-sheet-tab="game"[\s\S]*?data-sheet-tab="inbox"/)![0]).not.toContain("Hop between floating islands.");
 
     expect((await tool("update_game", { slug: "sky-hopper", own_server_urls: [] })).game.own_server_urls).toEqual([]);
     expect(await storedText()).toBe("[]");

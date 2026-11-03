@@ -74,11 +74,13 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .pin{position:fixed;pointer-events:auto;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50% 50% 50% 4px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:12px;display:grid;place-items:center;box-shadow:0 2px 8px var(--shade),0 0 0 2px var(--surface)}
 .pin.unread::after{content:"";position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#3d8bff;box-shadow:0 0 0 2px var(--surface)}
 .box{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 32px var(--shade);pointer-events:auto}
-.launcher{position:fixed;right:16px;bottom:16px;height:40px;padding:0 14px;display:flex;gap:8px;align-items:center;border-radius:20px;font-weight:600;font-size:13px;background:var(--surface);border:1px solid var(--line);box-shadow:0 4px 16px var(--shade);pointer-events:auto}
+.launcher{position:fixed;width:40px;height:40px;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--surface);border:1px solid var(--line);box-shadow:0 4px 16px var(--shade);pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;transition:left .18s ease-out,top .18s ease-out}
+.launcher.dragging{transition:none;cursor:grabbing;box-shadow:0 8px 24px var(--shade)}
+.launcher svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .launcher.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.count{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:12px;display:grid;place-items:center}
+.count{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:600;display:grid;place-items:center}
 .launcher.on .count{background:var(--on-accent);color:var(--accent)}
-.dot{width:8px;height:8px;border-radius:50%;background:#3d8bff}
+.dot{position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-radius:50%;background:#3d8bff;box-shadow:0 0 0 2px var(--surface)}
 .bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center;padding:6px 6px 6px 14px;max-width:calc(100vw - 24px);font-size:13px}
 .bar span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .small{height:30px;padding:0 12px;border-radius:8px;font-weight:600;font-size:13px;background:var(--raised);white-space:nowrap}
@@ -88,7 +90,6 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .panel{position:fixed;right:16px;bottom:68px;width:340px;max-height:min(70vh,600px);display:flex;flex-direction:column;overflow:hidden}
 .phone .card,.phone .panel{left:0;right:0;bottom:0;top:auto;width:auto;border-radius:14px 14px 0 0;border-bottom:0}
 .phone .panel{max-height:60vh}
-.phone .launcher{right:12px;bottom:12px}
 .head{display:flex;align-items:center;gap:8px;padding:12px 12px 10px;border-bottom:1px solid var(--line)}
 .head strong{flex:1;font-size:14px}
 .scroll{overflow:auto;padding:6px}
@@ -809,6 +810,8 @@ body{overflow:visible!important}`;
   const metaOf = (comment) => [`${comment.viewport_width_px} × ${comment.viewport_height_px}`, comment.theme, comment.is_in_frame && !isInFrame ? `in ${comment.page_url}` : "", comment.replies.length ? (comment.replies.length === 1 ? "1 reply" : `${comment.replies.length} replies`) : ""].filter(Boolean).join(" · ");
 
   function render() {
+    // Redrawn mid-drag (a comment arriving), the dot would drop out of the hand; the drop's next render catches up.
+    if (isDragging) return;
     host.setAttribute("data-theme", theme());
     layer.className = `layer ${state.mode === "picking" ? "picking" : ""} ${innerWidth < PHONE_WIDTH_PX ? "phone" : ""}`;
     renderPins();
@@ -846,7 +849,70 @@ body{overflow:visible!important}`;
     const open = pageComments().filter((comment) => comment.status === "open");
     const isUnread = open.some((comment) => comment.is_reply_unread);
     const isOn = state.mode !== "off";
-    return `<button class="launcher${isOn ? " on" : ""}" data-action="launcher">${isOn ? "Done" : "Feedback"}${open.length ? `<span class="count">${open.length}</span>` : ""}${isUnread ? `<span class="dot" title="New replies"></span>` : ""}</button>`;
+    const { left, top } = launcherPlace(launcherSpot);
+    const word = isOn ? "Done" : "Feedback";
+    const drawing = isOn ? '<path d="M4 10.5l4 4 8-9"/>' : '<path d="M3.5 4h13v9.5H9l-3.5 3v-3h-2z"/>';
+    return `<button class="launcher${isOn ? " on" : ""}" data-action="launcher" aria-label="${word}" title="${word}, or drag it anywhere along an edge" style="left:${left}px;top:${top}px"><svg viewBox="0 0 20 20" aria-hidden="true">${drawing}</svg>${open.length ? `<span class="count">${open.length}</span>` : ""}${isUnread ? `<span class="dot" title="New replies"></span>` : ""}</button>`;
+  }
+
+  // The button is a dot on an edge of the window: dragged, it follows the pointer, lands on the nearest edge, and stays there on every page of
+  // this device. A press that doesn't move is a press.
+  const LAUNCHER_PX = 40, LAUNCHER_INSET_PX = 8, DRAG_START_PX = 6, LAUNCHER_SPOT_KEY = "zaisma-feedback-spot";
+  let launcherSpot = { edge: "right", along: 1 }, isDragging = false, wasDragged = false;
+  try {
+    const kept = JSON.parse(localStorage.getItem(LAUNCHER_SPOT_KEY));
+    if (["left", "right", "top", "bottom"].includes(kept?.edge) && kept.along >= 0 && kept.along <= 1) launcherSpot = kept;
+  } catch {}
+  function launcherPlace({ edge, along }) {
+    const farX = innerWidth - LAUNCHER_PX - LAUNCHER_INSET_PX, farY = innerHeight - LAUNCHER_PX - LAUNCHER_INSET_PX;
+    const alongX = LAUNCHER_INSET_PX + along * (farX - LAUNCHER_INSET_PX), alongY = LAUNCHER_INSET_PX + along * (farY - LAUNCHER_INSET_PX);
+    if (edge === "left") return { left: LAUNCHER_INSET_PX, top: alongY };
+    if (edge === "right") return { left: farX, top: alongY };
+    return { left: alongX, top: edge === "top" ? LAUNCHER_INSET_PX : farY };
+  }
+  function nearestSpot(left, top) {
+    const farX = innerWidth - LAUNCHER_PX - LAUNCHER_INSET_PX, farY = innerHeight - LAUNCHER_PX - LAUNCHER_INSET_PX;
+    const share = (at, far) => Math.min(1, Math.max(0, (at - LAUNCHER_INSET_PX) / Math.max(1, far - LAUNCHER_INSET_PX)));
+    const distances = { left, right: farX - left, top, bottom: farY - top };
+    const edge = Object.keys(distances).reduce((nearest, each) => (distances[each] < distances[nearest] ? each : nearest));
+    return { edge, along: edge === "left" || edge === "right" ? share(top, farY) : share(left, farX) };
+  }
+  function wireLauncher() {
+    const button = ui.querySelector(".launcher");
+    if (!button) return;
+    button.addEventListener("pointerdown", (event) => {
+      if (event.button) return;
+      const box = button.getBoundingClientRect(), offsetX = event.clientX - box.left, offsetY = event.clientY - box.top, startX = event.clientX, startY = event.clientY;
+      wasDragged = false;
+      const clamp = (at, far) => Math.min(far, Math.max(LAUNCHER_INSET_PX, at));
+      const onMove = (move) => {
+        if (!isDragging) {
+          if (Math.hypot(move.clientX - startX, move.clientY - startY) < DRAG_START_PX) return;
+          isDragging = true;
+          button.classList.add("dragging");
+        }
+        button.style.left = `${clamp(move.clientX - offsetX, innerWidth - LAUNCHER_PX - LAUNCHER_INSET_PX)}px`;
+        button.style.top = `${clamp(move.clientY - offsetY, innerHeight - LAUNCHER_PX - LAUNCHER_INSET_PX)}px`;
+      };
+      const onEnd = () => {
+        removeEventListener("pointermove", onMove);
+        removeEventListener("pointerup", onEnd);
+        removeEventListener("pointercancel", onEnd);
+        if (!isDragging) return;
+        isDragging = false;
+        wasDragged = true;
+        button.classList.remove("dragging");
+        launcherSpot = nearestSpot(parseFloat(button.style.left), parseFloat(button.style.top));
+        try { localStorage.setItem(LAUNCHER_SPOT_KEY, JSON.stringify(launcherSpot)); } catch {}
+        const { left, top } = launcherPlace(launcherSpot);
+        button.style.left = `${left}px`;
+        button.style.top = `${top}px`;
+      };
+      // On the window, so a quick move that leaves the dot before it counts as a drag is still seen.
+      addEventListener("pointermove", onMove);
+      addEventListener("pointerup", onEnd);
+      addEventListener("pointercancel", onEnd);
+    });
   }
 
   function bar() {
@@ -933,6 +999,7 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
       };
     }
     for (const button of ui.querySelectorAll("[data-action]")) button.onclick = () => act(button.dataset.action, button);
+    wireLauncher();
     // Cmd or Ctrl + Enter saves. A listener, not onkeydown: a handler property that returns false cancels the key, and typing with it.
     const onSaveKey = (field, action) => ui.querySelector(`[data-field=${field}]`)?.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") act(action);
@@ -942,7 +1009,10 @@ ${messages.map((message) => `<div class="message ${message.author}"><span class=
   }
 
   async function act(action, button) {
-    if (action === "launcher") return setMode(state.mode === "off" ? "picking" : "off");
+    if (action === "launcher") {
+      if (wasDragged) return void (wasDragged = false);
+      return setMode(state.mode === "off" ? "picking" : "off");
+    }
     if (action === "pick") return (state.threadId = null), setMode("picking");
     if (action === "list") return (state.threadId = null), setMode("panel");
     if (action === "page") return startWriting({ left: 0, top: 0, width: innerWidth, height: innerHeight }, document.body, true);

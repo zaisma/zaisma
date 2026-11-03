@@ -24,7 +24,9 @@ import { defaultScrollbarProblems } from "../own-scrollbars.ts";
 import { unzipSync } from "fflate";
 import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
 import { pageProblems } from "./page-rules.ts";
-import { playersSheet } from "../../apps/site/src/players-sheet.ts";
+import { playingPeople } from "../../apps/site/src/players-sheet.ts";
+import { zaismaOverlay } from "../../apps/site/src/components/playing.ts";
+import { secondaryButton } from "../../apps/site/src/components/actions.ts";
 import { html } from "../../apps/site/src/markup.ts";
 import { blockSheet } from "../../apps/site/src/blocks.ts";
 import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
@@ -1576,19 +1578,24 @@ describe("friends", () => {
 
   it("builds the Players and Block sheets from gallery components only, their row templates too: Players, a player and Report are steps of one sheet", () => {
     const reportStep = { stepName: "report", title: "Report Arena", body: stackOfOne(html`<p>What's wrong</p>`, "words") };
-    const players = playersSheet({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, canSignIn: true, signInPath: "/signin", reportStep }).html;
+    const people = playingPeople({ gameOrigin: "https://games.zaisma.test", slug: "arena-game", title: "Arena", hasZaismaRooms: true, isPlayedAlone: false, canSignIn: true, signInPath: "/signin", roomItems: [] });
+    const words = stackOfOne(html`<p>Words</p>`, "words");
+    const menu = zaismaOverlay({ title: "Arena", roomBody: people.roomBody, friendsBody: people.friendsBody, gameBody: words, inboxBody: words, tools: [], leave: secondaryButton("Leave", { type: "button", isSmall: true }), laterSteps: [people.playerStep, reportStep] });
+    const players = html`${menu}${people.parts}`.html;
     expect(players.match(/<dialog /g)).toHaveLength(1);
     for (const stepName of ["players", "player", "report"]) expect(players).toContain(`data-sheet-step="${stepName}"`);
-    const block = blockSheet({ gameOrigin: "https://games.zaisma.test" }).html;
+    const block = blockSheet({}).html;
     for (const markup of [players, block]) expect(pageProblems(markup)).toEqual([]);
     // pageProblems leaves templates out, so the room's row template is held to it on its own.
     const rowTemplate = /<template id="players-row">([\s\S]*?)<\/template>/.exec(players)![1]!;
     expect(pageProblems(rowTemplate)).toEqual([]);
-    expect(rowTemplate).toContain('data-player-action="mute"');
-    expect(rowTemplate).toContain('data-player-action="more"');
+    // A row is one line, pressed as a whole; Mute is one step in.
+    expect(rowTemplate).toContain("is-press");
+    expect(rowTemplate).not.toContain("<button type=\"button\" class=\"cut-btn");
+    expect(players).toContain('id="players-player-mute"');
     // The hooks their scripts use.
-    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
-    for (const id of ["block-title", "block-who", "block-friend", "block-told", "block-error", "block-yes", "block-data"]) expect(block).toContain(`id="${id}"`);
+    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
+    for (const id of ["block-title", "block-friend", "block-told", "block-error", "block-yes"]) expect(block).toContain(`id="${id}"`);
   });
 
   it("gives the game bar's Players plate names and Friend marks from Zaisma, and friends playing outside the room with Join", async () => {
@@ -1604,14 +1611,15 @@ describe("friends", () => {
     const playerIdOf = async (email: string) => (await accountById(env.DB, users.get(email)!))!.player_id;
     const [anaPlayerId, benPlayerId, foxPlayerId] = [await playerIdOf("ana@example.com"), await playerIdOf("quiet_comet@example.com"), await playerIdOf("red_fox@example.com")];
 
-    // Only games that go online get the button and the plate.
+    // Every game has the Z and the menu; a game played alone keeps its Room, which says so, and has no Block.
     const page = await (await ana.go("/g/arena-game")).text();
-    expect(page).toContain('id="players-open"');
-    expect(page).toMatch(/<dialog class="sheet glass placement-foot is-compact"[^>]* id="players"/);
-    expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="block"/);
+    expect(page).toContain('id="zaisma-open"');
+    expect(page).toMatch(/<dialog class="sheet glass[^"]*placement-docked[^"]*"[^>]* id="players"/);
+    expect(page).toMatch(/<dialog class="sheet glass[^"]*placement-foot[^"]*"[^>]* id="block"/);
     const solo = await (await ana.go("/g/solo-game")).text();
-    expect(solo).not.toContain('id="players-open"');
-    expect(solo).not.toContain('id="players"');
+    expect(solo).toContain('id="zaisma-open"');
+    expect(solo).toContain('id="players"');
+    expect(solo).not.toContain('id="block"');
 
     // Names come from Zaisma, whatever the game called them; guests and the player themselves aren't listed.
     const among = async (b: Browser, playerIds: string[]) => {
@@ -1642,8 +1650,10 @@ describe("friends", () => {
     // The friends part goes into the players sheet, so it's gallery components too.
     expect(pageProblems(friends)).toEqual([]);
     const inRoom = await (await ana.go("/g/arena-game/players/friends?room=ROOMAA")).text();
-    expect(inRoom).not.toContain("Quiet_Comet");
-    expect(inRoom).toContain("None of your friends are playing this right now.");
+    // A friend in your own room stays on the list, with nothing to join.
+    expect(inRoom).toContain("Quiet_Comet");
+    expect(inRoom).toContain("In your room");
+    expect(inRoom).not.toContain('href="/g/arena-game?room=ROOMAA"');
     expect(pageProblems(inRoom)).toEqual([]);
     // Join is grayed with the reason when it won't work.
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
@@ -1940,7 +1950,7 @@ describe("pages", () => {
 describe("the header and the theme", () => {
   it("says Sign in signed out, and shows your account and its menu signed in", async () => {
     const out = await (await new Browser().go("/")).text();
-    expect(out).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+    expect(out).toMatch(/<a class="[^"]*run-wrap[^"]*"[^>]* href="\/signin"/);
     expect(out).not.toContain('class="me');
     const b = new Browser();
     await join(b, null);
@@ -1957,13 +1967,13 @@ describe("the header and the theme", () => {
   it("opens the Developer and Forum tabs on developer pages and folds them away elsewhere", async () => {
     const b = new Browser();
     await join(b, null);
-    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a class="[^"]*" data-lights href="[^"]*"[^>]*>${words}</a>`))?.[0] ?? "";
+    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a class="[^"]*" data-lights href="[^"]*"[^>]*>(?=(?:(?!</a>)[\\s\\S])*<span>${words}</span>)`))?.[0] ?? "";
     const dashboard = await (await b.go("/dashboard")).text();
-    expect(tabOf(dashboard, "Developer")).toBe('<a class="flush-row quiet foldable" data-lights href="/dashboard" aria-current="page">Developer</a>');
-    expect(tabOf(dashboard, "Forum")).toBe('<a class="flush-row quiet foldable" data-lights href="/forum">Forum</a>');
+    expect(tabOf(dashboard, "Developer")).toBe('<a class="flush-row quiet foldable" data-lights href="/dashboard" aria-current="page">');
+    expect(tabOf(dashboard, "Forum")).toBe('<a class="flush-row quiet foldable" data-lights href="/forum">');
     const home = await (await b.go("/")).text();
-    expect(tabOf(home, "Developer")).toBe('<a class="flush-row quiet foldable folded" data-lights href="/dashboard" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(tabOf(home, "Home")).toBe('<a class="flush-row quiet" data-lights href="/" aria-current="page">Home</a>');
+    expect(tabOf(home, "Developer")).toBe('<a class="flush-row quiet foldable folded" data-lights href="/dashboard" tabindex="-1" aria-hidden="true">');
+    expect(tabOf(home, "Home")).toBe('<a class="flush-row quiet" data-lights href="/" aria-current="page">');
   });
 
   it("starts every account on System, and saves Light or Dark for its pages", async () => {
@@ -2609,7 +2619,7 @@ describe("cloud saves", () => {
     expect(pageDataOf(page, "saves-data")).toMatchObject({ isAccountOfferEnabled: false });
     // The card is there for Zaisma.player.offerAccount(), shown only when the game asks.
     expect(page).toContain('id="keep-title"');
-    expect(page).toContain('id="keep-bar"');
+    expect(page).toContain('id="keep-link"');
     const scripts = await pageScriptText(page, (path) => SELF.fetch(`${SITE}${path}`));
     expect(scripts).toContain('d.type === "zaisma:account-offer"');
     expect(scripts).toContain('d.type === "zaisma:saves-request"');
@@ -3080,7 +3090,7 @@ describe("the dashboard", () => {
     await letPublishAs("Night_Owl");
     await b.go("/dashboard/new", { title: "Sky Hopper" });
     const board = await (await b.go("/forum")).text();
-    expect(board).toContain('<a class="flush-row quiet foldable" data-lights href="/forum" aria-current="page">Forum</a>');
+    expect(board).toContain('<a class="flush-row quiet foldable" data-lights href="/forum" aria-current="page">');
     expect(board).toContain('aria-label="Search the forum"');
     expect(board).toContain("New topic");
     expect(await (await b.go("/forum/new")).text()).toContain('<option value="sky-hopper">Sky Hopper</option>');

@@ -5,14 +5,15 @@ import "./materials.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { gameKeyDetails, listRows, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
-import { cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
-import { REPORT_REASONS, choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
+import { action, cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton, type ListedIcon } from "./actions.ts";
+import { choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
 import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
 import { lightBox } from "./light-box.ts";
 export { lightBox, type LightBoxOptions } from "./light-box.ts";
 import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup, stackOfOne } from "./layout.ts";
+import { HEADER_RAIL_MEDIA, NOTICE_STRIP_MEDIA } from "./tokens.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -46,7 +47,7 @@ export interface DropdownChoice {
   dataAttributes?: Record<string, string>;
   /** The page you're on, or the choice that's made: its words dark and a check at its end, a Select field's tick. */
   isCurrent?: boolean;
-  icon?: IconName;
+  icon?: ListedIcon;
   /** A small number at its end, like unread replies: a Tag. */
   badgeCount?: number;
   /** Pointed at or focused: the gallery's still copies. */
@@ -258,8 +259,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
    *   isAnchorWidth as wide as its anchor, at least (a search's list, whose rows change as you type); otherwise it's as wide as what's in it,
    *                 whatever its anchor's size
    *   isAlwaysBelow, gapPx, edgePx  under: as zaismaPlace takes them (isAlwaysBelow can be a function of the anchor)
-   *   fitsRoom, scrollBox   under: past the room on the side it opened to it scrolls inside itself (--floating-room), and choices that would
-   *                 scroll by a sliver (scrollBox) show them all instead
+   *   scrollBox     choices that would scroll by a sliver show them all instead (past the room on the side it opened to, what scrolls in
+   *                 any floating pane scrolls, --floating-room, so it never slides over what it opened from)
    *   onShown       once it's shown, before it's placed (a list centering its pick)
    *   onToggle(isOpen)  after it opens or closes (aria-expanded, focus)
    *   onPlaced      each time it's placed, once it knows its side (a menu squaring the corner nearest its button)
@@ -318,7 +319,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
       else {
         var at = function () { return window.zaismaPlace(r, { width: pane.offsetWidth, height: pane.offsetHeight }, { roomRect: { left: page.left, top: roomTop, right: page.right, bottom: roomBottom }, gapPx: gapPx, edgePx: edgePx, isAlwaysBelow: typeof options.isAlwaysBelow === "function" ? options.isAlwaysBelow(anchor) : options.isAlwaysBelow }); };
         var spot = at();
-        if (options.fitsRoom) {
+        if (pane.querySelector(".scrolls")) {
           var roomPx = Math.max(0, spot.isAbove ? r.top - roomTop - gapPx - edgePx : roomBottom - r.bottom - gapPx - edgePx);
           pane.style.setProperty("--floating-room", roomPx + "px");
           var box = options.scrollBox && options.scrollBox(), extraPx = box ? box.scrollHeight - box.clientHeight : 0;
@@ -419,9 +420,9 @@ export const DROPDOWN_SCRIPT = `/* menus */(function () {
   window.zaismaWatch.each('.dropdown[role="menu"]', function (menu) {
     var float = window.zaismaFloat(menu, {
       anchor: function () { return buttons.get(menu) || buttonOf(menu); },
-      anchorRect: function (button) { var r = button.getBoundingClientRect(), slab = button.closest(".top"); if (!slab) return r; var below = slab.getBoundingClientRect().bottom; return { left: r.left, right: r.right, top: below - 1, bottom: below, width: r.width, height: 1 }; },
+      anchorRect: function (button) { var r = button.getBoundingClientRect(), slab = button.closest(".top"); if (!slab) return r; var slabRect = slab.getBoundingClientRect(); if (slabRect.height > slabRect.width) return { left: slabRect.right + token("--gap-control-stack", 8), right: slabRect.right + token("--gap-control-stack", 8), top: r.bottom, bottom: r.bottom, width: 0, height: 0 }; var below = slabRect.bottom; return { left: r.left, right: r.right, top: below - 1, bottom: below, width: r.width, height: 1 }; },
       // Under a header pinned to the window it never flips above; a header fixed only in a frame of its own (a gallery example) lets it.
-      isAlwaysBelow: function (button) { var top = button.closest(".top"); return Boolean(top) && !(getComputedStyle(top).position === "fixed" && top.offsetParent); }, fitsRoom: true, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
+      isAlwaysBelow: function (button) { var top = button.closest(".top"); return Boolean(top) && top.offsetHeight <= top.offsetWidth && !(getComputedStyle(top).position === "fixed" && top.offsetParent); }, gapPx: token("--gap-control-stack", 8), edgePx: token("--pad-frame", 10),
       scrollBox: function () { return menu.querySelector(".floating-body"); },
       onToggle: function (isOpen) { var button = buttons.get(menu) || buttonOf(menu); if (button) button.setAttribute("aria-expanded", String(isOpen)); },
       // The corner nearest its button is square, the rest cut as a menu's: the one corner unlike the others is where it hangs from. Under
@@ -513,15 +514,17 @@ const PANE_STYLES = `
 .glass-pane.full { width: 100%; }
 .glass-pane.fit { width: fit-content; }
 /* Phones: a fit pane lines up with the header like every other pane, however little is in it. */
-@media (max-width: 760px) { .glass-pane.fit { width: 100%; } }
+@media (max-width: 760px) and ((orientation: portrait) or (min-height: 501px)) { .glass-pane.fit { width: 100%; } }
 /* Started low (a game's page): on a phone the art behind shows above the pane. The screen's room less what the pane's first part uses from the top of the page
    (--started-low-used, STARTED_LOW_SCRIPT: down to the end of its runner's block) and a block's gap above the screen's foot (and a phone's home bar), at most a third of the screen. The screen
    is the small one (svh), so the pane never moves when a browser's bars do; without the script it starts where it would. */
-@media (max-width: 760px) { .glass-pane.is-started-low { margin-top: clamp(0px, calc(100svh - var(--started-low-used, 100svh) - var(--gap-block-block) - env(safe-area-inset-bottom, 0px)), 34svh); } }
+@media (max-width: 760px) and ((orientation: portrait) or (min-height: 501px)) { .glass-pane.is-started-low { margin-top: clamp(0px, calc(100svh - var(--started-low-used, 100svh) - var(--gap-block-block) - env(safe-area-inset-bottom, 0px)), 34svh); } }
 .glass-pane.fit > .pane-in :where(p) { max-width: var(--size-reading); }
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). It pads at the frame gap: what has an
    edge of its own sits there, and its words keep the pane's margin, --pad-words further in (tokens.ts sets both, once). */
+/* A phone on its side: a game's pane stands on the right, so the art between it and the header's rail reaches nearly to its middle. */
+@media ${HEADER_RAIL_MEDIA} { .glass-pane.is-started-low { width: min(var(--size-pane-beside), 100%); margin-left: auto; } }
 .glass-pane > .pane-in { flex: 1; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
    scrolls the rail is hidden and the pane keeps the frame gap, so what sits in its corner still takes the corner's cut. */
@@ -635,7 +638,7 @@ const signInBody = (idPrefix: string) =>
     { kind: "words", markup: html`<h2>Welcome back</h2>` },
     { kind: "control", markup: cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" }) },
     { kind: "control", markup: cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" }) },
-    { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true }) },
+    { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true, isBig: true }) },
   ] });
 
 component({
@@ -659,12 +662,12 @@ component({
 });
 
 const ACCOUNT_ITEMS: DropdownItem[] = [
-  { label: "Your profile", icon: "person", href: "#dropdown" },
-  { label: "Friends", icon: "friends", href: "#dropdown" },
-  { label: "Developer", icon: "code", href: "#dropdown" },
-  { label: "Settings", icon: "gear", href: "#dropdown" },
+  { ...action("yourProfile"), href: "#dropdown" },
+  { ...action("friends"), href: "#dropdown" },
+  { ...action("developer"), href: "#dropdown" },
+  { ...action("settings"), href: "#dropdown" },
   { kind: "rule" },
-  { label: "Sign out", icon: "sign-out", action: "#dropdown" },
+  { ...action("signOut"), action: "#dropdown" },
 ];
 /** An example menu hanging from its button, open: the button at the frame's end, or at its start. */
 const dropdownFrame = (buttonLabel: string, options: DropdownOptions, buttonPlace: "end" | "start" = "end") => {
@@ -696,7 +699,7 @@ component({
     {
       label: "Fit: a head, and what it's about on the tray",
       isWide: true,
-      markup: tray({ paneWidth: "fit", head: html`<h3 class="tray-sample-title">Your games</h3>`, body: row({ widths: "lead-fills", items: [control(primaryButton("Play", { type: "button", icon: "play" })), control(secondaryButton("Details", { type: "button" }))] }) }),
+      markup: tray({ paneWidth: "fit", head: html`<h3 class="tray-sample-title">Your games</h3>`, body: row({ widths: "lead-fills", items: [control(primaryButton(action("play"), { type: "button" })), control(secondaryButton("Details", { type: "button" }))] }) }),
     },
     {
       label: "Full: holding a row of covers",
@@ -764,7 +767,8 @@ component({
 /* An edge light (EDGE_LIGHT, EDGE_LIGHT_SCRIPT): laid in its holder before what it holds, cut to the holder's own shape (--cut-shape), so
    it stops at a cut corner instead of spilling past it. Pointed at, the whole edge wakes (--edge-wake); beside the part you point at, the
    edge itself brightens (--edge-light) and the light floods up from it into the glass (--edge-flood, --edge-flood-far), spilling past the
-   part into its neighbors and fading to nothing before its own box ends, so it never stops at a hard side, with no line of its own. It eases in and out, and glides along the edge (--light-at) to the next part. */
+   part into its neighbors and fading to nothing before its own box ends, so it never stops at a hard side, with no line of its own. It eases in and out, and glides along the edge (--light-at) to the next part.
+   Glass too thick for white to show on (the Zaisma button's) keeps all of this and takes a stronger cool light in those same tokens (--thick-edge-*), as a tinted cover takes its tint. */
 @property --light-at { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --light-span { syntax: "<length>"; inherits: true; initial-value: 0px; }
 /* It follows the pointer closely as it glides (0.2s, easing out), and comes and goes more slowly (0.45s). Its flood reaches past the
@@ -810,10 +814,10 @@ component({
   render: well,
   examples: [
     { label: "Words", markup: examplePane(well({ body: html`Ashen Crown runs its rooms nearest to most of their players.` })) },
-    { label: "A control at its end", markup: examplePane(well({ body: html`zaisma.com/g/ashen-crown`, end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true }) })) },
+    { label: "A control at its end", markup: examplePane(well({ body: html`zaisma.com/g/ashen-crown`, end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true }) })) },
     {
       label: "Long words: they stop short of its end control",
-      markup: examplePane(well({ body: html`The Iron Vigil is a night-long siege for up to 64 players, with its own map, three new bosses and a leaderboard that resets every Sunday.`, end: tertiaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true }) })),
+      markup: examplePane(well({ body: html`The Iron Vigil is a night-long siege for up to 64 players, with its own map, three new bosses and a leaderboard that resets every Sunday.`, end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true }) })),
     },
     {
       label: "Longer than it shows: what's in it scrolls, the well staying still",
@@ -930,7 +934,7 @@ component({
     },
     {
       label: "With counts",
-      markup: dropdownFrame("Inbox", { id: "example-menu-inbox", label: "Inbox", head: { title: "Inbox" }, items: [{ label: "Replies", icon: "mail", href: "#dropdown", badgeCount: 3 }, { label: "Mentions", icon: "person", href: "#dropdown", badgeCount: 12 }, { kind: "rule" }, { label: "Settings", icon: "gear", href: "#dropdown" }] }),
+      markup: dropdownFrame("Inbox", { id: "example-menu-inbox", label: "Inbox", head: { title: "Inbox" }, items: [{ ...action("replies"), href: "#dropdown", badgeCount: 3 }, { ...action("mentions"), href: "#dropdown", badgeCount: 12 }, { kind: "rule" }, { ...action("settings"), href: "#dropdown" }] }),
     },
     {
       label: "Pointed at, and focused",
@@ -943,7 +947,7 @@ component({
     },
     {
       label: "A choice that asks first",
-      markup: html`${dropdownFrame("Liam", { id: "example-menu-friend", label: "Liam", head: { title: "Liam", note: "Friends since March" }, items: [{ label: "Profile", icon: "person", href: "#dropdown" }, { label: "Invite to a game", icon: "gamepad", href: "#dropdown" }, { kind: "rule" }, { label: "Remove friend", icon: "ban", confirmSheetId: REMOVE_FRIEND.id }] })}${confirmSheet(REMOVE_FRIEND)}`,
+      markup: html`${dropdownFrame("Liam", { id: "example-menu-friend", label: "Liam", head: { title: "Liam", note: "Friends since March" }, items: [{ ...action("profile"), href: "#dropdown" }, { ...action("inviteToGame"), href: "#dropdown" }, { kind: "rule" }, { ...action("removeFriend"), confirmSheetId: REMOVE_FRIEND.id }] })}${confirmSheet(REMOVE_FRIEND)}`,
     },
     {
       label: "From a button at the screen's start",
@@ -1033,9 +1037,9 @@ interface SheetBaseOptions {
   action?: string;
   /**
    * Where it sits: "center" over the dimmed page (report a game, add a key); "foot" risen from the screen's foot over a running game, which
-   * stays in view and isn't dimmed (a buy sheet); "middle" stays in the middle of a wide screen whatever opened it (Confirm it's you). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
+   * stays in view and isn't dimmed (a buy sheet); "docked" on Docked glass, against the screen's edge with the game in view (the Zaisma overlay); "middle" stays in the middle of a wide screen whatever opened it (Confirm it's you). On a phone both rise from the foot; on a wide screen, opened by a button, both hang from it.
    */
-  placement?: "center" | "foot" | "middle";
+  placement?: "center" | "foot" | "middle" | "docked";
   /** Open in place rather than over the page: the gallery's still copy. */
   isShown?: boolean;
   /**
@@ -1053,6 +1057,10 @@ interface SheetBaseOptions {
 /** A sheet with one task in it: its title, its body and its buttons. */
 interface SheetOfOneOptions extends SheetBaseOptions {
   title: string;
+  /** A line under its title. */
+  titleNote?: Raw;
+  /** On a phone on its side it fills the screen, for a sheet with a lot in it (Report, the way to the Home Screen). */
+  isFillingSideways?: boolean;
   /** Its words and fields, which scroll between its head and its buttons when they're long. The sheet is one form: it holds none of its own. */
   body: LayoutMarkup;
   /** Its buttons, at its foot and in view while the body scrolls: the way out first, the one thing to do last (Cancel, Send report). */
@@ -1071,6 +1079,14 @@ export interface SheetStep {
    * task (Report): the sheet takes a task sheet's size and lets go of its button, centered on a wide screen, and hangs from it again back on a small step.
    */
   isCompact?: boolean;
+  /** Tabs in its head in place of its title, which a screen reader still hears: the Zaisma overlay's first step. */
+  tabs?: SheetTab[];
+  /** What stays under what scrolls, in place of its buttons: the Zaisma overlay's Share, Full screen and Leave. */
+  foot?: LayoutMarkup;
+  /** A lot to read or choose: on a phone on its side the sheet fills the screen while it shows (Report). */
+  isFillingSideways?: boolean;
+  /** A line beside its title on a phone on its side, under it elsewhere. */
+  titleNote?: Raw;
 }
 
 /** A sheet whose task moves forward inside it: the first step shows as it opens; every step after it has Back before its title. Each step has its own size. */
@@ -1083,8 +1099,14 @@ export interface SheetTab {
   label: string;
   /** How many things it holds, beside its words in quieter ones ("This room 3"): a list's tab. */
   itemCount?: number;
+  /** Before its words: where a screen is too narrow for words, the icon says it alone (the Zaisma overlay's tabs on a phone). */
+  icon?: ListedIcon;
   tabValue: string;
   body: LayoutMarkup;
+  /** Not shown for now: a page script shows it (a game played alone's Room, once the game says who's playing). */
+  isHidden?: boolean;
+  /** What it opens on, in place of the first. */
+  isOpening?: boolean;
 }
 
 /** A sheet with tabs in its head that swap what's in it (a game's link and its QR code): the first is chosen as it opens. */
@@ -1098,10 +1120,17 @@ export type SheetOptions = SheetOfOneOptions | SheetOfStepsOptions | SheetOfTabs
 
 // Declared, not assigned, since gallery examples above them make sheets as the file loads.
 function sheetClose(closeLabel: string) {
-  return tertiaryButton(closeLabel, { type: "submit", formMethod: "dialog", icon: "close", isLabelHidden: true, isSmall: true });
+  return tertiaryButton(action("close", closeLabel), { type: "submit", formMethod: "dialog", isLabelHidden: true, isSmall: true });
 }
 function sheetScroll(body: Raw) {
   return html`<div class="sheet-scroll"><div class="sheet-body scrolls to-edge">${body}</div></div>`;
+}
+const openingTabIndex = (tabs: SheetTab[]) => Math.max(0, tabs.findIndex((tab) => tab.isOpening));
+function sheetTabRow(label: string, tabs: SheetTab[]) {
+  return tabSwitch({ label, switchSize: "small", isFull: true, tabs: tabs.map((tab, index) => ({ label: tab.label, tabValue: tab.tabValue, isCurrent: index === openingTabIndex(tabs), icon: tab.icon, badgeCount: tab.itemCount, extra: raw(` data-sheet-tab-to="${tab.tabValue}"${tab.isOpening ? " data-sheet-tab-opening" : ""}${tab.isHidden ? " hidden" : ""}`) })) });
+}
+function sheetTabBodies(tabs: SheetTab[]) {
+  return html`${tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index === openingTabIndex(tabs) ? "" : raw(" hidden")}>${tab.body}</section>`)}`;
 }
 function sheetFoot(buttons: ControlMarkup[] | undefined) {
   return buttons?.length ? { start: { kind: "block" as const, markup: row({ widths: "equal", items: buttons.map((button) => ({ kind: "control" as const, markup: button })) }) } } : undefined;
@@ -1117,20 +1146,24 @@ export function sheet(options: SheetOptions): Raw {
   const closeButton = sheetClose(options.closeLabel);
   if ("steps" in options) {
     // Back is Close's twin, in the other top corner: quiet as Close is, its chevron drawn as thin as Close's cross.
-    const back = tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-back": "" } });
+    const back = tertiaryButton(action("back"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-back": "" } });
     const parts = html`${options.steps.map((step, index) => {
       const titleId = `${options.id}-${step.stepName}-title`;
-      const words = html`<h2 class="sheet-title" id="${titleId}">${step.title}</h2>`;
-      return html`<section class="sheet-step" data-sheet-step="${step.stepName}"${step.isCompact ? raw(" data-sheet-step-compact") : ""}${index ? raw(" hidden") : ""}>${paneParts({ head: { start: index ? back : undefined, words, end: closeButton }, body: sheetScroll(step.body), foot: sheetFoot(step.buttons) })}</section>`;
+      // Tabs in place of the title, which still names the sheet to a screen reader.
+      const words = step.tabs
+        ? html`<h2 class="sheet-title" id="${titleId}" hidden>${step.title}</h2>${sheetTabRow(step.title, step.tabs)}`
+        : html`<h2 class="sheet-title" id="${titleId}">${step.title}</h2>${step.titleNote ?? ""}`;
+      const stepBody = step.tabs ? sheetTabBodies(step.tabs) : step.body;
+      const foot = step.foot ? { start: { kind: "block" as const, markup: step.foot } } : sheetFoot(step.buttons);
+      return html`<section class="sheet-step" data-sheet-step="${step.stepName}"${step.isCompact ? raw(" data-sheet-step-compact") : ""}${step.isFillingSideways ? raw(" data-sheet-step-fills") : ""}${index ? raw(" hidden") : ""}>${paneParts({ head: { start: index ? back : undefined, words, end: closeButton }, body: sheetScroll(stepBody), foot })}</section>`;
     })}`;
     return sheetMarkup({ ...options, isCompact: options.steps[0]!.isCompact, title: options.steps[0]!.title, titleId: `${options.id}-${options.steps[0]!.stepName}-title`, body: html``, parts, closeButton });
   }
   if ("tabs" in options) {
     // Its head: the title, and under it a Switch of its tabs (each with its count), Close beside the title. Choosing a tab swaps what's in
     // the body under them (LAYERS_SCRIPT), and the head stays put while the body scrolls.
-    const tabRow = tabSwitch({ label: options.title, switchSize: "small", isFull: true, tabs: options.tabs.map((tab, index) => ({ label: tab.label, tabValue: tab.tabValue, isCurrent: index === 0, badgeCount: tab.itemCount, extra: raw(` data-sheet-tab-to="${tab.tabValue}"`) })) });
-    const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>${tabRow}`;
-    const body = html`${options.tabs.map((tab, index) => html`<section class="sheet-tab" data-sheet-tab="${tab.tabValue}"${index ? raw(" hidden") : ""}>${tab.body}</section>`)}`;
+    const words = html`<h2 class="sheet-title" id="${options.id}-title">${options.title}</h2>${sheetTabRow(options.title, options.tabs)}`;
+    const body = sheetTabBodies(options.tabs);
     return sheetMarkup({ ...options, body: html``, parts: paneParts({ head: { words, end: closeButton }, body: sheetScroll(body), foot: sheetFoot(options.buttons) }), closeButton });
   }
   return sheetMarkup({ ...options, closeButton });
@@ -1172,7 +1205,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
 
 /** On a touch screen, a button shorter than a regular control reaches past its own box to a regular control's height, unseen: for `scope`'s buttons. */
 const touchReach = (scope: string) => `@media (pointer: coarse) {
-  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
+  ${scope} .shell::after { content: ""; position: absolute; left: min(0px, calc((100% - var(--touch-target)) / 2)); right: min(0px, calc((100% - var(--touch-target)) / 2)); top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }`;
 
 const SHEET_STYLES = `
@@ -1199,7 +1232,7 @@ const SHEET_STYLES = `
 .sheet:is(:not([open]), .is-leaving, .is-arriving)::backdrop { opacity: 0; }
 @starting-style { .sheet[open]::backdrop { opacity: 0; } }
 /* At the foot: risen from the bottom of the screen over a running game, which stays in view, never dimmed (a buy sheet). */
-.sheet.placement-foot:not(.in-place) { margin: auto auto var(--pad-pane); }
+.sheet.placement-foot:not(.in-place) { margin: auto auto max(var(--pad-pane), env(safe-area-inset-bottom, 0px)); }
 .sheet.placement-foot:is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
 @starting-style { .sheet.placement-foot[open] { transform: translateY(40px); } }
 .sheet.placement-foot::backdrop { background: transparent; }
@@ -1227,8 +1260,17 @@ const SHEET_STYLES = `
    words darken. */
 .sheet-tab:not([hidden]) { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* A heading inside a sheet is a size under its title, so the title leads. */
-.sheet-body :where(h3) { font: var(--type-name); }
+.sheet-body :where(h3) { margin: 0; font: var(--type-name); }
 .sheet-title { margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.sheet-title-note { margin: 0; font: var(--type-facts); color: var(--ink-2); }
+/* On a phone on its side a short box shows a line or two at a time, so what has a lot in it fills the screen, clear of the notch and the corners. */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Past the screen's edges by a pane's margin, so its cut corners are off the screen. */
+  .sheet.fills-sideways:not(.in-place) { inset: calc(-1 * var(--pad-pane)); width: calc(100% + 2 * var(--pad-pane)); max-width: none; height: calc(100% + 2 * var(--pad-pane)); max-height: none; margin: 0; }
+  .sheet.fills-sideways:not(.in-place) > .sheet-in { height: 100%; max-height: none; box-sizing: border-box; padding: calc(var(--pad-pane) + var(--pad-frame)) calc(var(--pad-pane) + max(var(--pad-frame), var(--safe-right), var(--corner-room))) calc(var(--pad-pane) + max(var(--pad-frame), env(safe-area-inset-bottom, 0px))) calc(var(--pad-pane) + max(var(--pad-frame), var(--safe-left), var(--corner-room))); }
+  .sheet :is(.fills-sideways, [data-sheet-step-fills]) .pane-head, .sheet.fills-sideways .pane-head { font: inherit; }
+  .sheet:is(.fills-sideways, :has([data-sheet-step-fills]:not([hidden]))) .pane-head > :has(> .sheet-title-note) { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--gap-block-block); }
+}
 /* The body scrolls across the sheet's whole width, so its rail sits where a pane's does, and what's in it keeps the frame gap. */
 .sheet-scroll { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--gap-block-block); }
@@ -1236,9 +1278,9 @@ const SHEET_STYLES = `
 .sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 /* A sheet made by sheetMarkup (foundations.ts: a delete's confirm step): its head and words in one box that scrolls. */
 ${touchReach(".sheet")}
-@media (max-width: 760px) {
+@media (max-width: 760px) and ((orientation: portrait) or (min-height: 501px)) {
   /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
-  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-width: none; margin: auto var(--gap-control-stack) max(var(--gap-control-stack), env(safe-area-inset-bottom, 0px)); }
   .sheet:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
@@ -1267,7 +1309,8 @@ ${touchReach(".sheet")}
 :is(.sheet:not(.is-compact, .is-over-sheet), .urgent-card) .pane-head > .pane-head-start { margin-inline-start: var(--head-drop); }
 .sheet.is-compact .sheet-title { font: var(--type-name); }
 .sheet.is-anchored.placement-foot::backdrop { background: transparent; }
-@media (min-width: 761px) {
+/* A phone turned sideways has a wide screen's shape, so a sheet sits as it does on one, in the middle at its own width. */
+@media (min-width: 761px), (orientation: landscape) and (max-height: 500px) {
   /* A compact sheet is a dropdown's size: narrow, its head, body and the blocks in it closed up to the controls' gap. A confirm opened over
      another sheet is drawn the same size, in the middle of the screen. */
   .sheet:is(.is-compact, [data-sheet-confirm].is-over-sheet) { width: var(--size-sheet-compact); }
@@ -1279,48 +1322,59 @@ ${touchReach(".sheet")}
 @media (prefers-reduced-motion: reduce) { .sheet { transition: var(--glass-transition), opacity var(--motion-state), overlay var(--motion-state) allow-discrete, display var(--motion-state) allow-discrete; } .sheet:not(.in-place):is(:not([open]), .is-leaving, .is-arriving), .sheet.is-anchored:not(.in-place):is(:not([open]), .is-leaving, .is-arriving), .sheet.is-anchored.is-above:not(.in-place):is(:not([open]), .is-leaving, .is-arriving) { transform: none; } @starting-style { .sheet.is-anchored:not(.in-place)[open], .sheet.is-anchored.is-above:not(.in-place)[open] { transform: none; } } }
 `;
 
-const reportBody = (idPrefix: string) =>
+/** The Sheet page shows the shape alone, in words no real sheet uses: real sheets are on Panes › Sheets (gallerySheet). */
+const EXAMPLE_CHOICES = [
+  { label: "Loved it", choiceValue: "loved", text: "Played it through and went back for more" },
+  { label: "Liked it", choiceValue: "liked", text: "Good for an evening" },
+  { label: "It was fine", choiceValue: "fine", text: "Nothing stood out either way" },
+  { label: "Too short", choiceValue: "short", text: "Over before it got going" },
+  { label: "Too long", choiceValue: "long", text: "Went on past its best ideas" },
+  { label: "Too hard", choiceValue: "hard", text: "Stuck on the same part for a while" },
+  { label: "Too easy", choiceValue: "easy", text: "Nothing got in the way" },
+  { label: "Something else", choiceValue: "other", text: "Say below" },
+];
+const exampleBody = (idPrefix: string) =>
   stack({ items: [
-    { kind: "block", markup: choiceCards({ id: `${idPrefix}-reason`, name: `report_reason_${idPrefix}`, label: "What's wrong", choices: REPORT_REASONS, pickedValue: "broken", isCompact: true }) },
-    { kind: "block", markup: longField({ id: `${idPrefix}-details`, name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 }) },
+    { kind: "block", markup: choiceCards({ id: `${idPrefix}-reason`, name: `example_reason_${idPrefix}`, label: "How it went", choices: EXAMPLE_CHOICES, pickedValue: "liked", isCompact: true }) },
+    { kind: "block", markup: longField({ id: `${idPrefix}-details`, name: "example_text", label: "A few words", rowCount: 3, maximumCharacterCount: 2000 }) },
   ] });
-const reportSheet = (id: string, options: { title?: string; isShown?: boolean } = {}) =>
-  sheet({ id, title: options.title ?? "Report Ashen Crown", body: reportBody(id), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: options.isShown });
+const exampleSheet = (id: string, options: { title?: string; isShown?: boolean } = {}) =>
+  sheet({ id, title: options.title ?? "How was Ashen Crown?", body: exampleBody(id), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send", { type: "submit" })], isShown: options.isShown });
 
 component({
   name: "Sheet",
   slug: "sheet",
   group: "panes",
   subgroup: "layers",
-  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep. Not for one yes or no (a Confirm sheet) or a moment that just happened (a Notice).",
+  summary: "A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it: on a phone it rises from the foot, on a wide screen it hangs from that button like a dropdown, under it or above it; Esc, its close button or a press beside it close it, and it drops away as it goes in every browser (it stays open while it leaves, so no browser drops it early or draws it out of place). Its title, Close and its buttons stay in view while the rest scrolls. A task of steps moves forward inside it with Back, and tabs in its head swap what's in it; a confirm opens a size smaller on top, never more than two deep. Not for one yes or no (a Confirm sheet) or a moment that just happened (a Notice). A sheet with a lot in it fills a phone on its side. This page shows only its shape, in words no real sheet uses: a sheet Zaisma really shows has one version, declared with gallerySheet, on Panes › Sheets with every moment it goes through.",
   styles: SHEET_STYLES,
   render: sheet,
   examples: [
-    { label: "Try it: from its button (on a short screen its title and Send report stay while the reasons scroll)", markup: html`${secondaryButton("Report this game", { type: "button", controls: "example-sheet-try" })}${reportSheet("example-sheet-try")}` },
-    { label: "Open", markup: reportSheet("example-sheet-shown", { isShown: true }), isWide: true, isStill: true },
+    { label: "Try it: from its button (on a short screen its title and Send stay while the reasons scroll)", markup: html`${secondaryButton("Rate this game", { type: "button", controls: "example-sheet-try" })}${exampleSheet("example-sheet-try")}` },
+    { label: "Open", markup: exampleSheet("example-sheet-shown", { isShown: true }), isWide: true, isStill: true },
     {
-      label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's (the share sheet)",
+      label: "Compact, on a wide screen: narrow, its gaps closed up like a dropdown's",
       isStill: true,
-      markup: sheet({ id: "example-sheet-compact", title: "Share Ashen Crown", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "More ways to share", rows: [{ title: "Show QR code", lead: icon("qr-code"), press: {} }, { title: "More ways to share", lead: icon("share"), press: {} }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
+      markup: sheet({ id: "example-sheet-compact", title: "Ashen Crown's replay", body: stack({ items: [{ kind: "control", markup: copyField({ id: "example-sheet-compact-link", label: "Link", copiedText: "https://zaisma.com/g/ashen-crown" }) }, { kind: "block", markup: listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "More ways to share", rows: [{ title: "Show QR code", lead: icon("qr-code"), press: {} }, { title: "More ways to share", lead: icon("share"), press: {} }] }) }] }), closeLabel: "Close", isShown: true, isCompact: true }),
     },
     {
       label: "Sending: its button busy",
       isStill: true,
-      markup: sheet({ id: "example-sheet-busy", title: "Report Ashen Crown", body: stackOfOne(longField({ id: "example-sheet-busy-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, text: "The game asks for my password on its own page, styled like Zaisma's." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit", isBusy: true })], isShown: true }),
+      markup: sheet({ id: "example-sheet-busy", title: "How was Ashen Crown?", body: stackOfOne(longField({ id: "example-sheet-busy-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, text: "The game asks for my password on its own page, styled like Zaisma's." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send", { type: "submit", isBusy: true })], isShown: true }),
     },
     {
       label: "A problem: what's wrong, on its field",
       isStill: true,
-      markup: sheet({ id: "example-sheet-problem", title: "Report Ashen Crown", body: stackOfOne(longField({ id: "example-sheet-problem-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, error: "Say what you saw, so a person can find it." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
+      markup: sheet({ id: "example-sheet-problem", title: "How was Ashen Crown?", body: stackOfOne(longField({ id: "example-sheet-problem-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000, error: "Say what you saw, so a person can find it." })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send", { type: "submit" })], isShown: true }),
     },
     {
       label: "A long title",
       isStill: true,
-      markup: sheet({ id: "example-sheet-long", title: "Report The Last Lighthouse Keeper: Tides of the Northern Reach", body: stackOfOne(longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send report", { type: "submit" })], isShown: true }),
+      markup: sheet({ id: "example-sheet-long", title: "How was The Last Lighthouse Keeper: Tides of the Northern Reach?", body: stackOfOne(longField({ id: "example-sheet-long-details", name: "report_text", label: "What you saw", rowCount: 3, maximumCharacterCount: 2000 })), closeLabel: "Close", action: "#sheet", buttons: [primaryButton("Send", { type: "submit" })], isShown: true }),
     },
     {
       label: "Try it: at the foot, over a running game, which stays in view (a buy sheet)",
-      markup: html`${secondaryButton("Buy the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: stackOfOne(html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, "words"), closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
+      markup: html`${secondaryButton("See the Founder's Pack", { type: "button", controls: "example-sheet-foot" })}${sheet({ id: "example-sheet-foot", title: "Founder's Pack", body: stackOfOne(html`<p>The soundtrack, the Ember Keep castle and 1,200 crowns in Ashen Crown, on every device you sign in on.</p>`, "words"), closeLabel: "Close", action: "#sheet", placement: "foot", buttons: [secondaryButton("Not now", { type: "submit", formMethod: "dialog" }), primaryButton("Buy for $14.99", { type: "submit" })] })}`,
     },
     {
       label: "Three ways: Keep closes it, and the other two each send the form to their own place (formAction)",
@@ -1337,7 +1391,7 @@ component({
     },
     {
       label: "Try it: a confirm over a sheet, a size smaller; a press beside it, Esc or Cancel close only the confirm",
-      markup: html`${secondaryButton("Your games", { type: "button", controls: "example-sheet-under" })}${sheet({
+      markup: html`${secondaryButton(action("yourGames"), { type: "button", controls: "example-sheet-under" })}${sheet({
         id: "example-sheet-under",
         title: "Ashen Crown",
         body: stack({ items: [{ kind: "words", markup: html`<p>In your games since March. Played 2 days ago.</p>` }, { kind: "control", markup: secondaryButton("Remove from your games", { type: "button", controls: "example-sheet-over", isFullWidth: true }) }] }),
@@ -1345,8 +1399,8 @@ component({
       })}${confirmSheet({ id: "example-sheet-over", title: "Remove Ashen Crown?", text: "It leaves your games. Your saves stay on your account.", action: "#sheet", confirmLabel: "Remove" })}`,
     },
     {
-      label: "Try it: steps of one task in one sheet (Players, a player, Report), Back before a later step's title; a press beside it closes all of it",
-      markup: html`${secondaryButton("Players", { type: "button", icon: "people", controls: "example-sheet-steps" })}${sheet({
+      label: "Try it: steps of one task in one sheet (Players, a player, a note), Back before a later step's title; a press beside it closes all of it",
+      markup: html`${secondaryButton(action("players"), { type: "button", controls: "example-sheet-steps" })}${sheet({
         id: "example-sheet-steps",
         closeLabel: "Close",
         placement: "foot",
@@ -1361,8 +1415,8 @@ component({
               isCompact: true,
               rows: [
                 { lead: pictureFrame("Emma", "sm"), title: "Emma", detail: "You" },
-                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton("Mute Liam", { type: "button", icon: "speaker", pressedIcon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: false, dataAttributes: { "toggle-example": "" } }), secondaryButton("More for Liam", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
-                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton("Mute Sofia", { type: "button", icon: "speaker", pressedIcon: "speaker-off", isLabelHidden: true, isSmall: true, isPressed: true, dataAttributes: { "toggle-example": "" } }), secondaryButton("More for Sofia", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Liam", "sm"), title: "Liam", titleIcon: { icon: "friends", label: "Friend" }, action: [toggleButton(action("mute", "Mute Liam"), { type: "button", isLabelHidden: true, isSmall: true, isPressed: false, dataAttributes: { "toggle-example": "" } }), secondaryButton(action("more", "More for Liam"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
+                { lead: pictureFrame("Sofia", "sm"), title: "Sofia", action: [toggleButton(action("mute", "Mute Sofia"), { type: "button", isLabelHidden: true, isSmall: true, isPressed: true, dataAttributes: { "toggle-example": "" } }), secondaryButton(action("more", "More for Sofia"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "sheet-step-to": "player" } })] },
               ],
             })),
           },
@@ -1372,13 +1426,13 @@ component({
             isCompact: true,
             body: stackOfOne(listRows({ whenEmpty: NO_EMPTY_NOTE, isCompact: true, label: "Liam", rows: [{ title: "Profile", lead: icon("person"), href: "#sheet" }, { title: "Block", lead: icon("ban"), press: {} }, { title: "Report", lead: icon("flag"), press: { dataAttributes: { "sheet-step-to": "report" } } }] })),
           },
-          { stepName: "report", title: "Report Liam", body: reportBody("example-sheet-steps"), buttons: [primaryButton("Send report", { type: "submit" })] },
+          { stepName: "report", title: "A note about Liam", body: exampleBody("example-sheet-steps"), buttons: [primaryButton("Send", { type: "submit" })] },
         ],
       })}`,
     },
     {
       label: "Try it: a Switch under its title that swaps what's in it (the room's players and your friends playing), at its tallest height",
-      markup: html`${secondaryButton("Who's playing", { type: "button", icon: "people", controls: "example-sheet-tabs" })}${sheet({
+      markup: html`${secondaryButton(action("players", "Who's playing"), { type: "button", controls: "example-sheet-tabs" })}${sheet({
         id: "example-sheet-tabs",
         title: "Who's playing",
         closeLabel: "Close",
@@ -1548,7 +1602,7 @@ component({
     {
       label: "On a page, a guest: a way to an account, the price still showing",
       isStill: true,
-      markup: storePanel({ id: "example-store-panel-guest", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, sellerName: undefined, refundsText: undefined }, momentItems: [{ kind: "words", markup: html`<p>Make a free account to buy. You come back to this after.</p>` }], footItems: [{ kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }] }),
+      markup: storePanel({ id: "example-store-panel-guest", closeLabel: "Close", isShown: true, soldItem: { ...STORE_GAME, sellerName: undefined, refundsText: undefined }, momentItems: [{ kind: "words", markup: html`<p>Make a free account to buy. You come back to this after.</p>` }], footItems: [{ kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton(action("signIn"), { type: "button" }) }, { kind: "control", markup: primaryButton("Make an account", { type: "button" }) }] }) }] }),
     },
     {
       label: "On a page, no cover yet and a long name",
@@ -1572,7 +1626,7 @@ component({
   examples: [
     { label: "Try it: from its button", markup: html`${secondaryButton("Sign out everywhere", { type: "button", controls: "example-confirm-try" })}${confirmSheet({ id: "example-confirm-try", ...SIGN_OUT_EVERYWHERE })}` },
     { label: "Open", markup: confirmSheet({ id: "example-confirm-shown", ...SIGN_OUT_EVERYWHERE, isShown: true }), isWide: true, isStill: true },
-    { label: "A delete: from a secondary button with a trash icon", markup: html`${secondaryButton("Delete this game", { type: "button", icon: "trash", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
+    { label: "A delete: from a secondary button with a trash icon", markup: html`${secondaryButton(action("delete", "Delete this game"), { type: "button", controls: "example-confirm-delete-try" })}${confirmSheet({ id: "example-confirm-delete-try", ...GAME_DELETE })}` },
     { label: "A delete, open: its confirm tinted red", markup: confirmSheet({ id: "example-confirm-delete-shown", ...GAME_DELETE, isShown: true }), isWide: true, isStill: true },
     { label: "A delete, deleting", markup: confirmSheet({ id: "example-confirm-delete-busy", ...GAME_DELETE, isShown: true, isBusy: true }), isWide: true, isStill: true },
     {
@@ -1604,8 +1658,37 @@ interface UnderHeaderNoticeOptions {
   isInPlace?: boolean;
 }
 
+/** A notice's one line on a phone, in place of its card: a game on a phone keeps its screen. Its card's words wait in the Inbox. */
+export interface NoticeStrip {
+  /** The line, short enough for one on a phone on its side: "Keep your progress". */
+  words: Raw | string;
+  /** Who it's about: their picture, ahead of the line. */
+  lead?: Raw;
+  /** The one thing to do, small: it does the card's own, by the same data attributes or by pressing it (dataAttributes "notice-presses": its id). */
+  action?: ControlMarkup;
+  /** The id of the card's own button a close presses (Not now). Left out with an urgent card, whose close lets it go; with neither, it has no close. */
+  closePresses?: string;
+  /** It folds by itself after a few seconds, as if closed. */
+  isFolding?: boolean;
+  /** Closed or folded, the Zaisma button keeps a light until the overlay opens. */
+  isMarkedWhenClosed?: boolean;
+  /** Its time left runs out in a groove under its line; a page sets --groove-filled on it, from 1 to 0. */
+  hasTimeGroove?: boolean;
+}
+
+function stripAttributes(strip: NoticeStrip | undefined): Raw {
+  return raw(`${strip?.isFolding ? " data-notice-folds" : ""}${strip?.isMarkedWhenClosed ? " data-notice-marks" : ""}`);
+}
+
+function noticeStrip(strip: NoticeStrip | undefined, isUrgent = false): Raw | string {
+  if (!strip) return "";
+  const close = strip.closePresses || isUrgent ? tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: strip.closePresses ? { "notice-close": strip.closePresses } : { "notice-close": "", "layer-close": "" } }) : null;
+  const controls = [strip.action, close].flatMap((control) => (control ? [{ kind: "control" as const, markup: control }] : []));
+  return html`<div class="notice-strip">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<div class="notice-strip-words">${strip.lead ?? ""}<div class="notice-strip-line"><p>${strip.words}</p>${strip.hasTimeGroove ? groove({ filledPct: 100, kind: "notice-strip-groove" }) : ""}</div></div>` }, ...controls] })}</div>`;
+}
+
 interface OverGameNoticeOptions {
-  /** Over a running game, in its top corner under the bar. */
+  /** Over a running game, in its top right, under the Z. */
   placement: "over-game";
   /** Unique on the page: the script shows and hides it by its id. */
   id: string;
@@ -1622,13 +1705,17 @@ interface OverGameNoticeOptions {
   isShown?: boolean;
   /** Where it is in the gallery, rather than over the game's corner. */
   isInPlace?: boolean;
+  /** What it says on a phone, when its card would take too much of the game. Left out, a card of one line stays one line. */
+  strip?: NoticeStrip;
+  /** In the gallery: its strip, as on a phone. */
+  isStripShown?: boolean;
 }
 
 /** A card of glass over a running game's top corner, for what needs the player now (keep your progress, a game asking them to sign in) or what just happened (Saved). */
 function overGameNotice(options: OverGameNoticeOptions): Raw {
   const named = options.title ? html` aria-labelledby="${options.id}-title"` : raw(' role="status"');
   const urgency = options.noticeUrgency ? html` data-notice-urgency="${options.noticeUrgency}"` : "";
-  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}" id="${options.id}"${named}${urgency} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
+  return html`<aside class="playing-card glass${options.isInPlace ? " in-place" : ""}${options.isStripShown ? " shows-strip" : ""}" id="${options.id}"${named}${urgency}${stripAttributes(options.strip)} data-glass data-glass-corners="pane"${options.isShown ? "" : raw(" hidden")}>${EDGE}${noticeStrip(options.strip)}<div class="playing-card-in">${options.title ? html`<h2 class="playing-card-title" id="${options.id}-title">${options.title}</h2>` : ""}${options.body}</div></aside>`;
 }
 
 interface OverEverythingNoticeOptions {
@@ -1646,6 +1733,8 @@ interface OverEverythingNoticeOptions {
   sheetsToClose?: string[];
   /** Where it is in the gallery: shown in place rather than over everything. */
   isInPlace?: boolean;
+  /** What it says on a phone, for news that can wait out a fight; it still stays until it's closed. Left out, a phone shows the whole card (what a purchase needs said). */
+  strip?: NoticeStrip;
 }
 
 /**
@@ -1654,10 +1743,10 @@ interface OverEverythingNoticeOptions {
  * corner on a wide screen, across the top on a phone; it stays until the player closes it or presses what's in it.
  */
 function overEverythingNotice(options: OverEverythingNoticeOptions): Raw {
-  const close = tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
+  const close = tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } });
   const buttons = options.buttons?.length ? row({ widths: "equal", items: options.buttons.map((button) => ({ kind: "control" as const, markup: button })) }) : "";
   const sheetsToClose = options.sheetsToClose?.length ? html` data-sheets-to-close="${options.sheetsToClose.join(" ")}"` : "";
-  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}<div class="playing-card-in">${paneParts({ head: { words: html`<h2 class="playing-card-title">${options.title}</h2>`, end: close }, body: html`<p class="urgent-card-text words-margin">${options.text}</p>`, foot: buttons ? { start: { kind: "block", markup: buttons } } : undefined })}</div></aside>`;
+  return html`<aside class="playing-card glass urgent-card${options.isInPlace ? " in-place" : ""}" id="${options.id}" role="alert" data-notice-urgency="urgent"${sheetsToClose}${stripAttributes(options.strip)}${options.isInPlace ? "" : raw(' popover="manual"')} data-glass data-glass-corners="pane">${EDGE}${noticeStrip(options.strip, true)}<div class="playing-card-in">${paneParts({ head: { words: html`<h2 class="playing-card-title">${options.title}</h2>`, end: close }, body: html`<p class="urgent-card-text words-margin">${options.text}</p>`, foot: buttons ? { start: { kind: "block", markup: buttons } } : undefined })}</div></aside>`;
 }
 
 /** A notice's options: where it shows (under the header, over a running game, or over everything) and what it says. */
@@ -1679,7 +1768,7 @@ function underHeaderNotice(options: UnderHeaderNoticeOptions): Raw {
   const isProblem = options.tone === "problem";
   const noticeUrgency = options.noticeUrgency ?? "information";
   const undo = options.undoAction === undefined ? "" : html`<form class="notice-undo" method="post" action="${options.undoAction}">${tertiaryButton("Undo", { type: "submit" })}</form>`;
-  return html`<div class="notice glass glass-bar ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="strip">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text words-margin beside-controls${undo ? "" : " compact"}">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
+  return html`<div class="notice glass glass-bar ${options.tone}${options.isInPlace ? " in-place" : ""}" role="${isProblem || noticeUrgency === "urgent" ? "alert" : "status"}" data-notice="${options.tone}" data-notice-urgency="${noticeUrgency}"${undo ? raw(" data-notice-undo") : ""} data-glass data-glass-corners="strip">${EDGE}${icon(isProblem ? "warning" : "check")}<span class="notice-text words-margin beside-controls${undo ? "" : " compact"}">${options.text}${options.link ? html` ${textLink(options.link.words, options.link.href)}` : ""}</span>${undo}${isProblem ? tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "layer-close": "" } }) : ""}</div>`;
 }
 
 /**
@@ -1706,13 +1795,13 @@ component({
   slug: "notice",
   group: "panes",
   subgroup: "layers",
-  summary: "A moment that needs the player or just happened, in a small pane of glass that waits its turn: under the header on a page (Saved, Copied, or what went wrong), over a running game's top corner with the game running on (keep your progress, a game asking them to sign in), or urgent news over everything, sheets included (signed out while buying). One that's done leaves by itself; a problem or a question stays until it's answered; urgent ones go over anything",
+  summary: "A moment that needs the player or just happened, in a small pane of glass that waits its turn: under the header on a page (Saved, Copied, or what went wrong), over a running game's top corner with the game running on (keep your progress, a game asking them to sign in), or urgent news over everything, sheets included (signed out while buying). One that's done leaves by itself; a problem or a question stays until it's answered; urgent ones go over anything On a phone, either way up, one over a game is one line beside the Zaisma button (upright, under it), sliding out from it, with one small action and a close, and the game keeps its middle and corners; a pane of one row fits its controls, an even gap above and below them, and time running out runs in a groove under the line. An ask that can wait folds into the button by itself, leaving a light on it until the overlay opens and its whole words in the Inbox. A purchase's urgent card stays whole.",
   styles: `
 /* A card over the game's top corner, under the bar: glass the game shows through, as wide as a phone allows. What's in it is a pane's content
    (tokens.ts sets its padding and its words' margin, once), so its words keep the pane's margin from the card's edge like any pane's.
    It comes in with a short fade and a rise and leaves with the same, shown or hidden by the page (hidden): display changes at the ends of
    the fade, so it's still there while it leaves. Under reduced motion it only fades. */
-.playing-card { position: fixed; z-index: 20; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
+.playing-card { position: fixed; z-index: 20; top: calc(var(--zaisma-button-height) + var(--pad-frame) + env(safe-area-inset-top, 0px)); right: calc(var(--pad-frame) + var(--safe-right)); width: max-content; max-width: min(360px, calc(100vw - 2 * var(--pad-frame))); margin: 0; color: var(--ink); --glass-tint: var(--glass-dropdown);
   transition: var(--glass-transition), opacity var(--motion-state) ease, transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
 .playing-card { transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)); opacity: var(--swipe-opacity, 1); }
 .playing-card[hidden] { display: none; opacity: 0; transform: translate(var(--swipe-x, 0px), calc(var(--swipe-y, 0px) - 8px)); pointer-events: none; }
@@ -1720,6 +1809,8 @@ component({
 /* A card with nothing to press in it (a notification: Saved, a save that didn't go through) goes on a tap or a click, or a swipe sideways
    or up (PLAYING_CARD_SCRIPT): it follows the finger (is-swiping, no transition then) and leaves with the exit above. A card with a button or
    a link in it stays until its own button answers, and the gallery's copy stays where it is. */
+/* Words alone hold no controls to frame, so they need no frame's gap round them, only their own margin: one line stays one line's height. */
+.playing-card:not(:has(a, button, input, select, textarea)) > .playing-card-in { padding: 0; }
 .playing-card:not(.in-place):not(:has(a, button, input, select, textarea)) { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .playing-card.is-swiping { transition: var(--glass-transition); }
 .playing-card > :not(.edge) { position: relative; z-index: 1; }
@@ -1727,7 +1818,6 @@ component({
 .playing-card-in { display: flex; flex-direction: column; gap: var(--gap-words-control); font: var(--type-words); }
 .playing-card-in p { margin: 0; }
 .playing-card-title { margin: 0; font: var(--type-heading); }
-@media (orientation: landscape) and (max-height: 500px) { .playing-card { top: var(--pad-frame); } }
 /* An urgent card: a playing card with its edge in the marked color, a popover over everything (zaismaLayers shows it last). The browser's own
    popover look is put back to the card's; it comes and goes as a card does, kept in the top layer while it leaves. Across the top on a phone. */
 .playing-card.urgent-card { inset: auto; top: calc(var(--control-height-small) + 3 * var(--pad-frame)); right: var(--pad-frame); height: auto; padding: 0; border: 0; overflow: visible;
@@ -1737,6 +1827,39 @@ component({
 .playing-card.urgent-card.in-place { position: relative; inset: auto; }
 .urgent-card-text { color: var(--ink); }
 @media (max-width: 640px) { .playing-card.urgent-card:not(.in-place) { left: var(--pad-frame); right: var(--pad-frame); width: auto; margin: 0 auto; max-width: 360px; } }
+/* On a phone a notice is one line beside the Zaisma button, sliding out from it: the game keeps its screen, its middle and its corners. Upright the
+   line takes the width under the button. A notice with no strip of its own (Saved) is its one line already; a purchase's urgent card stays whole. */
+.notice-strip { display: none; position: relative; padding: var(--pad-frame) var(--pad-frame) var(--pad-frame) var(--pad-inside-words); }
+.notice-strip-words { display: flex; align-items: center; gap: var(--pad-frame); font: var(--type-words); font-weight: 500; }
+.notice-strip-line { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-control-row); }
+.notice-strip-line > p { margin: 0; overflow-wrap: anywhere; }
+.notice-strip-groove { display: block; width: 100%; }
+/* Always one row: on the narrowest phone its words take a second line, never its button. */
+/* A pane of one row fits its controls: an even gap above and below them, whatever its words do. */
+.notice-strip > .layout-row.layout-row { flex-wrap: nowrap; align-items: center; }
+.notice-strip > .layout-row > .row-cell.is-words > * { padding-block: 0; }
+/* Nothing to press: words alone keep their margin at both ends. */
+.notice-strip:not(:has(.run-wrap, .cut-btn, .tertiary-btn)) { padding-inline: var(--pad-inside-words); }
+.notice-strip:not(:has(.run-wrap, .cut-btn, .tertiary-btn)) > .layout-row { margin-inline-end: 0; }
+.notice-strip:not(:has(.run-wrap, .cut-btn, .tertiary-btn)) > .layout-row > .row-cell { margin-inline-end: 0; }
+.notice-strip > .layout-row > .row-cell { flex: none; }
+.notice-strip > .layout-row > .row-cell:first-child { flex: 1 1 0; min-width: 0; }
+:is(#keep, #signed-out) .notice-strip-words { cursor: pointer; }
+.notice-strip-note { color: var(--muted); font-weight: 400; }
+.playing-card.shows-strip > .notice-strip { display: block; }
+.playing-card.shows-strip > .playing-card-in { display: none; }
+@media ${NOTICE_STRIP_MEDIA} {
+  .playing-card:not(.in-place):has(> .notice-strip) > .notice-strip { display: block; }
+  .playing-card:not(.in-place):has(> .notice-strip) > .playing-card-in { display: none; }
+  :is(.playing-card:not(.in-place, .urgent-card), .playing-card.urgent-card:not(.in-place):has(> .notice-strip)) { inset: calc(var(--pad-frame) + env(safe-area-inset-top, 0px)) calc(var(--zaisma-button-width) + var(--safe-right) + var(--corner-room) + var(--gap-control-row)) auto auto; width: max-content; max-width: calc(100vw - var(--zaisma-button-width) - var(--safe-left) - var(--safe-right) - var(--corner-room) - 2 * var(--pad-frame)); margin: 0; }
+  .playing-card:not(.in-place, .urgent-card)[hidden] { transform: translate(calc(var(--swipe-x, 0px) + var(--pad-pane)), var(--swipe-y, 0px)); }
+  .playing-card.urgent-card:not(.in-place):has(> .notice-strip):not(:popover-open) { transform: translateX(var(--pad-pane)); }
+  @starting-style { .playing-card:not(.in-place) { transform: translateX(var(--pad-pane)); } }
+}
+@media (max-width: 760px) and ((orientation: portrait) or (min-height: 501px)) {
+  :is(.playing-card:not(.in-place, .urgent-card), .playing-card.urgent-card:not(.in-place):has(> .notice-strip)) { top: calc(var(--zaisma-button-height) + var(--pad-frame) + env(safe-area-inset-top, 0px)); right: var(--pad-frame); max-width: calc(100vw - 2 * var(--pad-frame)); }
+  .playing-card.playing-card:not(.in-place):has(> .notice-strip) { left: var(--pad-frame); width: auto; }
+}
 @media (prefers-reduced-motion: reduce) {
   .playing-card { transition: var(--glass-transition), opacity var(--motion-state) ease, display var(--motion-state) allow-discrete; }
   .playing-card, .playing-card[hidden] { transform: none; }
@@ -1769,33 +1892,33 @@ ${touchReach(".notice")}
   render: notice,
   examples: [
     {
-      label: "Keep your progress",
+      label: "Asking something, with what to do",
       markup: notice({ placement: "over-game",
         id: "example-keep",
-        title: "Keep your progress",
+        title: "Try the new map",
         isShown: true,
         isInPlace: true,
         body: stack({
           items: [
-            { kind: "words", markup: html`<p>Your Verdant progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>` },
-            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: "#join" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button" }) }] }) },
-            { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", "#signin")}</p>` },
+            { kind: "words", markup: html`<p>Verdant's new map is open for this week. Your place in the old one stays where it is.</p>` },
+            { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Go there", { href: "#join" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button" }) }] }) },
           ],
         }),
       }),
     },
+    { label: "On a phone: one line beside the Zaisma button", markup: notice({ placement: "over-game", id: "example-strip", title: "Try the new map", isShown: true, isInPlace: true, isStripShown: true, body: stackOfOne(html`<p>Verdant's new map is open for this week.</p>`, "words"), strip: { words: "Try the new map", action: primaryButton("Go there", { type: "button", isSmall: true }), closePresses: "example-strip" } }) },
     { label: "Saved", markup: notice({ placement: "over-game", id: "example-saved", isShown: true, isInPlace: true, body: stackOfOne(html`<p>Saved to your account.</p>`, "words") }) },
-    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: notice({ placement: "over-everything", id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], isInPlace: true }) },
+    { label: "Signed out while buying: urgent, over anything, the sheets it makes useless closed under it", markup: notice({ placement: "over-everything", id: "example-urgent", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton(action("signIn"), { href: "#signin" })], isInPlace: true }) },
     {
       label: "Try it: Buy finds you signed out (in another tab), so the urgent notice comes over the sheet and closes it",
       markup: html`${secondaryButton("Buy Revive", { type: "button", controls: "example-urgent-sheet" })}${sheet({
         id: "example-urgent-sheet",
         title: "Revive",
         body: stackOfOne(html`<p>Bring your character back with half its health.</p>`, "words"),
-        buttons: [primaryButton("Buy", { type: "button", trailingText: "$1.99", dataAttributes: { "layer-show": "example-urgent-over" } })],
+        buttons: [primaryButton(action("buy"), { type: "button", trailingText: "$1.99", dataAttributes: { "layer-show": "example-urgent-over" } })],
         closeLabel: "Close",
         placement: "foot",
-      })}${notice({ placement: "over-everything", id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
+      })}${notice({ placement: "over-everything", id: "example-urgent-over", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton(action("signIn"), { href: "#signin" })], sheetsToClose: ["example-urgent-sheet"] })}`,
     },
     { label: "Done", markup: notice({ text: "Saved", tone: "done", isInPlace: true }) },
     { label: "Done, longer", markup: notice({ text: "Version 14 is live", tone: "done", isInPlace: true }) },
@@ -1832,11 +1955,11 @@ const BANNER_SIDE_BY_SIDE_LEAST_PX = 560;
  */
 export function banner(options: BannerOptions): Raw {
   const formAction = options.action?.formAction;
-  const action = options.action ? (formAction === undefined ? secondaryButton(options.action.label, { href: options.action.href ?? "#" }) : secondaryButton(options.action.label, { type: "submit" })) : undefined;
-  const close = options.closeLabel ? tertiaryButton(options.closeLabel, { type: "button", name: "banner_close", icon: "close", isLabelHidden: true }) : undefined;
-  const controls = [action, close].filter((each): each is ControlMarkup => each !== undefined);
-  const inside = html`<div class="banner-words words-margin${action || close ? " beside-controls" : " round"}">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
-  const holder = `banner-in${options.tone === "warning" ? " tone-warning" : ""}${action ? " has-action" : ""}${close ? " has-close" : ""}`;
+  const bannerButton = options.action ? (formAction === undefined ? secondaryButton(options.action.label, { href: options.action.href ?? "#" }) : secondaryButton(options.action.label, { type: "submit" })) : undefined;
+  const close = options.closeLabel ? tertiaryButton(action("close", options.closeLabel), { type: "button", name: "banner_close", isLabelHidden: true }) : undefined;
+  const controls = [bannerButton, close].filter((each): each is ControlMarkup => each !== undefined);
+  const inside = html`<div class="banner-words words-margin${bannerButton || close ? " beside-controls" : " round"}">${options.icon ? html`<span class="banner-icon">${icon(options.icon)}</span>` : ""}<p class="banner-text">${options.text}</p></div>${controls.length ? row({ widths: "fit", alignment: "end", items: controls.map(control) }) : ""}`;
+  const holder = `banner-in${options.tone === "warning" ? " tone-warning" : ""}${bannerButton ? " has-action" : ""}${close ? " has-close" : ""}`;
   return html`<div class="banner glass" data-glass data-glass-corners="strip">${EDGE}${formAction === undefined ? html`<div class="${holder}">${inside}</div>` : html`<form class="${holder}" method="post" action="${formAction}">${inside}</form>`}</div>`;
 }
 
@@ -1883,7 +2006,7 @@ component({
     { label: "A button that posts", isWide: true, markup: banner({ text: "Cloud saves are off for Ashen Crown. What you save now stays on this device.", icon: "save", action: { label: "Turn them back on", formAction: "#banner" } }) },
     { label: "News you can close", isWide: true, markup: banner({ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", icon: "megaphone", action: { label: "Read more", href: "#banner" }, closeLabel: "Close" }) },
     { label: "News you can close, with nothing to follow", isWide: true, markup: banner({ text: "Zaisma is down for upkeep on Sunday from 2:00 to 2:30 UTC. Games in progress pause and carry on after.", icon: "megaphone", closeLabel: "Close" }) },
-    { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
+    { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye-off" }) },
     {
       label: "Over a game's own background, its glass smoked",
       isWide: true,
@@ -1929,11 +2052,11 @@ export function stepFlow(options: StepFlowOptions): Raw {
   const nextLabel = options.currentIndex === lastIndex ? finishLabel : "Next";
   const paneWidth = options.paneWidth ?? "fit";
   if (!isOnPage) {
-    const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton("Back", { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
+    const buttons = row({ widths: "equal", items: [...(options.backHref ? [control(secondaryButton(action("back"), { href: options.backHref }))] : []), control(primaryButton(nextLabel, { type: "submit" }))] });
     return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}">${options.body ?? ""}${buttons}</form>` }] }) });
   }
   const bodies = options.steps.map((step, stepIndex) => html`<div class="step-body${stepIndex === options.currentIndex ? "" : " is-away"}">${step.body ?? ""}</div>`);
-  const buttons = row({ widths: "equal", items: [control(secondaryButton("Back", { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
+  const buttons = row({ widths: "equal", items: [control(secondaryButton(action("back"), { type: "button", isHidden: options.currentIndex === 0 })), control(primaryButton(nextLabel, { type: "submit" }))] });
   return glassPane({ paneWidth, body: stack({ items: [{ kind: "block", markup: stepLine }, { kind: "block", markup: html`<form class="step-form" method="post" action="${options.action}" data-steps="${options.currentIndex}" data-finish-label="${finishLabel}"><div class="step-bodies">${bodies}</div>${buttons}</form>` }] }) });
 }
 
@@ -2062,7 +2185,7 @@ component({
         currentIndex: 3,
         action: "#step-flow",
         backHref: "#step-flow",
-        body: html`<h2>Give it a cover</h2><p>It's what players see in every list: your art alone, 16 by 9, with nothing drawn over it.</p>${cutField({ id: "example-steps-title", name: "title", label: "Title", type: "text", icon: "games", text: "The Last Lighthouse Keeper" })}`,
+        body: html`<h2>Give it a cover</h2><p>It's what players see in every list: your art alone, 16 by 9, with nothing drawn over it.</p>${cutField({ id: "example-steps-title", name: "title", label: "Title", type: "text", icon: "pencil", text: "The Last Lighthouse Keeper" })}`,
       }),
     },
   ],
@@ -2090,11 +2213,11 @@ component({
   examples: [
     {
       label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
-      markup: spacingExample("--gap-control-row", html`<div data-spacing-show="gap" data-spacing-of=".layout-row">${row({ widths: "fit", items: [{ kind: "control", markup: primaryButton("Play", { type: "button", icon: "play" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })}</div>`),
+      markup: spacingExample("--gap-control-row", html`<div data-spacing-show="gap" data-spacing-of=".layout-row">${row({ widths: "fit", items: [{ kind: "control", markup: primaryButton(action("play"), { type: "button" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })}</div>`),
     },
     {
       label: "Two controls stacked: 8px",
-      markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${secondaryButton("Settings", { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton("Sign out", { type: "button", isFullWidth: true })}</div>`)),
+      markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${secondaryButton(action("settings"), { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton(action("signOut"), { type: "button", isFullWidth: true })}</div>`)),
     },
     {
       label: "A control and the words that belong to it: 8px",
@@ -2110,11 +2233,11 @@ component({
     },
     {
       label: "A pane's edge and anything with an edge of its own (a button, a field, a cover, a table): the frame gap, 12px (10px on a phone)",
-      markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(primaryButton("Sign in", { type: "button", isFullWidth: true }))}</div>`),
+      markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(primaryButton(action("signIn"), { type: "button", isFullWidth: true }))}</div>`),
     },
     {
       label: "A pane's edge and its words: 24px (18px on a phone), --pad-words further in than the frame gap",
-      markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true }) }] }))}</div>`),
+      markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true }) }] }))}</div>`),
     },
     {
       label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",

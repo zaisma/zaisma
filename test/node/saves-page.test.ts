@@ -50,14 +50,13 @@ function loadGamePage({ isSignedIn = true, isAccountOfferEnabled = true, localIt
   const documentListeners: Record<string, (() => void)[]> = {};
   // Its words go in its own <p> (querySelector("p")); the stand-in is its own <p>, so they land in its textContent.
   const element = () => {
-    const stand = { hidden: true, textContent: "", classList: { toggle() {} }, querySelector: (): unknown => stand, focus() {}, onclick: null as null | (() => void) };
+    const stand = { hidden: true, textContent: "", classList: { toggle() {} }, querySelector: (): unknown => stand, closest: (): unknown => stand, focus() {}, onclick: null as null | (() => void) };
     return stand;
   };
   const elements: Record<string, ReturnType<typeof element> | { textContent: string }> = {
     "saves-data": { textContent: JSON.stringify({ api: API, root: `${FRAME_ORIGIN}/`, query: "", frameOrigin: FRAME_ORIGIN, slug: "owl-game", offerAfter: 300000, isAccountOfferEnabled }) },
     "save-status": element(),
     keep: element(),
-    "keep-bar": element(),
     "keep-link": element(),
     "keep-later": element(),
     "save-line": element(),
@@ -345,9 +344,9 @@ describe("the game page's saves script, for the game's own save screens", () => 
     const guest = loadGamePage({ isSignedIn: false });
     guest.play();
     guest.fromGame({ step: "save", text: EMPTY_SAVE_TEXT });
-    expect(guest.elements["keep-bar"]!.hidden).toBe(true);
+    expect(guest.elements["keep-link"]!.hidden).toBe(true);
     guest.fromGame({ step: "save", text: saveTextOf({ level: "2" }) });
-    expect(guest.elements["keep-bar"]!.hidden).toBe(false);
+    expect(guest.elements["keep-link"]!.hidden).toBe(false);
   });
 
   it("loses nothing when this device remembers a save from before v1: whichever progress wins, the other is kept", async () => {

@@ -1,6 +1,7 @@
 import { stackOfOne } from "./layout.ts";
 import { html } from "../markup.ts";
 import { notice } from "./panes.ts";
+import { NOTICE_STRIP_MEDIA } from "./tokens.ts";
 
 /*
  * Everything that appears over a page or a running game, run one way (docs/DECISIONS.md, "One system for what appears over a page or a
@@ -22,11 +23,14 @@ const NEXT_CARD_DELAY_MS = 300;
 const MAXIMUM_OPEN_SHEET_COUNT = 2;
 
 /** What a said notice or card is made from: the components' own markup, so a said one looks exactly like one a page puts there. */
+/** What zaismaLayers.say makes over a game: one line of news (Saved, the hint). Over a game's gallery frames show the same. */
+export const saidCard = (id: string, words: string, isShown = false) => notice({ placement: "over-game", id, isShown, body: stackOfOne(html`<p>${words}</p>`, "words") });
+
 const TEMPLATES = {
   done: notice({ text: "", tone: "done" }).html,
   undo: notice({ text: "", tone: "done", undoAction: "#" }).html,
   problem: notice({ text: "", tone: "problem" }).html,
-  card: notice({ placement: "over-game", id: "layer-card", body: stackOfOne(html`<p></p>`, "words") }).html,
+  card: saidCard("layer-card", "").html,
   urgent: notice({ placement: "over-everything", id: "layer-urgent", title: "", text: "" }).html,
 };
 
@@ -89,7 +93,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   function pump() {
     clearTimeout(pumpTimer);
     pumpTimer = null;
-    var nowMs = Date.now(), isOverGame = isPlaying(), isCovered = openSheets.length > 0 || Boolean(document.fullscreenElement);
+    var nowMs = Date.now(), isOverGame = isPlaying(), isCovered = openSheets.length > 0 || Boolean(document.fullscreenElement && document.fullscreenElement !== document.documentElement);
     var waiting = entries.filter(function (entry) { return !entry.isShown; }).sort(byTurn);
     waiting.forEach(function (entry) { if (entry.noticeUrgency === "urgent") showUrgent(entry); });
     waiting = waiting.filter(function (entry) { return entry.noticeUrgency !== "urgent"; });
@@ -109,6 +113,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     tellCovered();
   }
   function drop(entry) {
+    tellCardLeft(entry);
     var index = entries.indexOf(entry);
     if (index !== -1) entries.splice(index, 1);
     if (entry.el && !entry.isMade && entry.el.matches(".notice")) entry.el.remove();
@@ -142,7 +147,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     el.classList.remove("is-leaving");
     el.hidden = false;
     hold(entry);
-    if (isPassing(entry)) wait(entry);
+    if (isPassing(entry) || foldsHere(entry)) wait(entry);
     if (el.matches(".notice")) stack();
   }
   function showUrgent(entry) {
@@ -160,8 +165,12 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     el.showPopover();
   }
   function raiseUrgent() { entries.forEach(function (entry) { if (entry.isShown && entry.noticeUrgency === "urgent") raise(entry.el); }); }
+  // On a phone an ask that can wait folds into the Zaisma button by itself, as if closed, and the Inbox keeps it.
+  var phone = window.matchMedia ? window.matchMedia(${JSON.stringify(NOTICE_STRIP_MEDIA)}) : { matches: false };
+  function foldsHere(entry) { return phone.matches && entry.el.hasAttribute("data-notice-folds"); }
   function wait(entry) {
     clearTimeout(entry.timer);
+    if (foldsHere(entry)) { entry.timer = setTimeout(function () { var close = entry.el.querySelector("[data-notice-close]"); if (close) close.click(); }, NOTICE_UNDO_STAY_MS); return; }
     entry.timer = setTimeout(function () { leave(entry); }, entry.undoAction || entry.el.hasAttribute("data-notice-undo") ? NOTICE_UNDO_STAY_MS : NOTICE_STAY_MS);
   }
   // Pointed at or touched, it waits; let go, it starts its whole time again.
@@ -172,11 +181,14 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
     var stop = function () { var now = entryOf(el); if (now) clearTimeout(now.timer); };
     el.addEventListener("pointerenter", stop);
     el.addEventListener("pointerdown", stop);
-    el.addEventListener("pointerleave", function () { var now = entryOf(el); if (now && now.isShown && isPassing(now)) wait(now); });
+    el.addEventListener("pointerleave", function () { var now = entryOf(el); if (now && now.isShown && (isPassing(now) || foldsHere(now))) wait(now); });
   }
+  // A card over a game that went, for the menu's Inbox: answered or not, the page decides (zaisma-overlay.ts).
+  function tellCardLeft(entry) { if (entry.isOverGame && entry.el && entry.el.matches(".playing-card:not(.urgent-card), .urgent-card[data-notice-marks]")) window.dispatchEvent(new CustomEvent("zaisma:card-left", { detail: { card: entry.el } })); }
   function leave(entry) {
     var index = entries.indexOf(entry);
     if (index === -1) return;
+    tellCardLeft(entry);
     entries.splice(index, 1);
     clearTimeout(entry.timer);
     if (entry.isShown) {
@@ -261,7 +273,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   }
   // On a wide screen a sheet opened by a button hangs from it like a dropdown (zaismaPlace): toward the middle of the window, under it or above it,
   // kept inside the window, and following it as the page scrolls or the window changes; a phone keeps its sheet at the foot (the CSS).
-  var wide = window.matchMedia ? window.matchMedia("(min-width: 761px)") : { matches: false }, anchors = new Map(), GAP_PX_SHEET = 8, EDGE_PX = 16;
+  var wide = window.matchMedia ? window.matchMedia("(min-width: 761px), (orientation: landscape) and (max-height: 500px)") : { matches: false }, anchors = new Map(), GAP_PX_SHEET = 8, EDGE_PX = 16;
   // The button it opens from is the one pressed a moment before (a page may open its sheet itself, after fetching what's in it); a sheet opened
   // with no press behind it, or from a button inside a dropdown, which closes, stays centered.
   var pressed = null;
@@ -302,9 +314,9 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   };
   // Focus moves into a sheet as it opens (a screen reader and the keyboard need it there), but a ring only ever shows for the keyboard: opened by a
   // press (a mouse, a touch), the sheet takes the focus itself, no ring, and Tab goes on to its first control; opened from the keyboard, the browser's
-  // choice (its first control, or the one marked autofocus) stands. Closing returns the focus to what opened it, in the sheet beneath when there's one.
+  // choice (its first control, or the one marked autofocus) stands, unless the sheet always takes it itself (data-takes-own-focus, the Zaisma overlay). Closing returns the focus to what opened it, in the sheet beneath when there's one.
   function focusSheet(sheet) {
-    if (window.zaismaInput && window.zaismaInput.isKeyboard()) return;
+    if (window.zaismaInput && window.zaismaInput.isKeyboard() && !sheet.hasAttribute("data-takes-own-focus")) return;
     sheet.setAttribute("tabindex", "-1");
     sheet.focus({ preventScroll: true });
   }
@@ -312,6 +324,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   // hangs from the button that opened it, on every screen; every other sheet keeps its own place (centered, at the foot, at the side, in the
   // middle). A small one opened with no button to hang from (a game asked for it) takes a task sheet's place.
   function anchor(sheet) {
+    if (sheet.matches(".placement-docked")) return;
     var opener = pressed && performance.now() - pressed.at < 2000 && pressed.button.isConnected ? pressed.button : null;
     if (!opener || !sheet.classList.contains("is-compact") || sheet.matches(".in-place, .store-panel, .placement-middle, .is-picture") || opener.closest("[popover]") || sheet.contains(opener) || opener.closest("dialog[open]")) return;
     anchors.set(sheet, { opener: opener, rect: opener.getBoundingClientRect(), isOnPage: Boolean(window.zaismaIsOnPage && window.zaismaIsOnPage(opener, sheet)) });
@@ -354,6 +367,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   document.addEventListener("close", function (event) {
     var sheet = event.target;
     if (!sheet.matches || !sheet.matches(".sheet")) return;
+    // Only raised over a new full screen (raiseOpenSheets), it never closed for anyone listening.
+    if (sheet.isBeingRaised) { sheet.isBeingRaised = false; event.stopImmediatePropagation(); return; }
     forget(sheet);
     // Closing resets its steps and tabs to the first, out of sight, and lets go of the height it kept.
     reset(sheet);
@@ -468,7 +483,7 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   function reset(sheet) {
     sheet.style.minHeight = "";
     if (sheet.zaismaSteps) { sheet.zaismaSteps = null; var first = firstOf(sheet, "data-sheet-step"); step(sheet, first); sheet.zaismaSteps = null; }
-    var firstTab = sheet.querySelector("[data-sheet-tab-to]");
+    var firstTab = sheet.querySelector("[data-sheet-tab-opening]") || sheet.querySelector("[data-sheet-tab-to]");
     if (firstTab) chooseTab(sheet, firstTab.getAttribute("data-sheet-tab-to"));
   }
   // A tab chosen: its part shows, and it's the chosen one in the sheet's Switch.
@@ -482,6 +497,18 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   var layers = window.zaismaLayers = {
     coveredBy: null,
     openSheets: openSheets,
+    // What goes full screen comes last in the top layer, so Safari draws it over the sheets already open. Each is put back on top, in place: no entrance, its focus kept.
+    raiseOpenSheets: function () {
+      var focused = document.activeElement;
+      openSheets.forEach(function (sheet) {
+        sheet.isBeingRaised = true;
+        sheet.style.transition = "none";
+        close.apply(sheet);
+        showModal.apply(sheet);
+        requestAnimationFrame(function () { sheet.style.transition = ""; });
+      });
+      if (focused && openSheets.length) focused.focus({ preventScroll: true });
+    },
     say: function (options) {
       var el = options.cardId ? document.getElementById(options.cardId) : null;
       if (options.cardId && !el) return null;

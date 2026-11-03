@@ -534,8 +534,6 @@ describe("the SDK's types say what the SDK does", () => {
     sdk.page.say({ type: "zaisma:share-answer", requestNumber: 2, isOpened: false });
     expect(await refused).toBe("failed");
     expect(valuesOf("InviteStatus")).toEqual(expect.arrayContaining(["opened", "failed"]));
-    sdk.Zaisma.openPlayersPanel(room);
-    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:players-open" });
     // No page answering: like links, not on Zaisma.
     vi.useFakeTimers();
     try {

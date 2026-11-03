@@ -2,7 +2,7 @@ import { gameBySlug } from "@zaisma/core";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
 import type { Raw } from "./html.ts";
-import { secondaryButton } from "./components/actions.ts";
+import { action, secondaryButton } from "./components/actions.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import type { IconName } from "./components/icons.ts";
 import { dropdown } from "./components/panes.ts";
@@ -14,9 +14,7 @@ import { dropdown } from "./components/panes.ts";
  *    back into its room (the room tells the game's SDK, which tells this page);
  *  - a game that isn't in a match after a "now" publish: the page notices within 2 minutes, a game that
  *    listens (Zaisma.versions) switches when it says, and otherwise Update here reloads it with its save;
- *  - the connection, only when it isn't fine: weak (a real-time room's ping), reconnecting, or lost (10
- *    seconds without getting back, or the browser offline); a tap shows the ping.
- * Nothing sits over the game, and the bar is hidden in full screen.
+ * A game reads its own connection (room.connectionStatus, room.pingDurationMs); Zaisma shows none.
  */
 
 /** How often a game page that isn't in a match asks whether a newer version is out, and how long the answer is cached. */
@@ -34,92 +32,31 @@ export async function liveVersionAnswer(env: Env, slug: string): Promise<Respons
   );
 }
 
-/**
- * The bar's buttons, between Players and Share: the connection (one button for each way it can be wrong: weak, reconnecting, lost; the
- * script shows the one that's true, and only that one opens the connection's dropdown), then Update. All start hidden.
- */
-export function updateBarButtons(): ControlMarkup[] {
-  const connection = (state: "weak" | "retrying" | "lost", label: string, iconName: IconName) =>
-    secondaryButton(label, { id: `conn-${state}`, type: "button", icon: iconName, isLabelHidden: true, isSmall: true, controls: "conn-dialog", isHidden: true });
-  return [
-    connection("weak", "Weak connection", "signal-weak"),
-    connection("retrying", "Reconnecting", "reconnecting"),
-    connection("lost", "Connection lost", "signal-lost"),
-    secondaryButton("Update", { id: "update", type: "button", icon: "download", isSmall: true, isHidden: true }),
-  ];
-}
-
-/** What the connection button opens, hanging from it like the ⋯ menu: how the connection is, and the ping. */
-export function connectionPlate(): Raw {
-  return dropdown({ id: "conn-dialog", label: "Connection", head: { title: "Connection", note: "Checking the connection." }, items: [] });
+/** Update, in the Zaisma overlay's This game: it starts hidden, and shows while a new version is ready. */
+export function updateButton(): ControlMarkup {
+  return secondaryButton(action("update"), { id: "update", type: "button", isSmall: true, isHidden: true });
 }
 
 export const GAME_UPDATES_SCRIPT = pageScript(
   "game-updates",
   String.raw`(() => {
   const gamePage = JSON.parse(document.getElementById("game-page-data").textContent);
-  const conns = { weak: document.getElementById("conn-weak"), retrying: document.getElementById("conn-retrying"), lost: document.getElementById("conn-lost") };
   const update = document.getElementById("update");
-  if (!conns.weak || !update) return;
+  if (!update) return;
   const updateLabel = update.querySelector(".face > span:not([class])");
-  const plate = document.getElementById("conn-dialog");
-  const plateTitle = plate.querySelector(".dropdown-head strong");
-  const plateLine = plate.querySelector(".dropdown-head span");
-  const isPlateOpen = () => plate.matches(":popover-open");
-  // The dropdown hangs from the button that names it with aria-expanded: only the one shown has it.
-  const closePlate = () => { if (plate.floating) plate.floating.close(false); Object.values(conns).forEach((b) => b.hasAttribute("aria-expanded") && b.setAttribute("aria-expanded", "false")); };
   const gameOrigin = new URL(gamePage.frame_url).origin;
   const CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
-  const LOST_AFTER_MS = 10000;
   const frame = () => document.getElementById("game");
   const tell = (message) => { const f = frame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, gameOrigin); };
-  // The local preview shows each state by its link (?play&preview_bar=weak), since a room on this computer
-  // is never slow or gone; the game's own messages then don't change it. Never on zaisma.com (a .ts.net name is the preview on a phone).
+  // The local preview shows each state of Update by its link (?play&preview_bar=update); the game's own messages then don't change it. Never on zaisma.com (a .ts.net name is the preview on a phone).
   const previewBar = /^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) ? new URLSearchParams(location.search).get("preview_bar") : null;
 
   // The game's room, as its SDK says, and its connection: { code, connectionStatus, pingDurationMs, isWeak }.
   let connection = null;
-  let reconnectingSinceMs = null;
-  let lostTimer = null;
   // The version the game runs, and a newer one it was offered; whether a match update is coming or under way.
   let frameVersionId = null;
   let offeredVersionId = null;
   let matchUpdate = null;
-
-  function connectionState() {
-    if (!navigator.onLine && frame()) return "lost";
-    if (!connection) return null;
-    if (connection.connectionStatus === "reconnecting" || connection.connectionStatus === "connecting" && reconnectingSinceMs !== null) {
-      return reconnectingSinceMs !== null && Date.now() - reconnectingSinceMs >= LOST_AFTER_MS ? "lost" : "retrying";
-    }
-    if (connection.connectionStatus === "open" && connection.isWeak) return "weak";
-    return null;
-  }
-  function showConnection() {
-    // While the game reloads for an update, the bar says Updating, not that the connection dropped.
-    const state = matchUpdate && matchUpdate.step === "now" ? null : connectionState();
-    const wasOpen = isPlateOpen();
-    if (wasOpen && !state) closePlate();
-    for (const [each, button] of Object.entries(conns)) {
-      button.hidden = each !== state;
-      if (each === state) { if (!button.hasAttribute("aria-expanded")) button.setAttribute("aria-expanded", "false"); }
-      else button.removeAttribute("aria-expanded");
-    }
-    if (wasOpen && state) { const shown = conns[state]; shown.setAttribute("aria-expanded", "true"); fillPlate(state); }
-  }
-  function fillPlate(state) {
-    const ping = connection && typeof connection.pingDurationMs === "number" ? Math.round(connection.pingDurationMs) + " ms ping" : "";
-    plateTitle.textContent = { weak: "Weak connection", retrying: "Reconnecting…", lost: "Connection lost" }[state] || "Connection";
-    plateLine.textContent =
-      state === "weak" ? ping + ". The game may lag." :
-      state === "retrying" ? "The game is getting back into the match." :
-      !navigator.onLine ? "This device is offline. The game reconnects when it's back." :
-      "Still trying to reach the game's room.";
-  }
-  // The dropdown opens and closes itself (DROPDOWN_SCRIPT); its words are filled as it opens.
-  Object.values(conns).forEach((button) => button.addEventListener("click", () => fillPlate(connectionState()), true));
-  addEventListener("online", showConnection);
-  addEventListener("offline", showConnection);
 
   function showUpdate() {
     if (matchUpdate) {
@@ -157,30 +94,16 @@ export const GAME_UPDATES_SCRIPT = pageScript(
     const d = e.data;
     if (!f || e.source !== f.contentWindow || e.origin !== gameOrigin || !d || previewBar) return;
     if (d.type === "zaisma:connection" && typeof d.code === "string" && CODE.test(d.code)) {
-      const wasReconnecting = connection && connection.connectionStatus === "reconnecting";
       connection = { code: d.code, connectionStatus: String(d.connectionStatus), pingDurationMs: typeof d.pingDurationMs === "number" ? d.pingDurationMs : null, isWeak: d.isWeak === true };
-      if (connection.connectionStatus === "reconnecting" && !wasReconnecting) {
-        reconnectingSinceMs = Date.now();
-        clearTimeout(lostTimer);
-        lostTimer = setTimeout(showConnection, LOST_AFTER_MS);
-      }
-      if (connection.connectionStatus === "open" || connection.connectionStatus === "closed" || connection.connectionStatus === "away") {
-        reconnectingSinceMs = null;
-        clearTimeout(lostTimer);
-        if (connection.connectionStatus !== "open") connection = null;
-      }
+      if (connection.connectionStatus === "closed" || connection.connectionStatus === "away") connection = null;
       // Back in after an update: the reload is done.
       if (matchUpdate && matchUpdate.step === "now" && d.connectionStatus === "open") { matchUpdate = null; showUpdate(); }
-      showConnection();
     } else if (d.type === "zaisma:left") {
       connection = null;
-      reconnectingSinceMs = null;
-      showConnection();
     } else if (d.type === "zaisma:version-update" && typeof d.code === "string" && CODE.test(d.code) && typeof d.appliesAt === "string") {
       matchUpdate = { code: d.code, step: d.step === "now" ? "now" : "coming", appliesAt: d.appliesAt, isReloading: d.isReloading === true };
       offeredVersionId = null;
       showUpdate();
-      showConnection();
     } else if (d.type === "zaisma:reload") {
       // The match switched and the game's files changed: back into the same room, at the new version.
       if (matchUpdate) matchUpdate.step = "now";
@@ -190,7 +113,7 @@ export const GAME_UPDATES_SCRIPT = pageScript(
     } else if (d.type === "zaisma:version" && typeof d.versionId === "string") {
       frameVersionId = d.versionId;
       // The reloaded game is up: the update is done, and the connection shows from here (it rejoins its room, or its menu shows).
-      if (matchUpdate && matchUpdate.step === "now") { matchUpdate = null; showUpdate(); showConnection(); }
+      if (matchUpdate && matchUpdate.step === "now") { matchUpdate = null; showUpdate(); }
     } else if (d.type === "zaisma:version-ready" && d.versionId === offeredVersionId) {
       // The game takes it itself (Zaisma.versions), or the player does, with Update.
       if (d.isHandled === true) offeredVersionId = null;
@@ -217,17 +140,10 @@ export const GAME_UPDATES_SCRIPT = pageScript(
 
   if (previewBar) {
     const nowMs = Date.now();
-    if (previewBar === "weak") connection = { code: "PREVUE", connectionStatus: "open", pingDurationMs: 182, isWeak: true };
-    if (previewBar === "retrying" || previewBar === "lost") {
-      connection = { code: "PREVUE", connectionStatus: "reconnecting", pingDurationMs: 64, isWeak: false };
-      reconnectingSinceMs = previewBar === "lost" ? nowMs - LOST_AFTER_MS : nowMs;
-      lostTimer = setTimeout(showConnection, LOST_AFTER_MS);
-    }
     if (previewBar === "coming") matchUpdate = { code: "PREVUE", step: "coming", appliesAt: new Date(nowMs + 4 * 60_000).toISOString(), isReloading: true };
     if (previewBar === "updating") matchUpdate = { code: "PREVUE", step: "now", appliesAt: new Date(nowMs).toISOString(), isReloading: true };
     if (previewBar === "update") offeredVersionId = "version_preview";
     frameVersionId = "version_preview";
-    showConnection();
     showUpdate();
   }
 })();`,

@@ -1,9 +1,10 @@
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { acceptedFriendRequestsFrom, accountById, answerFriendRequest, friendRequestRefusalFor, gameBySlug, sendFriendRequest, waitingFriendRequestsTo, type WaitingFriendRequest } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
-import { secondaryButton, primaryButton } from "./components/actions.ts";
-import { listRows, pictureFrame, stateNote } from "./components/data.ts";
+import { action, secondaryButton, primaryButton } from "./components/actions.ts";
+import { pictureFrame } from "./components/data.ts";
 import { row, stack } from "./components/layout.ts";
 import { banner, notice, sheet } from "./components/panes.ts";
 import { accountPicture, html, pageData, scriptTags, type Raw } from "./html.ts";
@@ -131,39 +132,57 @@ ${status ? html`<p class="note" role="status">${status}</p>` : ""}
  * this player, with Accept and Not now. The card never takes the keyboard or pauses anything; left, it goes after
  * a few seconds, and the request waits in Players and on /friends.
  */
-export function friendRequestParts(options: { gameOrigin: string; slug: string }): Raw {
-  const body = stack({
-    items: [
-      { kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "Nobody picked", text: "Who you're adding shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "friend-request-who" }) },
-      { kind: "words", markup: html`<p><span id="friend-request-told"></span> can accept it from their game or their friends page. Once you're friends, you can chat and join each other in games that allow it.</p>` },
-      { kind: "block", markup: html`<div id="friend-request-error" role="alert" hidden>${banner({ text: "Couldn't send it. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
-    ],
-  });
-  const card = notice({ placement: "over-game",
+/** Asking before a request is sent: the game asks or the Zaisma overlay's Add friend does, and only the player's yes sends it. */
+export const friendRequestSheet = gallerySheet<{ playerName?: string }>({
+  name: "Friend request sheet",
+  slug: "friend-request-sheet",
+  summary: "Asking before a request is sent, from the overlay's Add friend or a game's own ask. Its script names the player.",
+  states: [
+    { stateValue: "asking", label: "Asking", options: { playerName: "Mia_Plays" } },
+    { stateValue: "problem", label: "It didn't go through", options: { playerName: "Mia_Plays" }, shownIds: ["friend-request-error"] },
+  ],
+  make: (options, isShown) => sheet({
+    id: "friend-request",
+    title: options.playerName ? `Send ${options.playerName} a friend request?` : "Send a friend request?",
+    isShown,
+    body: stack({
+      items: [
+        { kind: "words", markup: html`<p>Once they accept, you can chat and join each other in games that allow it.</p>` },
+        { kind: "block", markup: html`<div id="friend-request-error" role="alert" hidden>${banner({ text: "Couldn't send it. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
+      ],
+    }),
+    closeLabel: "Close",
+    placement: "foot",
+    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Send request", { type: "button", id: "friend-request-yes" })],
+  }),
+});
+
+/** A request reaching this player, over the game's corner: Accept or Not now. */
+export const friendRequestCard = (isShown = false): Raw =>
+  notice({ placement: "over-game",
+    isShown,
     id: "friend-request-card",
     title: "Friend request",
+    strip: { lead: pictureFrame("?", "xs"), words: html`<strong data-notice-copies="friend-request-card-name"></strong> wants to be friends`, action: primaryButton(action("addFriend", "Accept"), { type: "button", isSmall: true, isLabelHidden: true, dataAttributes: { "notice-presses": "friend-request-accept" } }), closePresses: "friend-request-later", isMarkedWhenClosed: true },
     body: stack({
       items: [
         { kind: "words", markup: html`<p><strong id="friend-request-card-name"></strong> wants to be friends.</p>` },
         {
           kind: "block",
-          markup: row({ widths: "fit", label: "Answer", items: [{ kind: "control", markup: primaryButton("Accept", { type: "button", id: "friend-request-accept" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button", id: "friend-request-later" }) }] }),
+          markup: row({ widths: "equal", label: "Answer", items: [{ kind: "control", markup: primaryButton("Accept", { type: "button", id: "friend-request-accept" }) }, { kind: "control", markup: secondaryButton("Not now", { type: "button", id: "friend-request-later" }) }] }),
         },
       ],
     }),
   });
-  // The sender's news once one is accepted: one line, gone by itself.
-  const acceptedCard = notice({ placement: "over-game", id: "friend-accepted-card", body: stack({ items: [{ kind: "words", markup: html`<p>You and <strong id="friend-accepted-name"></strong> are friends now.</p>` }] }) });
-  return html`${sheet({
-    id: "friend-request",
-    title: "Send a friend request?",
-    body,
-    closeLabel: "Close",
-    placement: "foot",
-    buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Send request", { type: "button", id: "friend-request-yes" })],
-  })}
-${card}
-${acceptedCard}
+
+/** The sender's news once one is accepted: one line, gone by itself. */
+export const friendAcceptedCard = (isShown = false): Raw =>
+  notice({ placement: "over-game", isShown, id: "friend-accepted-card", strip: { lead: pictureFrame("?", "xs"), words: html`You and <strong data-notice-copies="friend-accepted-name"></strong> are friends` }, body: stack({ items: [{ kind: "words", markup: html`<p>You and <strong id="friend-accepted-name"></strong> are friends now.</p>` }] }) });
+
+export function friendRequestParts(options: { gameOrigin: string; slug: string }): Raw {
+  return html`${friendRequestSheet({})}
+${friendRequestCard()}
+${friendAcceptedCard()}
 ${pageData("friend-request-data", { gameOrigin: options.gameOrigin, slug: options.slug })}
 ${scriptTags(FRIEND_REQUEST_SCRIPT)}`;
 }
@@ -197,18 +216,6 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     asking = null;
     if (sheet.open) sheet.close();
   }
-  // Who it's for, as the page draws an account (accountPicture): initials in its own color, from the name.
-  function showWho(name) {
-    const who = $("friend-request-who");
-    let hue = 7;
-    for (const character of name) hue = (hue * 31 + character.codePointAt(0)) % 360;
-    const words = name.trim().split(/\s+/).filter(Boolean);
-    const letters = words.length > 1 ? [Array.from(words[0])[0], Array.from(words[1])[0]] : Array.from(words[0] || "?").slice(0, 2);
-    const picture = who.querySelector(".av");
-    picture.style.setProperty("--h", String(hue));
-    picture.textContent = letters.join("").toUpperCase();
-    who.querySelector(".list-row-title").textContent = name;
-  }
   async function ask(playerId) {
     // One question at a time: another while the sheet is up is a no.
     if (asking) return tell({ type: "zaisma:friend-request", playerId, status: "cancelled" });
@@ -223,11 +230,8 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     if (!about.can_send) return finish("not_taking_requests");
     asking.name = about.player.name;
     $("friend-request-title").textContent = "Send " + asking.name + " a friend request?";
-    showWho(asking.name);
-    $("friend-request-told").textContent = asking.name;
     $("friend-request-error").hidden = true;
     yes.removeAttribute("aria-busy");
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     sheet.showModal();
     yes.focus();
   }
@@ -320,8 +324,9 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
     $("friend-request-card-name").textContent = next.name;
     zaismaLayers.say({ cardId: "friend-request-card", noticeUrgency: "ask" });
     clearTimeout(cardTimer);
-    cardTimer = setTimeout(hideCard, ${CARD_SHOWN_MS});
+    cardTimer = setTimeout(foldCard, ${CARD_SHOWN_MS});
   }
+  function foldCard() { dispatchEvent(new Event("zaisma:notice-folded")); hideCard(); }
   function hideCard() {
     clearTimeout(cardTimer);
     zaismaLayers.leave(card);
@@ -330,7 +335,7 @@ const FRIEND_REQUEST_SCRIPT = pageScript("friend-requests", String.raw`(() => {
   }
   // A hand on the card keeps it up.
   card.addEventListener("pointerenter", () => clearTimeout(cardTimer));
-  card.addEventListener("pointerleave", () => { if (showing) cardTimer = setTimeout(hideCard, 3000); });
+  card.addEventListener("pointerleave", () => { if (showing) cardTimer = setTimeout(foldCard, 3000); });
   async function answerRequest(playerId, verb) {
     const res = await post("/friends/requests/" + playerId + "/" + verb);
     waiting = waiting.filter((each) => each.player_id !== playerId);

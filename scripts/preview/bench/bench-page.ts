@@ -1,6 +1,6 @@
 import { html, layout, pageData, type Raw } from "../../../apps/site/src/html.ts";
 import type { Env } from "../../../apps/site/src/env.ts";
-import { secondaryButton, toggleButton } from "../../../apps/site/src/components/actions.ts";
+import { action, secondaryButton, toggleButton } from "../../../apps/site/src/components/actions.ts";
 import { dropdown, sheet, type DropdownItem } from "../../../apps/site/src/components/panes.ts";
 import { stackOfOne } from "../../../apps/site/src/components/layout.ts";
 import { slider } from "../../../apps/site/src/components/inputs.ts";
@@ -46,9 +46,9 @@ ${dropdown({ id: "bench-places", label: "Places", items: BENCH_PLACES.map((place
 ${dropdown({ id: "bench-profiles", label: "Profiles", items: profileItems(profiles) })}
 <div class="bench-seen"><span class="bench-group-name" data-bench-seen-count>Seen 0 of 0</span>${toggleButton("Not seen yet", { ...tiny, isPressed: false, dataAttributes: { "bench-seen": "" } })}</div>
 ${stateButtons()}
-<div class="bench-rail-foot"><p class="bench-note">Tap a screen to open it. Buttons and links in it press as usual.</p>${secondaryButton("Gallery", { isTiny: true, href: "/design", icon: "chevron-back" })}</div>`;
+<div class="bench-rail-foot"><p class="bench-note">Tap a screen to open it. Buttons and links in it press as usual.</p>${secondaryButton(action("back", "Gallery"), { isTiny: true, href: "/design" })}</div>`;
   const tools = html`${secondaryButton("Replay", { ...tiny, dataAttributes: { "bench-replay": "" } })}${secondaryButton("Reset", { ...tiny, dataAttributes: { "bench-reset": "" } })}${toggleButton("Slow", { ...tiny, isPressed: false, dataAttributes: { "bench-slow": "" } })}${toggleButton("Dark", { ...tiny, isPressed: false, dataAttributes: { "bench-dark": "" } })}${secondaryButton("On my phone", { ...tiny, controls: "bench-on-phone", dataAttributes: { "bench-on-phone-button": "" } })}`;
-  const phoneHeadEnd = toggleButton("Moving backgrounds", { ...tiny, icon: "image", isLabelHidden: true, isPressed: false, dataAttributes: { "bench-moving": "" } });
+  const phoneHeadEnd = toggleButton(action("movingBackgrounds"), { ...tiny, isLabelHidden: true, isPressed: false, dataAttributes: { "bench-moving": "" } });
   const bigTools = html`${secondaryButton("Replay", { ...tiny, dataAttributes: { "bench-big-replay": "" } })}${secondaryButton("Reset", { ...tiny, dataAttributes: { "bench-reset": "" } })}${toggleButton("Slow", { ...tiny, isPressed: false, dataAttributes: { "bench-big-slow": "" } })}${toggleButton("Exit", { ...tiny, isPressed: false, dataAttributes: { "bench-big-exit": "" } })}${slider({ id: "bench-big-scrub", name: "scrub", label: "Press a state first", minimumNumber: 0, maximumNumber: 100, stepNumber: 1, pickedNumber: 100, unit: "%" })}${toggleButton("Dark", { ...tiny, isPressed: false, dataAttributes: { "bench-big-dark": "" } })}${secondaryButton("Profile", { ...tiny, controls: "bench-big-profiles", isExpanded: false, dataAttributes: { "bench-big-profile-button": "" } })}${secondaryButton("Close", { ...tiny, dataAttributes: { "bench-big-close": "" } })}
 ${dropdown({ id: "bench-big-profiles", label: "This screen's profile", items: profileItems(profiles).map((item) => ("dataAttributes" in item && item.dataAttributes ? { ...item, dataAttributes: { "bench-big-profile": item.dataAttributes["bench-profile"]! } } : item)) })}`;
   const body = html`${benchLayout({ rail, tools, phoneHeadEnd, bigTools, screens: BENCH_SCREENS.map((screen) => benchScreen(screen)) })}

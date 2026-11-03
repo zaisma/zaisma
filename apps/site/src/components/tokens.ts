@@ -1,5 +1,8 @@
 
 
+/** Where the header is a rail down the left: a phone on its side, with width to spare and little height. */
+export const HEADER_RAIL_MEDIA = "(orientation: landscape) and (max-height: 500px) and (max-width: 64em)";
+
 /** The cut corners of a kind of slab (the cut tokens), as a clip-path, for a frame that isn't glass the edge rule cuts (a demo's box). */
 export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
   const [large, small] = [`var(--${kind}-cut-large)`, `var(--${kind}-cut-small)`];
@@ -7,11 +10,15 @@ export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
 };
 
 /** The glass's two kinds, as tokens: light glass with dark words, and smoked glass with light words. */
+/** A phone, either way up: where a notice over a game is one line. */
+export const NOTICE_STRIP_MEDIA = "(max-width: 760px), (orientation: landscape) and (max-height: 500px)";
+
 export const LIGHT_GLASS = `color-scheme: light;
+  --glass-ground: #E7E4DF;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
-  --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.55); --glass-thick: rgba(250, 252, 255, 0.72);
+  --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.55); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   /* A carving: the glass cut away, a touch darker than the glass round it, shaded under its top edge; pointed at, it catches the light.
      Deep (a groove, a toggle's slot), it's darker and lit along its lower lip. */
@@ -71,14 +78,16 @@ export const LIGHT_GLASS = `color-scheme: light;
   --warning: #7D5C00; --link-hover: var(--run-lo); --marked: var(--warning);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
   --edge-light: #FFFFFF; --edge-flood: rgba(255, 255, 255, 0.62); --edge-flood-far: rgba(255, 255, 255, 0.24); --edge-wake: rgba(255, 255, 255, 0.8); --menu-edge-flood: rgba(196, 214, 246, 0.6); --menu-edge-flood-far: rgba(196, 214, 246, 0.22);
+  --thick-edge-light: rgb(112, 156, 240); --thick-edge-flood: rgba(112, 156, 240, 0.62); --thick-edge-flood-far: rgba(112, 156, 240, 0.24); --thick-edge-wake: rgba(112, 156, 240, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
 
 export const SMOKED_GLASS = `color-scheme: dark;
+  --glass-ground: #121110;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
-  --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.55); --glass-thick: rgba(14, 17, 24, 0.72);
+  --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.55); --glass-thick: rgba(14, 17, 24, 0.72); --glass-over-game: rgba(14, 17, 24, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   --carving-face: rgba(255, 255, 255, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.13); --carving-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
   --carving-deep-face: rgba(0, 0, 0, 0.24); --carving-deep-shade: inset 0 3px 3px rgba(0, 0, 0, 0.75), inset 0 -1.5px 0 rgba(214, 228, 255, 0.45);
@@ -117,6 +126,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --warning: #F2C94C; --link-hover: var(--run-hi); --marked: var(--warning);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --edge-light: rgba(214, 228, 255, 0.9); --edge-flood: rgba(206, 222, 255, 0.4); --edge-flood-far: rgba(206, 222, 255, 0.14); --edge-wake: rgba(206, 222, 255, 0.35); --menu-edge-flood: var(--edge-flood); --menu-edge-flood-far: var(--edge-flood-far);
+  --thick-edge-light: rgba(214, 228, 255, 0.9); --thick-edge-flood: rgba(206, 222, 255, 0.4); --thick-edge-flood-far: rgba(206, 222, 255, 0.14); --thick-edge-wake: rgba(206, 222, 255, 0.35);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
@@ -191,15 +201,21 @@ export const TOKEN_STYLES = `
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
-/* A box that scrolls keeps a swipe to itself on a touch screen: reaching its end never carries on into the page, so the page never nudges under it.
-   Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. With a mouse
-   or trackpad the wheel is never held: at a box's end the next scroll carries on into the page, so a pointer resting over a list never gets stuck. */
-@media (pointer: coarse) { .is-scrollable { overscroll-behavior-y: contain; } }
-/* The page never rubber-bands, sideways or past its top or bottom: its backdrop stays put behind the glass, so a page pulled past its end
-   would leave the glass's light on the backdrop behind. A tap shows itself on what was tapped, never as the browser's grey box. */
+/* Nothing ever rubber-bands, on any material or page: the backdrop stays put behind the glass, so a page or a pane pulled past its end would
+   show it. A box that reaches its end lets a swipe or a wheel carry on to what it's in, its parent box or the page, on every box without saying so. Only the
+   outermost box in what's over the page holds it, so the page behind never moves: a material's part that scrolls is no scroller at all while it fits
+   (.scrolls.fits), and SCROLL_FADE_SCRIPT marks any other box that scrolls (is-scrollable). Sideways there's nothing to carry on to, so every box holds it.
+   A tap shows itself on what was tapped, never as the browser's grey box. */
+* { overscroll-behavior-x: none; }
 html, body { overscroll-behavior: none; }
+:is(dialog, [popover]):is(.scrolls:not(.fits), .is-scrollable), :is(dialog, [popover]) :is(.scrolls:not(.fits), .is-scrollable):not(:is(.scrolls:not(.fits), .is-scrollable) *) { overscroll-behavior-y: none; }
 html { -webkit-tap-highlight-color: transparent; }
-.is-scrollable-sideways { overscroll-behavior-x: contain; }
+/* Pressing never selects: a control's icon and words aren't text to pick up, on any screen, so no page has to remember it. What's typed, and a
+   value to copy inside a control, stays selectable; so does everything else (words, names, running-text links). Holding a button shows no
+   callout, and a real link keeps its own (open in a new tab, copy the link). */
+:where(button, label, summary, select, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="switch"], .shell, .flush-row, .cover-art, .choice-card, .logo, .tag-remove, .field-legend) { -webkit-user-select: none; user-select: none; }
+:where(input, textarea, [contenteditable="true"], .copy-field-text) { -webkit-user-select: text; user-select: text; }
+:where(button, [role="button"], summary) { -webkit-touch-callout: none; }
 /* Each fade's edges ease in and out, all four named on both, so a box that scrolls both ways (a table) eases every edge whichever rule
    wins; from the frame after the page starts (fades-ease, SCROLL_FADE_SCRIPT), so a fade there at the start is there at once. */
 [data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
@@ -247,6 +263,7 @@ html { -webkit-tap-highlight-color: transparent; }
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   /* Motion (materials.ts), one set for everything: how long a press takes to sink, a state to fade, a layer to arrive or leave, a slab to
      glide, a flare to settle and a light to loop, a page to switch to the next; and the curves they take. Nothing else times itself. */
+  --zaisma-button-height: 54px; --zaisma-button-width: 60px;
   --motion-page-switch: 0.25s; --motion-press: 0.08s; --motion-state: 0.2s; --motion-arrive: 0.3s; --motion-glide: 0.45s; --motion-settle: 0.6s; --motion-world: 1.2s; --motion-loop: 1.6s; --motion-loop-slow: 2.4s;
   --ease-glide: cubic-bezier(.2, .8, .2, 1); --ease-standard: cubic-bezier(.4, 0, .2, 1); --ease-leave: cubic-bezier(.4, 0, 1, 1); --ease-spring: cubic-bezier(.25, .9, .3, 1.25);
   --spring: var(--ease-spring);
@@ -284,6 +301,10 @@ html { -webkit-tap-highlight-color: transparent; }
   --pad-frame-compact: 4px;
   /* A rail (navigation.ts): its carved channel's width, the reach a pointer finds it in, centered on it, and the room what scrolls keeps
      beside it (the channel and a frame gap). It keeps --rail-inset from the edges of the glass or carving it runs in: the frame gap. */
+  /* The screen's sides to keep clear. An iPhone on its side reports the same inset on both, though its notch is at one (first-paint-script.ts
+     says which), so the other side is free to use. --corner-room keeps what runs along that side clear of the screen's curved corners. */
+  --safe-left: env(safe-area-inset-left, 0px); --safe-right: env(safe-area-inset-right, 0px); --corner-room: min(20px, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  --typing-width: 480px;
   --rail-width: 10px; --rail-reach: 16px; --rail-room: calc(var(--rail-width) + var(--pad-frame)); --rail-inset: var(--pad-frame);
   /* Cut corners (docs/DESIGN.md, Shapes): a pane's, the header's and a bar's, a menu's, a strip's (a notice or banner, a control's height of glass), large and small, read by the edge rule (GLASS_SCRIPT)
      from data-glass-corners, so everything inside fits them. A framed thing in a corner keeps a bevel of at least 4px at the frame gap. */
@@ -296,6 +317,8 @@ html { -webkit-tap-highlight-color: transparent; }
      the browser's own 16px). */
   /* The least a finger needs to land on, which a small control's hit area reaches to on a touch screen: in px, as fingers don't grow with the text. */
   --touch-target: 44px;
+  /* An icon alone in a control: its size, and the room each side of it. */
+  --size-icon: 20px; --pad-icon: 12px;
   --control-height-tiny: 1.625rem; --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
      paragraph runs in a pane that fits what's in it, for reading. */
@@ -308,7 +331,9 @@ html { -webkit-tap-highlight-color: transparent; }
      (as wide as its field) at most --size-menu-height tall; a compact sheet a dropdown's width; any other sheet --size-sheet; a picture's
      sheet (a screenshot, or a screen, large) --size-sheet-picture; the store panel its own column at the screen's edge. */
   --size-menu: 20rem; --size-menu-height: 30rem;
-  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-store-panel: 23.75rem; --size-sidebar: 15rem;
+  /* The header's search, at rest and once it's pressed or holds words; a pane beside art on a phone on its side. */
+  --size-search: 20rem; --size-search-least: 12.5rem; --size-field-short: 10rem; --size-search-open: 460px; --size-pane-beside: 360px;
+  --size-sheet-compact: 20rem; --size-sheet: 36rem; --size-sheet-picture: 80rem; --size-store-panel: 23.75rem; --size-sidebar: 15rem; --size-sidebar-sheet: 19rem;
   /* A figure's least width in Numbers: two side by side on a phone. */
   --size-number: 96px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
@@ -325,6 +350,8 @@ html { -webkit-tap-highlight-color: transparent; }
   --type-code: 600 0.8125rem/1.3 ui-monospace, Menlo, monospace;
 }
 /* A phone's sizes, upright or on its side (a landscape phone is a phone's height, not a laptop's). */
+:root[data-cutout-side="left"] { --safe-right: 0px; }
+:root[data-cutout-side="right"] { --safe-left: 0px; }
 @media (max-width: 760px), (max-height: 500px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 3rem; --type-title: 600 2rem/1.04 var(--display); --type-heading: 600 1.625rem/1.1 var(--display); --type-section: 600 1.25rem/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }

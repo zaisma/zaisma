@@ -1,7 +1,7 @@
 import { html, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
-import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
+import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner } from "./panes.ts";
@@ -26,7 +26,7 @@ export const gamePane = (): Raw =>
       items: [
         words(html`<h1>Ashen Crown</h1>`),
         words(html`<p>by Ember Hollow · 1,204 playing</p>`),
-        block(row({ widths: "lead-fills", items: [{ kind: "control", markup: primaryButton("Play", { type: "button", icon: "play", isBig: true }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })),
+        block(row({ widths: "lead-fills", items: [{ kind: "control", markup: primaryButton(action("play"), { type: "button", isBig: true }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })),
         words(row({ widths: "fit", items: [words(textLink("Share", "#stack")), words(textLink("Report", "#stack"))] })),
       ],
     }),
@@ -50,7 +50,7 @@ export const roomsPane = (): Raw =>
     paneWidth: "full",
     label: "Rooms",
     body: paneParts({
-      head: { words: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: secondaryButton("Refresh", { type: "button" }) },
+      head: { words: html`<h2>Rooms</h2><p>267 playing now in 78 rooms</p>`, end: secondaryButton(action("refresh"), { type: "button" }) },
       body: table({ whenEmpty: stateNote({ stateKind: "empty", title: "No open rooms right now", text: "Start one, and it shows here for others to join." }), caption: "Open rooms", columns: [{ label: "Room" }, { label: "Map" }, { label: "Players", isNumeric: true }], rows: [["North gate", "Glacier", "6"], ["Ember pit", "Caldera", "4"], ["Old harbour", "Coast", "8"]] }),
       foot: { start: words(html`<p>Updated a minute ago</p>`), end: secondaryButton("All rooms", { type: "button" }) },
     }),
@@ -86,7 +86,7 @@ component({
             words(html`<p>Sign in to keep your progress everywhere.</p>`),
             { kind: "control", markup: cutField({ id: "stack-username", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r" }) },
             { kind: "control", markup: cutField({ id: "stack-password", name: "password", label: "Password", type: "password", icon: "lock" }) },
-            { kind: "control", markup: primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true }) },
+            { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true, isBig: true }) },
             words(html`<p>${textLink("Forgot your password?", "#stack")}</p>`),
           ],
         }),
@@ -110,7 +110,7 @@ component({
   examples: [
     {
       label: "Lead fills: Play takes the rest, Details fits its words",
-      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: primaryButton("Play", { type: "button", icon: "play", isBig: true }) }, { kind: "control", markup: secondaryButton("Details", { type: "button", isBig: true }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: primaryButton(action("play"), { type: "button", isBig: true }) }, { kind: "control", markup: secondaryButton("Details", { type: "button", isBig: true }) }] }) }),
     },
     {
       label: "Equal: Continue and Cancel share the width",
@@ -122,11 +122,11 @@ component({
     },
     {
       label: "Fit, between: a heading at the start, its control at the end, on the control's center line",
-      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: secondaryButton("New version", { type: "button", icon: "upload" }) }] }) }),
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: secondaryButton(action("newVersion"), { type: "button" }) }] }) }),
     },
     {
       label: "A field and its button: the field fills, Join fits, on the field's box",
-      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "row-code", name: "room_code", label: "Room code", type: "text", icon: "people", placeholder: "ABCD" }) }, { kind: "control", markup: secondaryButton("Join", { type: "button" }) }] }) }),
+      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "row-code", name: "room_code", label: "Room code", type: "text", icon: "people", placeholder: "ABCD" }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] }) }),
     },
     {
       label: "Equal: two pickers share the width, on their fields' boxes",
@@ -166,12 +166,12 @@ component({
   name: "Track",
   slug: "track",
   group: "layout",
-  summary: "A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in, its sideways Rail under it while it runs past its room. Under a heading row with its Row arrows (shown only with a mouse), it's a shelf.",
+  summary: "A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in, its sideways Rail under it while it runs past its room. Under a heading, it's a shelf.",
   styles: TRACK_STYLES,
   render: track,
   examples: [
     { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
-    { label: "Under a heading with its arrows: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
+    { label: "Under a heading: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
   ],
 });
 
@@ -205,12 +205,12 @@ component({
     { label: "A head with Refresh in its corner, a table, a foot with a control in its corner", isWide: true, markup: roomsPane() },
     {
       label: "In a pane that fits what's in it",
-      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: secondaryButton("Add a friend", { type: "button", icon: "friends", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: tertiaryButton("See all", { type: "button" }) } }) }),
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: secondaryButton(action("addFriend"), { type: "button", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: tertiaryButton("See all", { type: "button" }) } }) }),
     },
     {
       label: "A long heading beside its corner control: it wraps, its first line on the control's center line",
       isWide: true,
-      markup: glassPane({ paneWidth: "full", body: paneParts({ head: { words: html`<h2>Rooms where your friends are playing right now</h2><p>Liam, Sofia and Noah, in 3 rooms</p>`, end: secondaryButton("Refresh", { type: "button", icon: "refresh", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Join one to play with them.</p>`)] }) }) }),
+      markup: glassPane({ paneWidth: "full", body: paneParts({ head: { words: html`<h2>Rooms where your friends are playing right now</h2><p>Liam, Sofia and Noah, in 3 rooms</p>`, end: secondaryButton(action("refresh"), { type: "button", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Join one to play with them.</p>`)] }) }) }),
     },
   ],
 });

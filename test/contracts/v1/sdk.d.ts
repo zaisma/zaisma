@@ -191,16 +191,6 @@ declare namespace ZaismaV1Lock {
   function checkChat(text: string): Promise<ChatCheck>;
 
   /**
-   * The Players panel, where a player can mute, block and report the others and see their friends. On
-   * Zaisma it opens the game bar's own Players, the same as its button (leaving full screen if the
-   * game is in it), so a Players button in your game, in your game's style, does exactly what the bar's
-   * does. On your own site, where there's no bar, it draws Zaisma's ready-made panel.
-   * A game with its own netcode offers them in its own menu. Or build your own panel
-   * with room.mute, room.block and room.report.
-   */
-  function openPlayersPanel(room: Room): void;
-
-  /**
    * The signed-in player's Zaisma friends who are playing this game right now, for your own list of
    * them: to join a friend's match, watch it or invite them ({@link Friends.list}). A game never sees
    * friends who aren't playing it, or who's online.

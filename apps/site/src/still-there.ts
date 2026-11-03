@@ -15,10 +15,12 @@ import { notice } from "./components/panes.ts";
  */
 
 /** The card, hidden until the game asks. */
-export function stillThereCard(): Raw {
+export function stillThereCard(isShown = false): Raw {
   return notice({ placement: "over-game",
+    isShown,
     id: "still-there",
     title: "Still there?",
+    strip: { words: html`Still there? <span class="notice-strip-note">Leaving in <span data-notice-copies="still-there-time"></span></span>`, action: primaryButton("I'm here", { type: "button", isSmall: true, dataAttributes: { "notice-presses": "still-here" } }), hasTimeGroove: true },
     body: stack({
       items: [
         { kind: "words", markup: html`<p>If nothing happens, the room lets you go in <span id="still-there-time">30 seconds</span>.</p>` },
@@ -38,8 +40,11 @@ function hideStillThere() {
   stillThereTimer = null;
   zaismaLayers.leave(stillThere);
 }
+let stillThereFullMs = 0;
 function showStillThereTime(untilMs) {
   const leftSec = Math.max(0, Math.ceil((untilMs - Date.now()) / 1000));
+  stillThereFullMs = Math.max(stillThereFullMs, untilMs - Date.now());
+  stillThere.querySelector(".notice-strip-groove").style.setProperty("--groove-filled", String(Math.max(0, (untilMs - Date.now()) / stillThereFullMs)));
   stillThereTime.textContent = leftSec === 1 ? "1 second" : leftSec + " seconds";
   if (!leftSec) hideStillThere();
 }
@@ -54,6 +59,7 @@ addEventListener("message", (e) => {
   // The SDK asks for 30 seconds; a game's own clock never keeps the card up longer than a minute.
   const untilMs = Math.min(d.untilMs, Date.now() + 60000);
   zaismaLayers.show(stillThere);
+  stillThereFullMs = 0;
   showStillThereTime(untilMs);
   stillThereTimer = setInterval(() => showStillThereTime(untilMs), 250);
   tellStillThere("showing");

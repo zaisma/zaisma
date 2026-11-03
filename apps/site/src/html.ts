@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_PIECES, HEADER_SCRIPT, LOOK_SCRIPT, firstPaintPieceText } from "./components/index.ts";
 import { firstPaintStyles, shownMarkup } from "./first-paint-styles.ts";
 import { SPEED_SCRIPT } from "./speed-reports.ts";
-import { HEADER_TWO_ROWS_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
+import { HEADER_SMALL_SCREEN_MEDIA, footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
 import { secondaryButton, primaryButton } from "./components/actions.ts";
 import { stateNote } from "./components/data.ts";
@@ -430,10 +430,10 @@ const SYSTEM_STYLES = (): string => (systemStyles ||= mapSelectors(COMPONENT_STY
  * A page body not yet rebuilt is a band of Steel under the header (main.steel), the width of the window.
  */
 const SHELL_STYLES = `
-/* The room the floating header takes at the top: its inset, its height (the header's own --header-height, worked out from its rows) and a
+/* The room the floating header takes at the top: its inset, its height (the header's own --header-height) and a
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
 :root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
-@media ${HEADER_TWO_ROWS_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 110px) + var(--gap-block-block)); } }
+@media ${HEADER_SMALL_SCREEN_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 68px) + var(--gap-block-block)); } }
 /* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
 html { background: var(--backdrop-edge, var(--page)); }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
@@ -628,6 +628,8 @@ interface LayoutBaseOptions {
   nav?: Nav;
   /** The page's sidebar button (navigation.ts's sidebarButton, a small Secondary button), at the header's start over its sidebar. */
   sidebarButton?: ControlMarkup;
+  /** Back before Zaisma in the header, shown once the page was reached from another Zaisma page (navigation.ts's header). */
+  hasBackButton?: boolean;
   hasTurnstileCheck?: boolean;
   search?: HeaderSearch;
   /** The page's main action, at the top of a Steel page until its page is rebuilt. */
@@ -679,7 +681,8 @@ export function layout(env: Env, options: LayoutOptions): Response {
   const isRebuilt = options.checkedPage !== undefined;
   const sheet = isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
-  const themeColors = colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
+  // The browser's own strip at the top of a phone takes the game's background color, so the page looks as if it runs up to the top.
+  const themeColors = options.stageColor && /^#[0-9a-fA-F]{6}$/.test(options.stageColor) ? html`<meta name="theme-color" content="${options.stageColor}">` : colorTheme === "system" ? html`<meta name="theme-color" content="#E7E4DF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">` : html`<meta name="theme-color" content="${colorTheme === "dark" ? "#121110" : "#E7E4DF"}">`;
   const sheets = [sheet, ...(options.steelStyles ?? [])];
   // What the page shows, read first: its own styles are the rules its markup needs (first-paint-styles.ts).
@@ -701,6 +704,7 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>${options.title}</title>
 ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="icon" href="/favicon.ico" sizes="32x32">
@@ -731,20 +735,23 @@ export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="c
  * The site's header (components/navigation.ts), also used on its own by pages that lay themselves out (the game page): Home, the
  * developer tabs open on developer pages, the page's search, and the viewer's account menu or Sign in. Admin pages have their own tabs.
  */
-export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean; sidebarButton?: ControlMarkup } = {}): Raw {
+export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; viewer?: Pick<Viewer, "account"> | null; hasPageRunner?: boolean; sidebarButton?: ControlMarkup; hasBackButton?: boolean } = {}): Raw {
   const account = options.viewer?.account ?? null;
-  // Every player page searches games, landing on Browse; developer and admin pages have their own search or none.
-  const isPlayerPage = !options.isAdmin && options.nav !== "developer" && options.nav !== "forum";
-  const shownSearch = options.search ?? (isPlayerPage ? GAME_SEARCH : undefined);
+  // Every page searches games, landing on Browse, unless it has a search of its own; admin pages have none. A developer page's game search is a
+  // computer's alone: on a phone its extra tabs take that room, and Browse is a tab away.
+  const isDeveloperNav = !options.isAdmin && (options.nav === "developer" || options.nav === "forum");
+  const shownSearch = options.search ?? (options.isAdmin ? undefined : GAME_SEARCH);
   const markup = header({
     current: options.isAdmin ? null : (options.nav ?? null),
     ownTabs: options.isAdmin ? ADMIN_TABS.map(([label, href]): SwitchTab => ({ label, href, isCurrent: false })) : undefined,
     search: shownSearch ? { ...shownSearch, name: "search_text" } : undefined,
+    isSearchOnComputerOnly: isDeveloperNav && !options.search,
     account: account ? { username: account.username } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
     // The page has a runner of its own (Play, Save): Sign in is a secondary button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,
     sidebarButton: options.sidebarButton,
+    hasBackButton: options.hasBackButton,
   });
   // A page that doesn't know who's looking swaps Sign in for the account once it sees the signed-in cookie (the first-paint script).
   return options.viewer === undefined && env.SUPABASE_URL ? raw(markup.html.replace("<header ", "<header data-account-from-cookie ")) : markup;

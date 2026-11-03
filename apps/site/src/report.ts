@@ -1,3 +1,4 @@
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, ZAISMA_PLAYER_REPORT_REASONS, audit, hasBlockBetweenAccounts, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -16,9 +17,8 @@ import type { Viewer } from "./viewer.ts";
 import { recordRestoreEvent } from "./restore-events.ts";
 
 /**
- * Reporting a game or a player. On the game page it's a sheet over the game, which keeps running. Games hand a player
- * report over from the SDK's safety panel (a zaisma:report message), so every report looks the
- * same and carries the room and the player's temporary ID. Nothing about the person reporting is
+ * Reporting a game or a player. On the game page it's a sheet over the game, which keeps running. The menu's
+ * Room hands a player over (zaisma:open-report), and a game's own report goes through room.report. Nothing about the person reporting is
  * kept. Without JavaScript, /g/<slug>/report is a plain form.
  */
 
@@ -60,9 +60,8 @@ export function reportStep(game: Game, options: { isMultiplayer: boolean }): She
   const gameWhys = GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer);
   const tell = stack({
     items: [
-      { kind: "words", markup: html`<p id="report-sub">We don't record who you are.</p>` },
-      { kind: "block", id: "report-reasons-game", markup: choiceCards({ id: "report-reason-game", name: "reason", label: "What's wrong", choices: reasonChoices(gameWhys), isCompact: true }) },
-      { kind: "block", id: "report-reasons-player", isHidden: true, markup: choiceCards({ id: "report-reason-player", name: "reason", label: "What did they do?", choices: reasonChoices(PLAYER_WHYS), isCompact: true }) },
+      { kind: "block", id: "report-reasons-game", markup: choiceCards({ id: "report-reason-game", name: "reason", label: "What's wrong", isLabelHidden: true, choices: reasonChoices(gameWhys), isCompact: true }) },
+      { kind: "block", id: "report-reasons-player", isHidden: true, markup: choiceCards({ id: "report-reason-player", name: "reason", label: "What did they do?", isLabelHidden: true, choices: reasonChoices(PLAYER_WHYS), isCompact: true }) },
       { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 3, maximumCharacterCount: 2000, placeholder: "What did you see, and where in the game?" }) },
       {
         kind: "block",
@@ -94,17 +93,34 @@ export function reportStep(game: Game, options: { isMultiplayer: boolean }): She
   return {
     stepName: "report",
     title: `Report ${game.title}`,
+    titleNote: html`<p class="sheet-title-note" id="report-sub">We don't record who you are.</p>`,
+    isFillingSideways: true,
     body,
     buttons: [secondaryButton("Back to the game", { id: "report-done", type: "submit", formMethod: "dialog", isHidden: true }), primaryButton("Send report", { id: "report-send", type: "submit" })],
   };
 }
 
-/** The report sheet of its own, for a game that doesn't go online, with its script. */
-export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): Raw {
-  const step = reportStep(game, options);
-  return html`${sheet({ id: "report", title: step.title, body: step.body, closeLabel: "Close", buttons: step.buttons })}
-${reportScript(game, options)}`;
-}
+/** The report sheet: over a game it's the overlay's own step, the same step (reportStep). */
+const REPORT_SAMPLE = { game: { title: "Neon Drift", slug: "neon-drift" } as Game, isMultiplayer: true };
+
+export const reportSheet = gallerySheet<{ game: Game; isMultiplayer: boolean }>({
+  name: "Report sheet",
+  slug: "report-sheet",
+  summary: "Reporting a game or a player: why, in the player's words, kept with the game. Over a game it's a step of the overlay.",
+  states: [
+    { stateValue: "game", label: "A game", options: REPORT_SAMPLE },
+    { stateValue: "player", label: "A player: its own reasons, and the room it's about", options: REPORT_SAMPLE, shownIds: ["report-reasons-player"], hiddenIds: ["report-reasons-game", "report-notices"], words: { "report-title": "Report Liam", "report-sub": "In room K7PQ2M. We don't record who you are." } },
+    { stateValue: "straight-to-a-person", label: "A reason that goes straight to a person", options: REPORT_SAMPLE, shownIds: ["report-hold"] },
+    { stateValue: "near-the-limit", label: "Words near the limit: the count shows", options: REPORT_SAMPLE, shownIds: ["report-details-count"], words: { "report-details": "The boss in the second room never takes damage after the shield breaks.", "report-details-count": "1,950 of 2,000" } },
+    { stateValue: "problem", label: "It didn't go through", options: REPORT_SAMPLE, shownIds: ["report-error"], words: { "report-error": "Couldn't send it. Check your connection and try again." } },
+    { stateValue: "sent", label: "Sent", options: REPORT_SAMPLE, shownIds: ["report-sent", "report-done"], hiddenIds: ["report-tell", "report-send"] },
+  ],
+  partsOnlyLive: { "report-pic": "the picture a live game gives when Report opens" },
+  make: (options, isShown) => {
+    const step = reportStep(options.game, { isMultiplayer: options.isMultiplayer });
+    return sheet({ id: "report", title: step.title, titleNote: step.titleNote, isFillingSideways: true, isShown, body: step.body, closeLabel: "Close", buttons: step.buttons });
+  },
+});
 
 /** What the report's script needs from the page (the game's slug, title and origin, and which reasons go straight to a person), and the script. */
 export function reportScript(game: Game, options: { gameOrigin: string }): Raw {
@@ -144,7 +160,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     pic.hidden = !picture || (about ? reason === "sexual" : C.hold.includes(reason));
     if (!pic.hidden) $("report-pic-img").src = picture;
   }
-  const menuButton = document.getElementById("menu");
+  const menuButton = document.getElementById("zaisma-open");
   if (menuButton) menuButton.addEventListener("click", takePicture);
   const roomCode = () => { const c = (new URLSearchParams(location.search).get("room") || "").toUpperCase(); return /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(c) ? c : ""; };
   function firstReason() { return reasons().querySelector(".choice-card:not([hidden]) input"); }
@@ -164,7 +180,6 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     // From the menu, keep the picture taken when it opened; otherwise take one now. A room's name needs none.
     if (aboutRoom) picture = null;
     else if (about || Date.now() - asked > 30000) takePicture();
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     title.textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
     $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
     $("report-reasons-game").hidden = Boolean(about);
@@ -259,14 +274,8 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
       }
       return;
     }
-    if (d.type !== "zaisma:report") return;
-    const p = d.player || {};
-    if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;
-    const code = typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code) ? d.code : roomCode();
-    open({ id: p.id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 40) : "a player", code, fromGame: true });
-    e.source.postMessage({ type: "zaisma:report-open" }, C.gameOrigin);
   });
-  // The Players sheet hands a player over the same way, from Zaisma's own page.
+  // The menu's Room hands a player over.
   window.addEventListener("zaisma:open-report", (e) => {
     const p = e.detail || {};
     if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;

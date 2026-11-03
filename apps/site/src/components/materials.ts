@@ -1,5 +1,5 @@
 import { row, stack, stackOfOne } from "./layout.ts";
-import { primaryButton, secondaryButton } from "./actions.ts";
+import { action, primaryButton, secondaryButton } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { PICTURE_PLACEHOLDER } from "@zaisma/core";
@@ -51,13 +51,17 @@ export const MATERIAL_STYLES = `
    with fades at its ends, its head and foot staying put and the material itself still. Each caps at its own: a glass pane at what holds
    it, a sheet at the screen, a floating pane at a menu's height or the room in the window, a carving at its owner's cap (--well-height, a
    menu's height unless its owner says). Across, the rail runs under it (data-side-rail). A slab never scrolls. */
-/* Only while it has something to scroll (is-scrollable) does it keep a swipe or a wheel to itself, so one that can't scroll never catches them. */
 .scrolls { position: relative; min-height: 0; overflow: hidden auto; }
-.scrolls.is-scrollable { overscroll-behavior-y: contain; }
+/* While it scrolls, what's in it stays inside its glass's cut corners, a lit or pressed row too: each corner is the glass's cut inside its rim
+   (--glass-cut, GLASS_SCRIPT), less how far this box stands in from that corner (--inset, MATERIAL_SCRIPT). */
+.scrolls:not(.fits) {
+  --cut-top-left: max(0px, var(--glass-cut-top-left, 0px) - var(--inset-top-left, 0px)); --cut-top-right: max(0px, var(--glass-cut-top-right, 0px) - var(--inset-top-right, 0px));
+  --cut-bottom-right: max(0px, var(--glass-cut-bottom-right, 0px) - var(--inset-bottom-right, 0px)); --cut-bottom-left: max(0px, var(--glass-cut-bottom-left, 0px) - var(--inset-bottom-left, 0px));
+  clip-path: polygon(0 var(--cut-top-left), var(--cut-top-left) 0, calc(100% - var(--cut-top-right)) 0, 100% var(--cut-top-right), 100% calc(100% - var(--cut-bottom-right)), calc(100% - var(--cut-bottom-right)) 100%, var(--cut-bottom-left) 100%, 0 calc(100% - var(--cut-bottom-left))); }
 /* What's in it fits (MATERIAL_SCRIPT): it clips nothing, so a slab's shadow or glow near its edge falls past it. Only while it scrolls is it cut. */
 .scrolls.fits { overflow: visible; }
 .scrolls.own-scroll.shows-rail { padding-inline-end: calc(var(--scroll-inset, 0px) + var(--rail-room)); }
-.scrolls.across { min-height: auto; overflow: auto hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+.scrolls.across { min-height: auto; overflow: auto hidden; scrollbar-width: none; }
 .scrolls.across::-webkit-scrollbar { display: none; }
 .glass-pane > .scrolls { --scroll-inset: var(--pad-frame); }
 .carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
@@ -96,7 +100,7 @@ export const MATERIAL_STYLES = `
    faint wash of the words' own color; the current one is a slab; keyboard focus is the cut stroke. A quiet one (a fold's head) only darkens
    its words: it opens what's under it rather than taking you somewhere. A menu's choices, a fold's head and a list's rows are flush rows. */
 .flush-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-words); min-height: var(--row-height, var(--control-height-regular));
-  padding: var(--row-block, var(--gap-words-control)) var(--row-end, var(--pad-words)) var(--row-block, var(--gap-words-control)) var(--row-start, var(--pad-words)); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; cursor: pointer;
+  padding: var(--row-block, var(--gap-words-control)) var(--row-end, var(--pad-words)) var(--row-block, var(--gap-words-control)) var(--row-start, var(--pad-words)); margin: 0; border: 0; font: var(--type-words); color: var(--ink-2); text-align: start; text-decoration: none; overflow-wrap: break-word; cursor: pointer;
   --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color var(--motion-state), color var(--motion-state); -webkit-tap-highlight-color: transparent; }
 .flush-row.compact { --row-height: var(--control-height-small); padding-block: var(--pad-frame-compact); }
 @media (pointer: coarse) { .flush-row.compact { --row-height: var(--control-height-regular); } }
@@ -110,13 +114,12 @@ export const MATERIAL_STYLES = `
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .flush-row > :where(:not(.cut-line)), .flush-row:not(.quiet):is(:active, .is-pressed, [aria-busy="true"]) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:focus-visible, .shell.is-focused) > .flush-row > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* What's in it sits over its face; zero specificity, so a part placed by its owner (a tertiary button's line) keeps its place. */
-.flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; }
+/* What's in a row stands over its face and never runs past its margin: a word too long for the room breaks (overflow-wrap, above). */
+.flush-row > :where(:not(.cut-line)) { position: relative; z-index: 2; min-width: 0; }
 .flush-row:not(.quiet):is(:hover, .is-pointed, :focus-visible, .is-focused) { --face-color: var(--wash); color: var(--ink); }
 .flush-row.quiet:not(:where(div, li)):is(:hover, .is-pointed) { color: var(--ink); }
 /* A row that's only words (a list row with no press, a share row) is still: no hand, no light. */
 .flush-row:where(div, li) { cursor: auto; }
-/* Lit at its start (lights-start, a sidebar's place you're on): orange light inside the slab along its start edge, as a picked card's. */
-.flush-row.lights-start[aria-current="page"]::after { content: ""; position: absolute; z-index: 1; inset: 0 auto 0 0; width: 18px; pointer-events: none; background: linear-gradient(to right, var(--run) 0, var(--run) 2.5px, var(--run-flood) 3.5px, transparent 100%); clip-path: var(--cut-shape); }
 .flush-row:is([aria-current="page"], [aria-pressed="true"]) { color: var(--ink); background: var(--slab-sheen), linear-gradient(var(--slab-wash), var(--slab-wash)), var(--slab-face); box-shadow: var(--slab-shade); }
 .flush-row { --slab-wash: color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent); }
 .flush-row:focus-visible { outline: none; }
@@ -165,7 +168,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .glass-bar.compact { padding: var(--pad-frame-compact); }
 /* A bar against the screen's own edge (the playing bar, over a game) keeps clear of a phone's notch at its top, or at its start when it
    runs down the screen's side. */
-.glass-bar.at-screen-edge { padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0px)); padding-left: max(var(--pad-frame), env(safe-area-inset-left, 0px)); }
+.glass-bar.at-screen-edge { padding-top: max(var(--pad-frame), env(safe-area-inset-top, 0px)); padding-left: max(var(--pad-frame), var(--safe-left)); }
 /* A compact pane keeps edged things at the compact frame gap and its words at the tray's margin. */
 .glass-pane.compact > .pane-in { padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 /* Holding a list of rows (a sidebar's places), its first and last rows' words would crowd its cut corners at the frame gap, so the list
@@ -242,7 +245,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
    glint ready on it; seated (a checked input in the socket), the shade lifts off it and its edges take the lit slab's light. Pressed, the
    socket deepens. Its ring can sit outside it, unclipped. */
 .carving.socket { flex: none; width: 24px; height: 24px; background: none; box-shadow: none; clip-path: none; }
-.socket-face { position: absolute; inset: 0; --face-color: var(--carving-face); background: linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); clip-path: var(--cut-shape); }
+.socket-face { position: absolute; inset: 0; overflow: clip; --face-color: var(--carving-face); background: linear-gradient(var(--carving-wash), var(--carving-wash)), var(--face-color); clip-path: var(--cut-shape); }
 .socket-face::after { content: ""; position: absolute; inset: 0; z-index: 1; box-shadow: var(--carving-shade); pointer-events: none; transition: box-shadow var(--motion-press), opacity var(--motion-state); }
 .socket-piece { position: absolute; inset: 0; display: grid; place-items: center; background: var(--piece-color, var(--run)); color: var(--on-run); overflow: hidden; }
 .socket-piece::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, var(--glint) 50%, transparent 70%); pointer-events: none; }
@@ -333,9 +336,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .slab.holds-art { width: var(--control-height, var(--control-height-regular)); padding: 0; }
 .slab.holds-art > .cut-line { z-index: 3; }
 .slab.holds-art > :where(:not(.cut-line)) { transition: filter var(--motion-state); }
-:is(.shell:hover, .shell.is-pointed, .shell[aria-expanded="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
+:is(.shell:hover, .shell.is-pointed) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(1.14); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.holds-art > :where(:not(.cut-line)) { filter: brightness(0.9); transform: none; transition-duration: var(--motion-press); }
-:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.holds-art { transform: translateY(1px); transition: transform var(--motion-press); }
+/* A picture sinks in place: nothing on it moves, and its edge darkens evenly all round. A carved edge's lit lower side would melt into what's behind a dark picture, which reads as the picture shifting up and left. */
+:is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab.holds-art > .cut-line { --band-top: var(--carve-left); --band-left: var(--carve-left); --band-right: var(--carve-left); --band-bottom: var(--carve-left); }
 /* A cast (a drop shadow) is never animated: Safari leaves an animated one stuck where it began, so it never shows. */
 :where(.shell, .slab-holder):has(> .slab) { filter: var(--slab-cast); }
 :is(.shell:hover, .shell.is-pointed, .shell:focus-visible, .shell.is-focused) > .slab, .slab.is-pointed, .slab.is-focused { --face-color: var(--slab-face-pointed); }
@@ -412,7 +416,21 @@ img.backdrop.reveals.is-shown:not(.at-once) { animation: picture-arrives var(--m
  * (fits), clips nothing, and lets the wheel through; it's measured again whenever it or what's in it changes size.
  */
 export const MATERIAL_SCRIPT = `/* materials */(function () {
-  function fit(box) { box.classList.toggle("fits", box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1); }
+  function fit(box) {
+    var isFitting = box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
+    box.classList.toggle("fits", isFitting);
+    if (isFitting) return;
+    // How far it stands in from each of its glass's corners, across and down together, as a cut runs on the diagonal.
+    var glass = box.parentElement && box.parentElement.closest("[data-glass]"), left = 0, top = 0, at = box;
+    while (at && at !== glass) { left += at.offsetLeft; top += at.offsetTop; at = at.offsetParent; }
+    if (!at) return;
+    // Inside a box that scrolls too, it moves past the glass's corners, and that box keeps what's in it inside them.
+    var outer = box.parentElement.closest(".scrolls:not(.fits)");
+    if (outer && glass.contains(outer)) { ["top-left", "top-right", "bottom-right", "bottom-left"].forEach(function (corner) { box.style.setProperty("--inset-" + corner, "9999px"); }); return; }
+    var right = Math.max(0, glass.offsetWidth - left - box.offsetWidth), bottom = Math.max(0, glass.offsetHeight - top - box.offsetHeight);
+    box.style.setProperty("--inset-top-left", left + top + "px"); box.style.setProperty("--inset-top-right", right + top + "px");
+    box.style.setProperty("--inset-bottom-right", right + bottom + "px"); box.style.setProperty("--inset-bottom-left", left + bottom + "px");
+  }
   // A floating pane measures its own at once once it's placed and capped, so what's longer than its room never spills for a frame.
   window.zaismaFit = fit;
   // A sheet (any dialog) measures what scrolls in it as it opens, whoever opens it, so a long one scrolls from its first frame too.
@@ -427,14 +445,24 @@ export const MATERIAL_SCRIPT = `/* materials */(function () {
    */
   window.zaismaWait = function (element, promise) {
     if (!element) return Promise.resolve(promise);
+    clearTimeout(element.zaismaWaitEnding);
+    element.zaismaIsAnswered = false;
+    if (element.getAttribute("aria-busy") !== "true") element.zaismaWaitStart = performance.now();
     element.setAttribute("aria-busy", "true");
     window.zaismaWaiting.redraw(element);
-    function done() { element.removeAttribute("aria-busy"); window.zaismaWaiting.redraw(element); }
+    function end() { element.removeAttribute("aria-busy"); window.zaismaWaiting.redraw(element); }
+    // The answer goes on at once. A quick one's glint still finishes coming in, so it never leaves half arrived, and a press in that moment counts.
+    function done() {
+      element.zaismaIsAnswered = true;
+      var sweep = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : parseFloat(getComputedStyle(element).getPropertyValue("--waiting-glint-sweep")) * 1000;
+      var left = sweep - (performance.now() - element.zaismaWaitStart);
+      if (left > 0) element.zaismaWaitEnding = setTimeout(end, left); else end();
+    }
     return Promise.resolve(promise).then(function (answer) { done(); return answer; }, function (error) { done(); throw error; });
   };
   document.addEventListener("click", function (event) {
     var waiting = event.target.closest && event.target.closest('[aria-busy="true"]');
-    if (waiting && waiting !== document.body) { event.preventDefault(); event.stopImmediatePropagation(); }
+    if (waiting && waiting !== document.body && !waiting.zaismaIsAnswered) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
   window.zaismaWatch.each(".scrolls", function (box) {
     fit(box);
@@ -495,7 +523,7 @@ const thicknessStrip = (theme: "light" | "dark") =>
   )}</div>`;
 
 /** Play and Details side by side, as a game's pane has them: a lit slab and a slab, sharing the row. */
-const PLAY_AND_DETAILS = () => row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Play", { type: "button" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] });
+const PLAY_AND_DETAILS = () => row({ widths: "equal", items: [{ kind: "control", markup: primaryButton(action("play"), { type: "button" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] });
 
 /** Every material over a game's art, tinted with the game's hue, so the tint shows on each: a pane, a carving, a slab and a lit one. */
 const tintedSample = (theme: "light" | "dark") =>

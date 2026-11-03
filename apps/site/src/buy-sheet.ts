@@ -1,8 +1,10 @@
+import { STAND_IN_COVER_PICTURES } from "./generated/stand-in-placeholders.generated.ts";
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { html, pageData, type Raw } from "./html.ts";
 import type { ShownPicture } from "./components/foundations.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Env } from "./env.ts";
-import { cardRow, secondaryButton, primaryButton, tertiaryButton } from "./components/actions.ts";
+import { action, cardRow, secondaryButton, primaryButton, tertiaryButton } from "./components/actions.ts";
 import { cutField } from "./components/fields.ts";
 import { stripeFrame } from "./components/stripe-frame.ts";
 import { stateNote } from "./components/data.ts";
@@ -23,9 +25,32 @@ import { isLocalPreview } from "./stripe.ts";
  * entering a card, Apple Pay or Google Pay, a guest's way to an account, and how it ended. Nothing in it is about one player, so the page around it stays cacheable: everything personal comes from /api/buy (buy.ts) once the
  * sheet opens.
  */
-export function buySheet(options: { joinHref: string; signInHref: string; cover?: ShownPicture | null }): Raw {
+/** What the gallery shows it selling; a page's script fills in the real item and moves it through its moments. */
+interface BuySheetSample { name: string; priceText: string; description: string; sellerName: string }
+interface BuySheetOptions { joinHref: string; signInHref: string; cover?: ShownPicture | null; soldItem?: BuySheetSample; cardWords?: string; problem?: { title: string; text: string }; doneText?: string; goWords?: string; isOnPage?: boolean }
+const BUY_SAMPLE: BuySheetOptions = { joinHref: "#", signInHref: "#", cover: STAND_IN_COVER_PICTURES["hollow-tide"]!, soldItem: { name: "Revive", priceText: "$1.99", description: "Back with half your health.", sellerName: "Preview Studio" }, cardWords: "Visa ending 4242" };
+const GONE_FROM_BUYING = ["buy-go"];
+export const buySheet = gallerySheet<BuySheetOptions>({
+  name: "Buy sheet",
+  slug: "buy-sheet",
+  summary: "Buying over a game or in Zaisma's window, on a store panel. Its script fills in the item, the card and each moment.",
+  states: [
+    { stateValue: "one-press", label: "One press: the saved card, and Buy carrying the price", options: BUY_SAMPLE, shownIds: ["buy-other-card"] },
+    { stateValue: "getting-the-price", label: "Getting the price", options: { joinHref: "#", signInHref: "#", cover: BUY_SAMPLE.cover } },
+    { stateValue: "wallet", label: "With Apple Pay or Google Pay, and the line the EU's law asks for", options: BUY_SAMPLE, shownIds: ["buy-wallet-stand-in", "buy-other-card", "buy-eu"] },
+    { stateValue: "first-card", label: "A first card", options: BUY_SAMPLE, shownIds: ["buy-card", "buy-test-card"], words: { "buy-card-words": "Add a card to pay with. It's saved to your account, so your next buy is one press." } },
+    { stateValue: "new-card", label: "A new card, over a saved one", options: BUY_SAMPLE, shownIds: ["buy-card", "buy-test-card", "buy-keep-card"], words: { "buy-card-words": "A new card for this buy. It takes the place of Visa ending 4242 for your next buys too." } },
+    { stateValue: "guest", label: "As a guest", options: BUY_SAMPLE, shownIds: ["buy-guest", "buy-guest-buttons"], hiddenIds: GONE_FROM_BUYING, words: { "buy-sheet-title": "Make a free account to buy" } },
+    { stateValue: "cant-be-bought", label: "Can't be bought", options: BUY_SAMPLE, shownIds: ["buy-message", "buy-back"], hiddenIds: GONE_FROM_BUYING, words: { "buy-sheet-title": "This item can't be bought right now.", "buy-message": "Nothing was charged." } },
+    { stateValue: "already-owned", label: "Already owned", options: BUY_SAMPLE, shownIds: ["buy-message", "buy-back"], hiddenIds: GONE_FROM_BUYING, words: { "buy-sheet-title": "Already yours", "buy-message": "You already own Revive. Nothing was charged." } },
+    { stateValue: "declined", label: "Declined", options: { ...BUY_SAMPLE, problem: { title: "The payment didn't go through", text: "Your card was declined. Nothing was charged." }, goWords: "Try again" }, shownIds: ["buy-problem"] },
+    { stateValue: "bought", label: "Bought", options: { ...BUY_SAMPLE, doneText: "Revive is yours. The receipt is on its way to your account's email." }, shownIds: ["buy-done", "buy-back"], hiddenIds: GONE_FROM_BUYING },
+    { stateValue: "on-a-page", label: "In Zaisma's window, for a game on its own site: the cover large and the full terms", options: { ...BUY_SAMPLE, isOnPage: true }, shownIds: ["buy-other-card"] },
+  ],
+  partsOnlyLive: { "buy-wallet": "Stripe's own frame; Apple Pay's stand-in shows its place", "buy-wallet-frame": "Stripe's own frame", "buy-card-frame": "Stripe's own frame; the test card shows its place" },
+  make: (options, isShown) => {
   const momentItems: LayoutItem[] = [
-      { kind: "block", id: "buy-loading", markup: progress({ label: "Getting the price" }) },
+      { kind: "block", id: "buy-loading", isHidden: Boolean(options.soldItem), markup: progress({ label: "Getting the price" }) },
       {
         kind: "block",
         id: "buy-card",
@@ -52,25 +77,31 @@ export function buySheet(options: { joinHref: string; signInHref: string; cover?
         }),
       },
       { kind: "words", id: "buy-message", isHidden: true, markup: html`<p></p>` },
-      { kind: "block", id: "buy-problem", isHidden: true, markup: stateNote({ stateKind: "problem", title: "", text: "" }) },
-      { kind: "block", id: "buy-done", isHidden: true, markup: stateNote({ stateKind: "done", title: "Bought", text: "" }) },
+      { kind: "block", id: "buy-problem", isHidden: true, markup: stateNote({ stateKind: "problem", title: options.problem?.title ?? "", text: options.problem?.text ?? "" }) },
+      { kind: "block", id: "buy-done", isHidden: true, markup: stateNote({ stateKind: "done", title: "Bought", text: options.doneText ?? "" }) },
   ];
   // The foot stays in view while the body scrolls: Apple Pay or Google Pay when offered, the saved card, the line the EU's law asks for, and Buy.
   const footItems: LayoutItem[] = [
       { kind: "block", id: "buy-wallet", isHidden: true, markup: stripeFrame({ id: "buy-wallet-frame", title: "Apple Pay or Google Pay" }) },
       { kind: "control", id: "buy-wallet-stand-in", isHidden: true, markup: secondaryButton("Apple Pay", { type: "button", wayIn: "apple_pay", isFullWidth: true }) },
-      { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow("", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
+      { kind: "control", id: "buy-other-card", isHidden: true, markup: cardRow(options.cardWords ?? "", { type: "button", hiddenText: "Use another card", changeText: "Change" }) },
       // Digital content delivered at once loses the 14-day withdrawal right only with the buyer's acknowledgement, said before they buy.
       { kind: "words", id: "buy-eu", isHidden: true, markup: html`<p>You get it now, so you can't cancel it in the next 14 days.</p>` },
-      { kind: "control", markup: primaryButton("Buy", { id: "buy-go", type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: "", isHidden: true }) },
-      { kind: "block", id: "buy-guest-buttons", isHidden: true, markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton("Sign in", { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" } }) }, { kind: "control", markup: primaryButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" } }) }] }) },
+      { kind: "control", markup: primaryButton(options.goWords ?? action("buy"), { id: "buy-go", type: "button", busyLabel: "Buying", isFullWidth: true, trailingText: options.soldItem?.priceText ?? "", isHidden: !options.soldItem }) },
+      { kind: "block", id: "buy-guest-buttons", isHidden: true, markup: row({ widths: "equal", items: [{ kind: "control", markup: secondaryButton(action("signIn"), { id: "buy-sign-in", href: options.signInHref, dataAttributes: { "buy-sign-in": "/signin" } }) }, { kind: "control", markup: primaryButton("Make an account", { id: "buy-join", href: options.joinHref, dataAttributes: { "buy-sign-in": "/join" } }) }] }) },
       { kind: "control", markup: secondaryButton("Back to the game", { id: "buy-back", type: "submit", formMethod: "dialog", isFullWidth: true, isHidden: true }) },
   ];
+  return storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: !options.isOnPage, isShown, soldItem: { picture: options.cover ?? null, name: options.soldItem?.name ?? "Buy", priceText: options.soldItem?.priceText ?? "", description: options.soldItem?.description, sellerName: options.soldItem?.sellerName }, momentItems, footItems });
+  },
+});
+
+/** The buy sheet as a page has it: Confirm it's you, the bank's check, and urgent news while buying. */
+export function buySheetParts(options: { joinHref: string; signInHref: string; cover?: ShownPicture | null }): Raw {
   // Urgent news while buying, over the sheet and full screen (zaismaLayers): a sign-out ends the purchase, so the sheet and its Confirm it's
   // you close under it; a connection lost while paying keeps the sheet, which says what it knows.
-  const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton("Sign in", { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
+  const signedOut = notice({ placement: "over-everything", id: "buy-signed-out", title: "You've been signed out", text: "Nothing was charged. Sign in again to buy.", buttons: [primaryButton(action("signIn"), { href: options.signInHref })], sheetsToClose: ["buy-sheet", "buy-confirm-you"] });
   const unreachable = notice({ placement: "over-everything", id: "buy-unreachable", title: "Couldn't reach Zaisma", text: "If you were charged, the item arrives when you're back." });
-  return html`${storePanel({ id: "buy-sheet", closeLabel: "Close", isOverGame: true, soldItem: { picture: options.cover ?? null, name: "Buy", priceText: "" }, momentItems, footItems })}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
+  return html`${buySheet(options)}${confirmItsYouSheet({ id: "buy-confirm-you" })}${stripeFrame({ id: "buy-check-frame", title: "Your bank's check" })}${signedOut}${unreachable}`;
 }
 
 /** What the sheet's script needs from the page that holds it (pageData "buy-sheet-data"). */

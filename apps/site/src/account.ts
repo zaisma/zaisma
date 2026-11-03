@@ -119,7 +119,7 @@ import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
-import { secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { choiceCards, wheelField, cutField, tabSwitch } from "./components/inputs.ts";
 import { header } from "./components/navigation.ts";
 import { notice } from "./components/panes.ts";
@@ -1005,7 +1005,7 @@ ${nextField(next)}
 ${cutField({ id: "signin-username", name: "username", label: "Username", type: "text", icon: "person", text: given.login ?? "", autocomplete: "username webauthn", isRequired: true })}
 ${cutField({ id: "signin-password", name: "password", label: "Password", type: "password", icon: "lock", autocomplete: "current-password", isRequired: true, error: given.signinError })}
 ${botCheck(env, "sign_in")}
-${primaryButton("Sign in", { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
+${primaryButton(action("signIn"), { isFullWidth: true, isBig: true, busyLabel: "Signing in" })}
 <p>${textLink("Forgot your password?", `/signin/email${nextQuery(next)}`)}</p>
 </form>
 <div class="pane-stack" id="ways">
@@ -1380,7 +1380,7 @@ function closedAccountPage(env: Env, account: Account): Response {
       { kind: "words", markup: html`<p class="note">It can't sign in, and any games it made are down.</p>` },
       { kind: "words", markup: html`<p><strong>Think this is a mistake?</strong> Write to ${APPEAL_EMAIL} with the username. A person reads every appeal and answers.</p>` },
       { kind: "control", markup: secondaryButton(`Email ${APPEAL_EMAIL}`, { href: `mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}`, isFullWidth: true }) },
-      { kind: "control", markup: tertiaryButton("Sign out", { href: "/signin", isFullWidth: true }) },
+      { kind: "control", markup: tertiaryButton(action("signOut"), { href: "/signin", isFullWidth: true }) },
     ],
     { checkedPage: "Account closed", httpStatus: 403 },
   );

@@ -5,16 +5,17 @@ import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
+import { OVER_GAME_PATH, OVER_GAME_SCRIPT, overGameFrame, overGameStates } from "./over-a-game.ts";
 import { SCREENS_PATH } from "./components/screens.ts";
 import { galleryPageName, type CheckedPageName } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT, LOOK_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
-import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, primaryButton, textLink } from "./components/actions.ts";
 import { SEARCH_STAND_IN, cutField } from "./components/inputs.ts";
-import { loadMore, sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
+import { sidebar, sidebarButton, sidebarLayout, type SidebarPlace } from "./components/navigation.ts";
 import { row, stack, stackOfOne } from "./components/layout.ts";
-import { listRows, stateNote } from "./components/data.ts";
+import { ONLY_LIST_PARAMETER, listRows, stateNote } from "./components/data.ts";
 import { YOUTUBE_FRAME_ORIGIN } from "./components/game-media.ts";
 import { cutPolygon, glassPane, tray } from "./components/foundations.ts";
 
@@ -55,17 +56,14 @@ const placeName = (place: GalleryPlace) => {
 /** Words that name a token (--spring) set as code: Jost draws two hyphens as one dash, and code never breaks a name across lines. */
 const withTokens = (words: string): Raw => html`${words.split(/(--[a-z0-9-]+)/).map((part, partIndex) => (partIndex % 2 ? html`<code>${part}</code>` : part))}`;
 
-function examples(each: Component): Raw {
-  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage" data-on-no-pane${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-name">${withTokens(example.label)}</figcaption></figure>`)}</div>`;
+function examples(each: Component, url: URL): Raw {
+  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage" data-on-no-pane${example.isStill ? raw(" inert") : ""}>${example.markupAt ? example.markupAt(url) : example.markup}</div><figcaption class="example-name">${withTokens(example.label)}</figcaption></figure>`)}</div>`;
 }
 
-function section(each: Component, theme: GalleryTheme): Raw {
-  // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it.
-  return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${tray({
-    head: html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${withTokens(each.summary)}</p>`,
-    body: stackOfOne(examples(each)),
-    label: each.name,
-  })}</div>`;
+function section(each: Component, theme: GalleryTheme, url: URL): Raw {
+  // Each section is a Tray: its name and summary on the pane, every example on the tray beneath it. With no example to show, it's the pane alone.
+  const head = html`<h2 class="component-name" id="${each.slug}-name">${textLink(each.name, `#${each.slug}`, { isQuiet: true })}</h2><p class="component-summary">${withTokens(each.summary)}</p>`;
+  return html`<div class="component-section" id="${each.slug}" data-rail-mark="${each.name}">${each.examples.length ? tray({ head, body: stackOfOne(examples(each, url)), label: each.name }) : glassPane({ paneWidth: "full", label: each.name, body: stackOfOne(head) })}</div>`;
 }
 
 /** The sun and the moon, from the sign-in draft's theme control. */
@@ -75,7 +73,7 @@ const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return secondaryButton(theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark", { href: `${other.pathname}${other.search}`, icon: "light-dark", isLabelHidden: true, isSmall: true });
+  return secondaryButton(action("lightDark", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"), { href: `${other.pathname}${other.search}`, isLabelHidden: true, isSmall: true });
 };
 
 /**
@@ -104,26 +102,38 @@ function olderVersionsPage(env: Env, url: URL): Response {
     const versionNumber = 14 - (pageNumber - 1) * 3 - rowIndex;
     return { title: `Version ${versionNumber}`, detail: `Replaced · ${16 - versionNumber} weeks ago`, href: "#load-more" };
   });
-  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions", text: "Every version is above." }), id: "example-load-more-list", rows })}${pageNumber < 3 ? loadMore({ href: "/design/examples/older-versions?page=3", label: "Show older versions", listId: "example-load-more-list" }) : loadMore({ label: "Show older versions", listId: "example-load-more-list", endText: "That's every version." })}</body></html>`;
+  const page = html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Older versions · Design · Zaisma</title></head><body>${listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No older versions", text: "Every version is above." }), id: "example-load-more-list", rows, moreRows: pageNumber < 3 ? { href: "/design/examples/older-versions?page=3", label: "Show older versions" } : { label: "Show older versions", endText: "That's every version." } })}</body></html>`;
   return new Response(page.html, { headers: securityHeaders(env) });
+}
+
+/** A working example's list alone (ONLY_LIST_PARAMETER): what its arrows ask for, not the whole gallery page around it. */
+function onlyListPage(env: Env, url: URL, listId: string, shown: Component[]): Response {
+  // The arrows it answers with lead to the page itself, not to the list alone.
+  const address = new URL(url);
+  address.searchParams.delete(ONLY_LIST_PARAMETER);
+  const list = shown.flatMap((each) => each.examples).flatMap((example) => (example.markupAt ? [example.markupAt(address)] : [])).find((markup) => markup.html.includes(`id="${listId}"`));
+  return new Response(html`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>List · Design · Zaisma</title></head><body>${list ?? ""}</body></html>`.html, { headers: securityHeaders(env) });
 }
 
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN.suggestionsFor(url.searchParams.get("search_text") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
   if (url.pathname === "/design/example") return examplePage(env);
+  if (url.pathname === `${OVER_GAME_PATH}/frame`) return overGameFrame(env, url);
   const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!found) return null;
   if ("redirectPath" in found) return new Response(null, { status: 308, headers: { Location: `${found.redirectPath}${url.search}` } });
   const { place } = found;
   const theme = themeOf(url);
   const shown = COMPONENTS().filter((each) => each.group === place.group && each.subgroup === place.subgroup);
+  const onlyListId = url.searchParams.get(ONLY_LIST_PARAMETER);
+  if (onlyListId) return onlyListPage(env, url, onlyListId, shown);
   const main = html`<h1 class="group-name">${placeName(place)}</h1>
-${shown.map((each) => section(each, theme))}`;
+${shown.map((each) => section(each, theme, url))}${place.group === "over-a-game" ? overGameStates(place.subgroup, theme) : ""}`;
   const checkedPage = galleryPageName(place);
   // The layout group's Screens example frames the example page; Data's pictures, Game media's YouTube video once it's pressed.
-  const frames = place.group === "layout" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
-  return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames });
+  const frames = place.group === "layout" || place.group === "over-a-game" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
+  return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames, ...(place.group === "over-a-game" ? { scripts: [OVER_GAME_SCRIPT] } : {}) });
 }
 
 /** A page of the gallery: its bar with the sidebar's button and light or dark, the groups and their subgroups down its side, and what it shows. */
@@ -188,7 +198,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 /* The page's name is already the current place in the sidebar, so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: var(--under-gallery-bar); }
-.component-name { margin: 0; font: var(--type-section); }
+.component-section .component-name { margin: 0; font: var(--type-section); }
 .component-summary { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
 .component-summary code, .example-name code { font: var(--type-code); white-space: nowrap; }
 /* The examples end in their names, which are words at the tray's foot: they keep its margin there. */
@@ -220,17 +230,16 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .rail-example-part { margin: 0; font: var(--type-label); color: var(--ink); }
 .rail-side-box { padding-top: var(--gap-block-block); }
 /* A playing bar's phone example: a phone's screen, upright or on its side, with a stand-in game filling what the bar leaves. */
-.game-stand-in { display: flex; flex-direction: column; width: min(320px, 100%); height: 568px; overflow: hidden; clip-path: ${cutPolygon("pane")}; background: #000; }
-.game-stand-in.sideways { flex-direction: row; width: min(667px, 100%); height: 320px; }
 /* The game's picture takes the room the bar leaves, as a 1280 by 720 picture would. */
-.game-stand-in > .picture { flex: 1 1 720px; width: 100%; height: 100%; min-width: 0; min-height: 0; }
-.game-stand-in.sideways > .picture { flex-basis: 1280px; }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
   clip-path: ${cutPolygon("pane")}; }
 /* A frame as tall as what's in it, the footer's example, which keeps its own margins on the backdrop. */
 .header-frame.is-fitted { height: auto; }
 .header-frame.tall { height: 470px; }
+/* A phone's screen: its width, and the header's inset from a phone's edges (tokens.ts's --pad-pane there). */
+.header-frame.is-phone-width { width: 320px; max-width: 100%; --pad-pane: 20px; }
+.header-frame.is-tablet-width { width: 640px; max-width: 100%; --pad-pane: 20px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
 .stand-in-page { padding: 100px 18px 160px; }
@@ -251,7 +260,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .dropdown-frame > .cut-btn { right: 8px; }
   /* The stand-in rows scroll sideways, as the home's do on a phone. */
   /* A row of covers scrolls only sideways: never up and down, so it never bounces under a finger. */
-  .stand-in-row { display: flex; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .stand-in-row { display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .stand-in-row::-webkit-scrollbar { display: none; }
   .stand-in-row > .cover { flex: 0 0 64vw; }
   .stand-in-page { padding-top: 140px; }
@@ -298,6 +307,16 @@ export const GALLERY_SCRIPT = pageScript(
     if (button) { button.href = themed(location.href, theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
     document.querySelectorAll("#gallery-places a, #gallery-places-sheet a").forEach(function (link) { link.href = themed(link.href, theme); });
     history.replaceState(null, "", themed(location.href, theme));
+    // The frames with the theme in their address (the states over a game) load again in it; one not loaded yet takes it when it does.
+    document.querySelectorAll('iframe[src*="theme="], iframe[data-frame-src*="theme="]').forEach(function (frame) {
+      ["data-frame-src", "src"].forEach(function (name) {
+        var address = frame.getAttribute(name);
+        if (!address) return;
+        var url = new URL(address, location.href);
+        url.searchParams.set("theme", theme);
+        frame.setAttribute(name, url.pathname + url.search);
+      });
+    });
   }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest(".gallery-buttons a.cut-btn");

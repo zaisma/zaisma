@@ -193,11 +193,11 @@ describe("QR codes", () => {
   });
 
   it("sit in a Share sheet made only of gallery components, with none on a tester link's", () => {
-    const withCode = shareDialog("Sky Hopper", true).html;
+    const withCode = shareDialog({ gameTitle: "Sky Hopper", hasQrCode: true }).html;
     expect(withCode).toMatch(/^<dialog class="sheet glass( is-compact)?" id="share-dialog"/);
     for (const id of ["share-qr", "share-qr-caption", "share-reveal", "share-room", "share-room-code", "share-link", "share-more"]) expect(withCode).toContain(`id="${id}"`);
     expect(pageProblems(withCode)).toEqual([]);
-    const tester = shareDialog("Sky Hopper", false).html;
+    const tester = shareDialog({ gameTitle: "Sky Hopper", hasQrCode: false }).html;
     expect(tester).not.toContain('id="share-qr"');
     expect(pageProblems(tester)).toEqual([]);
   });
@@ -215,16 +215,14 @@ describe("QR codes", () => {
   });
 });
 
-describe("room codes in the game bar", () => {
-  it("come in one room control with Join by code, in games on Zaisma rooms only", async () => {
+describe("room codes in the menu's Room", () => {
+  it("come with Join by code, in games on Zaisma rooms only", async () => {
     const single = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-    expect(single).not.toContain('id="room-open"');
-    expect(single).not.toContain('id="room-dialog"');
+    expect(single).not.toContain('id="room-here"');
+    expect(single).not.toContain('id="bar-join-code"');
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'sky-hopper'").run();
     const rooms = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-    expect(rooms).toMatch(/id="room-open"[^>]*aria-controls="room-dialog"/);
-    // The sheet shows this room's code (filled in once the game says it's in one) and joins another by its code.
-    expect(rooms).toMatch(/<dialog class="sheet glass placement-foot" id="room-dialog"/);
+    // It shows this room's code (filled in once the game says it's in one) and joins another by its code.
     expect(rooms).toContain('id="room-here" hidden');
     expect(rooms).toMatch(/id="room-code-shown"[\s\S]*?id="room-code-text"/);
     expect(rooms).toContain('<label class="words-margin" for="bar-join-code">Join a room by its code</label>');

@@ -1,5 +1,7 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
+import { action, type ListedAction } from "./action-list.ts";
+export { ACTION_NAMES, action, type ActionName, type ListedAction, type ListedIcon } from "./action-list.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
@@ -12,6 +14,24 @@ import { paneParts, row, stack, stackOfOne } from "./layout.ts";
  */
 
 /** The runner's arrow: the icon set's chevron, in a span that moves. */
+/** An icon alone in a control: every one's width, so none is set by hand. */
+/**
+ * A face holding only its icon, wherever it is one (a button that's always so, or one that narrows to it): as wide as it's tall, or the icon and
+ * its room each side where that's wider, and a slanted end, which loses half its slant at mid-height, makes it that much wider. The icon centers in
+ * what shows of it: the shift moves it through the face's padding (--slab-words less or plus --slab-shift), so the face keeps a quarter slant each
+ * side to move by. Slanted at both ends, it stays put.
+ */
+export const iconAloneFace = (face: string): string => `${face} { width: ${ICON_ONLY_WIDTH}; --slab-words: 0px; }
+${face}[data-slanted] { --slab-words: calc(var(--control-slant) / 4); --slant-room: calc(var(--control-slant) / 2); }
+${face}[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
+${face}[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
+${face}[data-slanted~="start"][data-slanted~="end"] { --slab-shift: 0px; --slant-room: var(--control-slant); }`;
+/** What an icon alone needs on any slab: the icon and its room on each side, so it never runs into the slab's edges. */
+export const ICON_ROOM_WIDTH = "calc(var(--size-icon) + 2 * var(--pad-icon))";
+/** Below this a holder is narrow: a button beside something in it (a row's words, a field) shows its icon alone. */
+export const NARROW_HOLDER_WIDTH = "28rem";
+export const ICON_ONLY_WIDTH = "calc(max(var(--control-height), var(--size-icon) + 2 * var(--pad-icon)) + var(--slant-room, 0px))";
+
 const ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
 
 /** What a button is: a link when it has an address, otherwise a button of a form. */
@@ -49,20 +69,28 @@ const classes = (...names: (string | false | undefined)[]) => names.filter(Boole
 /** Can't be pressed now: a button is disabled (a busy one is already); a link can't be, so it's left as it is. */
 const disabledAttribute = (target: ButtonTarget & { isDisabled?: boolean; isBusy?: boolean }) => (target.isDisabled && !target.isBusy && !target.href ? raw(" disabled") : "");
 
+/** What a button says: its own words and no icon, or an action from the list, which gives it its word and icon. */
+export type ButtonWords = string | ListedAction;
+const faceOf = (button: ButtonWords): { label: string; chosenIcon?: IconName; pressedIcon?: IconName } => (typeof button === "string" ? { label: button } : { label: button.label, chosenIcon: button.icon, ...(button.pressedIcon ? { pressedIcon: button.pressedIcon } : {}) });
+
 export interface PrimaryButtonOptions extends ButtonTarget {
+  /** An icon that only shows at some sizes (the header's Sign in) keeps the arrow where it doesn't. */
+  isArrowKept?: boolean;
   /** 56px (48 on a phone), for a pane's one main action: the home's Play, the sign-in page's Sign in. */
   isBig?: boolean;
   isFullWidth?: boolean;
   /** Pressed and waiting: it stays sunk and its edge lights (the materials' waiting state), its words as they were; busyLabel (if any) is what a screen reader hears then. */
   isBusy?: boolean;
   busyLabel?: string;
-  /** An icon before the label in place of the arrow after it, like Play's. */
-  icon?: IconName;
   /** Can't be pressed yet (a step's Next before what it needs is filled in): it's no longer orange, since orange is only what you can act on, but carved flat into the glass with quieter words. */
   isDisabled?: boolean;
   state?: ButtonState;
   /** Not shown for now: a page script shows it (the buy sheet's Make an account, for a guest). */
   isHidden?: boolean;
+  /** A small control's height, for a list's row. */
+  isSmall?: boolean;
+  /** Only its icon, its words said to a screen reader: where a row has no room for them (a friend request's Accept). */
+  isLabelHidden?: boolean;
   /**
    * Words at the button's other end, the label staying at its start, in place of the arrow: a buy button's price ("Buy" … "$19.99").
    * Left out, the label leads and the arrow follows. An empty string keeps the place for a script to fill (it takes no room until it has words).
@@ -71,17 +99,18 @@ export interface PrimaryButtonOptions extends ButtonTarget {
 }
 
 /** The primary button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts and catches the light; pressing sinks it into the glass. */
-export function primaryButton(label: string, options: PrimaryButtonOptions = {}): ControlMarkup {
+export function primaryButton(button: ButtonWords, options: PrimaryButtonOptions = {}): ControlMarkup {
+  const { label, chosenIcon } = faceOf(button);
   // The label's span has no class of its own: html.ts's account link finds it as the header's runner's span without one.
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="sr when-waiting">, ${options.busyLabel}</span>` : html`<span>${label}</span>`;
-  const shell = classes("run-wrap", options.isFullWidth && "is-full", options.state);
+  const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
+  const shell = classes("run-wrap", options.isFullWidth && "is-full", options.isSmall && "small", isIconOnly && "icon-only", options.state);
   const hasTrailing = options.trailingText !== undefined;
-  const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : options.icon ? "" : ARROW;
-  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${words}${ending}</span>${closing(options)}`, options.isBig ? "big" : "regular");
+  const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : chosenIcon && !options.isArrowKept ? "" : ARROW;
+  return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : words}${ending}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall ? "small" : "regular");
 }
 
 export interface SecondaryButtonOptions extends ButtonTarget {
-  icon?: IconName;
   /** Another way in (a passkey, Google, Discord): its mark in the icon's place, and its slab tinted the way's color unless tint says otherwise. */
   wayIn?: WayIn;
   /** The way's color mixed into its slab: Discord's indigo, Google's plain. Left out, a way in's own, or none. */
@@ -93,11 +122,11 @@ export interface SecondaryButtonOptions extends ButtonTarget {
   state?: ButtonState;
   /** 56px, beside a big Play. */
   isBig?: boolean;
-  /** 36px, inside a field (Show). */
+  /** 36px, inside a field (Copy). */
   isSmall?: boolean;
   /** As short as a button goes, for a computer's tool that must hold many at once (the Screens bench's rail): never on a page a phone sees, since its 26px can't take a finger. */
   isTiny?: boolean;
-  /** 30px, inside a carved strip of its own (Row arrows' well, the end of a search), which it fills but for the strip's inset. */
+  /** 30px, inside a carved strip of its own (the end of a search), which it fills but for the strip's inset. */
   isInWell?: boolean;
   /** Can't be pressed now: it's carved flat into the glass, its cut and edge kept, its words quieter. In a well of its own (a row's arrow at its end) it lies flat, faded. */
   isDisabled?: boolean;
@@ -115,15 +144,17 @@ export interface SecondaryButtonOptions extends ButtonTarget {
  * A secondary button: a solid cut slab. It brightens under the pointer and carves in under a press. A delete is one too, never orange.
  * Another way in (a passkey, Google, Discord) is one with the way's mark, its slab tinted the way's color, as wide as the column.
  */
-export function secondaryButton(label: string, options: SecondaryButtonOptions = {}): ControlMarkup {
-  return secondaryButtonMarkup(label, options);
+export function secondaryButton(button: ButtonWords, options: SecondaryButtonOptions = {}): ControlMarkup {
+  const { label, chosenIcon } = faceOf(button);
+  return secondaryButtonMarkup(label, { ...options, ...(chosenIcon ? { icon: chosenIcon } : {}) });
 }
+
 
 export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig" | "isInWell" | "isFullWidth" | "isExpanded" | "wayIn" | "tint"> {
   /** On or off (aria-pressed): the page's script flips it, and what it changes. */
   isPressed: boolean;
-  /** The icon it shows while on, in place of icon (Mute's crossed-out speaker): one button either way, so flipping it rises or sinks in place. */
-  pressedIcon?: IconName;
+  /** Off, only its icon or words show, flush with what it's on, until it's pointed at or pressed: one in each row of a list (a player's Mute), where a slab on every row would outweigh the rows. On, it rises as any toggle does. */
+  isQuietWhenOff?: boolean;
   /** Its piece was looked at and hasn't changed since (the Screens bench's state buttons): its words turn green while it rests. */
   isSeen?: boolean;
 }
@@ -132,9 +163,24 @@ export interface ToggleButtonOptions extends Omit<SecondaryButtonOptions, "isBig
  * A toggle button: something that stays on until it's pressed again (Follow, a like, Mute, a password's Show). Off, it rests level in the
  * glass, a slab like any secondary button, and carves in as it's pressed; on, its top surface rises from the same footprint and its orange front surface shows, so it never moves and a row of them stays in line.
  */
-export function toggleButton(label: string, options: ToggleButtonOptions): ControlMarkup {
-  return secondaryButtonMarkup(label, options, options.isPressed, options.pressedIcon);
+export function toggleButton(button: ButtonWords, options: ToggleButtonOptions): ControlMarkup {
+  const { label, chosenIcon, pressedIcon } = faceOf(button);
+  // Its pressedIcon, from the list, shows while it's on in place of its icon: one button either way, so flipping it rises or sinks in place.
+  return secondaryButtonMarkup(label, { ...options, ...(chosenIcon ? { icon: chosenIcon } : {}) }, options.isPressed, pressedIcon);
 }
+
+/** A password's Show or Hide, at its field's end: one for every password and the gallery's. A password rests hidden, so it's on while it's shown. */
+export const passwordToggle = (options: { isPasswordShown: boolean; controls?: string; isDisabled?: boolean }): ControlMarkup =>
+  toggleButton(action("showPassword", options.isPasswordShown ? "Hide" : "Show"), { type: "button", isSmall: true, isLabelHidden: true, isPressed: options.isPasswordShown, ...(options.controls ? { controls: options.controls } : {}), ...(options.isDisabled ? { isDisabled: true } : {}) });
+
+/**
+ * A button that shows or hides something: on while it's hidden, its words saying what a press does. The page's script flips aria-pressed and the
+ * words as it changes.
+ */
+export const visibilityButton = (words: { show: string; hide: string }, options: Omit<ToggleButtonOptions, "isPressed"> & { isContentHidden: boolean }): ControlMarkup => {
+  const { isContentHidden, ...button } = options;
+  return toggleButton(action("hide", isContentHidden ? words.show : words.hide), { ...button, isPressed: isContentHidden });
+};
 
 /**
  * The front surface is the top surface swept down to where it rests, as a solid's sides are: the face's own cut (the edge rule draws it),
@@ -176,13 +222,13 @@ export const TOGGLE_SCRIPT = `/* toggle buttons */(function () {
 `;
 
 // A toggle is a secondary button with a front surface below its top surface (its face), showing when the face rises.
-function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions, isPressed?: boolean, pressedIcon?: IconName): ControlMarkup {
+function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & { icon?: IconName; isQuietWhenOff?: boolean }, isPressed?: boolean, pressedIcon?: IconName): ControlMarkup {
   const isToggle = isPressed !== undefined;
   const hasCount = options.reactionCount !== undefined;
   const countWords = hasCount ? Number(options.reactionCount).toLocaleString("en-US") : "";
   const isIconOnly = options.isLabelHidden && !hasCount;
   const tint = options.tint ?? (options.wayIn ? WAY_TINTS[options.wayIn] : undefined);
-  const className = classes("cut-btn", isToggle && "toggle-btn", options.isBig && "big", options.isSmall && "small", options.isTiny && "tiny", isToggle && (options as ToggleButtonOptions).isSeen && "is-seen", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
+  const className = classes("cut-btn", isToggle && "toggle-btn", options.isQuietWhenOff && "is-quiet-off", options.isBig && "big", options.isSmall && "small", options.isTiny && "tiny", isToggle && (options as ToggleButtonOptions).isSeen && "is-seen", options.isInWell && "in-well", isIconOnly && "icon-only", options.isFullWidth && "is-full", options.state);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}${tint ? html` data-tint="${tint}"` : ""}`;
   // Its icon and count with the label hidden: the label is still said, before the count ("Like, 12"), so a page that changes the count changes what's said.
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
@@ -300,6 +346,13 @@ const RUN_STYLES = `
 /* Words longer than the room it has end in an ellipsis on one line, never spilling out of it or growing it past its height. */
 .run { min-width: 0; }
 .run-wrap.is-full { display: flex; width: 100%; }
+.run-wrap.small { --control-height: var(--control-height-small); }
+/* Small is slim: as high as a small Secondary, its words closer in and no arrow, its reach still a thumb's. */
+.run-wrap.small > .run { --control-height: var(--control-height-small); --slab-words: var(--pad-inside-words); }
+.run-wrap.small > .run > .arrow { display: none; }
+@media (pointer: coarse) { .run-wrap.small { position: relative; } .run-wrap.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2) 0; } }
+${iconAloneFace(".run-wrap.icon-only > .run")}
+.run-wrap.icon-only > .run { justify-content: center; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
 /* It floats over the glass, and what it casts on it comes from its own shape (--run-cast): an orange glow round all its edges on smoked
    glass, strongest below; a shadow under it and a little round it on light glass. Pointed, it rises and its light or shadow spreads; pressed,
@@ -379,15 +432,16 @@ component({
   styles: RUN_STYLES,
   render: primaryButton,
   examples: [
-    ...stateExamples((state) => primaryButton("Sign in", { type: "button", state }), "runner"),
-    { label: "Busy, saying what's happening", markup: primaryButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
+    { label: "Small, only its icon: a list row's Accept", markup: primaryButton(action("addFriend", "Accept"), { type: "button", isSmall: true, isLabelHidden: true }) },
+    ...stateExamples((state) => primaryButton(action("signIn"), { type: "button", state }), "runner"),
+    { label: "Busy, saying what's happening", markup: primaryButton(action("signIn"), { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "Busy, keeping its words", markup: primaryButton("Next", { type: "button", isBusy: true }), isStill: true },
     { label: "Can't press yet", markup: primaryButton("Next", { type: "button", isDisabled: true }), isStill: true },
-    { label: "Big, with Play", markup: primaryButton("Play", { type: "button", isBig: true, icon: "play" }) },
-    { label: "Big and full width, as on Sign in", markup: html`<div style="${COLUMN}">${primaryButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
-    { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
-    { label: "With its price, busy", markup: html`<div style="${COLUMN}">${primaryButton("Buy", { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${primaryButton("Play Ashen Crown: The Long Night of the Iron Vigil", { type: "button", isFullWidth: true, isBig: true, icon: "play" })}</div>` },
+    { label: "Big, with Play", markup: primaryButton(action("play"), { type: "button", isBig: true }) },
+    { label: "Big and full width, as on Sign in", markup: html`<div style="${COLUMN}">${primaryButton(action("signIn"), { type: "button", isFullWidth: true, isBig: true })}</div>` },
+    { label: "With its price at the other end (a buy button)", markup: html`<div style="${COLUMN}">${primaryButton(action("buy"), { type: "button", isFullWidth: true, trailingText: "$19.99" })}</div>` },
+    { label: "With its price, busy", markup: html`<div style="${COLUMN}">${primaryButton(action("buy"), { type: "button", isFullWidth: true, trailingText: "$19.99", isBusy: true, busyLabel: "Buying" })}</div>`, isStill: true },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${primaryButton(action("play", "Play Ashen Crown: The Long Night of the Iron Vigil"), { type: "button", isFullWidth: true, isBig: true })}</div>` },
   ],
 });
 
@@ -422,6 +476,11 @@ component({
   subgroup: "buttons",
   summary: "Everything else you can press: Details, Make an account, Cancel. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a secondary button too, never orange; only its confirm step turns red.",
   styles: `
+/* Beside a field on a narrow screen, a button with an icon shows its icon alone, as it does in a narrow list's row. */
+@media (max-width: ${NARROW_HOLDER_WIDTH}) {
+  ${iconAloneFace(".layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face")}
+  .layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
    where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
    comes back when let go. The shell (the button) stays still; the slab is its face. */
@@ -433,24 +492,19 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 /* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
 .cut-btn > .face { flex: auto; gap: 8px; }
+/* A control's face always fills its shell, whatever gives the shell its size (a stack's width, a row's share). */
+.run-wrap > .face { flex: auto; }
 /* A count (a post's likes): figures of one width, so it never shifts as it changes, a weight lighter than the words. */
 .cut-count { font-weight: 500; font-variant-numeric: tabular-nums; }
 /* Its words center in what shows of the button, as an icon alone does: one slanted end (beside another control in a row) loses half its
    slant at mid-height, so the words move a quarter slant away from it; the button keeps its width. Slanted at both ends, they stay put. */
 .cut-btn > .face[data-slanted="start"] { --slab-shift: calc(var(--control-slant) / 4); }
 .cut-btn > .face[data-slanted="end"] { --slab-shift: calc(var(--control-slant) / -4); }
-/* Only its icon: as wide as a little more than it's tall, and never narrower, even sharing a row's width. */
-.cut-btn.icon-only > .face { width: 52px; --slab-words: 0px; }
-.cut-btn.small.icon-only > .face { width: 42px; }
+/* Only its icon, and never narrower, even sharing a row's width. */
+${iconAloneFace(".cut-btn.icon-only > .face")}
 .cut-btn.tiny.icon-only > .face { width: 34px; }
-/* An icon alone centers in what shows of the button: a slanted end gives up half its slant. The shift moves it through the face's padding
-   (--slab-words less or plus --slab-shift), so the face keeps a quarter slant each side to move by: none, and only half the shift happened. */
-.cut-btn.icon-only > .face[data-slanted] { --slab-words: calc(var(--control-slant) / 4); }
-.cut-btn.icon-only > .face[data-slanted~="start"] { --slab-shift: calc(var(--control-slant) / 4); }
-.cut-btn.icon-only > .face[data-slanted~="end"] { --slab-shift: calc(var(--control-slant) / -4); }
 .cut-btn.in-well { --control-height: calc(var(--control-height-small) - 2 * var(--pad-frame-compact)); }
 .cut-btn.in-well > .face { color: var(--ink-2); }
-.cut-btn.in-well.icon-only > .face { width: 46px; }
 .cut-btn:focus-visible { outline: none; }
 /* Can't press: it answers no pointer (the slab lies carved flat). In a well of its own (a row's arrow at its end) it fades. */
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
@@ -490,18 +544,18 @@ component({
   examples: [
     ...stateExamples((state) => secondaryButton("Details", { type: "button", state }), "cut"),
     { label: "Busy", markup: secondaryButton("Saving", { type: "button", isBusy: true }), isStill: true },
-    { label: "With an icon", markup: secondaryButton("Settings", { type: "button", icon: "gear" }) },
-    { label: "Only its icon", markup: secondaryButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
-    { label: "Small", markup: secondaryButton("Show", { type: "button", isSmall: true }) },
+    { label: "With an icon", markup: secondaryButton(action("settings"), { type: "button" }) },
+    { label: "Only its icon", markup: secondaryButton(action("lightDark", "Light. Switch to dark"), { type: "button", isLabelHidden: true }) },
+    { label: "Small", markup: secondaryButton(action("copy"), { type: "button", isSmall: true }) },
     { label: "A delete's confirm: tinted red, the one red, only in a Confirm sheet", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red" }) },
     { label: "A delete's confirm, pointed", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pointed" }), isStill: true },
     { label: "A delete's confirm, pressed: it carves in", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pressed" }), isStill: true },
     { label: "A delete's confirm, deleting", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", isBusy: true }), isStill: true },
-    { label: "Small, only its icon: a sheet's Close, a Copy", markup: controlsBeside(secondaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }), secondaryButton("Copy", { type: "button", icon: "copy", isLabelHidden: true, isSmall: true })) },
-    { label: "Can't press", markup: controlsBeside(secondaryButton("Details", { type: "button", isDisabled: true }), secondaryButton("Settings", { type: "button", icon: "gear", isDisabled: true })), isStill: true },
-    { label: "Folds a Sidebar: small, only the sidebar's icon, at the start of the page's header (sidebarButton)", markup: controlsBeside(secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: true }), secondaryButton("Settings", { type: "button", icon: "sidebar", isLabelHidden: true, isSmall: true, isExpanded: false })), isStill: true },
-    { label: "With a count: the players in a room", markup: secondaryButton("Players", { type: "button", icon: "people", isLabelHidden: true, reactionCount: 3 }) },
-    { label: "Big, beside Play", markup: controlsBeside(primaryButton("Play", { type: "button", isBig: true, icon: "play" }), secondaryButton("Details", { type: "button", isBig: true })) },
+    { label: "Small, only its icon: a sheet's Close, a Copy", markup: controlsBeside(secondaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }), secondaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true })) },
+    { label: "Can't press", markup: controlsBeside(secondaryButton("Details", { type: "button", isDisabled: true }), secondaryButton(action("settings"), { type: "button", isDisabled: true })), isStill: true },
+    { label: "Folds a Sidebar: small, only the sidebar's icon, at the start of the page's header (sidebarButton)", markup: controlsBeside(secondaryButton(action("settings"), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: true }), secondaryButton(action("settings"), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: false })), isStill: true },
+    { label: "With a count: the players in a room", markup: secondaryButton(action("players"), { type: "button", isLabelHidden: true, reactionCount: 3 }) },
+    { label: "Big, beside Play", markup: controlsBeside(primaryButton(action("play"), { type: "button", isBig: true }), secondaryButton("Details", { type: "button", isBig: true })) },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${secondaryButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: secondaryButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${secondaryButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
@@ -518,10 +572,6 @@ component({
 });
 
 export interface TertiaryButtonOptions extends ButtonTarget {
-  /** An icon before its words, like Show all's chevron. */
-  icon?: IconName;
-  /** The icon shown instead while what it acts on is on (data-is-on="true", set by its script): a video's Pause for Play, Exit full screen. */
-  onIcon?: IconName;
   /**
    * Only its icon shows, its words said to a screen reader, and pointing brings up its slab with no orange line under it: a pane's Close and
    * a sheet's Back, which sit quietly in its corners until they're wanted.
@@ -549,10 +599,11 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
  * pane's edge, at the pane's margin). Pointing brings up the slab and draws the orange line in along its foot; keyboard focus is the cut
  * stroke round the slab, as on every button. With an arrow, it's a way on: Continue as guest under the ways in.
  */
-export function tertiaryButton(label: string, options: TertiaryButtonOptions = {}): ControlMarkup {
-  const isIconOnly = Boolean(options.isLabelHidden && options.icon);
+export function tertiaryButton(button: ButtonWords, options: TertiaryButtonOptions = {}): ControlMarkup {
+  const { label, chosenIcon, pressedIcon } = faceOf(button);
+  const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${options.icon && options.onIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(options.onIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? html`${raw(String(icon(chosenIcon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -573,7 +624,7 @@ component({
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
-@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)); } }
 .tertiary-btn.icon-only > .face { width: var(--control-height); padding-inline: 0; align-items: center; }
 .tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
 .tertiary-btn:focus-visible { outline: none; }
@@ -604,14 +655,14 @@ component({
     { label: "Can't press", markup: tertiaryButton("Undo", { type: "button", isDisabled: true }), isStill: true },
     { label: "With an arrow: a way on, under the ways in", markup: controlsStacked([...waysIn(), tertiaryButton("Continue as guest", { href: "#", hasArrow: true, isFullWidth: true })]) },
     { label: "With an arrow, busy: sunk, its edge lit", markup: html`<div style="${COLUMN}">${tertiaryButton("Continue as guest", { type: "button", hasArrow: true, isFullWidth: true, isBusy: true })}</div>`, isStill: true },
-    { label: "With an icon", markup: tertiaryButton("Show all 1,284 replies", { type: "button", icon: "chevron-down" }) },
+    { label: "With an icon", markup: tertiaryButton(action("showAll", "Show all 1,284 replies"), { type: "button" }) },
     { label: "Beside a secondary button: the way out", markup: controlsBeside(secondaryButton("Save", { type: "button" }), tertiaryButton("Cancel", { type: "button" })) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${tertiaryButton("Skip the tutorial and go straight to the first match", { type: "button" })}</div>` },
     {
       label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
-      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton("Back", { type: "button", icon: "chevron-back", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
+      markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton(action("back"), { type: "button", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
     },
-    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton("Close", { type: "button", icon: "close", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
+    { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
   ],
 });
 
@@ -637,6 +688,10 @@ component({
 /* Pressed while off, even mid-landing, its glow or shadow goes at once too: cast by its own shape, it would show through the carved face. */
 .toggle-btn[aria-pressed="false"]:active, .toggle-btn[aria-pressed="false"].is-pressed { --toggle-rise: 0px; transition-duration: 0s, var(--motion-press); }
 .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { --toggle-rise: calc(var(--toggle-lift) - 2px); transition-duration: var(--motion-state), var(--motion-press); }
+/* Quiet when off: flush with what it's on, a slab only once it's pointed at or pressed (a phone has no pointer, so a press leaves it flush again). */
+.toggle-btn.is-quiet-off > .face > .cut-line, .toggle-btn.is-quiet-off > .toggle-front { transition: opacity var(--motion-state); }
+@media (hover: none) { .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed) > .face { --face-color: transparent; background: transparent; box-shadow: none; filter: none; } .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed) > .face > .cut-line { opacity: 0; } .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed) > .toggle-front { opacity: 0; } }
+@media (hover: hover) { .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed):not(:hover) > .face { --face-color: transparent; background: transparent; box-shadow: none; filter: none; } .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed):not(:hover) > .face > .cut-line { opacity: 0; } .toggle-btn.is-quiet-off[aria-pressed="false"]:not(:active, .is-pressed, :focus-visible, .is-pointed):not(:hover) > .toggle-front { opacity: 0; } }
 /* Its height is the face's only movement. */
 .toggle-btn > .face, .toggle-btn:hover > .face, .toggle-btn.is-pointed > .face, .toggle-btn:active > .face, .toggle-btn.is-pressed > .face { transform: translateY(calc(-1 * var(--toggle-rise))); }
 .toggle-btn > .face { position: relative; z-index: 1; transition: color var(--motion-state), box-shadow var(--motion-state), --face-color var(--motion-state); }
@@ -667,20 +722,22 @@ component({
 `,
   render: toggleButton,
   examples: [
-    { label: "Off", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false }), isStill: true },
-    { label: "On", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true }), isStill: true },
-    { label: "Off, pointed", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pointed" }), isStill: true },
-    { label: "On, pointed", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pointed" }), isStill: true },
-    { label: "Off, pressed: it carves in", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, state: "is-pressed" }), isStill: true },
-    { label: "On, pressed: it goes down a little", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-pressed" }), isStill: true },
-    { label: "Keyboard focus", markup: toggleButton("Following", { type: "button", icon: "bell", isPressed: true, state: "is-focused" }), isStill: true },
-    { label: "Try it: press each", isWide: true, markup: html`<div data-toggle-example>${controlsBeside(toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false }), toggleButton("Follow", { type: "button", icon: "bell", isPressed: true }), toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton("Mute", { type: "button", icon: "speaker", isLabelHidden: true, isPressed: false }))}</div>` },
-    { label: "Only its icon, off and on", markup: controlsBeside(toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: false }), toggleButton("Favorite", { type: "button", icon: "heart", isLabelHidden: true, isPressed: true })), isStill: true },
-    { label: "With a count, off and on", markup: controlsBeside(toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton("Like", { type: "button", icon: "heart", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
-    { label: "Small, off and on: a password's Show", markup: controlsBeside(toggleButton("Show", { type: "button", isSmall: true, isPressed: false }), toggleButton("Hide", { type: "button", isSmall: true, isPressed: true })), isStill: true },
-    { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Hint", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
-    { label: "Can't press", markup: toggleButton("Follow", { type: "button", icon: "bell", isPressed: false, isDisabled: true }), isStill: true },
-    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton("Following Ashen Crown and every update from its studio", { type: "button", icon: "bell", isPressed: true })}</div>` },
+    { label: "Show or hide: an open eye while it's visible, a crossed-out eye while it's hidden", markup: controlsBeside(visibilityButton({ show: "Show amounts", hide: "Hide amounts" }, { type: "button", isContentHidden: false }), visibilityButton({ show: "Show amounts", hide: "Hide amounts" }, { type: "button", isContentHidden: true })) },
+    { label: "Off", markup: toggleButton(action("follow"), { type: "button", isPressed: false }), isStill: true },
+    { label: "On", markup: toggleButton(action("follow", "Following"), { type: "button", isPressed: true }), isStill: true },
+    { label: "Off, pointed", markup: toggleButton(action("follow"), { type: "button", isPressed: false, state: "is-pointed" }), isStill: true },
+    { label: "On, pointed", markup: toggleButton(action("follow", "Following"), { type: "button", isPressed: true, state: "is-pointed" }), isStill: true },
+    { label: "Off, pressed: it carves in", markup: toggleButton(action("follow"), { type: "button", isPressed: false, state: "is-pressed" }), isStill: true },
+    { label: "On, pressed: it goes down a little", markup: toggleButton(action("follow", "Following"), { type: "button", isPressed: true, state: "is-pressed" }), isStill: true },
+    { label: "Keyboard focus", markup: toggleButton(action("follow", "Following"), { type: "button", isPressed: true, state: "is-focused" }), isStill: true },
+    { label: "Quiet when off: one in each row of a list", markup: controlsBeside(toggleButton(action("mute"), { type: "button", isLabelHidden: true, isPressed: false, isQuietWhenOff: true }), toggleButton(action("mute", "Unmute"), { type: "button", isLabelHidden: true, isPressed: true, isQuietWhenOff: true })), isStill: true },
+    { label: "Try it: press each", isWide: true, markup: html`<div data-toggle-example>${controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("follow"), { type: "button", isPressed: true }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("mute"), { type: "button", isLabelHidden: true, isPressed: false }))}</div>` },
+    { label: "Only its icon, off and on", markup: controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: true })), isStill: true },
+    { label: "With a count, off and on", markup: controlsBeside(toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
+    { label: "Small, off and on: a password's Show", markup: controlsBeside(passwordToggle({ isPasswordShown: false }), passwordToggle({ isPasswordShown: true })), isStill: true },
+    { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Keep progress", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
+    { label: "Can't press", markup: toggleButton(action("follow"), { type: "button", isPressed: false, isDisabled: true }), isStill: true },
+    { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton(action("follow", "Following Ashen Crown and every update from its studio"), { type: "button", isPressed: true })}</div>` },
   ],
 });
 
@@ -799,7 +856,7 @@ component({
    inside a line of words keeps its line's. */
 @media (pointer: coarse) {
   :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link) { position: relative; }
-  :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link)::after { content: ""; position: absolute; inset: calc((1lh - var(--touch-target)) / 2) 0; }
+  :is(.link.quiet, :is(.row-cell, .stack-cell, .grid-cell, .pane-foot-start) > .link)::after { content: ""; position: absolute; inset: calc((1lh - var(--touch-target)) / 2) min(0px, calc((100% - var(--touch-target)) / 2)); }
 }
 `,
   render: textLink,
@@ -848,27 +905,12 @@ component({
     { label: `The header: ${cutWords("header")}`, markup: cutSample("header") },
     { label: `A menu: ${cutWords("menu")}`, markup: cutSample("menu") },
     { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(secondaryButton("Make an account", { type: "button", isFullWidth: true })) },
-    { label: "Side by side: slants between, fits the outside", markup: edgePane(controlsBeside(primaryButton("Play", { type: "button", icon: "play" }), secondaryButton("Details", { type: "button" }))) },
+    { label: "Side by side: slants between, fits the outside", markup: edgePane(controlsBeside(primaryButton(action("play"), { type: "button" }), secondaryButton("Details", { type: "button" }))) },
     {
       label: "Stacked: fits the top and the bottom, square between",
-      markup: edgePane(html`<div class="edge-stack">${secondaryButton("Settings", { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton("Sign out", { type: "button", isFullWidth: true })}</div>`),
+      markup: edgePane(html`<div class="edge-stack">${secondaryButton(action("settings"), { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton(action("signOut"), { type: "button", isFullWidth: true })}</div>`),
     },
-    { label: "On no pane: cut as if it were in one", markup: controlsBeside(primaryButton("Play", { type: "button", icon: "play" }), secondaryButton("Details", { type: "button" })) },
+    { label: "On no pane: cut as if it were in one", markup: controlsBeside(primaryButton(action("play"), { type: "button" }), secondaryButton("Details", { type: "button" })) },
   ],
 });
 
-export interface RowArrowsOptions {
-  /** The row's name, for a screen reader: "Scroll Popular on". */
-  rowName: string;
-  /** The id of the track it scrolls (Track, layout.ts). */
-  trackId: string;
-  /** Where the row starts scrolled to, so both arrows or only the back one can be pressed: the gallery's fixed states. */
-  scrolledTo?: "middle" | "end";
-}
-
-/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
-export function rowArrows(options: RowArrowsOptions): ControlMarkup {
-  const arrow = (way: "back" | "on") =>
-    secondaryButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
-  return controlMarkup(html`<div class="steps carving carving-parts" data-row-arrows${options.scrolledTo ? html` data-scrolled-to="${options.scrolledTo}"` : ""} data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`, "small", { isPointerOnly: true });
-}

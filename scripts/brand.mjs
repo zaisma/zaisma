@@ -382,7 +382,7 @@ function cardSvg(theme) {
 /* The files. */
 
 const MANIFEST = `${JSON.stringify({
-  name: "Zaisma", short_name: "Zaisma", start_url: "/", display: "browser", background_color: "#FFFFFF", theme_color: "#E7E4DF",
+  name: "Zaisma", short_name: "Zaisma", start_url: "/", display: "standalone", background_color: "#FFFFFF", theme_color: "#E7E4DF",
   icons: [
     { src: "/app-icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/app-icon-512.png", sizes: "512x512", type: "image/png" },

@@ -1,8 +1,8 @@
+import { gallerySheet } from "./components/gallery-sheet.ts";
 import { accountById, areFriends, blockPlayer, hasBlocked, unblockPlayer, type BlockedPlayer } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { secondaryButton, primaryButton, textLink } from "./components/actions.ts";
-import { listRows, pictureFrame, stateNote } from "./components/data.ts";
 import { stack } from "./components/layout.ts";
 import { banner, sheet } from "./components/panes.ts";
 import { accountPicture, html, pageData, scriptTags, type Raw } from "./html.ts";
@@ -72,26 +72,37 @@ const day = (atMs: number) => new Date(atMs).toLocaleDateString("en-US", { month
  * them by. Session blocks (zaisma:block for a guest, or by one) are kept in this tab without asking, and the game can ask which players in
  * its room this session blocked (zaisma:blocks-among), never for the whole list.
  */
-export function blockSheet(options: { gameOrigin: string }): Raw {
-  const body = stack({
-    items: [
-      // Who's blocked: the picture and name the script fills in, as the page draws an account's.
-      { kind: "block", markup: listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "Nobody picked", text: "Who you're blocking shows here." }), rows: [{ lead: pictureFrame("?", "md"), title: "?" }], id: "block-who" }) },
-      { kind: "words", markup: html`<p>Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.</p>` },
-      { kind: "words", markup: html`<p id="block-friend" hidden>You're friends, so this ends that too.</p>` },
-      { kind: "words", markup: html`<p><span id="block-told"></span> Unblock any time on your ${textLink("friends page", "/friends#blocked", { isNewTab: true })}.</p>` },
-      { kind: "block", markup: html`<div id="block-error" role="alert" hidden>${banner({ text: "Couldn't block them. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
-    ],
-  });
-  return html`${sheet({
+export const blockSheet = gallerySheet<{ playerName?: string }>({
+  name: "Block sheet",
+  slug: "block-sheet",
+  summary: "Confirming a block, from a player's choices or a game's own ask. Its script names the player.",
+  states: [
+    { stateValue: "asking", label: "Asking", options: { playerName: "Leo_Marsh" } },
+    { stateValue: "friend", label: "A friend", options: { playerName: "Leo_Marsh" }, shownIds: ["block-friend"] },
+    { stateValue: "problem", label: "It didn't go through", options: { playerName: "Leo_Marsh" }, shownIds: ["block-error"] },
+  ],
+  make: (options, isShown) => sheet({
     id: "block",
-    title: "Block this player?",
-    body,
+    title: options.playerName ? `Block ${options.playerName}?` : "Block this player?",
+    isShown,
+    body: stack({
+      items: [
+        { kind: "words", markup: html`<p>You won't get each other's messages, emotes or voice in any game, or show up in each other's friends or profile.</p>` },
+        { kind: "words", markup: html`<p id="block-friend" hidden>You're friends, so this ends that too.</p>` },
+        { kind: "words", markup: html`<p><span id="block-told">${options.playerName ? `${options.playerName} isn't told.` : ""}</span> Unblock any time on your ${textLink("friends page", "/friends#blocked", { isNewTab: true })}.</p>` },
+        { kind: "block", markup: html`<div id="block-error" role="alert" hidden>${banner({ text: "Couldn't block them. Check your connection and try again.", icon: "warning", tone: "warning" })}</div>` },
+      ],
+    }),
     closeLabel: "Close",
     placement: "foot",
     isConfirm: true,
     buttons: [secondaryButton("Cancel", { type: "submit", formMethod: "dialog" }), primaryButton("Block", { type: "button", id: "block-yes" })],
-  })}
+  }),
+});
+
+/** The block sheet as a game's page has it, with its script. */
+export function blockSheetParts(options: { gameOrigin: string }): Raw {
+  return html`${blockSheet({})}
 ${pageData("block-data", { gameOrigin: options.gameOrigin })}
 ${scriptTags(BLOCK_SHEET_SCRIPT)}`;
 }
@@ -123,27 +134,13 @@ const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
     asking = { id: about.player.player_id };
     const name = about.player.name;
     $("block-title").textContent = "Block " + name + "?";
-    showWho(name);
     $("block-friend").hidden = !about.is_friend;
     $("block-told").textContent = name + " isn't told.";
     $("block-error").hidden = true;
     yes.removeAttribute("aria-busy");
     yes.disabled = false;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     sheet.showModal();
     yes.focus();
-  }
-  // Who's blocked, as the page draws an account (accountPicture): initials in its own color, from the name.
-  function showWho(name) {
-    const who = $("block-who");
-    let hue = 7;
-    for (const character of name) hue = (hue * 31 + character.codePointAt(0)) % 360;
-    const words = name.trim().split(/\\s+/).filter(Boolean);
-    const letters = words.length > 1 ? [Array.from(words[0])[0], Array.from(words[1])[0]] : Array.from(words[0] || "?").slice(0, 2);
-    const picture = who.querySelector(".av");
-    picture.style.setProperty("--h", String(hue));
-    picture.textContent = letters.join("").toUpperCase();
-    who.querySelector(".list-row-title").textContent = name;
   }
   yes.addEventListener("click", async () => {
     if (!asking || yes.getAttribute("aria-busy") === "true") return;

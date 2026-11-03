@@ -172,7 +172,7 @@ export async function pictureBoxProblems(markup: string): Promise<string[]> {
 
 /** A gallery example is a piece shown alone, not a page; what sits over the page (a sheet, a menu, a card over the game) is a layer of its own. */
 const EXAMPLE = ".example-stage";
-const OVER_PAGE = [".sheet", ".dropdown", "[popover]", ".notice", ".playing-card", ".playing-bar", ".playing-check"];
+const OVER_PAGE = [".sheet", ".dropdown", "[popover]", ".notice", ".playing-card", ".zaisma-button", ".playing-check"];
 /** What's never shown as words on the page: scripts, templates, what's only for screen readers or hidden, and code, which is set as typed. */
 const NOT_WORDS = ["script", "style", "template", "textarea", "code", "kbd", "pre", ".code", ".sr", "[aria-hidden=true]"];
 /** What isn't on the page in the state it's in: closed, hidden, or a template a script fills in. */

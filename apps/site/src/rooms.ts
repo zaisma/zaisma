@@ -1,11 +1,10 @@
 import { checkText, gameBySlug, hasSpace, hasWatchSpace, leaveOut, listRoomPage, MAXIMUM_PAGE_ROOM_COUNT, readIsHidingFullRoomsParameter, readLabelParameter, readLeftParameter, readRoomOrderParameter, type Game, type ListedRoom, type RoomOrder, type RoomPage } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
-import { secondaryButton } from "./components/actions.ts";
-import { stateNote, listRows, type ListRow } from "./components/data.ts";
+import { action, secondaryButton } from "./components/actions.ts";
+import { stateNote, listRows, type ListMoreRows, type ListRow } from "./components/data.ts";
 import { checkField, cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
 import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
-import { loadMore } from "./components/navigation.ts";
 import { playingNowCounts } from "./plays.ts";
 
 /**
@@ -127,9 +126,8 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
         ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
         : "Nobody's in an open room right now. Press Play to start.";
   items.push(
-    { kind: "block", markup: listRows({ id: ROOMS_LIST_ID, label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: list.rooms.map((room) => roomRow(slug, room)), whenEmpty: stateNote({ stateKind: "empty", title: "No open rooms", text: empty }) }) },
+    { kind: "block", markup: listRows({ id: ROOMS_LIST_ID, label: "Open rooms", shownRowCount: SHOWN_ROOM_COUNT, rows: list.rooms.map((room) => roomRow(slug, room)), ...(list.nextCursor ? { moreRows: moreRooms(slug, list, picked) } : {}), whenEmpty: stateNote({ stateKind: "empty", title: "No open rooms", text: empty }) }) },
   );
-  if (list.nextCursor) items.push({ kind: "block", markup: moreRooms(slug, list, picked) });
   return stack({ items, dataAttributes: { count: String(tabCount(list)), playing: String(Math.max(playerCount, ticketPlayerCount)), shown: shownKey(list.region, picked, roomOrder, isHidingFullRooms) } });
 }
 
@@ -137,13 +135,13 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
 const ROOMS_LIST_ID = "rooms-rows";
 
 /** Load more under the rooms: the next page's address carries the region, labels, order and full-rooms setting the list shows. */
-const moreRooms = (slug: string, list: RoomPage, picked: Record<string, string>): Raw => {
+const moreRooms = (slug: string, list: RoomPage, picked: Record<string, string>): ListMoreRows => {
   const query = new URLSearchParams({ cursor: list.nextCursor! });
   if (list.region) query.set("region", list.region);
   if (Object.keys(picked).length) query.set("labels", JSON.stringify(picked));
   if (list.roomOrder !== "best_to_join") query.set("room_order", list.roomOrder);
   if (list.isHidingFullRooms) query.set("is_hiding_full_rooms", "true");
-  return loadMore({ href: `/g/${slug}/rooms?${query}`, label: "Load more", listId: ROOMS_LIST_ID });
+  return { href: `/g/${slug}/rooms?${query}`, label: "Load more" };
 };
 
 /** Which region, labels, order and full-rooms setting a panel shows, so the page knows when to load another. The page's script builds the same key (roomsKey). */
@@ -166,10 +164,10 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
   const detail = [title === filled ? "" : filled, room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
   const said = [name, labelValues.join(", ")].filter(Boolean).join(", ");
   const actions: ControlMarkup[] = [
-    ...(hasSpace(room) ? [secondaryButton("Join", { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [secondaryButton("Join", { type: "button", isSmall: true, isDisabled: true })]),
-    ...(hasWatchSpace(room) ? [secondaryButton("Watch", { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
+    ...(hasSpace(room) ? [secondaryButton(action("join"), { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [secondaryButton(action("join"), { type: "button", isSmall: true, isDisabled: true })]),
+    ...(hasWatchSpace(room) ? [secondaryButton(action("watch"), { href: `/g/${slug}?room=${room.roomCode}&watch=1`, isSmall: true })] : []),
     // The page's script (report.ts) opens the report with the room's code and what it's called.
-    ...(said ? [secondaryButton(`Report the room “${said}”`, { type: "button", icon: "flag", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
+    ...(said ? [secondaryButton(action("report", `Report the room “${said}”`), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
   ];
   return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : room.isOpen ? "Full" : "In a match", action: actions.length > 1 ? actions : actions[0] };
 }
@@ -179,8 +177,8 @@ export const ROOM_CODE_TYPING = { characterPattern: "[2-9A-HJ-NP-Z]", maximumCha
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
-  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton("Join", { type: "submit" }) }] })}</form>`;
+  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", isShort: true, autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "fit", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton(action("join"), { type: "submit" }) }] })}</form>`;
 }
 
 /**
@@ -198,8 +196,8 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   const cursor = query.get("cursor");
   if (cursor !== null) {
     const next = await pageRooms(env, game, request, { region: query.get("region"), labels: picked, ...readRoomPick(query), cursor });
-    const rows = listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No more rooms", text: "That's every open room." }), id: ROOMS_LIST_ID, label: "Open rooms", rows: next.rooms.map((room) => roomRow(slug, room)) });
-    return new Response(String(html`${rows}${next.nextCursor ? moreRooms(slug, next, picked) : ""}`), { headers });
+    const rows = listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No more rooms", text: "That's every open room." }), id: ROOMS_LIST_ID, label: "Open rooms", rows: next.rooms.map((room) => roomRow(slug, room)), ...(next.nextCursor ? { moreRows: moreRooms(slug, next, picked) } : {}) });
+    return new Response(String(rows), { headers });
   }
   const shownRowCount = Math.floor(Number(query.get("shown_row_count")));
   const rowCount = Number.isFinite(shownRowCount) ? Math.max(SHOWN_ROOM_COUNT, Math.min(MAXIMUM_REFRESHED_ROOM_COUNT, shownRowCount)) : SHOWN_ROOM_COUNT;

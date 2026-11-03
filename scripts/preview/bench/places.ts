@@ -68,7 +68,6 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "make-a-room", label: "Make a room", stateKind: "opened", seenBy: "both", opens: "room-dialog" },
       { stateValue: "share", label: "Share", stateKind: "opened", seenBy: "both", opens: "share-dialog" },
       { stateValue: "share-qr", label: "Share, QR code", stateKind: "opened", seenBy: "both", opens: "share-qr-box" },
-      { stateValue: "game-menu", label: "Game menu", stateKind: "opened", seenBy: "both", opens: "menu-dialog" },
       { stateValue: "report-sheet", label: "Report sheet", stateKind: "opened", seenBy: "both", opens: "report", path: "/g/shard-dodge" },
       { stateValue: "report-page", label: "Report a game", stateKind: "opened", seenBy: "both", checkedPage: "Report a game" },
     ],
@@ -90,7 +89,9 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "updating", label: "Updating", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=updating" },
       { stateValue: "players", label: "Players", stateKind: "opened", seenBy: "both", checkedPage: "Playing a game, the players sheet" },
       { stateValue: "playing-share", label: "Invite", stateKind: "opened", seenBy: "both", opens: "share-dialog" },
-      { stateValue: "playing-menu", label: "Game menu", stateKind: "opened", seenBy: "both", presses: "#menu" },
+      { stateValue: "zaisma-overlay", label: "Zaisma overlay", stateKind: "opened", seenBy: "both", presses: "#zaisma-open" },
+      { stateValue: "leaving-game", label: "Leave the game", stateKind: "opened", seenBy: "both", opens: "leave-sheet" },
+      { stateValue: "full-screen", label: "Full screen", stateKind: "opened", seenBy: "both", opens: "full-screen-sheet" },
       { stateValue: "block", label: "Confirm a block", stateKind: "opened", seenBy: "signed_in", opens: "block", words: { "block-told": "Leo_Marsh isn't told." } },
       { stateValue: "send-request", label: "Send a request", stateKind: "opened", seenBy: "signed_in", opens: "friend-request", words: { "friend-request-title": "Send Mia_Plays a friend request?", "friend-request-told": "Mia_Plays" } },
       { stateValue: "leaving-zaisma", label: "Leaving Zaisma", stateKind: "opened", seenBy: "both", opens: "link-ask", words: { "link-url": "https://example.test/store" } },
@@ -173,6 +174,7 @@ export const BENCH_PLACES: BenchPlace[] = [
 /** What's on a page and has no button, each with why: a list a field opens, a menu that's part of another. */
 export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
   { idPattern: "-list$", reason: "a field's own list: it opens as you type or press that field, and the same press happens on every screen" },
+  { idPattern: "^zaisma-button$", reason: "the Zaisma button: always over a running game" },
   { idPattern: "^top-menu$", reason: "the account menu's popover: its button presses it open" },
   { idPattern: "^browse-filter$", reason: "the Filter menu's popover: its button presses it open" },
   { idPattern: "-more$", reason: "a row's More menu: the row's own button presses it open, and each of its choices has a button" },

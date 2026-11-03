@@ -3,10 +3,27 @@ import { raw, type Raw } from "../markup.ts";
 
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
 
+const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
 /** Every line icon the drafts use. Each is drawn in the words' color (.ico). */
 export const ICONS = {
+  // Zaisma's mark in glass: the Z over a running game. Its drawing is in the stylesheet (LOGO_ART, below), so no page carries it.
+  zaisma: '<span class="logo mark"><span class="logo-art on-light"></span><span class="logo-art on-smoked"></span></span>',
+  // Leaving a game: a door with an arrow out.
+  "sign-in": stroke("0 0 20 20", '<path d="M9 4h7v12H9M3 10h8M8 7l3 3-3 3"/>'),
+  "closed-door": stroke("0 0 20 20", '<path d="M5 17V3h10v14M3 17h14"/><path d="M12 10v.6"/>'),
+  "at-sign": stroke("0 0 20 20", '<circle cx="10" cy="10" r="3"/><path d="M13 7v4.2a2.2 2.2 0 0 0 4.4 0V10a7.4 7.4 0 1 0-3 6"/>'),
+  apps: stroke("0 0 20 20", '<path d="M3.5 3.5h5v5h-5zM11.5 3.5h5v5h-5zM3.5 11.5h5v5h-5zM11.5 11.5h5v5h-5z"/>'),
+  coin: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7"/><path d="M10 5.8v8.4M12.3 7.9c-.4-.7-1.2-1.1-2.3-1.1-1.4 0-2.4.7-2.4 1.7 0 2.4 4.8 1.2 4.8 3.6 0 1-1 1.6-2.4 1.6-1.1 0-2-.4-2.4-1.2"/>'),
+  repeat: stroke("0 0 20 20", '<path d="M3 9.5V8.5a3 3 0 0 1 3-3h10.5"/><path d="M14 3l2.5 2.5L14 8"/><path d="M17 10.5v1a3 3 0 0 1-3 3H3.5"/><path d="M6 12l-2.5 2.5L6 17"/>'),
+  diamond: stroke("0 0 20 20", '<path d="M6 3.5h8l3.5 4.5L10 17 2.5 8z"/><path d="M2.5 8h15M7.5 8 10 17l2.5-9M7.5 8 10 3.5 12.5 8"/>'),
+  keypad: stroke("0 0 20 20", '<circle cx="5" cy="3.5" r="1"/><circle cx="10" cy="3.5" r="1"/><circle cx="15" cy="3.5" r="1"/><circle cx="5" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="15" cy="8" r="1"/><circle cx="5" cy="12.5" r="1"/><circle cx="10" cy="12.5" r="1"/><circle cx="15" cy="12.5" r="1"/><circle cx="10" cy="17" r="1"/>'),
+  hook: stroke("0 0 20 20", '<circle cx="11.5" cy="4" r="1.6"/><path d="M11.5 5.6v7a4.2 4.2 0 0 1-8.4 0V10l2.5 2.2"/>'),
+  star: stroke("0 0 20 20", '<path d="M10 2.8l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8.1l5-.7z"/>'),
+  door: stroke("0 0 20 20", '<path d="M8 3.5H4v13h4"/><path d="M8.5 10H17M13.8 6.8 17 10l-3.2 3.2"/>'),
   person: stroke("0 0 20 20", '<circle cx="10" cy="6.8" r="3.2"/><path d="M3.8 17.2c0-3.4 2.8-5.9 6.2-5.9s6.2 2.5 6.2 5.9"/>'),
   people: stroke("0 0 16 16", '<circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/>', ' stroke-width="1.28"'),
+  // Adding a friend. The two people are friends you have.
+  "person-plus": stroke("0 0 20 20", '<circle cx="8" cy="6.5" r="3"/><path d="M2.5 17c0-3.2 2.4-5.5 5.5-5.5 1.2 0 2.3.3 3.2.9"/><path d="M15.5 11v6M12.5 14h6"/>'),
   friends: stroke("0 0 20 20", '<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
   // Playing on your own, in your own world.
   headphones: stroke("0 0 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
@@ -30,7 +47,9 @@ export const ICONS = {
   code: stroke("0 0 20 20", '<path d="M7 5.5L2.5 10 7 14.5M13 5.5l4.5 4.5-4.5 4.5"/>'),
   "sign-out": stroke("0 0 20 20", '<path d="M12 4H5v12h7M9 10h8M14 7l3 3-3 3"/>'),
   search: stroke("0 0 20 20", '<circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4.5 4.5"/>', ' stroke-width="1.8"'),
+  // What's visible, with eye-off for what's hidden (visibilityButton); Watch looks through it too.
   eye: stroke("0 0 20 20", '<path d="M1.8 10S5 4.5 10 4.5 18.2 10 18.2 10 15 15.5 10 15.5 1.8 10 1.8 10z"/><circle cx="10" cy="10" r="2.6"/>'),
+  "eye-off": stroke("0 0 20 20", '<path d="M1.8 10S5 4.5 10 4.5 18.2 10 18.2 10 15 15.5 10 15.5 1.8 10 1.8 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3.5 3.5l13 13"/>'),
   "chevron-down": stroke("0 0 20 12", '<path d="M2 2l8 8 8-8"/>', ' stroke-width="2.2"'),
   "chevron-right": stroke("0 0 12 20", '<path d="M2 2l8 8-8 8"/>', ' stroke-width="2.4"'),
   // The sun on light glass, the moon on smoked (--on-light and --on-smoked): the theme a page is in.
@@ -42,6 +61,8 @@ export const ICONS = {
   trash: stroke("0 0 20 20", '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.2 5.5l.8 11h8l.8-11"/><path d="M8.5 8.6v5M11.5 8.6v5"/>'),
   "qr-code": stroke("0 0 20 20", '<rect x="3" y="3" width="5" height="5" rx="0.6"/><rect x="12" y="3" width="5" height="5" rx="0.6"/><rect x="3" y="12" width="5" height="5" rx="0.6"/><path d="M12 12h2v2M17 12v1M12 17h1M15.5 15.5v1.5h1.5"/>'),
   "chevron-back": stroke("0 0 20 20", '<path d="M12.5 4.5 7 10l5.5 5.5"/>', ' stroke-width="1.8"'),
+  // chevron-back's mirror, for a button's arrow forward. chevron-right is the small one after words, drawn to fill the little box its holder gives it.
+  "chevron-forward": stroke("0 0 20 20", '<path d="M7.5 4.5 13 10l-5.5 5.5"/>', ' stroke-width="1.8"'),
   close: stroke("0 0 20 20", '<path d="M5 5l10 10M15 5 5 15"/>', ' stroke-width="1.8"'),
   check: stroke("0 0 20 20", '<path d="M4.2 10.4l3.9 3.9 7.7-8.6"/>', ' stroke-width="2.2"'),
   copy: stroke("0 0 20 20", '<path d="M7 7h9.5v9.5H7z"/><path d="M13 7V3.5H3.5V13H7"/>'),
@@ -65,7 +86,12 @@ export const ICONS = {
   more: stroke("0 0 20 20", '<circle cx="4.5" cy="10" r="1.1"/><circle cx="10" cy="10" r="1.1"/><circle cx="15.5" cy="10" r="1.1"/>', ' stroke-width="1.8"'),
   save: stroke("0 0 20 20", '<path d="M4 3h9.5L16 5.5V17H4z"/><path d="M7 3v4.5h6V3M7 17v-5.5h6V17"/>'),
   rules: stroke("0 0 20 20", '<path d="M10 2.8l6.5 2.4v4.6c0 3.6-2.8 6.6-6.5 7.4-3.7-.8-6.5-3.8-6.5-7.4V5.2z"/><path d="M7.2 10l2 2 3.8-4.2"/>'),
-  games: stroke("0 0 20 20", '<path d="M3.5 3.5h5.5V9H3.5zM11 3.5h5.5V9H11zM3.5 11H9v5.5H3.5zM11 11h5.5v5.5H11z"/>'),
+  home: stroke("0 0 20 20", '<path d="M3.5 9.5L10 3.5l6.5 6v7H12v-4.5H8v4.5H3.5z"/>'),
+  forum: stroke("0 0 20 20", '<path d="M3.5 4h13v9.5H9l-3.5 3v-3h-2z"/>'),
+  // Kinds of game: three shapes, each its own.
+  genre: stroke("0 0 20 20", '<circle cx="6" cy="6" r="3.2"/><path d="M11.6 2.8H17v5.4h-5.4zM10 11.4l4 5.8H6z"/>'),
+  // Browsing: finding your way to a game.
+  compass: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M13.3 6.7 11.5 11.5 6.7 13.3 8.5 8.5z"/>'),
   "signal-weak": stroke("0 0 20 20", '<path d="M4.5 16.5v-3"/><path d="M10 16.5v-7" opacity="0.35"/><path d="M15.5 16.5v-11" opacity="0.35"/>', ' stroke-width="2.4"'),
   "signal-lost": stroke("0 0 20 20", '<path d="M4.5 16.5v-3M10 16.5v-7M15.5 16.5v-11" opacity="0.35"/><path d="M3 3l14 14"/>', ' stroke-width="2.2"'),
   reconnecting: stroke("0 0 20 20", '<path d="M16.5 10a6.5 6.5 0 0 1-11.4 4.3M3.5 10a6.5 6.5 0 0 1 11.4-4.3"/><path d="M15 2.8v3.4h-3.4M5 17.2v-3.4h3.4"/>'),
@@ -110,7 +136,6 @@ export const ICONS = {
   gauge: stroke("0 0 20 20", '<path d="M3.3 14.6a7 7 0 1 1 13.4 0"/><path d="M10 13.4l3.2-4.4"/>'),
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
-  "arrow-on": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>',
   // Two arrows: to the very start or end (a table's first and last page).
   "arrow-first": '<svg class="ico solid" viewBox="0 0 20 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8zM20 0h-5L8 8l7 8h5l-7-8z"/></svg>',
   "arrow-last": '<svg class="ico solid" viewBox="0 0 20 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8zM8 0h5l7 8-7 8H8l7-8z"/></svg>',
@@ -123,7 +148,6 @@ export const icon = (name: IconName): Raw => raw(ICONS[name]);
 export const largeIcon = (name: IconName): Raw => raw(`<span class="large-icon">${ICONS[name]}</span>`);
 
 /** Zaisma's mark, flat in the words' color (brand/zaisma-mark-black.svg): for anything that must take the words' color. */
-const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.233,248.238 66.466,496.475 99.699,744.712l-4286.71,-0c627.367,-243.599 1255.990,-491.890 1884.080,-744.712Z"/><path d="M415.598,3484.54c777.297,-719.363 1475.76,-1400.24 2108.05,-2044.32c404.715,-158.588 821.55,-323.759 1248.51,-495.17c-547.607,610.584 -1151.51,1254.04 -1823.08,1932.14c-520.17,209.105 -1032.22,411.7 -1533.48,607.345Z"/><path d="M2575.7,1305.06l-1740.58,0c21.608,-194.559 43.215,-389.119 64.823,-583.678l3147.9,0c-485.752,195.366 -976.426,389.899 -1472.14,583.678Z"/>';
 export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g fill="currentColor">${MARK_PATHS}</g></svg>`);
 /**
  * Zaisma's wordmark and mark in glass (brand/README.md, made by scripts/brand.mjs): black glass on light glass, white on smoked, by
