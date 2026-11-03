@@ -38,6 +38,7 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   // Press.
   "no answer within 400 ms": "sweep",
   // The check's own: what it couldn't do is a failure too, never a pass.
+  "a state with no button on the Screens bench": "page",
   "the check couldn't send the page's form": "page",
   "the check couldn't open the page's hidden state": "page",
   "the check couldn't measure the page": "page",
