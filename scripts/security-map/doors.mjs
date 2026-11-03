@@ -32,6 +32,10 @@ const API_HANDLERS = [
   ["/games/:slug/reports", "games-and-files", DEVELOPER, "reportsFor"],
   ["/games/:slug/stats", "games-and-files", DEVELOPER, "statsFor"],
   ["/games/:slug/history", "games-and-files", DEVELOPER, "historyFor"],
+  ["/games/:slug/items", "money", DEVELOPER, "route"],
+  ["/games/:slug/purchases", "money", DEVELOPER, "route"],
+  ["/games/:slug/purchase-settings", "money", DEVELOPER, "route"],
+  ["/games/:slug/players/:player_id/items", "money", DEVELOPER, "route"],
   ["/games", "games-and-files", DEVELOPER, "route"],
   ["/files/:sha256/parts", "games-and-files", DEVELOPER, "bigFile"],
   ["/files/:sha256", "games-and-files", DEVELOPER, "putBlob"],
@@ -41,6 +45,10 @@ const API_HANDLERS = [
   ["/players", "accounts", "packages/core/src/profiles.ts", "playerProfile"],
   ["/access", "api-keys", DEVELOPER, "accessJson"],
   ["/activity", "accounts", "apps/site/src/security-log.ts", "activityAnswer"],
+  ["/credit", "money", DEVELOPER, "route"],
+  ["/pro", "money", DEVELOPER, "route"],
+  ["/stripe-account", "money", DEVELOPER, "route"],
+  ["/spending-requests", "money", DEVELOPER, "route"],
 ].sort((first, second) => second[0].length - first[0].length);
 
 const isUnder = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);
@@ -196,6 +204,11 @@ const PAGE_SECTORS = [
   ["/api/saves", "player-data"],
   ["/api/presence", "player-data"],
   ["/admin", "zaisma-keys-and-admin"],
+  ["/buy", "money"],
+  ["/stripe", "money"],
+  ["/api/buy", "money"],
+  ["/api/payment-methods", "money"],
+  ["/api/account/purchase-pin", "money"],
 ].sort((first, second) => second[0].length - first[0].length);
 
 /** What a page or form hands out, by door id. */

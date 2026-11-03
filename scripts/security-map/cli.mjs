@@ -6,6 +6,7 @@ import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { chains, NIGHTLY_CASE_BUDGET, pickFrontier } from "./frontier.mjs";
 import { defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
 import { demoExport } from "./page/demo-export.mjs";
+import { promiseProblems, promiseSummaries, readPromises, refreshPromises, writePromises } from "./promises.mjs";
 import { seedMapDir } from "./seed-robust.mjs";
 
 /**
@@ -18,13 +19,14 @@ import { seedMapDir } from "./seed-robust.mjs";
  *   node scripts/security-map/cli.mjs export     write exports/map-public.json (--check re-checks it)
  *   node scripts/security-map/cli.mjs page       build the Security map page from the export (--out <path>, --export <path> or --demo <doors per sector>)
  *   node scripts/security-map/cli.mjs verify     generate, then stale any case whose cited test is gone
+ *   node scripts/security-map/cli.mjs promises   check the sectors' promises, and mark stale the scores whose code changed (--check changes nothing)
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security),
  * --budget <cases> (frontier, default 40), --date <YYYY-MM-DD> (frontier and export, default today in UTC).
  */
 
 const REPO_ROOT = join(import.meta.dirname, "../..");
-const COMMANDS = ["generate", "seed", "frontier", "chains", "export", "verify", "page"];
+const COMMANDS = ["generate", "seed", "frontier", "chains", "export", "verify", "page", "promises"];
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
@@ -38,7 +40,7 @@ function readArguments(argv) {
     else if (flag === "--out") options.outPath = rest[++index];
     else if (flag === "--export") options.exportPath = rest[++index];
     else if (flag === "--demo") options.demoDoorCountPerSector = Number(rest[++index]);
-    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --budget <cases>, --date <YYYY-MM-DD>, --check (export), --out <path>, --export <path>, --demo <doors per sector> (page).`);
+    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --budget <cases>, --date <YYYY-MM-DD>, --check (export, promises), --out <path>, --export <path>, --demo <doors per sector> (page).`);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
   if (!Number.isInteger(options.budgetCaseCount) || options.budgetCaseCount < 1) throw new Error("--budget is a whole number of cases, like 40.");
@@ -70,6 +72,14 @@ async function main() {
   } else if (command === "page") {
     if (options.demoDoorCountPerSector !== null) await writePage({ exportObject: demoExport({ doorCountPerSector: options.demoDoorCountPerSector }), outPath: options.outPath, mapDir });
     else await writePage({ exportPath: options.exportPath ?? join(mapDir, "exports", "map-public.json"), outPath: options.outPath, mapDir });
+  } else if (command === "promises") {
+    const stored = readPromises(mapDir);
+    const problems = promiseProblems(stored);
+    if (problems.length) throw new Error(`The promises have problems:\n  ${problems.join("\n  ")}`);
+    const refreshed = refreshPromises({ stored, repoRoot: REPO_ROOT });
+    if (!options.isCheck) writePromises(mapDir, refreshed);
+    for (const summary of promiseSummaries(refreshed)) console.log(`${summary.rollout_position}. ${summary.sector_id}: ${summary.promise_line}\n   ${summary.way_count} ways (${Object.entries(summary.way_count_by_priority).map(([priority, wayCount]) => `${priority} ${wayCount}`).join(", ")})`);
+    list("Stale", promiseSummaries(refreshed).flatMap((summary) => summary.stale_refs));
   } else if (command === "seed") {
     list("Seeded robust", seedMapDir({ repoRoot: REPO_ROOT, mapDir }));
   } else if (command === "frontier") {

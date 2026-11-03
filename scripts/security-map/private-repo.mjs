@@ -18,7 +18,7 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *        status line, its queue lines gone, then commit and push
  *   node scripts/security-map/private-repo.mjs remove-queue-line <text>    queue.md lines holding <text> gone, then commit and push
  *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the export's generated_at, then commit and push
- *   node scripts/security-map/private-repo.mjs commit --message <text>     commit and push what's changed in the clone (after cli.mjs or a verdict)
+ *   node scripts/security-map/private-repo.mjs commit --message <text> [--path <path>]    commit and push what's changed in the clone (after cli.mjs or a verdict), or only under each --path
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security), --dry (say
  * what a change would do, change nothing), --date <YYYY-MM-DD> (mark-fixed, default today in UTC).
@@ -248,7 +248,7 @@ function pageShown(mapDir, { isDry }) {
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, positional: [] };
+  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, paths: [], positional: [] };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === "--dry") options.isDry = true;
@@ -256,9 +256,10 @@ function readArguments(argv) {
     else if (flag === "--map-dir") options.mapDir = rest[++index];
     else if (flag === "--date") options.date = rest[++index];
     else if (flag === "--message") options.message = rest[++index];
+    else if (flag === "--path") options.paths.push(rest[++index]);
     else if (flag === "--test") options.testPath = rest[++index];
     else if (flag === "--note") options.note = rest[++index];
-    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> (commit), --test <path> and --note <text> (mark-fixed).`);
+    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> and --path <path> (commit), --test <path> and --note <text> (mark-fixed).`);
     else options.positional.push(flag);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
@@ -291,7 +292,7 @@ async function main() {
   let result;
   if (command === "commit") {
     if (options.isDry) result = { changes: run("git", ["status", "--porcelain"], mapDir).split("\n").filter(Boolean), message: options.message, is_dry: true };
-    else result = commitAndPush(mapDir, { message: options.message });
+    else result = commitAndPush(mapDir, { message: options.message, paths: options.paths });
   } else {
     refuseDirtyClone(mapDir);
     if (command === "mark-fixed") result = await markFixed(mapDir, { findingId: options.positional[0], testPath: options.testPath, note: options.note, date: options.date, isDry: options.isDry });
