@@ -98,7 +98,7 @@ export async function testReviewPrecedent(env: Env, precedent: ReviewPrecedent, 
  */
 export async function testWaitingReviewPrecedents(env: Env, deps?: ReviewPrecedentTestDeps, nowMs = Date.now()): Promise<number> {
   if (!env.ANTHROPIC_API_KEY) return 0;
-  if ((await aiUsage(env.DB)).review_cost_cents >= (Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) || 0)) return 0;
+  if ((await aiUsage(env.DB)).review_cost_cents >= (Number(env.AI_CHECKS_MONTHLY_BUDGET_CENTS) || 0)) return 0;
   const startedToday = await env.DB.prepare("SELECT COUNT(*) AS started_count FROM review_precedents WHERE tested_at_ms > ?").bind(nowMs - 24 * 60 * 60 * 1000).first<{ started_count: number }>();
   const remainingTestCount = Math.min(TEST_COUNT_PER_RUN, REVIEW_PRECEDENT_LIMITS.maximumTestCountPerDay - (startedToday?.started_count ?? 0));
   if (remainingTestCount <= 0) return 0;

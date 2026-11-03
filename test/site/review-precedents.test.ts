@@ -7,7 +7,7 @@ import { draftMiss, draftWithAi, isAiHold, type DraftSource, type ReviewPreceden
 import { standInCase } from "../../apps/site/src/review-set.ts";
 import { testPlan, testWaitingReviewPrecedents } from "../../apps/site/src/review-precedent-tests.ts";
 import { PUBLIC_REVIEW_CASES } from "../../apps/site/src/generated/review-set-public-cases.generated.ts";
-import { judgeSays, passingScanDeps, readsNothing, seesNothing } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, passingScanDeps, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
 
 const LOCAL = "http://localhost";
@@ -114,7 +114,7 @@ describe("the judge reads review precedents", () => {
     await insertRuling({ title: "Not yet", review_precedent_status: "testing", created_at_ms: 3000 });
     const briefs: JudgeBrief[] = [];
     const { versionId } = await upload();
-    const report = await scanVersion(testEnv, versionId, passingScanDeps({
+    const report = await reviewedScan(testEnv, versionId, passingScanDeps({
       images: connected,
       judge: async (_key, _model, brief) => {
         briefs.push(brief);
@@ -150,7 +150,7 @@ describe("drafting a ruling for a miss", () => {
   it("drafts a pass and a reject ruling when the judge holds a game, once, with costs in the review's budget", async () => {
     const { draftReviewPrecedent, seen } = drafter();
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
     expect((await rows()).map((row) => row.decision)).toEqual(["pass", "reject"]);
     expect(await rowsOf("reject")).toMatchObject([{ review_precedent_status: "proposed", content_rule: "chat", from_version_id: versionId }]);
     const [draft] = await rowsOf("pass");
@@ -167,7 +167,7 @@ describe("drafting a ruling for a miss", () => {
   it("leaves the draft empty for a person when the AI can't write one", async () => {
     const { draftReviewPrecedent } = drafter(null);
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
     expect(await rowsOf("pass")).toMatchObject([{ review_precedent_status: "proposed", title: "", case_index_html: "" }]);
   });
 
@@ -175,7 +175,7 @@ describe("drafting a ruling for a miss", () => {
     const { draftReviewPrecedent, seen } = drafter();
     for (const code of ["ai_review_declined", "ai_review_failed", "daily_large_reviews_used"] as const) {
       const { versionId } = await upload(`unfinished-${code.replace(/_/g, "-")}`);
-      await scanVersion(testEnv, versionId, { ...passingScanDeps({ images: connected, judge: judgeSays("hold", [{ stage: "ai", severity: "hold", code, message: "Couldn't finish." }]) }), draft: draftReviewPrecedent });
+      await reviewedScan(testEnv, versionId, { ...passingScanDeps({ images: connected, judge: judgeSays("hold", [{ stage: "ai", severity: "hold", code, message: "Couldn't finish." }]) }), draft: draftReviewPrecedent });
       const version = (await env.DB.prepare("SELECT * FROM versions WHERE id = ?").bind(versionId).first())!;
       expect(isAiHold(version as never)).toBe(false);
     }
@@ -186,9 +186,9 @@ describe("drafting a ruling for a miss", () => {
   it("never drafts for child safety, for a pass, or for a hold the judge didn't make", async () => {
     const { draftReviewPrecedent, seen } = drafter();
     const childSafety = await upload("child-safety");
-    await scanVersion(testEnv, childSafety.versionId, { ...passingScanDeps({ images: connected, judge: judgeSays("hold", [{ stage: "ai", severity: "hold", code: "ai_minors_sexualized", message: "Never shown." }], true) }), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, childSafety.versionId, { ...passingScanDeps({ images: connected, judge: judgeSays("hold", [{ stage: "ai", severity: "hold", code: "ai_minors_sexualized", message: "Never shown." }], true) }), draft: draftReviewPrecedent });
     const passed = await upload("passed");
-    await scanVersion(testEnv, passed.versionId, { ...passes(), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, passed.versionId, { ...passes(), draft: draftReviewPrecedent });
     expect(await draftMiss(testEnv, { versionId: passed.versionId, decision: "pass" }, draftReviewPrecedent)).toBeNull();
     expect(await rows()).toEqual([]);
     expect(seen).toEqual([]);
@@ -227,7 +227,7 @@ describe("the drafter", () => {
 describe("releasing a hold the review got wrong", () => {
   async function heldVersion(draft = drafter()) {
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, { ...holdsFor(), draft: draft.draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...holdsFor(), draft: draft.draftReviewPrecedent });
     return versionId;
   }
 
@@ -261,7 +261,7 @@ describe("releasing a hold the review got wrong", () => {
 
   it("doesn't refund a hold that wasn't the judge's: a report's pause, or one waiting for a daily review", async () => {
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, passes());
+    await reviewedScan(testEnv, versionId, passes());
     await env.DB.prepare("UPDATE versions SET scan_status = 'held', report_held_at_ms = 1 WHERE id = ?").bind(versionId).run();
     await post(`/admin/versions/${versionId}/approve`);
     expect((await versionRow(versionId))!.is_review_refunded).toBe(0);
@@ -273,19 +273,19 @@ describe("releasing a hold the review got wrong", () => {
     for (let index = 1; index <= 5; index++) {
       const { versionId, gameId } = await upload(`refund-${index}`);
       await env.DB.prepare("UPDATE games SET owner_id = 'owner_refund' WHERE id = ?").bind(gameId).run();
-      await scanVersion(testEnv, versionId, holdsFor());
+      await reviewedScan(testEnv, versionId, holdsFor());
       versions.push(versionId);
     }
     // Five judged reviews today: a sixth version waits for a free one.
     const sixth = await upload("refund-6");
     await env.DB.prepare("UPDATE games SET owner_id = 'owner_refund' WHERE id = ?").bind(sixth.gameId).run();
-    const waiting = await scanVersion(testEnv, sixth.versionId, holdsFor());
-    expect(waiting.findings.map((finding) => finding.code)).toEqual(["daily_large_reviews_used"]);
+    await reviewedScan(testEnv, sixth.versionId, holdsFor());
+    expect(await env.DB.prepare("SELECT ai_review_status, ai_review_waiting_reason FROM versions WHERE id = ?").bind(sixth.versionId).first()).toEqual({ ai_review_status: "waiting", ai_review_waiting_reason: "daily_large_reviews_used" });
     // A person releases one of the five: the review was wrong, so it's given back.
     await post(`/admin/versions/${versions[0]}/approve`);
     const seventh = await upload("refund-7");
     await env.DB.prepare("UPDATE games SET owner_id = 'owner_refund' WHERE id = ?").bind(seventh.gameId).run();
-    const judged = await scanVersion(testEnv, seventh.versionId, holdsFor());
+    const judged = await reviewedScan(testEnv, seventh.versionId, holdsFor());
     expect(judged.findings.map((finding) => finding.code)).toEqual(["ai_free_text_chat"]);
   });
 });
@@ -296,7 +296,7 @@ describe("upholding a hold, or approving a rejection, teaches the review", () =>
   it("saves a reject ruling when a person upholds the judge's hold, so the next game like it needs no person", async () => {
     const { draftReviewPrecedent } = drafter();
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...holdsFor(), draft: draftReviewPrecedent });
     const [draft] = await rowsOf("reject");
     const response = await post(`/admin/versions/${versionId}/reject`, { ...GOOD_FORM, rp_id: draft!.id, rp_version: versionId, content_rule: "chat", reason: "Typed text reaches other players." });
     expect(response.status).toBe(303);
@@ -307,7 +307,7 @@ describe("upholding a hold, or approving a rejection, teaches the review", () =>
   it("refunds a rejection a person approves, and saves the pass ruling drafted for it", async () => {
     const { draftReviewPrecedent } = drafter();
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, { ...rejectsFor(), draft: draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...rejectsFor(), draft: draftReviewPrecedent });
     expect(await versionRow(versionId)).toMatchObject({ scan_status: "rejected" });
     expect((await rows()).map((row) => row.decision)).toEqual(["pass"]);
     const [draft] = await rows();
@@ -321,7 +321,7 @@ describe("upholding a hold, or approving a rejection, teaches the review", () =>
 describe("rejecting or taking down a game the review passed", () => {
   it("saves a hold ruling from a rejection, with the rule picked beside it", async () => {
     const { versionId } = await upload();
-    await scanVersion(testEnv, versionId, passes());
+    await reviewedScan(testEnv, versionId, passes());
     const response = await post(`/admin/versions/${versionId}/reject`, { ...GOOD_FORM, rp_rule: "", content_rule: "real_people", reason: "A real address.", rp_version: versionId });
     expect(response.status).toBe(303);
     expect(await rows()).toMatchObject([{ review_precedent_status: "testing", decision: "reject", content_rule: "real_people", from_version_id: versionId }]);
@@ -329,7 +329,7 @@ describe("rejecting or taking down a game the review passed", () => {
 
   it("needs a content rule for a hold ruling, and a test game", async () => {
     const { versionId, gameId } = await upload();
-    await scanVersion(testEnv, versionId, passes());
+    await reviewedScan(testEnv, versionId, passes());
     const noRule = await post(`/admin/games/${gameId}/takedown`, { ...GOOD_FORM, rp_rule: "", content_rule: "malware", reason: "x", rp_case_html: "" });
     expect(await noRule.text()).toContain("stand-in test game");
     expect((await env.DB.prepare("SELECT review_status FROM games WHERE id = ?").bind(gameId).first())!.review_status).not.toBe("removed");
@@ -434,7 +434,7 @@ describe("the admin page", () => {
 
   it("shows the Teach the review block with the drafted ruling on a held version", async () => {
     const { versionId, gameId } = await upload();
-    await scanVersion(testEnv, versionId, { ...holdsFor(), draft: drafter().draftReviewPrecedent });
+    await reviewedScan(testEnv, versionId, { ...holdsFor(), draft: drafter().draftReviewPrecedent });
     const page = await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text();
     expect(page).toContain("teach it to pass games like it");
     expect(page).toContain("Preset phrases in a menu");

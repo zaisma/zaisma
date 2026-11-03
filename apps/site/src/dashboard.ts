@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { APPEAL_EMAIL } from "./bans.ts";
 import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
@@ -37,6 +37,7 @@ interface GameJson {
   visibility: "draft" | "listed" | "unlisted" | "private";
   review_status: "pending" | "live" | "held" | "removed";
   review_reason: ReviewReasonJson | null;
+  visibility_after_ai_review: "listed" | "unlisted" | null;
   devices: string[];
   controls: string[];
   genres: string[];
@@ -127,6 +128,11 @@ interface VersionJson {
   file_count: number;
   size_bytes: number;
   scan_status: "scanning" | "held" | "approved" | "rejected";
+  ai_review_status: "not_started" | "waiting" | "reviewing" | "passed" | "stopped" | "skipped";
+  ai_review_waiting_reason: string | null;
+  usual_ai_review_duration_min: number | null;
+  is_ai_review_needed_to_publish: boolean;
+  is_open_before_ai_review: boolean;
   is_live: boolean;
   patch_notes: string;
   is_big_update: boolean;
@@ -136,7 +142,7 @@ interface VersionJson {
   scheduled_publish_at: string | null;
   created_at: string;
   review_reason: ReviewReasonJson | null;
-  findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
+  findings: (ReviewReasonJson & { severity: "reject" | "hold" | "info"; path: string | null })[];
   replaced_by_version_id: string | null;
   performance_check: PerformanceCheckJson | null;
 }
@@ -184,6 +190,8 @@ const DONE: Record<string, string> = {
   "shader-removed": "Shader removed.",
   tint: "Glass tint saved.",
   published: "Published. Players get this version now.",
+  "waiting-for-ai-review": "It goes live once its AI review passes.",
+  "ai-review": "Its AI review is on its way.",
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
   "version-deleted": "Version deleted. The files no other version has stopped counting.",
@@ -367,14 +375,22 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("DELETE", `/games/${slug}/versions/${previewsPath[1]}/preview-links`);
       return back(sectionOfAction, "previews-ended");
     }
-    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule|delete)$/);
+    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule|ai-review|delete)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
       // "Update running games now": live matches switch now instead of at their next match.
       const matchUpdate = field("match_update_mode") === "now" ? { match_update_mode: "now" } : {};
+      if (what === "ai-review") {
+        await call("POST", `/games/${slug}/versions/${id}/ai-review`);
+        return back(sectionOfAction, "ai-review");
+      }
       // A version that has never been live says what changed and whether it's a big update; left off, it's a quiet patch.
       const mark = { ...(form.has("patch_notes") ? { patch_notes: field("patch_notes") } : {}), ...(field("is_big_update") === "true" ? { is_big_update: true } : {}) };
-      if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, { ...matchUpdate, ...mark });
+      const reviewChoice = field("publish_after_ai_review_enabled") === "on" ? { publish_after_ai_review_enabled: true } : {};
+      if (what === "publish") {
+        const published = (await call("POST", `/games/${slug}/versions/${id}/publish`, { ...matchUpdate, ...mark, ...reviewChoice })) as { version: VersionJson };
+        return back(sectionOfAction, published.version.is_live ? "published" : "waiting-for-ai-review");
+      }
       if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at"), ...matchUpdate, ...mark });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
       if (what === "delete") await call("DELETE", `/games/${slug}/versions/${id}`);
@@ -633,6 +649,7 @@ ${options.confirmHide
 <form class="row" method="post" action="/dashboard/${slug}/visibility"><input type="hidden" name="visibility" value="${options.confirmHide}"><input type="hidden" name="confirm" value="yes">${sectionField(section)}
 <button class="btn danger" type="submit">Hide it from players</button><a class="btn ghost" href="${sectionPath(slug, section)}">Keep it</a></form></div>`
       : ""}
+${game.visibility_after_ai_review ? html`<p class="note small">Goes ${game.visibility_after_ai_review} once the AI review passes.</p>` : ""}
 ${game.review_reason ? html`<div class="note held-game" role="status">${reasonPanel(slug, game.review_reason, removed ? "Zaisma took this game down." : "Players can't open this game right now.")}</div>` : ""}
 ${notice(options)}
 ${body}
@@ -914,6 +931,13 @@ const bigUpdateFields = (version: VersionJson): Raw =>
 
 function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   const action = (what: string) => `/dashboard/${slug}/versions/${version.id}/${what}`;
+  const reviewTime = version.usual_ai_review_duration_min === null ? null : usualDurationWords(version.usual_ai_review_duration_min);
+  const isReviewRunning = version.ai_review_status === "waiting" || version.ai_review_status === "reviewing";
+  const reviewLine = !isReviewRunning || !reviewTime
+    ? ""
+    : version.is_live
+      ? html`<p class="muted">Live, AI review pending. It usually takes ${reviewTime}.</p>`
+      : html`<p class="muted">Goes live once the AI review passes, usually in ${reviewTime}.</p>`;
   const scheduled = version.scheduled_publish_at
     ? html`<form class="row" method="post" action="${action("unschedule")}">${sectionField(section)}<span>Goes live ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? " if it has passed by then" : ""}.</span><button class="btn ghost" type="submit">Cancel</button></form>`
     : "";
@@ -921,8 +945,10 @@ function versionRow(slug: string, version: VersionJson, section: Section): Raw {
   if (version.scan_status === "approved" && !version.is_live) {
     acts = html`<div class="row">
 ${version.preview_url ? html`<a class="btn ghost" href="${version.preview_url}" target="_blank" rel="noopener" title="For you and your AI: each link works for a day">Preview</a>` : ""}
-<form class="row" method="post" action="${action("publish")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
+${reviewTime && version.is_ai_review_needed_to_publish ? html`<p class="muted">The AI review usually takes ${reviewTime}.</p>` : ""}
+<form class="row" method="post" action="${action("publish")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<button class="btn light" type="submit">${version.published_at ? "Roll back to this" : "Publish"}</button>${version.is_ai_review_needed_to_publish && version.is_open_before_ai_review ? html`<label class="check now-check"><input type="checkbox" name="publish_after_ai_review_enabled" value="on"> Go live only once it passes</label>` : ""}<label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label></form>
 ${version.preview_url ? html`<details class="later"><summary>Preview links</summary><form class="row" method="post" action="${action("end-previews")}">${sectionField(section)}<span class="muted">Each preview link is for you and your AI and works for a day. Shared one too widely? Turn them all off; Preview gets a fresh one.</span><button class="btn ghost" type="submit">Turn off preview links</button></form></details>` : ""}
+${version.ai_review_status === "not_started" ? html`<form class="row" method="post" action="${action("ai-review")}">${sectionField(section)}<button class="btn ghost" type="submit">Start AI review</button></form>` : ""}
 ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}">${sectionField(section)}${version.published_at ? "" : bigUpdateFields(version)}<input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><label class="check now-check" title="Live matches switch within seconds, in the same room; open games get Update"><input type="checkbox" name="match_update_mode" value="now"> Update running games now</label><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
   } else if (version.scan_status === "scanning") {
@@ -944,7 +970,7 @@ ${findings.length
         )}</ul></div>`
       : ""}
 ${version.scan_status === "approved" ? performanceLine(version.performance_check) : ""}
-${scheduled}${acts}
+${reviewLine}${version.findings.filter((finding) => finding.code === "ai_review_budget_used" || finding.code === version.ai_review_waiting_reason).map((finding) => html`<p class="muted">${finding.message_for_people}</p>`)}${scheduled}${acts}
 ${version.is_live || version.scan_status === "scanning" || version.scheduled_publish_at ? "" : html`<details class="later"><summary>Delete</summary><form class="row" method="post" action="${action("delete")}">${sectionField(section)}<span class="muted">Deletes this version for good, and frees the files no other version has.</span><button class="btn danger" type="submit">Delete this version</button></form></details>`}
 </li>`;
 }

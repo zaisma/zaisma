@@ -202,6 +202,9 @@ export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // Choices from fixed lists.
+  "games.visibility_after_ai_review", "versions.ai_review_speed", "versions.ai_review_waiting_reason",
+  // What the AI review's readers found: only Zaisma's code writes it, and it's only read back into the judge's brief.
+  "read_files.evidence_items",
   "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",

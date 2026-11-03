@@ -27,7 +27,7 @@ import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
 import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
-import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
+import { handleScanBatch, moveWaitingAiReviews, queueImageChecks } from "./scan.ts";
 import { queueMissingCompression } from "./compress.ts";
 import { handlePerformanceBatch, type PerformanceJob } from "./performance-check.ts";
 import { handleBackupMessage, startBackupRun, type BackupPart } from "./backups.ts";
@@ -178,7 +178,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (tester && tester[2] && method === "POST") return testerEnter(env, tester[1]!, request);
   // A version's preview link: it opens the version full page at the game's preview address.
   const preview = path.match(/^\/p\/([A-Za-z0-9_.-]{1,140})$/);
-  if (preview && method !== "POST") return previewPage(env, preview[1]!);
+  if (preview && method !== "POST") return previewPage(request, env, preview[1]!);
 
   if (path === "/developers/covers" && method === "GET") return coverGuidePage(env, await viewerOf(request, env));
   if (path === BACKGROUND_GUIDE_PATH && method === "GET") return backgroundGuidePage(env, await viewerOf(request, env));
@@ -257,7 +257,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), rescanWaiting(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

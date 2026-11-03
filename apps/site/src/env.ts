@@ -131,6 +131,8 @@ export interface Env {
   METER_COST_SHARE_PCT?: string;
   UNPLAYED_GAMES_COST_CENTS_PER_MONTH?: string;
   PAST_LIMIT_CEILING_CENTS?: string;
+  /** The listing check's and new review rulings' monthly ceiling, on the same count as the review's. */
+  AI_CHECKS_MONTHLY_BUDGET_CENTS: string;
   /** Chat's own monthly cap on AI input tokens (chat-check.ts), apart from AI_MONTHLY_INPUT_TOKENS. */
   AI_CHAT_MONTHLY_INPUT_TOKENS: string;
   /** The model that reviews sexual messages from adults to teens the chat filter stopped (chat-review.ts). */

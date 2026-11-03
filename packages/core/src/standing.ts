@@ -33,6 +33,8 @@ const HOUR_MS = 3_600_000;
 export interface Standing {
   isEstablishedDeveloper: boolean;
   outsideLinksEnabled: boolean;
+  /** Its versions may reach other people before their AI review ends ("Fixed checks first, the AI review after publishing"): the same facts as links to other sites. */
+  publishBeforeAiReviewEnabled: boolean;
   searchEnginesEnabled: boolean;
   /** Returning players as the daily check last counted them. */
   returningPlayerCount: number;
@@ -49,6 +51,7 @@ export interface Standing {
 const NO_STANDING: Standing = {
   isEstablishedDeveloper: false,
   outsideLinksEnabled: false,
+  publishBeforeAiReviewEnabled: false,
   searchEnginesEnabled: false,
   returningPlayerCount: 0,
   accountAgeDays: 0,
@@ -97,7 +100,8 @@ export async function standingOf(database: D1Database, ownerId: string | null, n
   const facts = { returningPlayerCount: row.returning_player_count, accountAgeDays, lastRulingAtMs: row.last_ruling_at_ms, rulingWaitEndsAtMs, hasCardOrStripeAccount, hasPaidByCard: row.has_card === 1, isBanned };
   if (isBanned || rulingWaitEndsAtMs !== null) return { ...NO_STANDING, ...facts };
   const isEstablishedDeveloper = row.is_established === 1 || row.is_zaisma_account === 1;
-  return { ...facts, isEstablishedDeveloper, outsideLinksEnabled: isEstablishedDeveloper || hasCardOrStripeAccount, searchEnginesEnabled: isEstablishedDeveloper };
+  const outsideLinksEnabled = isEstablishedDeveloper || hasCardOrStripeAccount;
+  return { ...facts, isEstablishedDeveloper, outsideLinksEnabled, publishBeforeAiReviewEnabled: outsideLinksEnabled, searchEnginesEnabled: isEstablishedDeveloper };
 }
 
 /**

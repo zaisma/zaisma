@@ -4,7 +4,7 @@ import { createAccount, createApiKey, createVersion, gameBySlug, needsLifelikeGo
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { publishDue } from "../../apps/site/src/cleanup.ts";
 import { letPublish } from "../helpers.ts";
-import { judgeSays, passingScanDeps } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, passingScanDeps } from "./scan-stubs.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
@@ -84,7 +84,7 @@ describe("needsLifelikeGoreAge", () => {
 describe("the scan", () => {
   it("holds lifelike gore on a game for everyone 13 and up, with both fixes", async () => {
     const id = await makeVersion("scanning", null);
-    const report = await scanVersion(testEnv, id, aiFinds(GORE));
+    const report = await reviewedScan(testEnv, id, aiFinds(GORE));
     expect(report.decision).toBe("held");
     expect(await statusOf(id)).toBe("held");
     const version = ((await (await api(`/games/hop/versions/${id}`)).json()) as { version: { findings: { code: string; fix: string }[] } }).version;
@@ -96,7 +96,7 @@ describe("the scan", () => {
   it("passes it on a game for 16 and up, keeping the finding as info", async () => {
     await setAge(16);
     const id = await makeVersion("scanning", null);
-    const report = await scanVersion(testEnv, id, aiFinds(GORE));
+    const report = await reviewedScan(testEnv, id, aiFinds(GORE));
     expect(report.decision).toBe("approved");
     expect(await statusOf(id)).toBe("approved");
     expect(report.findings).toMatchObject([{ code: "ai_lifelike_gore", severity: "info" }]);
@@ -105,7 +105,7 @@ describe("the scan", () => {
   it("still holds a game for 16 and up that has another hold finding", async () => {
     await setAge(16);
     const id = await makeVersion("scanning", null);
-    const report = await scanVersion(testEnv, id, aiFinds(GORE, OTHER_HOLD));
+    const report = await reviewedScan(testEnv, id, aiFinds(GORE, OTHER_HOLD));
     expect(report.decision).toBe("held");
     expect(await statusOf(id)).toBe("held");
   });

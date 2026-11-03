@@ -117,6 +117,7 @@ describe("/g/:slug/live-version", () => {
     const version = await approvedVersion({ "index.html": "a1" });
     expect((await (await SELF.fetch(`${SITE}/g/arena/live-version`)).status)).toBe(404);
     expect((await api(`/games/arena/versions/${version}/publish`, { body: { match_update_mode: "now" } })).status).toBe(200);
+    await env.DB.prepare("UPDATE versions SET ai_review_status = 'passed' WHERE id = ?").bind(version).run();
     expect((await api("/games/arena", { method: "PATCH", body: { visibility: "unlisted" } })).status).toBe(200);
     const response = await SELF.fetch(`${SITE}/g/arena/live-version`);
     expect(response.status).toBe(200);

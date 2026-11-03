@@ -55,7 +55,7 @@ export async function queueListingCheck(env: Env, gameId: string): Promise<void>
 /** Whether the check can run now: a key, and the review's monthly budget not used up. */
 async function canCheck(env: Env): Promise<boolean> {
   if (!env.ANTHROPIC_API_KEY) return false;
-  return (await aiUsage(env.DB)).review_cost_cents < (Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) || 0);
+  return (await aiUsage(env.DB)).review_cost_cents < (Number(env.AI_CHECKS_MONTHLY_BUDGET_CENTS) || 0);
 }
 
 /** Every 5 minutes: games whose check was asked for over 10 minutes ago and hasn't run (a lost message, or the migration's first pass). */

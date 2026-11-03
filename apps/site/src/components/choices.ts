@@ -549,7 +549,7 @@ export const REPORT_REASONS: ChoiceCard[] = [
   { label: "It's broken", choiceValue: "broken", text: "Won't load, crashes, or isn't really a game" },
   { label: "A player", choiceValue: "player", text: "Someone in a match is causing trouble" },
   { label: "Sexual content", choiceValue: "sexual", text: "Nudity or sexual material" },
-  { label: "Private details or threats", choiceValue: "real_people", text: "Shows where a real person lives or goes to school, or threatens them" },
+  { label: "Private details or threats", choiceValue: "real_people", text: "Shows where a real person lives or goes to school, threatens them, or urges real violence" },
   { label: "Scam or malware", choiceValue: "malware", text: "Asks for passwords or payment, or tries to install something" },
   { label: "Child safety", choiceValue: "child_safety", text: "Sexualizes children or puts a child in danger" },
   { label: "Illegal content", choiceValue: "illegal", text: "Something against the law" },

@@ -138,7 +138,7 @@ describe("closed flags", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("doesn't take --patch-note");
     expect(result.stderr).toContain("Did you mean --patch-notes?");
-    expect(result.stderr).toContain("--game, --patch-notes, --publish-when-approved, --big-update, --match-update-mode and --json");
+    expect(result.stderr).toContain("--game, --patch-notes, --after-review, --publish-when-approved, --big-update, --match-update-mode and --json");
     expect(result.stderr).toContain("(unknown_field)");
     expect(calls).toEqual([]);
   });
@@ -248,7 +248,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "ai-review", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));

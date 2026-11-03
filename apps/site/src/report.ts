@@ -30,7 +30,7 @@ const GAME_WHYS: [ReportReason, string, string][] = [
   ["broken", "It's broken", "Won't load, crashes, or isn't really a game"],
   ["player", "A player", "Someone in a match is causing trouble"],
   ["sexual", "Sexual content", "Nudity or sexual material"],
-  ["real_people", "Private details or threats", "Shows where a real person lives or goes to school, or threatens them"],
+  ["real_people", "Private details or threats", "Shows where a real person lives or goes to school, threatens them, or urges real violence"],
   ["malware", "Scam or malware", "Asks for passwords or payment, or tries to install something"],
   ["child_safety", "Child safety", "Sexualizes children or puts a child in danger"],
   ["illegal", "Illegal content", "Something against the law"],
@@ -444,7 +444,7 @@ export async function pauseForReport(env: Env, game: Game, label: string, waitUn
   const nowMs = Date.now();
   if (!live || live.cleared_at_ms || !live.published_at_ms || live.published_at_ms < nowMs - RECENT_MS) return null;
   const before = await env.DB
-    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND ai_review_status IN ('passed', 'skipped') AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
     .bind(game.id, live.id, live.published_at_ms)
     .first<Version>();
   if (before) {

@@ -1,3 +1,4 @@
+import type { AiReviewSpeed, AiReviewStatus, AiReviewWaitingReason } from "./ai-review.ts";
 import type { FindingCode } from "./review.ts";
 import type { EvidenceItem } from "./review-evidence.ts";
 import { ownServerUrlsOf } from "./own-servers.ts";
@@ -107,6 +108,8 @@ export interface Game {
   live_version_match_update_mode: MatchUpdateMode;
   /** When the live version went live; NULL for games published before it was kept. */
   live_version_published_at_ms: number | null;
+  /** The visibility it takes once its live version's AI review passes; null when it's waiting for none. */
+  visibility_after_ai_review: "listed" | "unlisted" | null;
   /** When the game first went live; it never moves. */
   first_published_at_ms: number | null;
   /** The last marked big update: the Updated tag and fact. A first release is never one. */
@@ -164,6 +167,20 @@ export interface Version {
   replaced_by_version_id: string | null;
   /** When this version's small review ran (its reads called the reader model); null when nothing was read. */
   read_at_ms: number | null;
+  /** Where it stands with the AI review (ai-review.ts). */
+  ai_review_status: AiReviewStatus;
+  /** How its review runs; null until one is asked for. */
+  ai_review_speed: AiReviewSpeed | null;
+  ai_review_requested_at_ms: number | null;
+  /** When a job was last queued to move its review on. */
+  ai_review_queued_at_ms: number | null;
+  ai_review_finished_at_ms: number | null;
+  /** The daily review it waits for a free one of; null when it doesn't. */
+  ai_review_waiting_reason: AiReviewWaitingReason | null;
+  /** 1 when other people may reach it before its review ends: its developer has earned that. */
+  is_open_before_ai_review: number;
+  /** 1 when its developer chose to go live only once the review passes. */
+  publish_after_ai_review_enabled: number;
 }
 
 export type Severity = "reject" | "hold" | "info";
@@ -243,6 +260,8 @@ export interface ScanJob {
   recheck?: { reportId: string };
   /** Image matching on a version that already passed (before matching was connected). Takes it off only on a match. */
   isImageRecheck?: true;
+  /** Move this version's AI review on: send what it still needs read, or finish it (apps/site/src/review-batches.ts). */
+  isAiReviewStep?: true;
 }
 
 /** The listing check on a game's covers, screenshots and words ("No slop"), on the scan queue beside ScanJob. */

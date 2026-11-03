@@ -14,6 +14,7 @@ const R2_KEY_EXAMPLES: Record<string, string> = {
   blobKey: "zaisma-games/blobs/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   ownedBlobKey: "zaisma-games/owned/owner_1/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   manifestKey: "zaisma-games/manifests/version_1.json",
+  answersKey: "zaisma-games/review-answers/version_1.json",
   fileKey: "zaisma-games/games/game_1/version_1/index.html",
   imageKey: "zaisma-games/images/game_1/image_1",
   cardImageKey: "zaisma-games/images/game_1/image_1.card.jpg",

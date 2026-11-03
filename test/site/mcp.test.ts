@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { audit, bumpSave, canonicalSave, monthStartDateOf, createAccount, createApiKey, createGame, createReport, gameBySlug, notConnected, personOwner, saveFromParts, saveHash, saveKey, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
-import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { adminForm } from "../../apps/site/src/admin.ts";
 import { ERROR } from "../../apps/site/src/schemas.ts";
@@ -52,7 +52,7 @@ async function tool(name: string, args: Record<string, unknown> = {}, key = toke
 
 /** Scan with everything connected, so it passes. */
 async function passScan(id: string) {
-  return scanVersion(testEnv, id, pass);
+  return reviewedScan(testEnv, id, pass);
 }
 
 beforeEach(async () => {
@@ -127,7 +127,7 @@ describe("publishing a game through the MCP", () => {
     expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", has_threads: false, is_live: false });
     expect(first.next_steps).toEqual([{ tool: "get_version", arguments: { slug: "tiny-jump", version_id: first.version.id }, after_sec: 30, reason: expect.any(String) }]);
     // Held first (image matching isn't connected), so its history shows what Zaisma did; then it passes.
-    await scanVersion(testEnv, first.version.id, { ...pass, images: notConnected });
+    await reviewedScan(testEnv, first.version.id, { ...pass, images: notConnected });
     await passScan(first.version.id);
     const checked = await tool("get_version", { slug: "tiny-jump", version_id: first.version.id });
     expect(checked.version.scan_status).toBe("approved");
@@ -473,7 +473,7 @@ describe("reports, stats and history", () => {
   it("says why a version is held and a game was taken down, in its output schemas", async () => {
     await tool("create_game", { title: "Hop" });
     const { version } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<!doctype html><p>hi</p>" }] });
-    await scanVersion(testEnv, version.id, { ...pass, images: notConnected });
+    await reviewedScan(testEnv, version.id, { ...pass, images: notConnected });
     const held = await tool("get_version", { slug: "hop", version_id: version.id });
     expect(held.version).toMatchObject({ scan_status: "held", review_reason: null, findings: [{ code: "image_matching_off", severity: "hold", content_rule: null, path: null }] });
 
@@ -497,7 +497,7 @@ describe("reports, stats and history", () => {
 
     // A version waiting for a person, then a newer one rejected.
     const { version: heldVersion } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<!doctype html><p>hi</p>" }] });
-    await scanVersion(testEnv, heldVersion.id, { ...pass, images: notConnected });
+    await reviewedScan(testEnv, heldVersion.id, { ...pass, images: notConnected });
     const { version: rejectedVersion } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<!doctype html><p>hi again</p>" }] });
     await env.DB.prepare("UPDATE versions SET scan_status = 'rejected', created_at_ms = created_at_ms + 1000 WHERE id = ?").bind(rejectedVersion.id).run();
     // The newer upload replaced the waiting version, so it steps aside with no alert; one a report paused is never replaced.
