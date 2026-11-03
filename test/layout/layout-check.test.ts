@@ -123,7 +123,8 @@ describe.skipIf(!sites)("the layout check", () => {
     // A skipped page sends no form, so it's one look per screen and theme.
     const looksOf = (page: { name: string }) => { const only = (page as { screenNames?: string[] }).screenNames; return (only ? (layoutRun.sizes as { name: string }[]).filter((size) => only.includes(size.name)).length : layoutRun.sizes.length) * layoutRun.themes.length; };
     const sumOfLooks = (some: { name: string }[]) => some.reduce((sum, page) => sum + looksOf(page), 0);
-    expect(checkedCount + sumOfLooks(pages.filter((page: { name: string }) => skippedPageNames.includes(page.name)))).toBe(sumOfLooks(pages));
+    const listed = pages as { name: string }[];
+    expect(checkedCount + sumOfLooks(listed.filter((page) => skippedPageNames.includes(page.name)))).toBe(sumOfLooks(listed));
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
