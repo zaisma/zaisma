@@ -22,6 +22,7 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
   "overlaps another thing": "page",
   "spills out of its pane": "page",
   "a pane past the screen": "page",
+  "a box that scrolls without its rail": "page",
   // What's past its edge can't be read or reached.
   "a pane that overflows without scrolling": "page",
   "two panes overlapping": "page",

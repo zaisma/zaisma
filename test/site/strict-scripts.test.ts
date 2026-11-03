@@ -131,8 +131,10 @@ describe("the site's script files", () => {
     const putInByScreens = ["layout-inspect"];
     // Only a page prepared ahead gets this one, put in as it's sent (prepared-pages.ts, heldUntilOpened).
     const putInWhenPrepared = ["when-opened"];
+    // Only the gallery's Over a game pages and their frames load these.
+    const onlyOverAGame = ["over-a-game-start", "over-a-game-show", "over-a-game"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));
-    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name) && !putInWhenPrepared.includes(name))).toEqual([]);
+    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name) && !putInWhenPrepared.includes(name) && !onlyOverAGame.includes(name))).toEqual([]);
   });
 });
 
