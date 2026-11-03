@@ -37,7 +37,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server/internal";
-import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, isHostingPaused, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
@@ -609,7 +609,7 @@ export class Room extends DurableObject<Env> {
   private async reserved(request: Request): Promise<Response> {
     if (this.meta || this.savedRoom) return new Response("This room is taken", { status: 409 });
     const gameId = request.headers.get("x-game-id")!;
-    if ((await isHostingPaused(this.db, gameId)).isPaused) return new Response(ERROR_TEXT.hosting_paused, { status: 403 });
+    if ((await roomHostingOf(this.db, gameId)).isPaused) return new Response(ERROR_TEXT.hosting_paused, { status: 403 });
     const start = (await request.json()) as RoomStart;
     this.meta = {
       gameId,
@@ -1018,7 +1018,7 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Whether the game's hosting is paused this month (hosting.ts). A running match that finds it is ends
+   * Whether the game's rooms are paused this month: its own pause (hosting.ts) or the month's stop (spending.ts). A running match that finds it is ends
    * MATCH_FINISH_DURATION_SEC after the pause, so every room of the game ends together: its game server
    * and players hear when (room.endsAt). Read again while the match is ending: once the pause is gone (credit
    * came in, a budget was raised, the month reset), the end is called off and the room takes players again.
@@ -1027,7 +1027,7 @@ export class Room extends DurableObject<Env> {
     // Kept, since a sleeping room forgets: otherwise every wake would check.
     this.hostingCheckedAtMs = Date.now();
     await this.storage.put("hostingCheckedAtMs", this.hostingCheckedAtMs);
-    const hosting = await isHostingPaused(this.db, this.meta!.gameId);
+    const hosting = await roomHostingOf(this.db, this.meta!.gameId);
     if (!hosting.isPaused) {
       if (core.endsAt !== null && !core.ended) {
         core.cancelEnding();

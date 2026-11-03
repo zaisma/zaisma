@@ -179,7 +179,9 @@ export const GAME_ALERT = object({
     version_held: "a version is waiting for a person at Zaisma",
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
     game_off_lists: "the listing check found something on a cover or the title that keeps the listed game off Zaisma's lists (home, All games, browse, search engines) until it's fixed; it still plays by its link",
-    hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget, or your credit is used): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget or your credit is used, it has no real players and games with none used their share of free hosting, or Zaisma's free hosting for the month ended): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    free_rooms_stopped: "Zaisma's free room time for the month is used up across all games, and this game has no budget with credit: no new rooms or relayed connections start until the month resets, and running matches get an hour to finish. Its database and game server requests go on",
+    second_free_allowance_started: "the game filled its free hosting for the first time, so it has a second free allowance this month, once",
     database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
     hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
     hosting_budget_nearly_used: "80% of the game's monthly budget is used",
@@ -617,7 +619,9 @@ export const PLAYER_PERFORMANCE = object(
 /** A game's month on the one hosting meter (docs/DEVELOPER-API.md, Hosting and credit). */
 export const HOSTING_USE = object(
   {
-    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100. Never shown in dollars."),
+    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100, a second free allowance included. Never shown in dollars."),
+    second_free_allowance_month_start_date: nullable(date("The month the game had its second free allowance, the first time it filled its free hosting. It comes once. null: not yet.")),
+    free_rooms_stopped_at: nullable(isoTime("When Zaisma's free room time for the month ran out across all games, for a game with no budget with credit: no new rooms or relayed connections start until resets_on_date, and running matches end an hour after. Its database and requests go on. null: rooms run as usual.")),
     shares: list(
       object({
         kind: choice({
@@ -633,7 +637,7 @@ export const HOSTING_USE = object(
       "What used it, biggest first; [] before any use.",
     ),
     is_paused: yes("Whether the game's hosting is paused: no new rooms, relayed connections or requests start, and running matches get an hour to finish."),
-    paused_reason: nullable(choice({ free_used: "its free hosting is used and it has no budget", budget_used: "its monthly budget is used", credit_used: "your credit ran out" }, "null when it isn't paused.")),
+    paused_reason: nullable(choice({ free_used: "its free hosting is used and it has no budget", budget_used: "its monthly budget is used", credit_used: "your credit ran out", no_real_players: "it has no real players yet, and games with none have used their share of free hosting this month: it starts again once real players play it, or when the month resets", free_hosting_ended: "Zaisma's free hosting for this month is used up across all games" }, "null when it isn't paused.")),
     paused_at: nullable(isoTime("When it paused; running matches end an hour after. null when it isn't paused.")),
     resets_on_date: date("When the month resets (UTC): the free allowance starts again and a pause ends."),
     monthly_budget_cents: nullable(countOf("What it may draw from credit this month; null: no paid hosting.")),

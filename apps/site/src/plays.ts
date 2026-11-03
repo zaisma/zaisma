@@ -11,8 +11,7 @@ import {
   playerPerformanceRow,
   readPlayPerformanceReport,
   type PerformanceDay,
-  type PlayerPerformanceRow,
-} from "@zaisma/core";
+  type PlayerPerformanceRow, monthStartDateOf } from "@zaisma/core";
 import { accountById, createEntryGrant, fullGameOwner, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, recordReturningPlay, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -138,11 +137,14 @@ async function testerPlay(request: Request, env: Env, game: Game | null, body: R
   if (!game || !link || !isTesterLinkOn(link) || link.slug !== game.slug || game.review_status !== "live" || !game.live_version_id) return new Response(null, { status: 404 });
   // Online play only on the version players have, so a test build never reaches live rooms, game servers or data.
   const opens = await testerLinkVersion(env.DB, game, link);
-  if (opens?.id !== game.live_version_id) return ok();
   const viewer = game.minimum_player_age_years > 13 ? await signedIn(request, env) : null;
   const turnedAway = viewer ? ageRefusal(game, viewer.account) : null;
   if (turnedAway) return withCookies(turnedAway, viewer!.cookies);
-  if (!playsOnline(game) || !(await isRealBrowser(env, body.token, "play"))) return ok();
+  if (!(await isRealBrowser(env, body.token, "play"))) return ok();
+  // Its browser counts toward the game's real players, once a month by what it says, and never in the game's numbers.
+  const isFirstThisMonth = typeof body.tlast !== "string" || body.tlast.slice(0, 7) !== today().slice(0, 7);
+  if (isFirstThisMonth && !HOSTING_NETWORKS.has(network(request))) await realPlayerWrite(env.DB, game.id, Date.now()).run();
+  if (opens?.id !== game.live_version_id || !playsOnline(game)) return ok();
   const { accountId, cookies } = viewer ?? (await signedIn(request, env));
   return withCookies(ok({ key: await issueRoomKey(env.DB, game.id, accountId), playerKind: accountId ? "account" : "guest" }), cookies);
 }
@@ -233,8 +235,8 @@ export async function issueTicket(database: D1Database, gameId: string, facts: S
   const id = newId("play_ticket");
   const date = today(nowMs);
   await database
-    .prepare("INSERT INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player, first_play_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, gameId, nowMs, nowMs, date, facts.clast !== date ? 1 : 0, facts.cfirst === null ? 1 : 0, facts.cfirst)
+    .prepare("INSERT INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player, first_play_date, is_first_play_this_month) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, gameId, nowMs, nowMs, date, facts.clast !== date ? 1 : 0, facts.cfirst === null ? 1 : 0, facts.cfirst, facts.clast?.slice(0, 7) !== date.slice(0, 7) ? 1 : 0)
     .run();
   return id;
 }
@@ -244,7 +246,7 @@ export async function countTicket(database: D1Database, gameId: string, id: stri
   const ticket = await database
     .prepare("UPDATE play_tickets SET counted_at_ms = ? WHERE id = ? AND game_id = ? AND counted_at_ms IS NULL AND issued_at_ms <= ? AND issued_at_ms > ? RETURNING *")
     .bind(nowMs, id, gameId, nowMs - COUNT_AFTER_MS, nowMs - TICKET_MS)
-    .first<{ date: string; is_first_play_today: number; is_new_player: number; first_play_date: string | null; play_duration_sec: number }>();
+    .first<{ date: string; is_first_play_today: number; is_new_player: number; first_play_date: string | null; play_duration_sec: number; is_first_play_this_month: number }>();
   if (!ticket) return false;
   const writes = [
     database
@@ -269,8 +271,19 @@ export async function countTicket(database: D1Database, gameId: string, id: stri
         .bind(gameId, ticket.first_play_date, afterDays),
     );
   }
+  if (ticket.is_first_play_this_month && !HOSTING_NETWORKS.has(autonomousSystemNumber)) writes.push(realPlayerWrite(database, gameId, nowMs));
   await database.batch(writes);
   return true;
+}
+
+/**
+ * One more browser toward the game's real players this month (hasRealPlayers): a count, nothing that says who. A network
+ * Zaisma couldn't read counts, as a browser the check passed and its stats count too. The hosting job judges it.
+ */
+function realPlayerWrite(database: D1Database, gameId: string, nowMs: number): D1PreparedStatement {
+  return database
+    .prepare("INSERT INTO game_hosting_months (game_id, month_start_date, real_player_count, has_real_players) VALUES (?, ?, 1, 0) ON CONFLICT (game_id, month_start_date) DO UPDATE SET real_player_count = real_player_count + 1")
+    .bind(gameId, monthStartDateOf(nowMs));
 }
 
 /** The page is still open and playing (or hidden, with isAway): what "playing now" counts. */
@@ -680,7 +693,7 @@ const tick = () => {
 };
 return () => {
   // A tester link's play is never counted: the check is only for multiplayer.
-  if (TESTER) return check().then((token) => post({ tester: TESTER, token })).then(gotKey);
+  if (TESTER) return check().then((token) => post({ tester: TESTER, token, tlast: (load()[SLUG] || {}).tlast || null })).then((answer) => { save({ ...(load()[SLUG] || {}), tlast: day() }); return gotKey(answer); });
   const mine = load()[SLUG] || {};
   const start = { first: mine.first || null, last: mine.last || null, cfirst: mine.cfirst || null, clast: mine.clast || null };
   save({ ...mine, first: mine.first || day(), last: day() });

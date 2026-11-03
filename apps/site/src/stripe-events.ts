@@ -1,4 +1,4 @@
-import { CREDIT_LIMITS, addCreditEntry, creditOf } from "@zaisma/core";
+import { CREDIT_LIMITS, addCreditEntry, creditOf, earnedAfterCardFeeCents } from "@zaisma/core";
 import { addTopUp, emailOwner } from "./hosting-job.ts";
 import { recordPaidCard } from "./bans.ts";
 import { addRefillToInvoice, invoicePaymentIntentId, isSignedByStripe, stopCreditPlan } from "./stripe.ts";
@@ -46,6 +46,7 @@ export async function handleStripeEvents(request: Request, env: Env): Promise<Re
   const plan = event.type.startsWith("invoice.") ? creditPlanOfInvoice(object) : null;
   if (plan && event.type === "invoice.created") await addMonthRefill(env, object, plan);
   if (plan && event.type === "invoice.paid") await addPlanPayment(env, object, plan);
+  if (!plan && event.type === "invoice.paid") await addProEarning(env, object, eventAtMs);
   if (plan && event.type === "invoice.payment_failed" && Number(object.attempt_count) === 1) await emailOwner(env, plan.ownerId, "credit_plan_payment_failed", {});
   if (event.type === "charge.refunded" && typeof object.payment_intent === "string") await addRefund(env, object.payment_intent, Number(object.amount_refunded));
   return Response.json({ received: true });
@@ -65,6 +66,17 @@ export async function addRefund(env: Env, paymentIntentId: string, refundedTotal
   const marked = await env.DB.prepare("UPDATE credit_entries SET refunded_cents = ? WHERE id = ? AND refunded_cents = ?").bind(refundedTotalCents, topUp.id, topUp.refunded_cents).run();
   if (!marked.meta.changes || takenCents <= 0) return;
   await addCreditEntry(env.DB, { ownerId: topUp.owner_id, entryKind: "refund", amountCents: -takenCents, stripeObjectId: `${paymentIntentId}:refunded:${refundedTotalCents}` });
+}
+
+/**
+ * A paid Zaisma Pro invoice toward what Zaisma earned this month (spending.ts): what's left of it before tax, after the
+ * card fee. Credit counts when it's spent, not here. Only an invoice of a subscription is Pro's.
+ */
+async function addProEarning(env: Env, invoice: Record<string, any>, eventAtMs: number): Promise<void> {
+  const subscriptionId = invoice.parent?.subscription_details?.subscription ?? invoice.subscription;
+  const paidCents = Number(invoice.total_excluding_tax ?? invoice.subtotal);
+  if (typeof subscriptionId !== "string" || typeof invoice.id !== "string" || !(paidCents > 0)) return;
+  await env.DB.prepare("INSERT OR IGNORE INTO earnings (stripe_object_id, earning_kind, amount_cents, earned_at_ms) VALUES (?, 'pro', ?, ?)").bind(invoice.id, earnedAfterCardFeeCents(paidCents), eventAtMs).run();
 }
 
 /** Statuses in which Stripe still means to be paid: past_due keeps Pro while Stripe retries the renewal. */

@@ -110,6 +110,11 @@ import {
   type VersionChoice,
   type ReportReason,
   FREE_HOSTING_CENTS_PER_MONTH,
+  freeAllowanceCents,
+  freeHostingEndCents,
+  gameHosting,
+  spendingMonthRow,
+  type GameHosting,
   MAXIMUM_GAME_STORAGE_SIZE_BYTES,
   creditOf,
   freeUsedPct,
@@ -1379,7 +1384,7 @@ async function changeBudget(env: Env, game: Game, given: unknown, caller: Caller
   await logCallerEvent(env, caller, "hosting_budget_changed", { gameId: game.id });
   const month = await gameHostingMonth(env.DB, game.id);
   if (budgetCents === null) {
-    if (month.used_cents >= FREE_HOSTING_CENTS_PER_MONTH) await pauseNow(env, game.id, "free_used");
+    if (month.used_cents >= freeHostingEndCents(game.second_free_allowance_month_start_date, month.month_start_date, Boolean(month.has_real_players))) await pauseNow(env, game.id, "free_used");
   } else if (budgetCents <= month.charged_cents && month.charged_cents > 0) await pauseNow(env, game.id, "budget_used");
   else if (isRaising) await clearPauses(env, game.owner_id!, Date.now(), game.id);
 }
@@ -1972,7 +1977,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, hostingUse, hostingMonth, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
+  const [gamePlayStats, performance, { results: roomDays }, { results: errors }, { results: schedules }, hostingUse, hostingMonth, hostingStops, monthRequestCount, monthTraffic, { results: monthMessageTypes }] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
     // How the game runs for its players; null when the developer turned the measuring off.
     game.performance_measuring_enabled ? playerPerformance(env.DB, game.id, dayCount) : null,
@@ -1991,6 +1996,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       .all<{ schedule_name: string; cron: string; version_id: string; next_run_at_ms: number; last_run_at_ms: number | null }>(),
     hostingUseThisMonth(env.DB, game.id),
     gameHostingMonth(env.DB, game.id),
+    gameHosting(env.DB, game.id),
     requestCountThisMonth(env.DB, game.id),
     env.DB
       .prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS room_play_duration_sec, COALESCE(SUM(message_count), 0) AS message_count, COALESCE(SUM(inbound_size_bytes), 0) AS inbound_size_bytes, COALESCE(SUM(outbound_message_count), 0) AS outbound_message_count, COALESCE(SUM(outbound_size_bytes), 0) AS outbound_size_bytes FROM room_usage WHERE game_id = ? AND date >= ?")
@@ -2025,7 +2031,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, scheduled_run_count: day.game_server_scheduled_run_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
     // The one meter: the free allowance as a percentage, what used it as shares, and what credit paid past it.
-    hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth),
+    hosting_use_this_month: hostingUseJson(game, hostingUse, hostingMonth, hostingStops),
     // What each player sends and gets a second, the biggest message types and what to change, so a developer's AI can cut it.
     room_traffic: roomTraffic(monthTraffic, monthMessageTypes),
     // Schedules are free, capped by their shape: up to 10, each at most once a minute.
@@ -2042,13 +2048,15 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
  * game is paused and why, and, for a game with a budget, what credit paid; the raw counts are facts for tuning,
  * never priced.
  */
-export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }) {
+export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number }, stops: GameHosting) {
   return {
     free_used_pct: hosting.freeUsedPct,
+    second_free_allowance_month_start_date: hosting.secondFreeAllowanceMonthStartDate,
+    free_rooms_stopped_at: iso(stops.freeRoomsStoppedAtMs),
     shares: hostingShares(hosting.kinds).map((share) => ({ kind: share.kind, share_pct: share.sharePct })),
-    is_paused: month.paused_at_ms !== null,
-    paused_reason: month.paused_at_ms !== null ? month.paused_reason : null,
-    paused_at: iso(month.paused_at_ms),
+    is_paused: stops.pausedAtMs !== null,
+    paused_reason: stops.pausedReason,
+    paused_at: iso(stops.pausedAtMs),
     resets_on_date: nextMonthStartDate(),
     monthly_budget_cents: game.monthly_budget_cents,
     spent_from_credit_cents: month.charged_cents,
@@ -2942,7 +2950,7 @@ function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
 const dollarsText = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -2959,7 +2967,7 @@ export interface GameAlert {
  * paused for the month (or the database full), a heads-up when NEARLY_USED_PCT of one of those
  * free allowances is used, players who deleted their accounts that Zaisma couldn't erase from the game
  * database, and player reports waiting for Zaisma. The developer home and a game's overview show the
- * same list, and list_games and get_game answer it. Four queries however many games there are, and one
+ * same list, and list_games and get_game answer it. Five queries however many games there are, and one
  * call to each game's database for its use alone.
  */
 export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, GameAlert[]>> {
@@ -2968,7 +2976,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
   const ownerIds = JSON.stringify([...new Set(games.map((game) => game.owner_id).filter(Boolean))]);
-  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }, { results: owners }] = await Promise.all([
+  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }, { results: keptRooms }, { results: owners }, spendingStop] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
@@ -2978,9 +2986,9 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       .all<{ game_id: string; id: string; scan_status: "held" | "rejected"; report_held_at_ms: number | null; created_at_ms: number; is_newest: number }>(),
     // Each game's month on the meter, as the hosting job last wrote it (hosting-job.ts).
     env.DB
-      .prepare("SELECT game_id, used_cents, charged_cents, paused_at_ms, paused_reason FROM game_hosting_months WHERE game_id IN (SELECT value FROM json_each(?)) AND month_start_date = ?")
+      .prepare("SELECT game_id, used_cents, charged_cents, paused_at_ms, paused_reason, has_real_players FROM game_hosting_months WHERE game_id IN (SELECT value FROM json_each(?)) AND month_start_date = ?")
       .bind(gameIds, monthStartDate)
-      .all<{ game_id: string; used_cents: number; charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null }>(),
+      .all<{ game_id: string; used_cents: number; charged_cents: number; paused_at_ms: number | null; paused_reason: PausedReason | null; has_real_players: number }>(),
     // Counted as get_reports counts them: the last 90 days, never child safety.
     env.DB
       .prepare("SELECT game_id, COUNT(*) AS report_count FROM reports WHERE game_id IN (SELECT value FROM json_each(?)) AND report_status = 'open' AND reported_at_ms > ? AND reason != 'child_safety' AND severity_index > 0 GROUP BY game_id")
@@ -3003,6 +3011,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       )
       .bind(ownerIds)
       .all<{ id: string; credit_balance_cents: number; credit_low_line_cents: number | null }>(),
+    // The month's spending stop (spending.ts), which reaches every free game.
+    spendingMonthRow(env.DB),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -3046,15 +3056,23 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
           ? `it used its ${dollarsText(budgetCents ?? month.charged_cents)} budget for this month`
           : month.paused_reason === "credit_used"
             ? "your credit ran out"
-            : `it used this month's free hosting (it's back on ${resetsOn})`;
+            : month.paused_reason === "no_real_players"
+              ? "it has no real players yet, and games with none have used their share of free hosting this month"
+              : month.paused_reason === "free_hosting_ended"
+                ? "Zaisma's free hosting for this month is used up across all games"
+                : `it used this month's free hosting (it's back on ${resetsOn})`;
       const fix =
         month.paused_reason === "budget_used"
           ? "Raise its budget with update_game (monthly_budget_cents) to start it again now. get_stats shows the month's use."
           : month.paused_reason === "credit_used"
             ? "Add credit with top_up_credit to start it again now. get_credit shows the balance."
-            : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
+            : month.paused_reason === "no_real_players"
+              ? `It starts again once real players play it (a minute on screen from a checked browser, off cloud networks; tester links count, and more are needed as it uses more), or on ${resetsOn}. Or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents).`
+              : month.paused_reason === "free_hosting_ended"
+                ? `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents). Servers of your own are never limited.`
+                : `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to keep it going. Rooms on your own server are never limited. get_stats shows the month's use.`;
       const whatToDo =
-        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : "Add credit and give the game a budget in Hosting to start it again now.";
+        month.paused_reason === "budget_used" ? "Raise its budget in Hosting to start it again now." : month.paused_reason === "credit_used" ? "Add credit to start it again now." : month.paused_reason === "no_real_players" ? `It starts again once real players play it, or on ${resetsOn}.` : "Add credit and give the game a budget in Hosting to start it again now.";
       const message = `The game's hosting is paused: ${why}. No new rooms, connections between players or game server requests start, and matches already running get an hour to finish.`;
       add("hosting_paused", message, fix, `${message} ${whatToDo}`);
     }
@@ -3062,13 +3080,25 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
       const message = `The game's storage (its database and kept rooms) is full at ${MAXIMUM_GAME_STORAGE_SIZE_BYTES / 1024 ** 3} GB, the most a game can keep: the database can change and delete rows, but not grow, and no more rooms can be kept.`;
       add("database_full", message, "Delete rows the game no longer needs with query_database (or export_database to keep them elsewhere), or kept rooms nobody plays with delete_kept_room. get_database and list_kept_rooms show their sizes.", `${message} Delete rows or kept rooms the game no longer needs.`);
     }
-    if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
+    const secondMonth = game.second_free_allowance_month_start_date;
+    const nearlyEndCents = (freeHostingEndCents(secondMonth, monthStartDate, month?.has_real_players !== 0) * NEARLY_USED_PCT) / 100;
+    const usedPct = (usedCents: number) => freeUsedPct(usedCents, freeAllowanceCents(secondMonth, monthStartDate));
+    // The month's stop reaches a free game only: its rooms stop, and what else it runs goes on.
+    if (spendingStop?.free_rooms_stopped_at_ms != null && !month?.paused_at_ms && (budgetCents === null || !canGoPastFree) && (month?.used_cents ?? 0) > 0) {
+      const message = `Zaisma's free room time for this month is used up across all games: no new rooms or connections between players start until ${resetsOn}, and matches already running get an hour to finish. The game's database and game server requests go on.`;
+      add("free_rooms_stopped", message, `Wait for ${resetsOn}, or add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents) to start rooms again now. Rooms on your own server are never limited.`, `${message} Add credit and give the game a budget in Hosting to start rooms again now.`);
+    }
+    if (secondMonth === monthStartDate && !month?.paused_at_ms) {
+      const message = `The game filled its free hosting for the first time, so Zaisma gave it a second free allowance this month, once. Next month it has one again.`;
+      add("second_free_allowance_started", message, "To keep it going past free hosting, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents). get_stats shows what used it.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
+    }
+    if (month && !month.paused_at_ms && budgetCents === null && month.used_cents >= nearlyEndCents) {
+      const message = `${usedPct(month.used_cents)}% of this month's free hosting is used. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn}.`;
       add("hosting_nearly_paused", message, "get_stats shows what used it. To keep the game going past it, add credit (top_up_credit) and give the game a budget (update_game, monthly_budget_cents); rooms on your own server are never limited.", `${message} To keep it going past that, add credit and give the game a budget in Hosting.`);
     }
     // A budget with nothing to spend stops at the free hosting all the same.
-    if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= (FREE_HOSTING_CENTS_PER_MONTH * NEARLY_USED_PCT) / 100) {
-      const message = `${freeUsedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
+    if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents === 0 && !canGoPastFree && month.used_cents >= nearlyEndCents) {
+      const message = `${usedPct(month.used_cents)}% of this month's free hosting is used, and there's no credit for the game's budget to spend. When it's all used, new rooms, connections between players and game server requests pause until ${resetsOn} or credit comes in.`;
       add("hosting_nearly_paused", message, "Add credit with top_up_credit. get_credit shows the balance.", `${message} Add credit to keep it going.`);
     }
     if (month && !month.paused_at_ms && budgetCents !== null && month.charged_cents >= (budgetCents * NEARLY_USED_PCT) / 100) {

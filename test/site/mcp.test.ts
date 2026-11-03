@@ -532,6 +532,7 @@ describe("reports, stats and history", () => {
   it("gives a heads-up at 80% of the free hosting, and only the pause once it's used", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
+    await env.DB.prepare("UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE id = ?").bind(game.id).run();
     const hostingKinds = async () => (await tool("get_game", { slug: "hop" })).alerts.map((alert: { kind: string }) => alert.kind).filter((kind: string) => kind.startsWith("hosting_"));
     // As the hosting job writes the month (apps/site/src/hosting-job.ts).
     await env.DB.prepare("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) VALUES (?, ?, 799)").bind(game.id, monthStartDateOf()).run();

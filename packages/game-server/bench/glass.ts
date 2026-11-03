@@ -68,7 +68,7 @@ function benchGame(input: PlayerPageInput): Game {
     id: "game_local", slug: input.gameSlug, title: input.gameTitle, description: "", review_status: "live",
     visibility_after_ai_review: null, review_reason: null, live_version_id: "version_local",
     multiplayer_mode: "relay", built_in_server: null, own_server_urls: "[]", owner_id: null, cloud_saves_enabled: 1, account_offer_enabled: 1,
-    deleted_account_erase_enabled: 0, friend_joins_enabled: 1, performance_measuring_enabled: 0, monthly_budget_cents: null, quick_joined_at_ms: null,
+    deleted_account_erase_enabled: 0, friend_joins_enabled: 1, performance_measuring_enabled: 0, monthly_budget_cents: null, second_free_allowance_month_start_date: null, quick_joined_at_ms: null,
     game_server_allowed_hosts: "[]", links: "[]", links_checked_at_ms: null, secrets_changed_at_ms: null, visibility: "unlisted", devices: "", genres: "",
     controls: "", screen_orientation: "", play_modes: "", room_browsing: "off", account_requirement: "none", minimum_player_age_years: 13, entry_signing_key: "",
     is_off_shelves: 0, details_waiting_for_review: null, title_listing_reason: null, country_blocks: "[]", cleared_title: null, listing_check_requested_at_ms: null,

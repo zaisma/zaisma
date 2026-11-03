@@ -1,4 +1,4 @@
-import { ApiError, FILE_LIMITS, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, REVIEW_LIMITS, STORAGE_ALLOWANCES, iso, planOf, storageAllowanceKindOf, type StorageAllowanceKind } from "@zaisma/core";
+import { ApiError, FILE_LIMITS, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, REVIEW_LIMITS, STORAGE_ALLOWANCES, iso, planOf, storageAllowanceKindOf, type StorageAllowanceKind, earnedAfterCardFeeCents } from "@zaisma/core";
 import { dailyCheckCount } from "./performance-check.ts";
 import { largeReviewCount, smallReviewCount } from "./scan.ts";
 import { logCallerEvent } from "./security-log.ts";
@@ -112,6 +112,8 @@ export async function proRoute(env: Env, path: string, method: string, caller: C
     // and an older one arriving late is ignored (pro_event_at_ms).
     const nowMs = Date.now();
     await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, is_pro_cancelled = 0, stripe_subscription_id = NULL, pro_event_at_ms = ? WHERE id = ? AND stripe_subscription_id = ?").bind(nowMs, nowMs, ownerId, row.stripe_subscription_id).run();
+    // Takes back what its payment earned (spending.ts), once: the subscription ends here.
+    await env.DB.prepare("INSERT OR IGNORE INTO earnings (stripe_object_id, earning_kind, amount_cents, earned_at_ms) VALUES (?, 'pro', ?, ?)").bind(`refund:${row.stripe_subscription_id}`, -earnedAfterCardFeeCents(refundedCents), nowMs).run();
     await logCallerEvent(env, caller, "pro_refunded");
     const nextSteps: NextStep[] = [{ tool: "get_pro", arguments: {}, after_sec: null, reason: "Pro has ended: get_pro shows the free plan and its limits." }];
     return [{ refunded_cents: refundedCents, next_steps: nextSteps }];
