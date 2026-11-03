@@ -423,7 +423,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Pane parts** (`paneParts(options: PanePartsOptions)`, `layout.ts`): A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.
   - `options`: `head?: { start?: LayoutControl; words: Raw; end?: LayoutControl }`, `body: Raw`, `foot?: { start?: LayoutItem; end?: LayoutControl }`
 - **Screens** (`benchLayout(options: BenchLayoutOptions)`, `screens.ts`): The bench: one page on a phone, the same phone turned and a laptop, side by side, as one live page, with a rail of everything that can be pressed. It's where a page is reviewed, never made: only on a local preview, which adds what copies a press across the screens. A press on a screen, anywhere but a control in its page, opens it large, the others dimmed behind it.
-  - `options`: `rail: Raw`, `tools: Raw`, `bigTools: Raw`, `screens: Raw[]`
+  - `options`: `rail: Raw`, `tools: Raw`, `phoneHeadEnd: Raw`, `bigTools: Raw`, `screens: Raw[]`
 
 ### Actions
 
