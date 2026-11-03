@@ -69,6 +69,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "share", label: "Share", stateKind: "opened", seenBy: "both", opens: "share-dialog" },
       { stateValue: "share-qr", label: "Share, QR code", stateKind: "opened", seenBy: "both", opens: "share-qr-box" },
       { stateValue: "game-menu", label: "Game menu", stateKind: "opened", seenBy: "both", opens: "menu-dialog" },
+      { stateValue: "report-sheet", label: "Report sheet", stateKind: "opened", seenBy: "both", opens: "report", path: "/g/shard-dodge" },
       { stateValue: "report-page", label: "Report a game", stateKind: "opened", seenBy: "both", checkedPage: "Report a game" },
     ],
   },
@@ -89,7 +90,6 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "send-request", label: "Send a request", stateKind: "opened", seenBy: "signed_in", opens: "friend-request", words: { "friend-request-title": "Send Mia_Plays a friend request?", "friend-request-told": "Mia_Plays" } },
       { stateValue: "leaving-zaisma", label: "Leaving Zaisma", stateKind: "opened", seenBy: "both", opens: "link-ask", words: { "link-url": "https://example.test/store" } },
       { stateValue: "link-closed", label: "Link closed", stateKind: "opened", seenBy: "both", opens: "link-closed" },
-      { stateValue: "report", label: "Report", stateKind: "opened", seenBy: "both", opens: "report", path: "/g/shard-dodge?play" },
     ],
   },
   {
@@ -220,8 +220,8 @@ export function readyStates(): ReadyState[] {
       const entry = entryOf(state.checkedPage) as (typeof CHECKED_PAGES)[number] & { setUp?: string; stepsToTake?: unknown };
       return { ...shared, profile: state.profile ?? entry.account ?? place.profile, path: entry.path, stepsToTake: entry.stepsToTake, setUpName: entry.setUp ? entry.name : undefined, isOwnPage: !entry.setUp };
     }
-    if ("path" in state) return { ...shared, path: state.path, isOwnPage: true };
     if ("opens" in state) return { ...shared, path: state.path ?? place.path, opens: state.opens, isOwnPage: false };
+    if ("path" in state) return { ...shared, path: state.path, isOwnPage: true };
     return { ...shared, path: place.path, presses: state.presses, isOwnPage: false };
   }));
 }
