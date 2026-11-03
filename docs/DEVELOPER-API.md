@@ -397,7 +397,6 @@ The fixed checks (malware scan, image matching and Zaisma's own file checks) run
 - **Ahead of a launch,** `POST /games/:slug/versions/:version_id/ai-review` (`start_ai_review`) starts a review without publishing. A scheduled release's review starts by itself up to a day before its time when other people can reach the game. If it isn't done on time, a developer who has earned it goes live anyway, and anyone else goes live when it passes.
 - **A stop** rolls the game back to the last version that passed, in running matches too, or with none leaves the game with no live version and its `review_reason`, until a fix goes live. The version's `findings` give the reason and the fix. The `ai_review_finished` webhook says when any review ends.
 - **Past the review's monthly budget,** versions go on with the fixed checks alone (`ai_review_status` `skipped`, with the note `ai_review_budget_used`). Nobody waits for a person.
-- **It judges only what a game's files can prove.** Whether a person is real isn't in the files, so `real_people` is acted on when someone reports the game: the files are read for the lines the report is about, and a person decides. `copyright` and `defamation` go by notice.
 - **Files are read once.** A file any version that passed already had read is never read again, whoever sends it.
 
 `ai_review_status` is `not_started`, `waiting`, `reviewing`, `passed`, `stopped` or `skipped`; `ai_review_speed` is `at_once` or `batch`.
