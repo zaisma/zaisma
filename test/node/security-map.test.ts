@@ -14,6 +14,8 @@ import { CHECKLISTS, generateMap, mergeDoors, readMap, writeMap } from "../../sc
 // @ts-expect-error: a plain JavaScript script without types
 import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
 // @ts-expect-error: a plain JavaScript script without types
+import { priorityOf, promiseProblems, promiseSummaries, readPromises, refreshPromises, rescoreWay, writePromises } from "../../scripts/security-map/promises.mjs";
+// @ts-expect-error: a plain JavaScript script without types
 import { canSetRobust, caseStatusProblems, DOOR_KINDS, SECTOR_IDS, SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SEED_RULES, seedRobust } from "../../scripts/security-map/seed-robust.mjs";
@@ -96,6 +98,18 @@ describe("doors from the real code", () => {
 
   it("has one admin door per admin tool", () => {
     expect(adminDoors(site).length).toBe(site.ADMIN_TOOLS.length);
+  });
+
+  it("puts every money call and page in the money sector, keeps their anchors, and has each MCP tool follow its call", async () => {
+    const moneyDoors = doors.filter((door) => door.sector_id === "money");
+    const moneyIds = moneyDoors.map((door) => door.door_id);
+    for (const doorId of ["api:GET /credit", "api:POST /pro/checkout", "api:GET /stripe-account", "api:GET /spending-requests/:spending_request_id", "api:PUT /games/:slug/items/:item_name", "api:POST /games/:slug/purchases/:purchase_id/refund", "api:PATCH /games/:slug/purchase-settings", "api:GET /games/:slug/players/:player_id/items", "mcp:get_credit", "mcp:refund_purchase", "page:/stripe/events"]) {
+      expect(moneyIds, doorId).toContain(doorId);
+    }
+    const credit = moneyDoors.find((door) => door.door_id === "api:GET /credit")!;
+    expect(credit.anchors.map((anchor) => anchor.symbol_name)).toEqual(["checkCall", "route"]);
+    expect(doors.find((door) => door.door_id === "api:GET /games/:slug")!.sector_id).toBe("games-and-files");
+    expect(doors.find((door) => door.door_id === "api:GET /games/:slug/saves")!.sector_id).toBe("player-data");
   });
 
   it("gives every door a known sector and kind, a unique id, and anchors that are all in the code", () => {
@@ -554,5 +568,117 @@ describe("the checklists", () => {
       expect(new Set(ids).size, kind).toBe(ids.length);
     }
     expect(Object.keys(CHECKLISTS).sort()).toEqual([...DOOR_KINDS].sort());
+  });
+});
+
+describe("a door that moves sector", () => {
+  it("keeps its verdicts and leaves its old sector", () => {
+    const map = emptyMap();
+    const door = fixtureDoor("api:GET /credit", "accounts");
+    door.cases[0] = robust(door.cases[0]!);
+    map.find((sector) => sector.sector_id === "accounts")!.doors.push(door);
+    const { map: merged, summary } = mergeDoors({ map, doors: [{ ...door, sector_id: "money" }], hashesOf: () => ({ "src/fixture.ts:guard": "hash-a" }), now: LATER });
+    expect(merged.find((sector: Sector) => sector.sector_id === "accounts")!.doors).toEqual([]);
+    expect(merged.find((sector: Sector) => sector.sector_id === "money")!.doors[0].cases[0].status).toBe("robust");
+    expect(summary.stale_case_refs).toEqual([]);
+  });
+});
+
+describe("promises", () => {
+  type FixtureAnchor = { anchor_id: string; source_path: string; symbol_name: string; source_hash_sha256: string | null };
+  const SOURCE_PATH = "fixture.mjs";
+  const anchorOf = (symbolName: string, hash: string | null = null): FixtureAnchor => ({ anchor_id: `${SOURCE_PATH}:${symbolName}`, source_path: SOURCE_PATH, symbol_name: symbolName, source_hash_sha256: hash });
+  const steps = () => [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `step ${step_score}` }));
+  const scales = () => ({ defense_steps: steps(), damage_steps: steps() });
+  const way = (way_id: string, extra = {}) => ({ way_id, way_line: "A made-up way.", defense_score: 3, defense_reason: "A made-up reason.", damage_score: 1, damage_reason: "A made-up reason.", anchors: [anchorOf("guard")], scored_at: NOW, score_stale_reason: null, score_changes: [], ...extra });
+  const promise = (sector_id: string, rollout_position: number) => ({
+    sector_id,
+    rollout_position,
+    promise_line: "A made-up promise.",
+    strengths: [{ strength_kind: "structure", strength_line: "A made-up strength.", strength_reason: "A made-up reason.", anchors: [anchorOf("guard")], strength_stale_reason: null }],
+    ways_to_break: [way(`${sector_id}-made-up`)],
+  });
+  const stored = () => ({ scales: scales(), promises: SECTOR_IDS.map((sectorId: string, index: number) => promise(sectorId, index + 1)) });
+
+  it("places a way on the priority grid", () => {
+    expect(priorityOf(2, 3)).toBe("fix_now");
+    expect(priorityOf(3, 3)).toBe("harden");
+    expect(priorityOf(2, 2)).toBe("fix_soon");
+    expect(priorityOf(3, 2)).toBe("watch");
+    expect(priorityOf(1, 5)).toBe("fix_now");
+    expect(priorityOf(5, 1)).toBe("watch");
+  });
+
+  it("passes whole records and names what's wrong with the rest", () => {
+    expect(promiseProblems(stored())).toEqual([]);
+    const breaks: [string, (records: ReturnType<typeof stored>) => void, string][] = [
+      ["a missing sector", (records) => records.promises.pop(), "has no promise"],
+      ["a score outside 1 to 5", (records) => { records.promises[0]!.ways_to_break[0]!.defense_score = 6; }, "defense_score outside 1 to 5"],
+      ["a score that isn't whole", (records) => { records.promises[0]!.ways_to_break[0]!.damage_score = 2.5; }, "damage_score outside 1 to 5"],
+      ["a missing reason", (records) => { records.promises[0]!.ways_to_break[0]!.defense_reason = " "; }, "no defense_reason"],
+      ["no code cited", (records) => { records.promises[0]!.ways_to_break[0]!.anchors = []; }, "cites no code"],
+      ["a way used twice", (records) => { records.promises[1]!.ways_to_break[0]!.way_id = records.promises[0]!.ways_to_break[0]!.way_id; }, "used twice"],
+      ["an unknown field", (records) => { (records.promises[0] as Record<string, unknown>).extra = 1; }, "unknown field extra"],
+      ["no ways", (records) => { records.promises[0]!.ways_to_break = []; }, "lists no ways"],
+      ["an unknown strength", (records) => { records.promises[0]!.strengths[0]!.strength_kind = "hope"; }, "strength_kind"],
+      ["a scale missing a step", (records) => { records.scales.damage_steps.pop(); }, "one step for each score"],
+      ["a step with no example", (records) => { records.scales.defense_steps[2]!.step_example = ""; }, "step 3 has no step_example"],
+      ["a repeated position", (records) => { records.promises[1]!.rollout_position = 1; }, "rollout_position"],
+    ];
+    for (const [name, breakIt, expected] of breaks) {
+      const records = stored();
+      breakIt(records);
+      expect(promiseProblems(records).join("; "), name).toContain(expected);
+    }
+  });
+
+  it("stamps new anchors, then makes a score stale when its code changes, until it's scored again", () => {
+    const repoRoot = temporaryFolder("promises-code-");
+    const mapDir = temporaryFolder("promises-map-");
+    writeFileSync(join(repoRoot, SOURCE_PATH), "export function guard() { return 1; }\n");
+    const first = refreshPromises({ stored: stored(), repoRoot });
+    writePromises(mapDir, first);
+    expect(first.promises[0].ways_to_break[0].anchors[0].source_hash_sha256).toMatch(/^[0-9a-f]+$/);
+    expect(first.promises[0].ways_to_break[0].score_stale_reason).toBeNull();
+
+    const reread = { ...readPromises(mapDir), scales: scales() };
+    const unchanged = refreshPromises({ stored: reread, repoRoot });
+    expect(unchanged.promises[0]).toEqual(reread.promises[0]);
+
+    writeFileSync(join(repoRoot, SOURCE_PATH), "export function guard() { return 2; }\n");
+    const changed = refreshPromises({ stored: reread, repoRoot });
+    const staleWay = changed.promises[0].ways_to_break[0];
+    expect(staleWay.score_stale_reason).toContain(`${SOURCE_PATH}:guard changed`);
+    expect(staleWay.anchors[0].source_hash_sha256).toBe(reread.promises[0].ways_to_break[0].anchors[0].source_hash_sha256);
+    expect(promiseSummaries(changed)[0].stale_refs.length).toBe(2);
+
+    const currentHashes = anchorHashes(repoRoot, staleWay.anchors);
+    const settled = rescoreWay(staleWay, { defense_score: 4, defense_reason: "Harder now.", damage_score: 1, damage_reason: "The same.", changed_because: "The guard now asks for more.", now: LATER, currentHashes });
+    expect(settled.score_stale_reason).toBeNull();
+    expect(settled.score_changes).toEqual([{ changed_at: LATER, old_defense_score: 3, old_damage_score: 1, new_defense_score: 4, new_damage_score: 1, changed_because: "The guard now asks for more." }]);
+    expect(refreshPromises({ stored: { scales: scales(), promises: [{ ...changed.promises[0], ways_to_break: [settled] }] }, repoRoot }).promises[0].ways_to_break[0].score_stale_reason).toBeNull();
+  });
+
+  it("names an anchor that isn't in the code", () => {
+    const repoRoot = temporaryFolder("promises-code-");
+    writeFileSync(join(repoRoot, SOURCE_PATH), "export function other() {}\n");
+    const records = refreshPromises({ stored: stored(), repoRoot });
+    expect(records.promises[0].ways_to_break[0].score_stale_reason).toContain("missing from the code");
+  });
+
+  it("refuses to move a score with no reason, and adds no change when it stays", () => {
+    const made = way("made-up");
+    expect(() => rescoreWay(made, { defense_score: 5, defense_reason: "x", damage_score: 1, damage_reason: "x", now: LATER, currentHashes: {} })).toThrow(/changed_because/);
+    expect(rescoreWay(made, { defense_score: 3, defense_reason: "x", damage_score: 1, damage_reason: "x", now: LATER, currentHashes: {} }).score_changes).toEqual([]);
+  });
+
+  it("counts each sector's ways by priority, in rollout order", () => {
+    const records = stored();
+    records.promises[0]!.ways_to_break.push(way("made-up-easy", { defense_score: 1, damage_score: 5 }));
+    records.promises.reverse();
+    const summaries = promiseSummaries(records);
+    expect(summaries[0].rollout_position).toBe(1);
+    expect(summaries[0].way_count).toBe(2);
+    expect(summaries[0].way_count_by_priority).toEqual({ fix_now: 1, harden: 0, fix_soon: 0, watch: 1 });
   });
 });
