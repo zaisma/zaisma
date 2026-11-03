@@ -17,7 +17,7 @@ export interface LoadMoreOptions {
    * for yours). One that is hidden, with what leads it, shows once something is added to it.
    */
   moreListIds?: string[];
-  /** It loads the next page by itself as it nears the screen, so a long grid of covers just keeps going as you scroll; it stays a button to press. */
+  /** Once the player has moved the page, it loads the next page by itself as it nears the screen, so a long grid of covers just keeps going as you scroll; it stays a button to press. */
   isLoadedOnScroll?: boolean;
   /** What it says once the list has ended: "That's every version." */
   endText?: string;
