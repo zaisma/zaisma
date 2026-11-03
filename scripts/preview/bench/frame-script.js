@@ -41,6 +41,7 @@
     Object.defineProperty(navigator, "maxTouchPoints", { get: () => 5 });
     window.ontouchstart = null;
     for (const [name, size] of [["width", SCREEN_SIZE[0]], ["height", SCREEN_SIZE[1]], ["availWidth", SCREEN_SIZE[0]], ["availHeight", SCREEN_SIZE[1]]]) Object.defineProperty(screen, name, { get: () => size });
+    Object.defineProperty(screen, "orientation", { get: () => ({ type: SCREEN_SIZE[0] > SCREEN_SIZE[1] ? "landscape-primary" : "portrait-primary", angle: SCREEN_SIZE[0] > SCREEN_SIZE[1] ? 90 : 0, addEventListener() {}, removeEventListener() {} }) });
     Object.defineProperty(PointerEvent.prototype, "pointerType", { get: () => "touch" });
 
     // Every media rule, as each sheet arrives: the page's first-paint styles, and the site's sheet that follows them.
