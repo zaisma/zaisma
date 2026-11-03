@@ -292,7 +292,7 @@ function previewConfig(app, settings) {
   // Each runs its Worker through scripts/preview/workers/<app>.mjs, which tries database calls again when another
   // process has the database locked; the Workers themselves, and production, are unchanged.
   config.main = join(ROOT, "scripts/preview/workers", `${app}.mjs`);
-  config.vars = { ...config.vars, ...settings };
+  config.vars = { ...config.vars, ...settings, ...(app === "site" && process.env.PREVIEW_SPENDING_STOP ? { MONTHLY_SPENDING_LIMIT_CENTS: "1", FIXED_COST_CENTS_PER_MONTH: "1", STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH: "1", METER_COST_SHARE_PCT: "25", UNPLAYED_GAMES_COST_CENTS_PER_MONTH: "1", PAST_LIMIT_CEILING_CENTS: "100000000" } : {}) };
   if (config.assets?.directory) config.assets.directory = resolve(appFolder, config.assets.directory);
   for (const database of config.d1_databases ?? []) if (database.migrations_dir) database.migrations_dir = resolve(appFolder, database.migrations_dir);
   return writeConfig(app, config);
@@ -632,10 +632,12 @@ function seedAiReviewStates() {
 }
 
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
-// Harbor Lights: no real players, and games with none have used their share of free hosting.
-runSql("INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, paused_at_ms, paused_reason, has_real_players) SELECT id, date('now', 'start of month'), 300, unixepoch('now', '-1 hours') * 1000, 'no_real_players', 0 FROM games WHERE slug = 'harbor-lights' ON CONFLICT (game_id, month_start_date) DO UPDATE SET paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason, has_real_players = 0");
-// The month's spending stop reaches every free game's rooms, so it's on only for a preview started to look at it.
-runSql(process.env.PREVIEW_SPENDING_STOP ? "INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (date('now', 'start of month'), unixepoch('now') * 1000)" : "UPDATE spending_months SET free_rooms_stopped_at_ms = NULL");
+// A preview started with PREVIEW_SPENDING_STOP=1 has tiny spending amounts, so the real job puts Zaisma past the limit and
+// past what games with no real players share. Harbor Lights has none; the others have plenty, so only it pauses and they stop rooms.
+if (process.env.PREVIEW_SPENDING_STOP) {
+  runSql("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 100000 FROM games WHERE slug = 'harbor-lights' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec");
+  runSql("UPDATE game_hosting_months SET real_player_count = 500 WHERE month_start_date = date('now', 'start of month')");
+}
 seedFriendsNow();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
