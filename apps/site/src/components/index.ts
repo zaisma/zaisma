@@ -157,7 +157,6 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("wheels", WHEEL_SCRIPT, /data-wheels/),
   firstPaintPiece("charts", CHART_SCRIPT, /data-chart-scroll/),
   firstPaintPiece("long-fields", LONG_FIELD_SCRIPT, /data-long-field/),
-  firstPaintPiece("typing-bar", TYPING_BAR_SCRIPT, /<input|<textarea/),
   firstPaintPiece("sliders", SLIDER_SCRIPT, /data-slider/),
   firstPaintPiece("color-fields", COLOR_FIELD_SCRIPT, /data-color-field/),
   firstPaintPiece("city-pane", CITY_PANE_PLACE_SCRIPT, /data-city-pane|\bcity-stage\b/),
@@ -168,7 +167,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
 export const FIRST_PAINT_SCRIPT_SOURCE = FIRST_PAINT_PIECES.map((piece) => piece.source).join("");
 const SOME_PAGES_PIECES_SOURCE = FIRST_PAINT_PIECES.filter((piece) => piece.marker).map((piece) => piece.source).join("");
 export const LOOK_SCRIPT_SOURCE = SOME_PAGES_PIECES_SOURCE + EDGE_LIGHT_SCRIPT + DROPDOWN_SCRIPT + SELECT_SCRIPT;
-export const COMPONENT_SCRIPT_SOURCE = FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + LIST_PAGES_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
+export const COMPONENT_SCRIPT_SOURCE = TYPING_BAR_SCRIPT + FIELD_SCRIPT + PIN_FIELD_SCRIPT + RUNNER_SCRIPT + BUSY_SCRIPT + TOGGLE_SCRIPT + CHECK_SCRIPT + CHOICE_CARDS_SCRIPT + FILE_DROP_SCRIPT + COPY_SCRIPT + CODE_BLOCK_SCRIPT + QR_CODE_SCRIPT + GAME_MEDIA_SCRIPT + VIDEO_PLAYER_SCRIPT + SEARCH_SCRIPT + FILTER_MENU_SCRIPT + LAYERS_SCRIPT + STEP_FLOW_SCRIPT + CONFIRM_ITS_YOU_SCRIPT + LOAD_MORE_SCRIPT + LIST_PAGES_SCRIPT + PLAYING_CARD_SCRIPT + LIST_ROW_FOLD_SCRIPT;
 
 /**
  * The scripts pages load: the minified ones, unless one was made from an older source (a script changed and npm run components:minify wasn't

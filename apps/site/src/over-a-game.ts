@@ -153,6 +153,9 @@ document.documentElement.setAttribute("data-theme", overGame.theme);`);
 /** The rest: it does what a player or a game would have, so the state shows by itself. */
 const FRAME_SHOW_SCRIPT = pageScript("over-a-game-show", `(function showWhenReady() {
   if (!window.zaismaLayers) return setTimeout(showWhenReady, 50);
+  // Nothing in a frame takes the focus from the page around it as its sheets open: what's inert can't hold it, and a frame is only looked at.
+  document.body.inert = true;
+  document.querySelectorAll("dialog").forEach((sheet) => { sheet.inert = true; });
   const $ = (id) => document.getElementById(id);
   const shown = overGame.shown;
   const corner = $("zaisma-button");

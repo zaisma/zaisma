@@ -181,7 +181,7 @@ export const playingCheck = (id: string): Raw => html`<div class="playing-check"
 
 /**
  * Docked glass: a material for what sits against the screen's own edge rather than floating over the page. It doesn't float, and it has no edge where it meets the screen, since a screen's corners may
- * be straight or curved and a cut would fit neither (Julius, Nov 1, 2026). It's the same glass, blur and rim as a pane, with its rim carried past the screen on those sides, so only its one visible edge shows
+ * be straight or curved and a cut would fit neither. It's the same glass, blur and rim as a pane, with its rim carried past the screen on those sides, so only its one visible edge shows
  * the bevel, drawn by the same code as every pane's. What's on it keeps clear of the screen's own notch and home bar.
  */
 export function dockedGlass(options: { dockedAt: "end" | "foot"; body: Raw; label: string }): Raw {
@@ -234,7 +234,7 @@ export function gameScreens(options: { title: string; framePath: string; screenN
     head: html`<h2 class="component-name">${options.title}</h2>`,
     body: stackOfOne(html`<div class="game-screens">${GAME_SCREENS.filter((each) => !options.screenNames || options.screenNames.includes(each.screenName)).map((each) => {
       const path = `${options.framePath}&screen=${each.screenName}`;
-      return html`<figure class="game-screen" style="--screen-width:${String(each.widthPx)};--screen-height:${String(each.heightPx)}"><div class="game-screen-view"><iframe data-frame-src="${path}" title="${options.title}: ${each.label}" width="${String(each.widthPx)}" height="${String(each.heightPx)}" tabindex="-1"></iframe></div><figcaption>${textLink(each.label, path, { isNewTab: true })}</figcaption></figure>`;
+      return html`<figure class="game-screen" style="--screen-width:${String(each.widthPx)};--screen-height:${String(each.heightPx)}"><div class="game-screen-view"><iframe inert data-frame-src="${path}" title="${options.title}: ${each.label}" width="${String(each.widthPx)}" height="${String(each.heightPx)}" tabindex="-1"></iframe></div><figcaption>${textLink(each.label, path, { isNewTab: true })}</figcaption></figure>`;
     })}</div>`),
     label: options.title,
   });

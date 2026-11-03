@@ -885,7 +885,7 @@ component({
 .logo > .logo-art { height: calc(var(--logo-height) * var(--logo-file-share)); width: auto; background: center / contain no-repeat; margin-block: calc(var(--logo-height) * (1 - var(--logo-file-share)) / 2); transition: height var(--motion-glide) var(--ease-glide), margin var(--motion-glide) var(--ease-glide); }
 .logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* On a touch screen it's a control's height to press, whatever its size. */
-@media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)) 0; } }
+@media (pointer: coarse) { .logo { position: relative; } .logo::before { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)); } }
 @media (prefers-reduced-motion: reduce) { .logo > .logo-art { transition: none; } }
 ${LOGO_STYLES}
 `,

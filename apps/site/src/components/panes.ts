@@ -1205,7 +1205,7 @@ export function confirmSheet(options: ConfirmSheetOptions): Raw {
 
 /** On a touch screen, a button shorter than a regular control reaches past its own box to a regular control's height, unseen: for `scope`'s buttons. */
 const touchReach = (scope: string) => `@media (pointer: coarse) {
-  ${scope} .shell::after { content: ""; position: absolute; left: 0; right: 0; top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
+  ${scope} .shell::after { content: ""; position: absolute; left: min(0px, calc((100% - var(--touch-target)) / 2)); right: min(0px, calc((100% - var(--touch-target)) / 2)); top: min(0px, calc((100% - var(--touch-target)) / 2)); bottom: min(0px, calc((100% - var(--touch-target)) / 2)); }
 }`;
 
 const SHEET_STYLES = `

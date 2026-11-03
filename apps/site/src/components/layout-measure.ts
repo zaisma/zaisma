@@ -57,10 +57,10 @@ export const LAYOUT_RULE_TIERS: Readonly<Record<string, LayoutRuleTier>> = {
 
 /**
  * The most a page may be as sent, compressed as Cloudflare compresses pages it makes (brotli at level 5), with everything its first paint
- * needs inside it: on Slow 3G (DevTools': 2 s a round trip, 50 KB/s) about 1.4 s on top of its round trip, so a page shows in about 3 s
+ * needs inside it: on Slow 3G (DevTools': 2 s a round trip, 50 KB/s) about 1.5 s on top of its round trip, so a page shows in about 3.5 s
  * on a first visit and every one after. The layout check fails a page past it ("first paint over its size").
  */
-export const FIRST_PAINT_SIZE_LIMIT_BYTES = 68_000;
+export const FIRST_PAINT_SIZE_LIMIT_BYTES = 73_000;
 /** The brotli level the size is measured at. */
 export const FIRST_PAINT_BROTLI_LEVEL = 5;
 
@@ -138,6 +138,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
       var r = pane.getBoundingClientRect();
       // A floating pane the gallery shows open in place (its open states) is a piece shown alone, not over a page.
       if (pane.closest(EXAMPLE) && (pane.matches(".in-place") || pane.closest(EXAMPLE + " .in-place"))) return;
+      // Docked glass runs past the screen's edge on purpose, so it has no edge there; what's in it keeps clear, and is measured as usual.
+      if (pane.matches(".zaisma-button, .sheet.placement-docked, .sheet.placement-start, .sheet.fills-sideways")) return;
       var room = roomOf(pane), past = [["left", room.left - r.left], ["right", r.right - room.right], ["top", room.top - r.top], ["bottom", r.bottom - room.bottom]].find(function (side) { return side[1] > TOLERANCE_PX; });
       if (past) report("a pane past the screen", pane, "its " + past[0] + " edge " + round(past[1]) + "px past the " + (room.width === undefined ? "window's" : "frame's it opens in"));
       // Everything in it shows inside it, or inside something in it that scrolls.

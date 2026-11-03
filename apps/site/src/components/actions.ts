@@ -624,7 +624,7 @@ component({
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
-@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)); } }
 .tertiary-btn.icon-only > .face { width: var(--control-height); padding-inline: 0; align-items: center; }
 .tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
 .tertiary-btn:focus-visible { outline: none; }
@@ -735,7 +735,7 @@ component({
     { label: "Only its icon, off and on", markup: controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: true })), isStill: true },
     { label: "With a count, off and on", markup: controlsBeside(toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
     { label: "Small, off and on: a password's Show", markup: controlsBeside(passwordToggle({ isPasswordShown: false }), passwordToggle({ isPasswordShown: true })), isStill: true },
-    { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Hint", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
+    { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Keep progress", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
     { label: "Can't press", markup: toggleButton(action("follow"), { type: "button", isPressed: false, isDisabled: true }), isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton(action("follow", "Following Ashen Crown and every update from its studio"), { type: "button", isPressed: true })}</div>` },
   ],
