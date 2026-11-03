@@ -5,8 +5,8 @@ import { CITY_SCRIPT } from "./components/city.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
-import { SCREENS_PATH, SCREENS_SCRIPT, isSitePath, screenNamesOf, screensPane, screensPicker } from "./components/screens.ts";
-import { CHECKED_PAGES, galleryPageName, type CheckedPageName } from "./components/checked-pages.ts";
+import { SCREENS_PATH } from "./components/screens.ts";
+import { galleryPageName, type CheckedPageName } from "./components/checked-pages.ts";
 import { COMPONENT_GROUPS, COMPONENT_SUBGROUPS, GALLERY_PLACES, galleryPagePath, subgroupsOf, type Component, type ComponentGroup, type GalleryPlace } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, HEADER_SCRIPT, LOOK_SCRIPT } from "./components/index.ts";
 import { EDGE, STAND_IN_BACKGROUNDS_SCRIPT, backdrop, logo, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
@@ -93,7 +93,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(FIRST_PAINT_SCRIPT, LOOK_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT, ...(group === "layout" ? [SCREENS_SCRIPT] : []))}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(FIRST_PAINT_SCRIPT, LOOK_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -112,7 +112,6 @@ export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
   if (url.pathname === "/design/examples/search-suggestions") return new Response(JSON.stringify(SEARCH_STAND_IN.suggestionsFor(url.searchParams.get("search_text") ?? "")), { headers: securityHeaders(env, { "Content-Type": "application/json" }) });
   if (url.pathname === "/design/example") return examplePage(env);
-  if (url.pathname === SCREENS_PATH) return isLocalSite(env) ? screensPage(env, url) : null;
   const found = placeOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!found) return null;
   if ("redirectPath" in found) return new Response(null, { status: 308, headers: { Location: `${found.redirectPath}${url.search}` } });
@@ -128,7 +127,7 @@ ${shown.map((each) => section(each, theme))}`;
 }
 
 /** A page of the gallery: its bar with the sidebar's button and light or dark, the groups and their subgroups down its side, and what it shows. */
-function galleryPage(env: Env, options: { place: GalleryPlace; theme: GalleryTheme; path: string; title: string; checkedPage: CheckedPageName; main: Raw; scripts?: PageScript[]; frames?: string[]; isScreens?: boolean }): Response {
+function galleryPage(env: Env, options: { place: GalleryPlace; theme: GalleryTheme; path: string; title: string; checkedPage: CheckedPageName; main: Raw; scripts?: PageScript[]; frames?: string[] }): Response {
   const { place, theme } = options;
   const group = place.group;
   const components = COMPONENTS();
@@ -136,8 +135,8 @@ function galleryPage(env: Env, options: { place: GalleryPlace; theme: GalleryThe
   const places: SidebarPlace[] = groups.map(({ group: each, name }) => ({
     label: name,
     href: `${galleryPagePath(each)}${themeQuery(theme)}`,
-    isCurrent: !options.isScreens && each === group,
-    places: subgroupsOf(each).map(({ subgroup, name: subgroupName }) => ({ label: subgroupName, href: `${galleryPagePath(each, subgroup)}${themeQuery(theme)}`, isCurrent: !options.isScreens && each === group && subgroup === place.subgroup })),
+    isCurrent: each === group,
+    places: subgroupsOf(each).map(({ subgroup, name: subgroupName }) => ({ label: subgroupName, href: `${galleryPagePath(each, subgroup)}${themeQuery(theme)}`, isCurrent: each === group && subgroup === place.subgroup })),
   }));
   const page = html`<!doctype html>
 <html lang="en" data-page-shape="wide">
@@ -147,14 +146,13 @@ ${checkedPageTag(options.checkedPage)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
-<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: !options.isScreens }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
+<header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
+${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
-    sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: options.isScreens ? "gallery-screens" : "gallery" }),
+    sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: "gallery" }),
     main: html`<main class="gallery-main">
 ${options.main}
 </main>`,
-    isCollapsed: options.isScreens,
   })}</div>
 ${railMarkup("page")}
 </div>
@@ -163,23 +161,6 @@ ${stylesAppliedTag()}
 </body>
 </html>`;
   return new Response(page.html, { headers: securityHeaders(env, { "Speculation-Rules": `"${SPECULATION_RULES_PATH}"` }, false, options.frames ?? []) });
-}
-
-/**
- * GET /design/screens?page=/signin&page=…: each page asked for on the four screens, measured, the groups folded away for the room. Only on
- * a local preview, where every page may be framed by the site's own (html.ts, securityHeaders); live, pages refuse it.
- */
-function screensPage(env: Env, url: URL): Response {
-  const theme = themeOf(url);
-  // States asked for by name (forms and all), then pages by their path.
-  const states = url.searchParams.getAll("state").flatMap((name) => CHECKED_PAGES.filter((page) => page.name === name && !page.isOnSignInSite));
-  const asked = url.searchParams.getAll("page").map((path) => path.trim()).filter(isSitePath);
-  const titleOf = (path: string) => CHECKED_PAGES.find((page) => page.path === path && !page.stepsToTake)?.name ?? path;
-  const shown = [...states.map((page) => ({ path: page.path, title: page.name, stepsToTake: page.stepsToTake, account: page.account })), ...asked.map((path) => ({ path, title: titleOf(path) }))];
-  const panes = shown.length ? shown : [{ path: "/design/example", title: titleOf("/design/example") }];
-  // The picker and each page's screens, one under another a block's gap apart (a Stack), never set down side by side by hand.
-  const main = html`<h1 class="group-name">Screens</h1>${stack({ items: [screensPicker(panes[0]!.path, screenNamesOf(url)), ...panes.map((pane) => screensPane({ ...pane, screenNames: screenNamesOf(url), screensPath: `${url.pathname}${url.search}` }))].map((markup) => ({ kind: "block" as const, markup })) })}`;
-  return galleryPage(env, { place: { group: "layout" }, theme, path: `${url.pathname}${url.search}`, title: "Screens", checkedPage: "Screens", main, frames: ["'self'"], isScreens: true });
 }
 
 export const GALLERY_STYLES = `
@@ -196,6 +177,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
+/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. */
+.gallery-screens { margin-left: auto; }
+.gallery-screens + .gallery-buttons { margin-left: 0; }
+@media (max-width: 760px) { .gallery-screens { display: none; } }
 /* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
 @media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }

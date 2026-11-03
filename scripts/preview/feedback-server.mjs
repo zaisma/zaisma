@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import http from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BENCH_PATH, answerBench } from "./bench/bench-files.mjs";
 import { openPictureTaker, liveUrl, seenUrl } from "./feedback-pictures.mjs";
 import { addComment, changeComment, FEEDBACK_DIRECTORY, isCommentId, listComments, pictureFile, pngFromBase64, publicComment, readComment, readReplay, replyToComment, snapshotFile, writePicture, writeSnapshot } from "./feedback-store.mjs";
 
@@ -83,6 +84,7 @@ http
     const url = new URL(request.url, `http://localhost:${port}`);
     const parts = url.pathname.replace(/^\/__preview\/feedback\/?/, "").split("/").filter(Boolean);
     try {
+      if (url.pathname.startsWith(BENCH_PATH)) return answerBench(request, response, url);
       if (request.method === "GET" && parts[0] === "overlay.js") {
         response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
         return response.end(readFileSync(OVERLAY));

@@ -53,6 +53,7 @@ import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { FIRST_PAINT_BROTLI_LEVEL, FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SIZE_LIMIT_BYTES, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
+import { STATE_IDS_ON_THE_PAGE, statesWithNoButton } from "./preview/bench/places.ts";
 import { BLOCKED_PICTURE_PATTERNS, CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, SCREEN_THEMES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD } from "../apps/site/src/components/checked-pages.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -74,7 +75,7 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
-/** The screens every page is measured at unless told otherwise, and the pages: the same Screens shows (checked-pages.ts). */
+/** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
 export const LAYOUT_CHECK_PAGES = CHECKED_PAGES;
@@ -145,7 +146,7 @@ export function pageFingerprint(html, page, looks, tiers) {
     .replace(/<input\b[^>]*\btype="hidden"[^>]*>/g, (input) => input.replace(/\svalue="[^"]*"/, ' value=""'))
     .replace(/\s([\w-]+-ms)="[^"]*"/g, ' $1=""');
   const hash = createHash("sha256");
-  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
+  for (const part of [steady, JSON.stringify(page), JSON.stringify(looks.map((look) => [look.size.name, look.theme])), JSON.stringify(tiers), String(statesWithNoButton([])), STATE_IDS_ON_THE_PAGE, MEASURE_LAYOUT_SOURCE, FIRST_PAINT_SNAPSHOT_SOURCE, FIRST_PAINT_COMPARE_SOURCE, CHECK_SOURCE]) hash.update(part).update("\0");
   return hash.digest("hex");
 }
 
@@ -631,6 +632,11 @@ async function checkPage(chrome, contextId, url, looks, options) {
           if (sizeBytes > limitBytes) found.push({ check: "first paint over its size", element: "", said: `the page is ${(sizeBytes / 1000).toFixed(1)} KB compressed, past ${limitBytes / 1000} KB: what's in it, and the styles and first-paint script it carries for that, come to more than a first paint on a slow connection can take` });
         }
       }
+      // A sheet, menu or card on a page needs its button on the Screens bench, so none reaches a page unseen (scripts/preview/bench/places.ts). The sign-in site is another address, off the bench.
+      if (lookIndex === 0 && !options.isGallery && !options.isOnSignInSite) {
+        const { result: stateIds } = await send("Runtime.evaluate", { expression: STATE_IDS_ON_THE_PAGE, returnByValue: true });
+        for (const id of statesWithNoButton(stateIds.value ?? [])) found.push({ check: "the page has a state with no button on the Screens bench", element: `#${id}`, said: "give it a button in scripts/preview/bench/places.ts, or a reason in NOT_A_STATE" });
+      }
       // The entry's address must show the state it's named for (checked-pages.ts), so a list that drifts from the pages fails here.
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
@@ -732,7 +738,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
   // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
   // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
-  let runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks }] : themes.map((theme) => ({ page, looks: looks.filter((one) => one.theme === theme) }))));
+  const looksOf = (page) => looks.filter((one) => !page.screenNames || page.screenNames.includes(one.size.name));
+  let runs = pages.flatMap((page) => (page.stepsToTake ? [{ page, looks: looksOf(page) }] : themes.map((theme) => ({ page, looks: looksOf(page).filter((one) => one.theme === theme) })))).filter((run) => run.looks.length);
   const foundByRun = [];
   const fingerprintByPage = new Map();
   const skippedPageNames = [];

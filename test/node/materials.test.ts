@@ -290,7 +290,7 @@ function ownLookOf(property: string, value: string, selector: string): string | 
   // A picture drawn into a box (a card brand's mark) is the picture's own, colors and all.
   if (property === "background-image" && /^url\(/.test(value)) return undefined;
   if (RAW_COLOR.test(value)) return "a color of its own";
-  if (property === "--control-height" && !/^var\(--control-height-(small|regular|field|big)\)$/.test(value)) return "a control height of its own";
+  if (property === "--control-height" && !/^var\(--control-height-(tiny|small|regular|field|big)\)$/.test(value)) return "a control height of its own";
   if (property.startsWith("--")) return undefined;
   if (/^(transition|animation)(-[a-z]+)?$/.test(property) && OWN_TIMING.test(value)) return "a timing of its own";
   if (property === "filter" && /drop-shadow\(/.test(value)) return "a shadow of its own";

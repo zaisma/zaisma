@@ -121,7 +121,10 @@ describe.skipIf(!sites)("the layout check", () => {
     // For PAGE_COSTS_SEC in scripts/layout-check.mjs, when the shares stop finishing together.
     console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
     // A skipped page sends no form, so it's one look per screen and theme.
-    expect(checkedCount + skippedPageNames.length * layoutRun.sizes.length * layoutRun.themes.length).toBe(pages.length * layoutRun.sizes.length * layoutRun.themes.length);
+    const looksOf = (page: { name: string }) => { const only = (page as { screenNames?: string[] }).screenNames; return (only ? (layoutRun.sizes as { name: string }[]).filter((size) => only.includes(size.name)).length : layoutRun.sizes.length) * layoutRun.themes.length; };
+    const sumOfLooks = (some: { name: string }[]) => some.reduce((sum, page) => sum + looksOf(page), 0);
+    const listed = pages as { name: string }[];
+    expect(checkedCount + sumOfLooks(listed.filter((page) => skippedPageNames.includes(page.name)))).toBe(sumOfLooks(listed));
     expect(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
   }, 900_000);
 
@@ -161,6 +164,11 @@ describe.skipIf(!sites)("the layout check", () => {
       await chrome.close();
     }
   }, 300_000);
+
+  it.skipIf(!isFirstShare)("catches a sheet on a page with no button on the Screens bench, and passes one with its own", async () => {
+    const failures = await brokenOnLaptop(`<dialog class="sheet" id="sheet-with-no-button"></dialog><dialog class="sheet" id="share-dialog"></dialog>`);
+    expect(failures.filter((failure) => failure.includes("no button on the Screens bench"))).toEqual([expect.stringContaining("#sheet-with-no-button")]);
+  });
 
   it.skipIf(!isFirstShare)("catches panes over the page past the screen or overflowing unscrolled, and passes one that scrolls inside itself", async () => {
     // A menu with 30 choices scrolls inside itself as it is, and spills when it's made not to.
