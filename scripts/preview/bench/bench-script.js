@@ -25,6 +25,11 @@
   };
   const screenWindow = (screen) => { try { return screen.frame.contentWindow; } catch { return null; } };
   const screenApi = (screen) => screenWindow(screen)?.zaismaBenchScreen ?? null;
+  /** The same page, however its address is written: a browser turns ?play into ?play= and %20 into +. */
+  const isSameAddress = (one, other) => {
+    const [first, second] = [one, other].map((address) => { const url = new URL(address ?? "/", location.origin); url.searchParams.sort(); return url.pathname + url.search; });
+    return first === second;
+  };
   const load = (screen, path, profile, then) => {
     screen.pending = then ? [then] : [];
     screen.address = path;
@@ -150,7 +155,7 @@
   // A press: enter it on every screen in play, on its page and as its person, then mark it seen.
   function arrive(state, then) {
     const profile = state.profile && bench.profile !== state.profile ? state.profile : null;
-    const isOnPage = allScreens.every((screen) => screen.address === state.path);
+    const isOnPage = allScreens.every((screen) => isSameAddress(screen.address, state.path));
     if (big) { arriveBig(state, then); return; }
     if (profile) { bench.profile = profile; forgetOnce(profile); drawProfile(); }
     if (profile || !isOnPage || state.isOwnPage) {
@@ -167,7 +172,7 @@
   function arriveBig(state, then) {
     const screen = big.screen;
     big.isChanged = true;
-    if (state.isOwnPage || screen.address !== state.path || (state.profile && big.profile !== state.profile)) {
+    if (state.isOwnPage || !isSameAddress(screen.address, state.path) || (state.profile && big.profile !== state.profile)) {
       if (state.profile) big.profile = state.profile;
       load(screen, state.path, big.profile, () => {
         if (state.stepsToTake) stepThrough(screen, state.stepsToTake, () => then?.(screen));
@@ -192,7 +197,7 @@
   function leave(state) {
     for (const screen of activeScreens()) {
       if (state.isOwnPage) load(screen, placeOf(state.placeValue).path, big?.screen === screen ? big.profile : bench.profile);
-      else screenApi(screen)?.leaveState(state);
+      else if (screenApi(screen)?.leaveState(state) === false) load(screen, placeOf(state.placeValue).path === state.path ? state.path : screen.address, big?.screen === screen ? big.profile : bench.profile);
     }
   }
 
@@ -273,11 +278,8 @@
     heard(screenName, groupName, message) {
       const screen = screens[screenName];
       if (!screen) return;
-      // A sheet or menu closed in the page: its button comes back up, whichever way it was closed.
-      if (message.kind === "closed") {
-        for (const key of [...bench.pressed]) { const state = stateOf(key); if (state.opens === message.id || state.presses?.includes(`"${message.id}"`)) unpress(key); }
-        return;
-      }
+      // What a state opened was closed in the page, by its own Close or Esc: its button comes back up.
+      if (message.kind === "state-left") { if (screen === activeScreens()[0]) unpress(message.key); return; }
       if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
@@ -297,7 +299,7 @@
     screen.address = address;
     if (big?.screen === screen) return;
     if (screen.name === bench.leadName || bench.leadName === null) {
-      if (address !== bench.address && address !== bench.ownPageAddress) { bench.pressed.clear(); bench.ownPageAddress = null; }
+      if (!isSameAddress(address, bench.address) && !isSameAddress(address, bench.ownPageAddress)) { bench.pressed.clear(); bench.ownPageAddress = null; }
       bench.address = address;
       bench.isSignedIn = isSignedIn;
       const place = data.places.find((each) => new RegExp(each.pathPattern).test(address));

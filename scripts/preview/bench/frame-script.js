@@ -153,8 +153,6 @@
   addEventListener("input", (event) => { if (isOurs(event)) say({ kind: "input", path: pathOf(event.target), text: event.target.value, isChecked: event.target.checked }); }, true);
   addEventListener("change", (event) => { if (isOurs(event) && /^(checkbox|radio)$|^select/.test(event.target.type)) say({ kind: "input", path: pathOf(event.target), text: event.target.value, isChecked: event.target.checked }); }, true);
   addEventListener("keydown", (event) => { if (event.isTrusted && event.key === "Escape") say({ kind: "escape" }); }, true);
-  addEventListener("close", (event) => { if (event.target.id) say({ kind: "closed", id: event.target.id }); }, true);
-  addEventListener("toggle", (event) => { if (event.newState === "closed" && event.target.id) say({ kind: "closed", id: event.target.id }); }, true);
   let scrollPending = null;
   addEventListener("scroll", (event) => {
     if (performance.now() - lastHumanAtMs > HUMAN_WINDOW_MS) return;
@@ -186,40 +184,55 @@
     if (open.matches("dialog")) open.close(); else open.hidePopover();
   };
   const SET_UP_TRIES = 20, SET_UP_RETRY_MS = 300;
+  // Every state enters and leaves one way, whatever opens it: what it opened is noted as it enters, and that's what leaving closes.
+  const LAYERS = "dialog[open], [popover]:popover-open, .playing-card:not([hidden])";
+  const isLayerOpen = (el) => el.matches(LAYERS);
+  const closeLayer = (el) => { if (el.matches("dialog[open]")) el.close(); else if (el.matches("[popover]:popover-open")) el.hidePopover(); else el.hidden = true; };
+  const nextPaint = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  const keyOf = (state) => `${state.placeValue}/${state.stateValue}`;
+  const entered = new Map();
+  const wordsAtRest = new Map();
+  const opener = (state) => { const control = document.querySelector(state.presses); const listed = control && document.getElementById(control.getAttribute("aria-controls")); return { control, opened: listed?.closest("[popover]") ?? listed };  };
   const enterState = async (state) => {
     await readyFor(state);
     for (const [id, words] of Object.entries(state.words ?? {})) { const el = document.getElementById(id); if (el) { if (!wordsAtRest.has(id)) wordsAtRest.set(id, el.textContent); el.textContent = words; } }
+    const before = new Set(document.querySelectorAll(LAYERS));
     if (state.opens) {
       const el = document.getElementById(state.opens);
       if (!el) return false;
       if (el.matches("dialog")) { if (!el.open) el.showModal(); }
-      else if (el.popover !== null && el.popover !== undefined && el.hasAttribute("popover")) { if (!el.matches(":popover-open")) el.showPopover(); el.hidden = false; }
+      else if (el.hasAttribute("popover")) { if (!el.matches(":popover-open")) el.showPopover(); el.hidden = false; }
       else el.hidden = false;
-      return true;
-    }
-    if (state.presses) { const el = document.querySelector(state.presses); if (!el) return false; el.click(); return true; }
-    if (state.setUpName) {
+    } else if (state.presses) {
+      const { control, opened } = opener(state);
+      if (!control) return false;
+      if (!opened || !isLayerOpen(opened)) control.click();
+    } else if (state.setUpName) {
       // The checks wait for the page to settle before their scripts run; here a page's own script may not be there yet, so it's tried again.
       for (let tryIndex = 0; ; tryIndex += 1) {
-        try { await window.zaismaBenchSetUps[state.setUpName](); return true; } catch (problem) {
+        try { await window.zaismaBenchSetUps[state.setUpName](); break; } catch (problem) {
           if (tryIndex >= SET_UP_TRIES) throw problem;
           await new Promise((done) => setTimeout(done, SET_UP_RETRY_MS));
         }
       }
     }
+    await nextPaint();
+    entered.set(keyOf(state), [...document.querySelectorAll(LAYERS)].filter((el) => !before.has(el)));
     return true;
   };
-  const wordsAtRest = new Map();
+  /** Closes what the state opened: false when it has nothing to close here, so only a reload takes it away. */
   const leaveState = (state) => {
     for (const id of Object.keys(state.words ?? {})) { const el = document.getElementById(id); if (el && wordsAtRest.has(id)) el.textContent = wordsAtRest.get(id); }
-    if (state.opens) {
-      const el = document.getElementById(state.opens);
-      if (!el) return;
-      if (el.matches("dialog")) el.close();
-      else if (el.matches("[popover]:popover-open")) el.hidePopover();
-      else el.hidden = true;
-    } else if (state.presses) closeTopLayer();
+    const layers = (entered.get(keyOf(state)) ?? []).filter(isLayerOpen);
+    entered.delete(keyOf(state));
+    if (state.presses) { const { control, opened } = opener(state); if (control && opened && isLayerOpen(opened)) { control.click(); return true; } }
+    layers.reverse().forEach(closeLayer);
+    return layers.length > 0;
   };
+  // A layer closed in the page itself, by its own Close or Esc: once all a state opened is gone, its button comes back up.
+  const layerClosed = () => setTimeout(() => { for (const [key, layers] of entered) if (layers.length && !layers.some(isLayerOpen)) { entered.delete(key); say({ kind: "state-left", key }); } });
+  addEventListener("close", layerClosed, true);
+  addEventListener("toggle", layerClosed, true);
   // A state's setUp is the checks' own script, served as a function, so the site's script policy needn't allow eval.
   const readyFor = (state) => new Promise((done) => {
     if (!state.setUpName || window.zaismaBenchSetUps) return done();

@@ -23,7 +23,7 @@ interface BenchStateBase {
   words?: Record<string, string>;
 }
 /** How a state comes in: an element shown by its id (idPattern, when each of a kind has its own id: the first one on the page); a real control pressed; or an entry on the checks' list, with its address, account, steps and setUp. */
-export type BenchState = BenchStateBase & ({ opens: string; idPattern?: string } | { presses: string } | { checkedPage: CheckedPageName } | { path: string });
+export type BenchState = BenchStateBase & ({ opens: string; idPattern?: string; path?: string } | { presses: string } | { checkedPage: CheckedPageName } | { path: string });
 
 export interface BenchPlace {
   placeValue: string;
@@ -64,7 +64,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "for-sale", label: "For sale", stateKind: "opened", seenBy: "both", checkedPage: "Game page, for sale" },
       { stateValue: "tester-link", label: "Tester link", stateKind: "opened", seenBy: "both", checkedPage: "Tester link" },
       { stateValue: "screenshots", label: "Screenshots", stateKind: "opened", seenBy: "both", opens: "screenshots-viewer" },
-      { stateValue: "rooms-sort", label: "Sort rooms", stateKind: "opened", seenBy: "both", presses: hasMenu("rooms-order-list") },
+      { stateValue: "rooms-sort", label: "Sort rooms", stateKind: "opened", seenBy: "both", presses: "#rooms-order" },
       { stateValue: "make-a-room", label: "Make a room", stateKind: "opened", seenBy: "both", opens: "room-dialog" },
       { stateValue: "share", label: "Share", stateKind: "opened", seenBy: "both", opens: "share-dialog" },
       { stateValue: "share-qr", label: "Share, QR code", stateKind: "opened", seenBy: "both", opens: "share-qr-box" },
@@ -89,7 +89,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "send-request", label: "Send a request", stateKind: "opened", seenBy: "signed_in", opens: "friend-request", words: { "friend-request-title": "Send Mia_Plays a friend request?", "friend-request-told": "Mia_Plays" } },
       { stateValue: "leaving-zaisma", label: "Leaving Zaisma", stateKind: "opened", seenBy: "both", opens: "link-ask", words: { "link-url": "https://example.test/store" } },
       { stateValue: "link-closed", label: "Link closed", stateKind: "opened", seenBy: "both", opens: "link-closed" },
-      { stateValue: "report", label: "Report", stateKind: "opened", seenBy: "both", opens: "report" },
+      { stateValue: "report", label: "Report", stateKind: "opened", seenBy: "both", opens: "report", path: "/g/shard-dodge?play" },
     ],
   },
   {
@@ -221,7 +221,7 @@ export function readyStates(): ReadyState[] {
       return { ...shared, profile: state.profile ?? entry.account ?? place.profile, path: entry.path, stepsToTake: entry.stepsToTake, setUpName: entry.setUp ? entry.name : undefined, isOwnPage: !entry.setUp };
     }
     if ("path" in state) return { ...shared, path: state.path, isOwnPage: true };
-    if ("opens" in state) return { ...shared, path: place.path, opens: state.opens, isOwnPage: false };
+    if ("opens" in state) return { ...shared, path: state.path ?? place.path, opens: state.opens, isOwnPage: false };
     return { ...shared, path: place.path, presses: state.presses, isOwnPage: false };
   }));
 }
