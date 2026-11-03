@@ -117,7 +117,7 @@ describe("a shared game link", () => {
 
   it("gives tester links nothing to unfold, since their address is a secret", async () => {
     await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE slug = 'sky-hopper'").run();
-    const tester = await addTesterLink(env.DB, (await gameBySlug(env.DB, "sky-hopper"))!.id, "Playtesters");
+    const tester = await addTesterLink(env.DB, env, (await gameBySlug(env.DB, "sky-hopper"))!.id, "Playtesters");
     const head = await headOf(`/t/${tester.token}`);
     expect(meta(head, "og:title")).toBeNull();
     expect(head).not.toContain("canonical");

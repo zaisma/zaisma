@@ -1,9 +1,9 @@
-import { checkDoor, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { checkDoor, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
-import { publishedReceiptKeys, signingKey } from "./signing.ts";
+import { passPublicKeys, publishedReceiptKeys, signingKey } from "./signing.ts";
 import type { GameDatabaseObject } from "./database.ts";
 import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
@@ -58,12 +58,22 @@ export interface Env extends RelayEnv {
   GAME_ORIGIN: string;
   GAME_DOMAIN: string;
   PASS_SIGNING_KEY: string;
+  /** The other pass key, published ahead of signing anything (scripts/replace-key.mjs). Without it, only PASS_SIGNING_KEY. */
+  SECOND_PASS_SIGNING_KEY?: string;
+  /** "true" while SECOND_PASS_SIGNING_KEY signs passes. */
+  IS_SECOND_PASS_SIGNING_KEY_IN_USE?: string;
   /** Signs receipts only (signing.ts). Without it, the site's receipts answer receipts_unavailable. */
   RECEIPT_SIGNING_KEY?: string;
   /** Public JWKs of retired receipt keys, as a JSON list: published for good, so their receipts keep verifying. */
   RETIRED_RECEIPT_PUBLIC_KEYS?: string;
-  /** 32 random bytes, base64: keys the player tags and chat groups in passes, apart from the signing key so replacing that never changes a tag. */
+  /** 32 random bytes, base64: keys the player tags in passes, apart from the signing key so replacing that never changes a tag. */
   PLAYER_TAG_KEY: string;
+  /** 32 random bytes, base64: keys the chat groups in passes, apart from the tags: replacing it changes no tag a server keeps, and only stops strangers chatting until their next pass. */
+  CHAT_GROUP_KEY: string;
+  /** 32 random bytes, base64: opens the tester link tokens sealed in the database (packages/core/src/sealed-secrets.ts). */
+  STORED_SECRETS_KEY: string;
+  SECOND_STORED_SECRETS_KEY?: string;
+  IS_SECOND_STORED_SECRETS_KEY_IN_USE?: string;
   /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
   ROOM_LIST_CACHE_SECONDS?: string;
 }
@@ -134,22 +144,22 @@ export async function isGameOrigin(env: Env, slug: string, origin: string | null
 async function testerLinkFor(env: Env, slug: string, testerId: string | null): Promise<{ page: string; tester: string } | null> {
   if (!testerId || !isIdOf("tester", testerId)) return null;
   const link = await env.DB.prepare(
-    "SELECT tester_links.token FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.id = ? AND games.slug = ? AND tester_links.revoked_at_ms IS NULL AND (tester_links.ends_at_ms IS NULL OR tester_links.ends_at_ms > ?)",
+    "SELECT tester_links.id, tester_links.token, tester_links.sealed_token FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.id = ? AND games.slug = ? AND tester_links.revoked_at_ms IS NULL AND (tester_links.ends_at_ms IS NULL OR tester_links.ends_at_ms > ?)",
   )
     .bind(testerId, slug, Date.now())
-    .first<{ token: string }>();
-  return link ? { page: `/t/${link.token}`, tester: testerId } : null;
+    .first<{ id: string; token: string | null; sealed_token: string | null }>();
+  return link ? { page: `/t/${await testerLinkToken(env, link)}`, tester: testerId } : null;
 }
 
-export { signingKey } from "./signing.ts";
+export { passPublicKeys, signingKey } from "./signing.ts";
 
 /**
  * The opaque chat group an open-and-social account carries in this game's passes: a keyed hash of the
  * game and the band group, so players in the same group match and nobody can tell which group is which
- * age, or link a group across games. Keyed with PLAYER_TAG_KEY, which never leaves Zaisma.
+ * age, or link a group across games. Keyed with CHAT_GROUP_KEY, which never leaves Zaisma.
  */
 export async function chatGroupId(env: Env, slug: string, bandGroup: string): Promise<string> {
-  return `chat_group_${await keyedHash(env, `chat_group:${slug}:${bandGroup}`)}`;
+  return `chat_group_${await keyedHash(env.CHAT_GROUP_KEY, `chat_group:${slug}:${bandGroup}`)}`;
 }
 
 /**
@@ -158,18 +168,20 @@ export async function chatGroupId(env: Env, slug: string, bandGroup: string): Pr
  * them, but can't tell who a tag is without that player's own pass, or link tags across games.
  */
 export async function playerTag(env: Env, slug: string, playerId: string): Promise<string> {
-  return `player_tag_${await keyedHash(env, `player_tag:${slug}:${playerId}`)}`;
+  return `player_tag_${await keyedHash(env.PLAYER_TAG_KEY, `player_tag:${slug}:${playerId}`)}`;
 }
 
-let hashing: { secret: string; key: Promise<CryptoKey> } | null = null;
-/** 20 hex characters of an HMAC keyed with PLAYER_TAG_KEY's bytes, which never leave Zaisma. */
-async function keyedHash(env: Env, text: string): Promise<string> {
-  if (hashing?.secret !== env.PLAYER_TAG_KEY) {
-    const keyBytes = Uint8Array.from(atob(env.PLAYER_TAG_KEY), (character) => character.charCodeAt(0));
-    if (keyBytes.length < 32) throw new Error("PLAYER_TAG_KEY must be 32 random bytes, base64 (openssl rand -base64 32)");
-    hashing = { secret: env.PLAYER_TAG_KEY, key: crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]) };
+const hashingKeys = new Map<string, Promise<CryptoKey>>();
+/** 20 hex characters of an HMAC keyed with a key's bytes (PLAYER_TAG_KEY, CHAT_GROUP_KEY), which never leave Zaisma. */
+async function keyedHash(secret: string, text: string): Promise<string> {
+  let key = hashingKeys.get(secret);
+  if (!key) {
+    const keyBytes = Uint8Array.from(atob(secret), (character) => character.charCodeAt(0));
+    if (keyBytes.length < 32) throw new Error("PLAYER_TAG_KEY and CHAT_GROUP_KEY must be 32 random bytes, base64 (openssl rand -base64 32)");
+    key = crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    hashingKeys.set(secret, key);
   }
-  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", await hashing.key, new TextEncoder().encode(text)));
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", await key, new TextEncoder().encode(text)));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 20);
 }
 
@@ -291,7 +303,7 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
 
   let player: Player;
   try {
-    const claims = await verifyPass(body.pass, [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
+    const claims = await verifyPass(body.pass, await passPublicKeys(env), { gameSlug: slug, issuerUrl: env.ISSUER });
     // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
     const name = claims.kind === "account" ? await accountName(env, claims.sub) : claims.name;
     if (!name) return requestFailure("bad_pass", cors);
@@ -331,7 +343,7 @@ async function answerPurchases(request: Request, env: Env, isMarking: boolean): 
   if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
   let claims: PassClaims;
   try {
-    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
+    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", await passPublicKeys(env), { gameSlug: slug, issuerUrl: env.ISSUER });
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "This player's pass didn't check out. Zaisma.player() gets a new one.", 401, cors);
@@ -370,7 +382,7 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
   if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
   let claims: PassClaims;
   try {
-    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", [(await signingKey(env)).publicKey], { gameSlug: slug, issuerUrl: env.ISSUER });
+    claims = await verifyPass(typeof body.pass === "string" ? body.pass : "", await passPublicKeys(env), { gameSlug: slug, issuerUrl: env.ISSUER });
   } catch (error) {
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "This player's pass didn't check out. Zaisma.player.getPass() gets a new one.", 401, cors);
@@ -425,7 +437,7 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
   const recentTexts = body.recentTexts ?? [];
   if (!Array.isArray(recentTexts) || !recentTexts.every((recentText) => typeof recentText === "string")) return failure("bad_request", "recentTexts takes a list of the sender's last messages, oldest first.", 400, undefined, "recentTexts");
 
-  const keys = [(await signingKey(env)).publicKey];
+  const keys = await passPublicKeys(env);
   const check = async (pass: unknown) => verifyPass(typeof pass === "string" ? pass : "", keys, { gameSlug: slug, issuerUrl: env.ISSUER });
   let sender: PassClaims | null;
   try {
@@ -495,7 +507,7 @@ export default {
     if (!door || !checkDoor(door.contract, [])) return new Response("Not found", { status: 404 });
 
     if (url.pathname === "/.well-known/jwks.json") {
-      return Response.json(jwks([(await signingKey(env)).publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
+      return Response.json(jwks(await passPublicKeys(env)), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
     }
     // Receipt keys at their own address, so a receipt key never signs a pass anyone takes.
     if (url.pathname === "/.well-known/receipt-jwks.json") {

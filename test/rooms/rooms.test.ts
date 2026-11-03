@@ -610,7 +610,7 @@ describe("rooms", () => {
   it("lets the tester address in for the link it names, with room links back through it", async () => {
     const id = await addGame("hidden-arena");
     const sub = { ...e, GAME_HOST_MODE: "subdomain", GAME_DOMAIN: "zaismausercontent.com" } as Env;
-    const link = await addTesterLink(e.DB, id, "Team");
+    const link = await addTesterLink(e.DB, e, id, "Team");
     const at = (host: string, testerId: string | null = link.id) => gameOrigin(sub, "hidden-arena", `https://${host}`, testerId);
     expect(await at("hidden-arena.zaismausercontent.com", null)).toEqual({ page: "/g/hidden-arena" });
     expect(await at("hidden-arena--tester.zaismausercontent.com")).toEqual({ page: `/t/${link.token}`, tester: link.id });
@@ -622,7 +622,7 @@ describe("rooms", () => {
     expect(await at("hidden-arena--preview.zaismausercontent.com")).toBeNull();
     expect(await isGameOrigin(sub, "hidden-arena", "https://hidden-arena--preview.zaismausercontent.com")).toBe(false);
     const other = await addGame("other-arena");
-    const theirs = await addTesterLink(e.DB, other, "Team");
+    const theirs = await addTesterLink(e.DB, e, other, "Team");
     expect(await at("hidden-arena--tester.zaismausercontent.com", theirs.id)).toBeNull();
     await e.DB.prepare("UPDATE tester_links SET ends_at_ms = ? WHERE id = ?").bind(Date.now() - 1, link.id).run();
     expect(await at("hidden-arena--tester.zaismausercontent.com")).toBeNull();
@@ -634,7 +634,7 @@ describe("rooms", () => {
 
   it("lets players go once the tester link they came through is turned off", async () => {
     const id = await addGame("arena");
-    const link = await addTesterLink(e.DB, id, "Team");
+    const link = await addTesterLink(e.DB, e, id, "Team");
     // As the rooms Worker hands over a player from a tester link's origin.
     const res = await e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")).fetch("https://room/", {
       headers: { Upgrade: "websocket", "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-game-version": "v1", "x-room-code": "TSTRMS", "x-tester-link": link.id },

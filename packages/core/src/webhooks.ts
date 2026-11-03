@@ -1,4 +1,5 @@
 import { newId } from "./ids.ts";
+import { openSecret, sealSecret, type StoredSecretsKeys } from "./sealed-secrets.ts";
 
 /**
  * Webhooks for developers (docs/DECISIONS.md, "Webhooks follow Standard Webhooks"): addresses a
@@ -76,7 +77,9 @@ export interface Webhook {
   event_kinds: string;
   /** A JSON list of the owner's game slugs, or null for every game they have and will make. */
   game_slugs: string | null;
-  signing_secret: string;
+  /** Kept plain only until the cron seals it (sealStoredSecrets). webhookSigningSecret reads it either way. */
+  signing_secret: string | null;
+  sealed_signing_secret: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -142,6 +145,13 @@ export async function signatureFor(signingSecret: string, webhookEventId: string
   return `v1,${base64(new Uint8Array(signature))}`;
 }
 
+/** A webhook's signing secret, from wherever it's kept. */
+export async function webhookSigningSecret(keys: StoredSecretsKeys, webhook: Pick<Webhook, "id" | "signing_secret" | "sealed_signing_secret">): Promise<string> {
+  if (webhook.signing_secret) return webhook.signing_secret;
+  if (!webhook.sealed_signing_secret) throw new Error(`Webhook ${webhook.id} has no signing secret`);
+  return openSecret(keys, webhook.sealed_signing_secret, `webhooks.signing_secret:${webhook.id}`);
+}
+
 // --- Webhooks ------------------------------------------------------------------
 
 export async function webhooksFor(database: D1Database, ownerId: string): Promise<Webhook[]> {
@@ -153,27 +163,32 @@ export async function webhookById(database: D1Database, id: string): Promise<Web
   return database.prepare("SELECT * FROM webhooks WHERE id = ?").bind(id).first<Webhook>();
 }
 
+/** The new webhook, and its signing secret, shown this once: it only ever goes to the database sealed. */
 export async function createWebhook(
   database: D1Database,
+  keys: StoredSecretsKeys,
   input: { ownerId: string; destinationKind: WebhookDestinationKind; endpointUrl: string | null; eventKinds: WebhookEventKind[]; gameSlugs: string[] | null },
-): Promise<Webhook> {
+): Promise<{ webhook: Webhook; signingSecret: string }> {
   const createdAtMs = now();
+  const id = newId("webhook");
+  const signingSecret = newSigningSecret();
   const webhook: Webhook = {
-    id: newId("webhook"),
+    id,
     owner_id: input.ownerId,
     destination_kind: input.destinationKind,
     endpoint_url: input.endpointUrl,
     event_kinds: JSON.stringify(input.eventKinds),
     game_slugs: input.gameSlugs ? JSON.stringify(input.gameSlugs) : null,
-    signing_secret: newSigningSecret(),
+    signing_secret: null,
+    sealed_signing_secret: await sealSecret(keys, signingSecret, `webhooks.signing_secret:${id}`),
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
   };
   await database
-    .prepare("INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(webhook.id, webhook.owner_id, webhook.destination_kind, webhook.endpoint_url, webhook.event_kinds, webhook.game_slugs, webhook.signing_secret, webhook.created_at_ms, webhook.updated_at_ms)
+    .prepare("INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, sealed_signing_secret, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(webhook.id, webhook.owner_id, webhook.destination_kind, webhook.endpoint_url, webhook.event_kinds, webhook.game_slugs, webhook.sealed_signing_secret, webhook.created_at_ms, webhook.updated_at_ms)
     .run();
-  return webhook;
+  return { webhook, signingSecret };
 }
 
 /**
@@ -188,21 +203,24 @@ export interface WebhookChange {
   replaceSigningSecret?: boolean;
 }
 
-export async function updateWebhook(database: D1Database, webhook: Webhook, change: WebhookChange): Promise<Webhook> {
+/** The webhook as it is now, and its new signing secret when it asked for one (null otherwise), shown this once. */
+export async function updateWebhook(database: D1Database, keys: StoredSecretsKeys, webhook: Webhook, change: WebhookChange): Promise<{ webhook: Webhook; signingSecret: string | null }> {
+  const signingSecret = change.replaceSigningSecret ? newSigningSecret() : null;
   const updated: Webhook = {
     ...webhook,
     destination_kind: change.destinationKind ?? webhook.destination_kind,
     endpoint_url: change.endpointUrl === undefined ? webhook.endpoint_url : change.endpointUrl,
     event_kinds: change.eventKinds ? JSON.stringify(change.eventKinds) : webhook.event_kinds,
     game_slugs: change.gameSlugs === undefined ? webhook.game_slugs : change.gameSlugs ? JSON.stringify(change.gameSlugs) : null,
-    signing_secret: change.replaceSigningSecret ? newSigningSecret() : webhook.signing_secret,
+    signing_secret: signingSecret ? null : webhook.signing_secret,
+    sealed_signing_secret: signingSecret ? await sealSecret(keys, signingSecret, `webhooks.signing_secret:${webhook.id}`) : webhook.sealed_signing_secret,
     updated_at_ms: now(),
   };
   await database
-    .prepare("UPDATE webhooks SET destination_kind = ?, endpoint_url = ?, event_kinds = ?, game_slugs = ?, signing_secret = ?, updated_at_ms = ? WHERE id = ?")
-    .bind(updated.destination_kind, updated.endpoint_url, updated.event_kinds, updated.game_slugs, updated.signing_secret, updated.updated_at_ms, webhook.id)
+    .prepare("UPDATE webhooks SET destination_kind = ?, endpoint_url = ?, event_kinds = ?, game_slugs = ?, signing_secret = ?, sealed_signing_secret = ?, updated_at_ms = ? WHERE id = ?")
+    .bind(updated.destination_kind, updated.endpoint_url, updated.event_kinds, updated.game_slugs, updated.signing_secret, updated.sealed_signing_secret, updated.updated_at_ms, webhook.id)
     .run();
-  return updated;
+  return { webhook: updated, signingSecret };
 }
 
 /** A webhook goes for good, with what was on its way to it. */
@@ -386,6 +404,7 @@ export type SendToGameServer = (webhook: Webhook, eventJson: string) => Promise<
  */
 export async function attemptDelivery(
   database: D1Database,
+  keys: StoredSecretsKeys,
   webhook: Webhook,
   due: { webhook_id: string; webhook_event_id: string },
   options: { send?: typeof fetch; sendToGameServer?: SendToGameServer; isOnlyAttempt?: boolean } = {},
@@ -400,7 +419,7 @@ export async function attemptDelivery(
   const { httpStatusCode, failureMessage } =
     webhook.destination_kind === "game_server" || webhook.endpoint_url === null
       ? { httpStatusCode: null, failureMessage: await tryGameServer(webhook, delivery, options.sendToGameServer) }
-      : await tryEndpoint(webhook.endpoint_url, webhook.signing_secret, delivery, attemptAtMs, options.send ?? fetch);
+      : await signAndTryEndpoint(keys, webhook, webhook.endpoint_url, delivery, attemptAtMs, options.send ?? fetch);
 
   const attemptCount = delivery.attempt_count + 1;
   const deliveryStatus: DeliveryStatus = failureMessage === null ? "delivered" : options.isOnlyAttempt || attemptCount >= MAXIMUM_WEBHOOK_ATTEMPT_COUNT ? "failed" : "pending";
@@ -419,6 +438,18 @@ export async function attemptDelivery(
     .bind(updated.delivery_status, updated.attempt_count, updated.next_attempt_at_ms, updated.last_attempt_at_ms, updated.last_http_status_code, updated.failure_message, delivery.webhook_id, delivery.webhook_event_id)
     .run();
   return updated;
+}
+
+/** A signing secret that won't open (a restore without its key) fails this try like any other, so it's recorded and never holds up the queue. */
+async function signAndTryEndpoint(keys: StoredSecretsKeys, webhook: Webhook, endpointUrl: string, delivery: WebhookDelivery, attemptAtMs: number, send: typeof fetch): Promise<{ httpStatusCode: number | null; failureMessage: string | null }> {
+  let signingSecret: string;
+  try {
+    signingSecret = await webhookSigningSecret(keys, webhook);
+  } catch (error) {
+    console.error(`webhook ${webhook.id}: ${error instanceof Error ? error.message : String(error)}`);
+    return { httpStatusCode: null, failureMessage: "Zaisma couldn't read this webhook's signing secret: replace it with replace_signing_secret." };
+  }
+  return tryEndpoint(endpointUrl, signingSecret, delivery, attemptAtMs, send);
 }
 
 /** One signed POST to an endpoint: its HTTP status, and why it didn't count as delivered (null when it did). */

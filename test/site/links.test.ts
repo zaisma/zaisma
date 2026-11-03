@@ -203,7 +203,7 @@ describe("the game page asks for a link's address", () => {
     await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE slug = 'sky-hopper'").run();
     expect((await ask({ link_name: "store" })).status).toBe(404);
     const game = (await gameBySlug(env.DB, "sky-hopper"))!;
-    const tester = await addTesterLink(env.DB, game.id, "Playtesters");
+    const tester = await addTesterLink(env.DB, env, game.id, "Playtesters");
     expect((await ask({ link_name: "store", tester_token: tester.token })).answer).toEqual({ destination_url: "https://kit.itch.io/sky-hopper" });
     expect((await ask({ link_name: "store", tester_token: "a".repeat(20) })).status).toBe(404);
   });
@@ -223,7 +223,7 @@ describe("the game page asks for a link's address", () => {
     // The links script sends the tester link's token along, from a tester link's page only.
     expect(pageDataOf(page, "game-page-data")).toMatchObject({ slug: "sky-hopper", tester_token: null });
     const game = (await gameBySlug(env.DB, "sky-hopper"))!;
-    const tester = await addTesterLink(env.DB, game.id, "Playtesters");
+    const tester = await addTesterLink(env.DB, env, game.id, "Playtesters");
     expect(pageDataOf(await (await SELF.fetch(`${SITE}/t/${tester.token}`)).text(), "game-page-data").tester_token).toBe(tester.token);
   });
 });

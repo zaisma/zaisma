@@ -27,6 +27,7 @@ import {
   ROOM_STALE_MS,
   SAVE_LIMIT_BYTES,
   servableGame,
+  testerLinkToken,
   testerLinkVersion,
   useAccessGrant,
   useEntryGrant,
@@ -56,6 +57,10 @@ export interface Env {
   GAME_DOMAIN: string;
   SITE_ORIGIN: string;
   ROOMS_ORIGIN: string;
+  /** 32 random bytes, base64: opens tester link tokens and keys accounts-only entry (packages/core/src/sealed-secrets.ts). */
+  STORED_SECRETS_KEY: string;
+  SECOND_STORED_SECRETS_KEY?: string;
+  IS_SECOND_STORED_SECRETS_KEY_IN_USE?: string;
 }
 
 interface Target {
@@ -248,7 +253,7 @@ async function enterAccountsOnly(request: Request, url: URL, env: Env, target: T
   const cookieName = entryCookieName(game.slug);
   const then = readThen(url.searchParams.get("then"));
   if (target.path === "_zaisma/enter") {
-    const entered = await useEntryGrant(game, url.searchParams.get("grant") ?? "");
+    const entered = await useEntryGrant(env, game, url.searchParams.get("grant") ?? "");
     if (!entered) return page(404, "Open this game on zaisma.com", "This game needs a Zaisma account. Open it from its page on zaisma.com.", env);
     const maximumAgeSec = Math.max(1, Math.floor((entered.expiresAtMs - Date.now()) / 1000));
     const headers = new Headers({ Location: `${target.base}_zaisma/entered${then ? `?then=${encodeURIComponent(then)}` : ""}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
@@ -256,7 +261,7 @@ async function enterAccountsOnly(request: Request, url: URL, env: Env, target: T
     return new Response(null, { status: 302, headers });
   }
   const cookie = cookieValue(request, cookieName);
-  const isEntered = cookie ? await isEntryCookieValid(game, cookie) : false;
+  const isEntered = cookie ? await isEntryCookieValid(env, game, cookie) : false;
   if (target.path === "_zaisma/entered") {
     if (!isEntered) return cookieNotKept(env);
     return new Response(null, { status: 302, headers: { Location: `${target.base}${then}`, "Cache-Control": "no-store" } });
@@ -607,7 +612,7 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
       // Room links from a tester link go back through it, since a private game has no public page, and rooms
       // let its players go when it's turned off.
       // version: the one this tab runs, so the game page can offer a newer one published "now".
-      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, version: version.id, purchaseDelivery: game.purchase_delivery, ...(tester ? { page: `/t/${tester.token}`, tester: tester.id } : {}) };
+      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, version: version.id, purchaseDelivery: game.purchase_delivery, ...(tester ? { page: `/t/${await testerLinkToken(env, tester)}`, tester: tester.id } : {}) };
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       // Checked on every load, like the game's own HTML, so the version it names is the one the tab gets.
       headers.set("Cache-Control", "no-cache");

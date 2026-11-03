@@ -455,8 +455,13 @@ if (missingQueues.length && !isDryRun) {
 }
 
 // Secrets a Worker can't run without, checked before anything deploys: rooms signs receipts with
-// RECEIPT_SIGNING_KEY, and without it every purchase read answers receipts_unavailable.
-const REQUIRED_SECRETS = { "zaisma-rooms": ["PASS_SIGNING_KEY", "RECEIPT_SIGNING_KEY"] };
+// RECEIPT_SIGNING_KEY, and without it every purchase read answers receipts_unavailable; each Worker that reads a
+// sealed secret needs STORED_SECRETS_KEY; the second slots keep a key replaceable (scripts/replace-key.mjs).
+const REQUIRED_SECRETS = {
+  "zaisma-rooms": ["PASS_SIGNING_KEY", "SECOND_PASS_SIGNING_KEY", "RECEIPT_SIGNING_KEY", "CHAT_GROUP_KEY", "STORED_SECRETS_KEY", "SECOND_STORED_SECRETS_KEY"],
+  "zaisma-games": ["STORED_SECRETS_KEY", "SECOND_STORED_SECRETS_KEY"],
+  "zaisma-site": ["SECOND_SIGN_IN_SIGNING_KEY", "STORED_SECRETS_KEY", "SECOND_STORED_SECRETS_KEY"],
+};
 for (const [workerName, secretNames] of Object.entries(REQUIRED_SECRETS)) {
   const listed = await runWranglerOnline(`listing ${workerName}'s secrets`, ["secret", "list", "--name", workerName, "--format", "json"]);
   if (listed.exitCode !== 0) {
@@ -464,7 +469,7 @@ for (const [workerName, secretNames] of Object.entries(REQUIRED_SECRETS)) {
     finish("FAIL", `${shortSha}: couldn't list ${workerName}'s secrets (above); nothing deployed.`, 1);
   }
   const missingSecrets = secretNames.filter((name) => !listed.output.includes(`"${name}"`));
-  if (missingSecrets.length) finish("FAIL", `${shortSha}: ${workerName} has no ${missingSecrets.join(" or ")}: put it with \`node scripts/rooms-key.mjs | npx wrangler secret put ${missingSecrets[0]} --config apps/rooms/wrangler.jsonc\`; nothing deployed.`, 1);
+  if (missingSecrets.length) finish("FAIL", `${shortSha}: ${workerName} has no ${missingSecrets.join(" or ")}: ${missingSecrets.includes("RECEIPT_SIGNING_KEY") ? "put it with \`node scripts/rooms-key.mjs | npx wrangler secret put RECEIPT_SIGNING_KEY --config apps/rooms/wrangler.jsonc\`" : "put them with \`node scripts/replace-key.mjs setup\`"}; nothing deployed.`, 1);
 }
 
 // The command-line tool and the game server package on npm.

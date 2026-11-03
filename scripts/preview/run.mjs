@@ -122,7 +122,12 @@ if (!existsSync(signInKeyFile)) {
   const { kty, n, e, d, p, q, dp, dq, qi } = await crypto.subtle.exportKey("jwk", pair.privateKey);
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
+// The key that seals secrets in the database, the same in all three Workers, kept between runs so tester links keep opening.
+const storedSecretsKeyFile = join(STATE, "stored-secrets-key.txt");
+if (!existsSync(storedSecretsKeyFile)) writeFileSync(storedSecretsKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const STORED_SECRETS_KEY = readFileSync(storedSecretsKeyFile, "utf8");
 const siteSettings = {
+  STORED_SECRETS_KEY,
   SITE_ORIGIN: SITE, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
   // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
@@ -147,7 +152,7 @@ const siteSettings = {
     STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview", STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_preview_credit_plan",
   }),
 };
-const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
+const gamesSettings = { STORED_SECRETS_KEY, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
 // Multiplayer rooms, with their own pass and receipt signing keys kept between runs so passes and receipts stay valid.
 async function keptSigningKey(file) {
   if (!existsSync(file)) {
@@ -160,7 +165,9 @@ async function keptSigningKey(file) {
 // And the key for the opaque player tags in passes, kept between runs so tags stay the same.
 const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
 if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
+const chatGroupKeyFile = join(STATE, "rooms-chat-group-key.txt");
+if (!existsSync(chatGroupKeyFile)) writeFileSync(chatGroupKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const roomsSettings = { STORED_SECRETS_KEY, CHAT_GROUP_KEY: readFileSync(chatGroupKeyFile, "utf8"), ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {

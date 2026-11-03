@@ -196,7 +196,7 @@ describe("game server", () => {
   it("sends a stale or another game's grant nowhere, and keeps then inside the game", async () => {
     const id = await addGame("live-one", "live");
     const other = await addGame("other-one", "live");
-    const link = await addTesterLink(env.DB, id, "Team");
+    const link = await addTesterLink(env.DB, env, id, "Team");
     const theirs = await createAccessGrant(env.DB, { gameId: other, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 });
     expect((await enter("live-one", "tester", theirs)).entered.status).toBe(404);
     const old = await createAccessGrant(env.DB, { gameId: id, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 }, Date.now() - 61_000);
@@ -222,7 +222,7 @@ describe("game server", () => {
   it("opens what a tester link chooses, whatever the visibility, until it's turned off or ends", async () => {
     const id = await addGame("secret-game", "live");
     await env.DB.prepare("UPDATE games SET visibility = 'private', cloud_saves_enabled = 1 WHERE id = ?").bind(id).run();
-    const link = await addTesterLink(env.DB, id, "Playtesters");
+    const link = await addTesterLink(env.DB, env, id, "Playtesters");
     const open = async (testerId: string, gameId = id, slug = "secret-game") => (await enter(slug, "tester", await createAccessGrant(env.DB, { gameId, addressKind: "tester", testerId, expiresAtMs: Date.now() + 3600_000 }))).cookie;
     expect((await SELF.fetch(`${G}/secret-game/`)).status).toBe(404);
     const cookie = await open(link.id);
@@ -252,7 +252,7 @@ describe("game server", () => {
 
     // Another game's link doesn't open this one.
     const other = await addGame("other-game", "live");
-    const theirs = await addTesterLink(env.DB, other, "Team");
+    const theirs = await addTesterLink(env.DB, env, other, "Team");
     expect((await SELF.fetch(`${G}/secret-game--tester/`, { headers: { cookie: await open(theirs.id) } })).status).toBe(404);
 
     // Past its end date, it stops.
@@ -267,7 +267,7 @@ describe("game server", () => {
 
     // Nothing published yet: nothing to play.
     const none = await addGame("not-yet", "pending", false);
-    const early = await addTesterLink(env.DB, none, "Early");
+    const early = await addTesterLink(env.DB, env, none, "Early");
     const empty = await SELF.fetch(`${G}/not-yet--tester/`, { headers: { cookie: await open(early.id, none, "not-yet") } });
     expect(empty.status).toBe(404);
     expect(await empty.text()).toContain("Nothing to play yet");
@@ -282,7 +282,7 @@ describe("game server", () => {
     for (const path of ["", "sfx/beep.mp3", "_zaisma/v1.js"]) expect((await SELF.fetch(`${G}/members-only/${path}`)).status).toBe(404);
 
     // A grant swaps for the cookie, then the game opens at then, privately.
-    const entered = await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant(game)}&then=${encodeURIComponent("?room=ABCDEF")}`, { redirect: "manual" });
+    const entered = await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant(env, game)}&then=${encodeURIComponent("?room=ABCDEF")}`, { redirect: "manual" });
     expect(entered.status).toBe(302);
     const setCookie = entered.headers.get("set-cookie")!;
     expect(setCookie).toMatch(/^__Host-zaisma_access_members-only=\d+\.[0-9a-f]{64}; Path=\/; Max-Age=\d+; Secure; HttpOnly; SameSite=None; Partitioned$/);
@@ -299,11 +299,11 @@ describe("game server", () => {
     expect((await SELF.fetch(`${G}/members-only/_zaisma/entered`, { redirect: "manual" })).status).toBe(403);
 
     // An old grant, another game's, or one from before the key changed opens nothing.
-    expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant(game, Date.now() - 61_000)}`, { redirect: "manual" })).status).toBe(404);
-    expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant({ id: "gother", entry_signing_key: "keyone" })}`, { redirect: "manual" })).status).toBe(404);
+    expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant(env, game, Date.now() - 61_000)}`, { redirect: "manual" })).status).toBe(404);
+    expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${await createEntryGrant(env, { id: "gother", entry_signing_key: "keyone" })}`, { redirect: "manual" })).status).toBe(404);
     // A cookie is never a grant.
     expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${cookie.split("=")[1]}`, { redirect: "manual" })).status).toBe(404);
-    const beforeRotation = await createEntryGrant(game);
+    const beforeRotation = await createEntryGrant(env, game);
     await env.DB.prepare("UPDATE games SET entry_signing_key = 'keytwo' WHERE slug = 'members-only'").run();
     expect((await SELF.fetch(`${G}/members-only/_zaisma/enter?grant=${beforeRotation}`, { redirect: "manual" })).status).toBe(404);
     // A new key ends the cookies handed out too.
@@ -322,7 +322,7 @@ describe("game server", () => {
     const stranger = await SELF.fetch(`${G}/ashfall/`);
     expect(stranger.status).toBe(404);
     expect(await stranger.text()).toContain("Game not found");
-    const entered = await SELF.fetch(`${G}/ashfall/_zaisma/enter?grant=${await createEntryGrant(game)}`, { redirect: "manual" });
+    const entered = await SELF.fetch(`${G}/ashfall/_zaisma/enter?grant=${await createEntryGrant(env, game)}`, { redirect: "manual" });
     expect(entered.status).toBe(302);
     const cookie = entered.headers.get("set-cookie")!.split(";")[0]!;
     expect((await SELF.fetch(`${G}/ashfall/`, { headers: { cookie } })).status).toBe(200);
@@ -646,7 +646,7 @@ describe("game server", () => {
       // A private game opens to nobody at a content address, whatever their browser remembers of it.
       await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE id = ?").bind(id).run();
       expect((await SELF.fetch(`${G}${kept}`)).status).toBe(404);
-      const link = await addTesterLink(env.DB, id, "Playtesters");
+      const link = await addTesterLink(env.DB, env, id, "Playtesters");
       const tester = kept.replace("/guarded/", "/guarded--tester/");
       expect((await SELF.fetch(`${G}${tester}`)).status).toBe(404);
       const { cookie } = await enter("guarded", "tester", await createAccessGrant(env.DB, { gameId: id, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 }));
@@ -782,7 +782,7 @@ describe("game server", () => {
       await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, published_at_ms, created_at_ms) VALUES ('vtestersold', ?, 'games/t/old', 1, 0, 'approved', 1, 0)").bind(id).run();
       await env.GAMES.put("games/t/old/index.html", "<!doctype html><p>old</p>");
       await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, version_id, created_at_ms, updated_at_ms) VALUES (?, 'TSTRRM', 2, 8, 'vtestersold', ?, ?)").bind(id, Date.now(), Date.now()).run();
-      const link = await addTesterLink(env.DB, id, "Playtesters");
+      const link = await addTesterLink(env.DB, env, id, "Playtesters");
       const { cookie } = await enter("testers-room", "tester", await createAccessGrant(env.DB, { gameId: id, addressKind: "tester", testerId: link.id, expiresAtMs: Date.now() + 3600_000 }));
       const page = await SELF.fetch(`${G}/testers-room--tester/?room=TSTRRM`, { headers: { cookie: `${cookie}; __Host-zaisma_room_version_testers-room=vtestersold.TSTRRM` } });
       expect(await page.text()).toContain("<p>game</p>");
