@@ -16,8 +16,8 @@ describe("a floating pane's motion", () => {
 
   it("casts a shadow that fades at its glass's pace, takes its move and stays until they're done", () => {
     expect(paneStyles).toMatch(/\.floating-cast \{ transition: opacity var\(--motion-state\), transform var\(--motion-arrive\) var\(--ease-glide\), display var\(--motion-arrive\) allow-discrete; \}/);
-    expect(paneStyles).toMatch(/\.floating-cast:is\(\[hidden\], \.is-arriving, \.is-leaving\) \{ opacity: 0; transform: var\(--closed-move\); \}/);
-    expect(paneStyles).toMatch(/@starting-style \{ \.floating-cast \{ opacity: 0; transform: var\(--closed-move\); \} \}/);
+    expect(paneStyles).toMatch(/\.floating-cast:is\(\[hidden\], \.is-arriving, \.is-leaving\) \{ opacity: 0; transform: var\(--away-move\); \}/);
+    expect(paneStyles).toMatch(/@starting-style \{ \.floating-cast \{ opacity: 0; transform: var\(--away-move\); \} \}/);
   });
 
   it("gives its shadow the classes that set its move, and starts its shadow going as it goes", () => {

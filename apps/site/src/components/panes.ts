@@ -866,12 +866,12 @@ component({
 /* Opened again at once where it just was (a Filter menu drawn again with the list it filters), it shows without arriving. */
 .floating-pane.opens-at-once, .floating-pane.opens-at-once::before, .floating-pane.opens-at-once > * { transition: none; }
 /* Closed, it stands a little off where it opens, and its shadow with it. */
-:is(.floating-pane, .floating-cast) { --closed-move: translateY(-6px); }
-:is(.floating-pane, .floating-cast).is-above { --closed-move: translateY(6px); }
-:is(.floating-pane, .floating-cast).placed-over { --closed-move: scale(0.97); }
-.floating-pane:is(.is-arriving, .is-leaving) { transform: var(--closed-move); pointer-events: none; }
-.floating-pane:not(:popover-open):not(.in-place) { display: none; transform: var(--closed-move); pointer-events: none; }
-@starting-style { .floating-pane:popover-open { transform: var(--closed-move); } }
+:is(.floating-pane, .floating-cast) { --away-move: translateY(-6px); }
+:is(.floating-pane, .floating-cast).is-above { --away-move: translateY(6px); }
+:is(.floating-pane, .floating-cast).placed-over { --away-move: scale(0.97); }
+.floating-pane:is(.is-arriving, .is-leaving) { transform: var(--away-move); pointer-events: none; }
+.floating-pane:not(:popover-open):not(.in-place) { display: none; transform: var(--away-move); pointer-events: none; }
+@starting-style { .floating-pane:popover-open { transform: var(--away-move); } }
 /* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
 .floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; }
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
@@ -880,8 +880,8 @@ component({
 /* It comes and goes with its pane, at its glass's fade and its move: hidden, it stays until they're done. Where the script moves the pane
    (Safari), its classes say so instead, as they do the pane's. */
 .floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
-.floating-cast:is([hidden], .is-arriving, .is-leaving) { opacity: 0; transform: var(--closed-move); }
-@starting-style { .floating-cast { opacity: 0; transform: var(--closed-move); } }
+.floating-cast:is([hidden], .is-arriving, .is-leaving) { opacity: 0; transform: var(--away-move); }
+@starting-style { .floating-cast { opacity: 0; transform: var(--away-move); } }
 .floating-cast.opens-at-once { transition: none; }
 @supports not (overlay: auto) { .floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide); } }
 /* Shown open in place (the gallery's open states), it's in the page's flow, no taller than a menu, scrolling past it as it does open. Over, as wide as what's in it, it lies on
