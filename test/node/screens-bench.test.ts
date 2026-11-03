@@ -6,7 +6,7 @@ import { BENCH_PLACES, CHECKED_PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLAC
 // @ts-expect-error: a Node script with no types of its own.
 import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, makeMirror, markOf, parseMark, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
 // @ts-expect-error: a Node script with no types of its own.
-import { phoneMediaText } from "../../scripts/preview/bench/phone-media.mjs";
+import { SAFE_AREA_PX, phoneMediaText, phoneSafeAreaText } from "../../scripts/preview/bench/phone-media.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { MAXIMUM_SEEN_LOOKS, seenAfter } from "../../scripts/preview/bench/bench-files.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -120,6 +120,14 @@ describe("a phone screen's rules", () => {
     expect(phoneMediaText("(hover: hover) and (pointer: fine) and (min-width: 761px)")).toBe(`${no} and ${no} and (min-width: 761px)`);
     expect(phoneMediaText("(hover:hover)")).toBe(no);
     expect(phoneMediaText("(max-width: 760px), (max-height: 500px)")).toBe("(max-width: 760px), (max-height: 500px)");
+  });
+});
+
+describe("a phone screen's safe areas", () => {
+  it("take the place of each env(), fallback and all, and leave the rest of a rule alone", () => {
+    expect(phoneSafeAreaText("top: calc(6px + env(safe-area-inset-top, 0px)); color: red;", { top: 7, right: 0, bottom: 0, left: 0 })).toBe("top: calc(6px + 7px); color: red;");
+    expect(phoneSafeAreaText("padding-left: max(var(--pad-frame), env(safe-area-inset-left, calc(1px + 2px)));", SAFE_AREA_PX.turned)).toBe("padding-left: max(var(--pad-frame), 59px);");
+    expect(phoneSafeAreaText("padding-bottom: env(safe-area-inset-bottom);", SAFE_AREA_PX.phone)).toBe("padding-bottom: 34px;");
   });
 });
 

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { phoneMediaText } from "./phone-media.mjs";
+import { SAFE_AREA_PX, phoneMediaText, phoneSafeAreaText } from "./phone-media.mjs";
 import { SIGN_INS } from "../sign-ins.mjs";
 
 export const BENCH_PATH = "/__preview/bench/";
@@ -36,7 +36,7 @@ export async function answerBench(request, response, url) {
   const name = url.pathname.slice(BENCH_PATH.length);
   if (request.method === "GET" && name === "frame.js") {
     response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
-    return response.end(readFileSync(join(HERE, "frame-script.js"), "utf8").replace("/*PHONE_MEDIA*/", `const phoneMediaText = ${phoneMediaText.toString()};`));
+    return response.end(readFileSync(join(HERE, "frame-script.js"), "utf8").replace("/*PHONE_MEDIA*/", `const phoneMediaText = ${phoneMediaText.toString()};\nconst phoneSafeAreaText = ${phoneSafeAreaText.toString()};\nconst SAFE_AREA_PX = ${JSON.stringify(SAFE_AREA_PX)};`));
   }
   if (request.method === "GET" && name === "bench.js") {
     response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });

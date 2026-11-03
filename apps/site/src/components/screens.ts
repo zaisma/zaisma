@@ -13,7 +13,7 @@ export const SCREENS_PATH = "/design/screens";
 
 /** The three screens: a common phone (an iPhone 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
 export const BENCH_SCREENS = [
-  { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, scalePct: 82, isPhone: true },
+  { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, statusBarPx: 59, scalePct: 82, isPhone: true },
   { screenName: "turned", name: "Turned", widthPx: 852, heightPx: 393, scalePct: 64, isPhone: true },
   { screenName: "laptop", name: "Laptop", widthPx: 1440, heightPx: 900, scalePct: 57, isPhone: false },
 ] as const;
@@ -23,6 +23,8 @@ export interface BenchScreenOptions {
   name: string;
   widthPx: number;
   heightPx: number;
+  /** The status bar's height on a phone held upright: the page starts under it, as in a browser, and the Dynamic Island sits in it. */
+  statusBarPx?: number;
   isPhone: boolean;
   scalePct: number;
   /** The page in it, only for the gallery: on the bench its script loads each. */
@@ -33,7 +35,7 @@ export interface BenchScreenOptions {
 export function benchScreen(options: BenchScreenOptions): Raw {
   const scaleNumber = options.scalePct / 100;
   return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" style="--screen-scale: ${String(scaleNumber)}; --screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
-<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx)}" height="${String(options.heightPx)}" style="transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
+<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx)}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
 }
 
@@ -148,8 +150,8 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-screen { margin: 0; width: var(--screen-width); height: var(--screen-height); flex: none; }
 .bench-body { width: 100%; height: 100%; box-sizing: border-box; }
 .bench-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); }
-.bench-view > iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: var(--page); }
-/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. An imitation, for what they'd hide of a page. */
+.bench-view > iframe { position: absolute; left: 0; top: calc(var(--status-bar) * var(--screen-scale)); border: 0; transform-origin: 0 0; background: var(--page); }
+/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar, as in a browser, so nothing reaches behind the island; turned, the screen's script gives it a phone's safe areas. */
 .bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
 .bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: calc(var(--phone-corner) + var(--bench-bezel)); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
 .bench-screen.is-phone .bench-view { border-radius: var(--phone-corner); }
@@ -165,5 +167,5 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-big-tools .slider { flex: 0 1 18rem; }
 `,
   render: benchLayout,
-  examples: [{ label: "A phone screen showing the example page", isWide: true, markup: benchScreen({ screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, isPhone: true, scalePct: 40, framePath: "/design/example" }) }],
+  examples: [{ label: "A phone screen showing the example page", isWide: true, markup: benchScreen({ screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, statusBarPx: 59, isPhone: true, scalePct: 40, framePath: "/design/example" }) }],
 });

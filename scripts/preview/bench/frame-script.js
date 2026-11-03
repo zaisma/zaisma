@@ -45,13 +45,14 @@
 
     // Every media rule, as each sheet arrives: the page's first-paint styles, and the site's sheet that follows them.
     const done = new WeakSet();
-    let rewrittenCount = 0;
+    let rewrittenCount = 0, safeAreaCount = 0;
     const rewrite = (rules) => {
       for (const rule of rules) {
         if (rule.media && rule.media.mediaText !== undefined) {
           const text = rule.media.mediaText, next = phoneMediaText(text);
           if (next !== text) { rule.media.mediaText = next; rewrittenCount += 1; }
         }
+        if (rule.style && rule.style.cssText.includes("safe-area-inset")) { rule.style.cssText = phoneSafeAreaText(rule.style.cssText, SAFE_AREA_PX[screenName]); safeAreaCount += 1; }
         if (rule.cssRules) rewrite(rule.cssRules);
       }
     };
@@ -68,7 +69,7 @@
     });
     watcher.observe(document.documentElement, { childList: true, subtree: true });
     addEventListener("load", () => { rewriteSheets(); watcher.disconnect(); new MutationObserver(rewriteSheets).observe(document.head, { childList: true }); });
-    window.zaismaBenchRewrittenCount = () => rewrittenCount;
+    window.zaismaBenchRewrittenCount = () => [rewrittenCount, safeAreaCount];
 
     // A mouse drag scrolls as a finger does, with its momentum after, and the click at its end does nothing.
     const DRAG_START_PX = 8, MOMENTUM_KEPT = 0.95, MOMENTUM_STOP_PX = 0.5;
