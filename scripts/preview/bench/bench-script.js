@@ -264,8 +264,9 @@
     bench.placeValue = placeValue;
     if (place.seenBy === "guest" && bench.profile !== "guest") { bench.profile = "guest"; forgetOnce("guest"); }
     if (place.seenBy === "signed_in" && bench.profile === "guest") bench.profile = place.profile ?? "Moss_Runner";
-    for (const screen of allScreens) load(screen, place.path, bench.profile, thenKey ? () => {} : null);
-    if (thenKey) pressStateWhenThere(thenKey);
+    // A state asked for waits until every screen has the place, so a screen never starts from a blank frame.
+    let waitingOn = allScreens.length;
+    for (const screen of allScreens) load(screen, place.path, bench.profile, thenKey ? () => { if (--waitingOn === 0) pressStateWhenThere(thenKey); } : null);
     drawRail();
   }
   const pressStateWhenThere = (key) => { const state = stateOf(key); bench.placeValue = state.placeValue; pressState(key); };
@@ -479,7 +480,6 @@
     const place = placeOf(placeValue ?? "home") ?? placeOf("home");
     const key = stateValue && stateOf(`${place.placeValue}/${stateValue}`) ? `${place.placeValue}/${stateValue}` : null;
     bench.placeValue = place.placeValue;
-    if (key) { goToState(key); drawRail(); return; }
-    goToPlace(place.placeValue);
+    goToPlace(place.placeValue, key);
   })();
 })();
