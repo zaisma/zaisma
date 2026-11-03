@@ -648,6 +648,8 @@ const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: stri
   version_rejected: { section: "versions", hash: "", label: "See why" },
   version_held: { section: "versions", hash: "", label: "See why" },
   hosting_paused: { section: "players", hash: "#hosting", label: "Hosting" },
+  free_rooms_stopped: { section: "players", hash: "#hosting", label: "Hosting" },
+  second_free_allowance_started: { section: "players", hash: "#hosting", label: "Hosting" },
   database_full: { section: "database", hash: "", label: "Database" },
   hosting_nearly_paused: { section: "players", hash: "#hosting", label: "Hosting" },
   hosting_budget_nearly_used: { section: "players", hash: "#hosting", label: "Hosting" },
@@ -770,23 +772,28 @@ function hostingPanel(game: GameJson, stats: Stats, own: boolean): Raw | "" {
   const paused = use.is_paused
     ? html`<div class="hosting-paused" role="status"><strong>Hosting is paused</strong><p>New matches can't start, and running ones end within the hour.</p><small>${pausedWhy}</small></div>`
     : "";
+  const roomsStopped = use.free_rooms_stopped_at
+    ? html`<div class="hosting-paused" role="status"><strong>New matches can't start</strong><p>Zaisma's free room time for this month is used up across all games. Running matches end within the hour, and everything else in the game keeps working.</p><small>It's back on ${resetDay}, or sooner with credit and a budget.</small></div>`
+    : "";
+  const isSecondAllowance = use.second_free_allowance_month_start_date === new Date().toISOString().slice(0, 7) + "-01";
+  const freeWords = isSecondAllowance ? "Free this month, with a second allowance this once" : "Free this month";
   // The meter and its key are Zaisma's own (the gallery's usage meter), in this page's older plate, which is always dark: what used it in a color each, with its share.
   const meter = html`<div class="not-steel" data-theme-choice="dark">${usageMeter({ ...hostingMeter(`${game.title}'s hosting this month`, use), isTrackOnly: true })}</div>`;
   const budgetCents = use.monthly_budget_cents;
   if (budgetCents === null) {
     return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
-${paused}<div class="numbers hosting">
-<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${meter}</div>
+${paused}${roomsStopped}<div class="numbers hosting">
+<div class="num plate${use.free_used_pct >= 100 ? " reached" : ""}"><strong>${use.free_used_pct}%</strong><span>${freeWords}: ${use.free_used_pct}% used. Resets ${resetDay}.</span>${meter}</div>
 </div>`;
   }
   // Paid hosting carries on where the free allowance ends: one meter, the free part first, then the budget. The free
   // part is a share of the bar, never sized by dollars, and a game living on its budget isn't warned about it.
   const isIntoBudget = use.free_used_pct >= 100;
   return html`<h2 class="rule-h" id="hosting">Hosting <span class="muted">This month</span></h2>
-${paused}<div class="numbers hosting">
+${paused}${roomsStopped}<div class="numbers hosting">
 <div class="num plate${use.spent_from_credit_cents >= budgetCents * 0.8 ? " reached" : ""}">${isIntoBudget
     ? html`<strong>${dollars(use.spent_from_credit_cents)}</strong><span>of ${dollars(budgetCents)} budget, after this month's free hosting. Resets ${resetDay}.</span>`
-    : html`<strong>${use.free_used_pct}%</strong><span>Free this month: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}${meter}<span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span></div>
+    : html`<strong>${use.free_used_pct}%</strong><span>${freeWords}: ${use.free_used_pct}% used. Then the ${dollars(budgetCents)} budget. Resets ${resetDay}.</span>`}${meter}<span class="meter-labels"><small>Free: ${use.free_used_pct}%</small><small>Budget: ${dollars(use.spent_from_credit_cents)} of ${dollars(budgetCents)}</small></span></div>
 </div>`;
 }
 
@@ -1343,6 +1350,8 @@ interface Stats {
   }[];
   hosting_use_this_month: {
     free_used_pct: number;
+    second_free_allowance_month_start_date: string | null;
+    free_rooms_stopped_at: string | null;
     shares: { kind: "rooms" | "game_server" | "relayed_data" | "database" | "requests" | "adult_chat_checks"; share_pct: number }[];
     is_paused: boolean;
     paused_reason: "free_used" | "budget_used" | "credit_used" | null;

@@ -1,5 +1,5 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
-import { ApiError, ERROR_CODES, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, freeRoomsStoppedAtMs, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -193,8 +193,8 @@ async function readSettings(env: Env, caller: Caller) {
   const lastMonth = new Map(credit.games.map((game) => [game.slug, game.last_month_beyond_free_cents]));
   const gameHostings: GameHosting[] = await Promise.all(
     games.results.map(async (game) => {
-      const [use, month] = await Promise.all([hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id)]);
-      return { game, hosting: hostingUseJson(game, use, month), lastMonthBeyondFreeCents: lastMonth.get(game.slug) ?? 0 };
+      const [use, month, roomsStoppedAtMs] = await Promise.all([hostingUseThisMonth(env.DB, game.id), gameHostingMonth(env.DB, game.id), freeRoomsStoppedAtMs(env.DB, game)]);
+      return { game, hosting: hostingUseJson(game, use, month, roomsStoppedAtMs), lastMonthBeyondFreeCents: lastMonth.get(game.slug) ?? 0 };
     }),
   );
   return { credit, pro, storage, stripe: await stripeAccountWithBalance(env, stripeRow), webhooks, signInApps, gameHostings, games: games.results };
@@ -463,11 +463,12 @@ function gameRow(each: GameHosting): ListRow {
   const pausedWords =
     hosting.paused_reason === "budget_used" ? "This month's budget is used. Raise it to start again." : hosting.paused_reason === "credit_used" ? "Your credit ran out. Add credit to start again." : `This month's free hosting is used. It's back on ${shownDate(hosting.resets_on_date)}, or sooner with credit and a budget.`;
   const budgetWords = budgetCents === null ? (each.lastMonthBeyondFreeCents > 0 ? `Last month's use past the free allowance would have cost ${dollars(each.lastMonthBeyondFreeCents)} at today's prices.` : "No budget: it stops at its free allowance.") : null;
+  const isSecondAllowance = hosting.second_free_allowance_month_start_date === `${new Date().toISOString().slice(0, 7)}-01`;
   const idBase = `budget-${game.slug}`;
   return {
     title: game.title,
     detail: `${meterWords} · Resets ${monthDay(hosting.resets_on_date)}`,
-    secondDetail: (hosting.is_paused ? pausedWords : budgetWords) ?? undefined,
+    secondDetail: (hosting.is_paused ? pausedWords : hosting.free_rooms_stopped_at ? `Zaisma's free room time for this month is used up across all games: no new matches until ${monthDay(hosting.resets_on_date)}. Add credit and a budget to start them now.` : isSecondAllowance ? "It filled its free hosting, so this month has a second allowance, once." : budgetWords) ?? undefined,
     end: hosting.is_paused ? tag("Paused", "warning") : undefined,
     meter,
     action: budgetCents === null ? opens("Give it a budget", idBase) : [opens("Change budget", idBase), more(game.title, `${idBase}-more`)],
@@ -478,6 +479,7 @@ function gameRow(each: GameHosting): ListRow {
 function gameSheets(each: GameHosting): LayoutItem[] {
   const { game, hosting } = each;
   const budgetCents = hosting.monthly_budget_cents;
+  const isSecondAllowance = hosting.second_free_allowance_month_start_date === `${new Date().toISOString().slice(0, 7)}-01`;
   const idBase = `budget-${game.slug}`;
   return [
     layer(

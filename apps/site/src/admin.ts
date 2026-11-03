@@ -18,6 +18,7 @@ import {
   closeReportGroup,
   UploadError,
   aiUsage,
+  spendingMonthRow,
   allGames,
   audit,
   auditLog,
@@ -573,7 +574,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage, images, shaders, words, spikes, feedback] = await Promise.all([
+  const [queue, reports, games, usage, images, shaders, words, spikes, feedback, spending] = await Promise.all([
     heldVersions(env.DB),
     openReports(env.DB),
     allGames(env.DB),
@@ -583,6 +584,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     gamesWithDetailsWaitingForReview(env.DB),
     playSpikes(env.DB),
     feedbackSummary(env),
+    spendingMonthRow(env.DB),
   ]);
   const offShelves = games.filter((game) => game.is_off_shelves);
   const groups = groupReports(reports);
@@ -590,6 +592,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     env,
     "Admin",
     html`<h1>Admin</h1>
+${spending ? html`<p class="lead">Spending this month: $${(spending.spent_cents / 100).toFixed(2)} of $${(spending.limit_cents / 100).toFixed(2)}${spending.free_rooms_stopped_at_ms ? ", free rooms stopped" : ""}.</p>` : ""}
 <p class="lead">AI this month: ${usage.scan_call_count} scans; reviews $${(usage.review_cost_cents / 100).toFixed(2)} of $${(Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) / 100).toFixed(2)} (${usage.review_call_count} calls); ${usage.report_triage_call_count} reports and ${usage.forum_call_count} feedback items sorted, ${usage.input_token_count.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
 
 <h2>Waiting for review (${queue.length})</h2>

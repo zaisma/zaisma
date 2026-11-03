@@ -985,6 +985,37 @@ describe("rooms", () => {
     back.ws.close(1000);
   });
 
+  it("at the month's spending stop, starts no room for a free game, ends its match an hour after, and leaves a paying game alone", async () => {
+    const id = await addGame("stopped");
+    await e.DB.exec("INSERT OR REPLACE INTO owners (id, kind, created_at, credit_balance_cents) VALUES ('owner-stop', 'person', 1, 0);");
+    await e.DB.prepare("UPDATE games SET owner_id = 'owner-stop' WHERE id = ?").bind(id).run();
+    const a = await join("stopped", "STOPAA");
+    const stoppedAtMs = Date.now();
+    await e.DB.prepare("INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (?, ?)").bind(monthStartDateOf(), stoppedAtMs).run();
+    const made = await post("/v1/rooms", "stopped");
+    expect(made.status).toBe(403);
+    expect(await made.json()).toMatchObject({ error: { code: "hosting_paused" } });
+    const fresh = await connect("stopped", "STOPBB");
+    expect(await fresh.next()).toMatchObject({ type: "error", code: "hosting_paused" });
+
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("stopped:STOPAA"));
+    await runInDurableObject(stub, async (room: Room, state) => {
+      (room as any).hostingCheckedAtMs = 0;
+      await state.storage.put("hostingCheckedAtMs", 0);
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub);
+    const ending = await until(a, (m) => m.type === "ending");
+    expect(Date.parse(ending.endsAt as string)).toBe(stoppedAtMs + 3600_000);
+
+    // A budget with credit lifts it for this game at once.
+    await e.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = ?").bind(id).run();
+    await e.DB.exec("UPDATE owners SET credit_balance_cents = 1000 WHERE id = 'owner-stop';");
+    expect((await post("/v1/rooms", "stopped")).status).toBe(200);
+    a.ws.close(1000);
+    await e.DB.exec("DELETE FROM spending_months; UPDATE games SET owner_id = NULL; DELETE FROM owners WHERE id = 'owner-stop';");
+  });
+
   it("finds on its next check that the game's hosting paused, and ends the match an hour after the pause", async () => {
     const id = await addGame("finisher");
     const a = await join("finisher", "FNSHRA");

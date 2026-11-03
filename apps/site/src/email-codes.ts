@@ -261,7 +261,7 @@ export function waitEndsText(ms: number): string {
 }
 
 /** The hosting emails a developer gets (hosting-job.ts, stripe-events.ts): a game's meter, and their credit. */
-export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "credit_low", "credit_used_up", "credit_plan_payment_failed", "credit_plan_stopped", "storage_unpaid", "storage_deleting_soon"] as const;
+export const HOSTING_EMAIL_KINDS = ["hosting_nearly_paused", "hosting_budget_nearly_used", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "credit_low", "credit_used_up", "credit_plan_payment_failed", "credit_plan_stopped", "storage_unpaid", "storage_deleting_soon"] as const;
 export type HostingEmailKind = (typeof HOSTING_EMAIL_KINDS)[number];
 
 /** What a hosting email says: the game and month for a game's, amounts in cents for credit's. */
@@ -308,6 +308,10 @@ export function hostingEmail(env: Env, kind: HostingEmailKind, details: HostingE
           details.pausedReason === "budget_used" ? `Raise its budget at ${settings} to start it again now.` : details.pausedReason === "credit_used" ? `Add credit at ${settings} to start it again now.` : `It starts again on ${details.resetsOnText}, or now if you add credit and give it a budget at ${settings}.`;
         return [`${game}'s hosting is paused`, `${game}'s hosting is paused: ${why}. No new matches start, and running ones get an hour to finish.`, next];
       }
+      case "free_rooms_stopped":
+        return [`${game} can't start new matches until ${details.resetsOnText}`, `Zaisma's free room time for this month is used up across all games. ${game} starts no new matches until ${details.resetsOnText}, and running ones get an hour to finish. Its database and game server requests keep working.`, `To start matches again now, add credit and give ${game} a monthly budget at ${settings}.`];
+      case "second_free_allowance_started":
+        return [`${game} filled its free hosting: it has a second allowance this month`, `${game} filled its free hosting for the first time, so Zaisma gave it a second free allowance this month, once. Next month it has one again.`, `To keep it going past free hosting, add credit and give ${game} a monthly budget at ${settings}.`];
       case "storage_unpaid":
       case "storage_deleting_soon":
         return [

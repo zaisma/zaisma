@@ -46,6 +46,12 @@ export const OUTSIDE_CALL_CPU_DURATION_MS = 1;
 /** The free allowance every game gets each month, at the prices above. */
 export const FREE_HOSTING_CENTS_PER_MONTH = 1000;
 
+/** A game's free allowance in a month: twice the size in the month it had its second one, the first time it filled one. */
+export const freeAllowanceCents = (secondFreeAllowanceMonthStartDate: string | null, monthStartDate: string) => (secondFreeAllowanceMonthStartDate === monthStartDate ? 2 : 1) * FREE_HOSTING_CENTS_PER_MONTH;
+
+/** Where a game's free hosting really ends this month: a game that hasn't had its second allowance has it still to come. */
+export const freeHostingEndCents = (secondFreeAllowanceMonthStartDate: string | null, monthStartDate: string) => (secondFreeAllowanceMonthStartDate === null ? 2 * FREE_HOSTING_CENTS_PER_MONTH : freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStartDate));
+
 /** What a game's use is shared out as, on the meter. */
 export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
 export type HostingKind = (typeof HOSTING_KINDS)[number];
@@ -163,8 +169,8 @@ export function hostingCostCents(use: HostingUse): { kinds: Record<HostingKind, 
   return { kinds, totalCents: HOSTING_KINDS.reduce((sumCents, kind) => sumCents + kinds[kind], 0) };
 }
 
-/** How much of the free allowance cents use, in whole percent, at most 100. */
-export const freeUsedPct = (usedCents: number) => Math.min(100, Math.floor((usedCents / FREE_HOSTING_CENTS_PER_MONTH) * 100));
+/** How much of the month's free allowance cents use, in whole percent, at most 100. */
+export const freeUsedPct = (usedCents: number, allowanceCents = FREE_HOSTING_CENTS_PER_MONTH) => Math.min(100, Math.floor((usedCents / allowanceCents) * 100));
 
 /** Each kind's share of the use, in whole percent adding to 100 (largest remainders), biggest first; none for no use. */
 export function hostingShares(kinds: Record<HostingKind, number>): { kind: HostingKind; sharePct: number }[] {
@@ -216,16 +222,17 @@ const USAGE_COLUMNS = Object.keys(USAGE_FIELDS) as (keyof typeof USAGE_FIELDS)[]
  * allowance it is. Storage counts each day at the size last recorded on or before it (the database records it
  * while it's used), today for the part of it that's gone.
  */
-export async function hostingUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ use: HostingUse; kinds: Record<HostingKind, number>; totalCents: number; freeUsedPct: number }> {
+export async function hostingUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ use: HostingUse; kinds: Record<HostingKind, number>; totalCents: number; freeUsedPct: number; secondFreeAllowanceMonthStartDate: string | null }> {
   const monthStart = monthStartDateOf(nowMs);
   const nextMonthStart = monthStartDateOf(Date.parse(`${monthStart}T00:00:00Z`) + 32 * DAY_MS);
-  const [{ results: days }, before, loaded] = await Promise.all([
+  const [{ results: days }, before, loaded, game] = await Promise.all([
     database
       .prepare(`SELECT date, ${USAGE_COLUMNS.join(", ")}, database_size_bytes FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date`)
       .bind(gameId, monthStart, nextMonthStart)
       .all<Record<(typeof USAGE_COLUMNS)[number] | "database_size_bytes", number> & { date: string }>(),
     database.prepare("SELECT database_size_bytes FROM room_usage WHERE game_id = ? AND date < ? AND database_size_bytes > 0 ORDER BY date DESC LIMIT 1").bind(gameId, monthStart).first<{ database_size_bytes: number }>(),
     database.prepare("SELECT COUNT(*) AS loaded_version_count FROM loaded_versions WHERE game_id = ? AND date >= ? AND date < ?").bind(gameId, monthStart, nextMonthStart).first<{ loaded_version_count: number }>(),
+    database.prepare("SELECT second_free_allowance_month_start_date FROM games WHERE id = ?").bind(gameId).first<{ second_free_allowance_month_start_date: string | null }>(),
   ]);
   const use: HostingUse = { ...noHostingUse(), loadedVersionCount: loaded?.loaded_version_count ?? 0, databaseSizeBytes: before?.database_size_bytes ?? 0 };
   for (const day of days) for (const column of USAGE_COLUMNS) use[USAGE_FIELDS[column]] += day[column] ?? 0;
@@ -241,7 +248,8 @@ export async function hostingUseThisMonth(database: D1Database, gameId: string, 
   }
   use.databaseSizeBytes = sizeBytes;
   const { kinds, totalCents } = hostingCostCents(use);
-  return { use, kinds, totalCents, freeUsedPct: freeUsedPct(totalCents) };
+  const secondFreeAllowanceMonthStartDate = game?.second_free_allowance_month_start_date ?? null;
+  return { use, kinds, totalCents, freeUsedPct: freeUsedPct(totalCents, freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStart)), secondFreeAllowanceMonthStartDate };
 }
 
 /** A game's month on the meter, as the site's hosting job last wrote it. */

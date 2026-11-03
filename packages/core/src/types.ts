@@ -46,6 +46,8 @@ export interface Game {
   performance_measuring_enabled: number;
   /** What the game may draw from its developer's credit in a month, in cents; NULL: no paid hosting, so it stops at its free allowance. */
   monthly_budget_cents: number | null;
+  /** The month the game had its second free allowance, the first time it filled one (hosting.ts); null: not yet. */
+  second_free_allowance_month_start_date: string | null;
   /** When a player last came into one of its rooms through quickJoin, so its Rooms tab can say Play finds you one; NULL when none has. */
   quick_joined_at_ms: number | null;
   /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */

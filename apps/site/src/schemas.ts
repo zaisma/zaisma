@@ -179,6 +179,8 @@ export const GAME_ALERT = object({
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
     game_off_lists: "the listing check found something on a cover or the title that keeps the listed game off Zaisma's lists (home, All games, browse, search engines) until it's fixed; it still plays by its link",
     hosting_paused: "the game's hosting is paused this month (its free allowance with no budget, its budget, or your credit is used): no new rooms, relayed connections or game server requests start, and running matches get an hour to finish",
+    free_rooms_stopped: "Zaisma's free room time for the month is used up across all games, and this game has no budget with credit: no new rooms or relayed connections start until the month resets, and running matches get an hour to finish. Its database and game server requests go on",
+    second_free_allowance_started: "the game filled its free hosting for the first time, so it has a second free allowance this month, once",
     database_full: "the game's storage (its database and kept rooms) reached the 10 GB a game can keep, so the database can change and delete rows but not grow, and no more rooms can be kept",
     hosting_nearly_paused: "80% of the month's free hosting is used, and the game has no budget to go on past it",
     hosting_budget_nearly_used: "80% of the game's monthly budget is used",
@@ -594,7 +596,9 @@ export const PLAYER_PERFORMANCE = object(
 /** A game's month on the one hosting meter (docs/DEVELOPER-API.md, Hosting and credit). */
 export const HOSTING_USE = object(
   {
-    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100. Never shown in dollars."),
+    free_used_pct: countOf("How much of this month's free hosting is used, 0 to 100, a second free allowance included. Never shown in dollars."),
+    second_free_allowance_month_start_date: nullable(date("The month the game had its second free allowance, the first time it filled its free hosting. It comes once. null: not yet.")),
+    free_rooms_stopped_at: nullable(isoTime("When Zaisma's free room time for the month ran out across all games, for a game with no budget with credit: no new rooms or relayed connections start until resets_on_date, and running matches end an hour after. Its database and requests go on. null: rooms run as usual.")),
     shares: list(
       object({
         kind: choice({

@@ -26,6 +26,19 @@ describe("relay credentials", () => {
     await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_hosting_months; DELETE FROM room_keys; DELETE FROM accounts WHERE id = 'supabase-user-relayed'; DELETE FROM games;");
   });
 
+  it("refuses a free game at the month's spending stop, and not one with a budget and credit", async () => {
+    const id = await addGame("duel");
+    const month = `${new Date().toISOString().slice(0, 7)}-01`;
+    await e.DB.prepare("INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (?, ?)").bind(month, Date.now()).run();
+    await e.DB.prepare("INSERT OR REPLACE INTO owners (id, kind, created_at, credit_balance_cents) VALUES ('owner-relay', 'person', 1, 0)").run();
+    await e.DB.prepare("UPDATE games SET owner_id = 'owner-relay' WHERE id = ?").bind(id).run();
+    expect(await (await relay("duel", await issueRoomKey(e.DB, id))).json()).toMatchObject({ error: { code: "hosting_paused" } });
+    await e.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = ?").bind(id).run();
+    await e.DB.exec("UPDATE owners SET credit_balance_cents = 1000 WHERE id = 'owner-relay';");
+    expect((await relay("duel", await issueRoomKey(e.DB, id))).status).toBe(200);
+    await e.DB.exec("DELETE FROM spending_months; UPDATE games SET owner_id = NULL; DELETE FROM owners WHERE id = 'owner-relay';");
+  });
+
   it("gives a checked browser of the game relay servers only, tagged with the game, and counts them", async () => {
     const id = await addGame("duel");
     const answer = await relay("duel", await issueRoomKey(e.DB, id));
