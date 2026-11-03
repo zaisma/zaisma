@@ -47,6 +47,8 @@ export interface BenchLayoutOptions {
   rail: Raw;
   /** Replay, Slow, Dark and On my phone, under the phone. */
   tools: Raw;
+  /** What sits beside the phone's name: Moving backgrounds, which isn't a tool for the moment at hand. */
+  phoneHeadEnd: Raw;
   /** The light box's tools, under the screen pressed. */
   bigTools: Raw;
   /** The phone, the turned phone and the laptop, in that order (benchScreen). */
@@ -60,7 +62,7 @@ export function benchLayout(options: BenchLayoutOptions): Raw {
   return html`<div class="bench" data-bench>
 <aside class="bench-rail glass" aria-label="What to show">${options.rail}</aside>
 <div class="bench-stage">
-<div class="bench-phone-column">${phone}<div class="bench-under-phone">${screenLabel(phoneScreen)}<div class="bench-tools">${options.tools}</div></div></div>
+<div class="bench-phone-column">${phone}<div class="bench-under-phone"><div class="bench-phone-head">${screenLabel(phoneScreen)}${options.phoneHeadEnd}</div><div class="bench-tools">${options.tools}</div></div></div>
 <div class="bench-wide-column"><div class="bench-turned-row">${turned}<div class="bench-screen-labels">${screenLabel(turnedScreen)}${screenLabel(laptopScreen)}</div></div>${laptop}</div>
 <div class="bench-dim"></div>
 <div class="bench-big-tools" hidden>${options.bigTools}</div>
@@ -142,6 +144,7 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-note { margin: 0; padding-inline: var(--pad-words); font: var(--type-note); color: var(--ink-2); }
 .bench-stage { position: relative; display: flex; gap: var(--pad-frame-compact); min-width: 0; min-height: 0; }
 .bench-phone-column { display: flex; flex-direction: column; gap: var(--gap-words-words); flex: none; width: min-content; }
+.bench-phone-head { display: flex; align-items: center; justify-content: space-between; gap: var(--pad-frame-compact); }
 .bench-under-phone { display: flex; flex-direction: column; gap: var(--pad-frame-compact); }
 .bench-tools, .bench-screen-label, .bench-screen-labels { display: flex; flex-wrap: wrap; gap: var(--pad-frame-compact); align-items: center; }
 .bench-screen-labels { flex-direction: column; align-items: flex-start; justify-content: flex-end; min-width: 0; }

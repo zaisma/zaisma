@@ -5,7 +5,7 @@
   const $ = (selector, within = document) => within.querySelector(selector);
   const $$ = (selector, within = document) => [...within.querySelectorAll(selector)];
   const GROUP = "main";
-  const PHONE_ROOM_PX = 70, GAP_PX = 4, BEZEL_PX = 6;
+  const GAP_PX = 4, BEZEL_PX = 6;
   const SLOW_RATE = 0.25, REPLAY_PAUSE_MS = 450, CATCH_UP_MS = 800;
 
   const screens = Object.fromEntries($$("[data-bench-screen]").map((figure) => [figure.dataset.benchScreen, { figure, name: figure.dataset.benchScreen, widthPx: Number(figure.dataset.widthPx), heightPx: Number(figure.dataset.heightPx), frame: $("iframe", figure), view: $(".bench-view", figure), body: $(".bench-body", figure), address: null, pending: [] }]));
@@ -37,7 +37,14 @@
     const stage = $(".bench-stage");
     const room = stage.getBoundingClientRect();
     const bezelsPx = 2 * BEZEL_PX;
-    const phoneScale = Math.min(1, (room.height - PHONE_ROOM_PX - bezelsPx) / screens.phone.heightPx);
+    // What's under the phone is measured, however its tools wrap, so none of it is ever past the window.
+    const column = $(".bench-phone-column"), under = $(".bench-under-phone");
+    let phoneScale = 1;
+    for (let pass = 0; pass < 2; pass += 1) {
+      const underPx = under.offsetHeight + parseFloat(getComputedStyle(column).rowGap || "0");
+      phoneScale = Math.min(1, (room.height - underPx - bezelsPx) / screens.phone.heightPx);
+      screens.phone.figure.style.setProperty("--screen-width", `${screens.phone.widthPx * phoneScale}px`);
+    }
     const besideWidth = room.width - screens.phone.widthPx * phoneScale - bezelsPx - GAP_PX;
     const turnedScale = Number(screens.turned.figure.dataset.scalePct) / 100, laptopScale = Number(screens.laptop.figure.dataset.scalePct) / 100;
     const fullHeight = screens.turned.heightPx * turnedScale + screens.laptop.heightPx * laptopScale;
@@ -333,6 +340,7 @@
     if (dataset.benchProfile !== undefined) { closeMenus(); return switchProfile(dataset.benchProfile); }
     if (dataset.benchBigProfile !== undefined) { closeMenus(); return switchProfile(dataset.benchBigProfile); }
     if (dataset.benchReplay !== undefined || dataset.benchBigReplay !== undefined) return replay();
+    if (dataset.benchReset !== undefined) return reset();
     if (dataset.benchSlow !== undefined) { bench.isSlow = !bench.isSlow; setPressed(target, bench.isSlow); allScreens.forEach(applyLook); return; }
     if (dataset.benchBigSlow !== undefined) { big.isSlow = !big.isSlow; setPressed(target, big.isSlow); applyLook(big.screen); return; }
     if (dataset.benchDark !== undefined) { bench.isDark = !bench.isDark; setPressed(target, bench.isDark); allScreens.forEach(applyLook); return; }
@@ -351,6 +359,18 @@
     const state = stateOf(key);
     if (bench.placeValue !== state.placeValue) { bench.placeValue = state.placeValue; bench.pressed.clear(); drawRail(); }
     if (!bench.pressed.has(key)) pressState(key);
+  }
+
+  // Reset: every screen back to the page as it first looked, nothing pressed, each as whoever it's seen as now. A state with a page of its own goes back to its place's.
+  function reset() {
+    const path = bench.ownPageAddress ? placeOf(bench.placeValue)?.path ?? bench.address : bench.address;
+    bench.pressed.clear();
+    bench.ownPageAddress = null;
+    bench.lastDone = null;
+    if (big) { big.lastDone = null; big.isChanged = false; }
+    for (const screen of allScreens) { followNote(screen, false); load(screen, path, big?.screen === screen ? big.profile : bench.profile); }
+    bench.address = path;
+    drawRail();
   }
 
   function replay() {
