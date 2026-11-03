@@ -636,7 +636,7 @@ function seedAiReviewStates() {
 // past what games with no real players share. Harbor Lights has none; the others have plenty, so only it pauses and they stop rooms.
 if (process.env.PREVIEW_SPENDING_STOP) {
   runSql("INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 100000 FROM games WHERE slug = 'harbor-lights' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec");
-  runSql("UPDATE game_hosting_months SET real_player_count = 500 WHERE month_start_date = date('now', 'start of month')");
+  runSql("UPDATE game_hosting_months SET real_player_count = CASE WHEN game_id = (SELECT id FROM games WHERE slug = 'harbor-lights') THEN 0 ELSE 500 END WHERE month_start_date = date('now', 'start of month')");
 }
 seedFriendsNow();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.

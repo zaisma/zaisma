@@ -58,10 +58,10 @@ export const freeHostingEndCents = (secondFreeAllowanceMonthStartDate: string | 
 /** The fewest browsers that make a game played. */
 export const MINIMUM_REAL_PLAYER_COUNT = 2;
 /** Past that, one browser for this much of what the game really costs Zaisma, in cents. */
-export const COST_CENTS_PER_REAL_PLAYER = 15;
+export const REAL_PLAYER_COST_CENTS = 15;
 
 /** Whether a game's browsers this month (counted plays off cloud networks, and tester links') clear its bar, which rises with its use. */
-export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / COST_CENTS_PER_REAL_PLAYER));
+export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / REAL_PLAYER_COST_CENTS));
 
 /** What a game's use is shared out as, on the meter. */
 export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
