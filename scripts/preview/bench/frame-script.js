@@ -185,7 +185,7 @@
   };
   const SET_UP_TRIES = 20, SET_UP_RETRY_MS = 300;
   // Every state enters and leaves one way, whatever opens it: what it opened is noted as it enters, and that's what leaving closes.
-  const LAYERS = "dialog[open], [popover]:popover-open, .playing-card:not([hidden])";
+  const LAYERS = "dialog[open], [popover]:popover-open, .playing-card:not([hidden]):not([popover])";
   const isLayerOpen = (el) => el.matches(LAYERS);
   const closeLayer = (el) => { if (el.matches("dialog[open]")) el.close(); else if (el.matches("[popover]:popover-open")) el.hidePopover(); else el.hidden = true; };
   const nextPaint = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
