@@ -751,6 +751,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Hosting         ${SITE}/dashboard/rocket-lab/players#hosting  (Free this month: 100% used, paused),  ${SITE}/dashboard/four-in-a-row/players#hosting
                   (85%: the heads-up),  ${SITE}/dashboard/cave-crew/players#hosting  (40%, mostly the relay),  ${SITE}/dashboard/arena/players#hosting
                   (100% free, "$3.40 of $5 budget this month", shares of every kind: rooms, game server, requests, database),  ${SITE}/dashboard/star-haul/players#hosting  (paused: its budget is used)
+  Second allowance ${SITE}/dashboard/tiny-farm/players#hosting  (filled its free hosting: a second allowance this month, once), ${SITE}/dashboard/settings#hosting  (its row)
+  Spending stop   Started with PREVIEW_SPENDING_STOP=1: ${SITE}/dashboard/cave-crew/players#hosting  (a free game: New matches can't start), ${SITE}/dashboard/arena/players#hosting  (a budget and credit: untouched)
   Credit is low   ${SITE}/dashboard/arena  (the credit_low alert on Arena's Overview: "Credit is low: add credit"),
                   ${SITE}/dashboard/settings#hosting  (the same line under the credit's numbers)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
@@ -1582,6 +1584,11 @@ async function seedHolds(api, upload, go, form) {
       "UPDATE room_usage SET room_awake_duration_sec = 500000, room_connection_count = 2000, object_request_count = 10000, bookkeeping_written_row_count = 50000, game_server_session_count = 5000, game_server_startup_cpu_duration_ms = 500000, outside_call_count = 20000, log_file_count = 2000, object_awake_duration_sec = 200000, database_call_count = 500000, database_written_row_count = 200000, database_read_row_count = 10000000, database_awake_duration_sec = 300000 WHERE date = date('now') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
       "UPDATE room_usage SET outside_room_cpu_duration_ms = 40000000 WHERE date = date('now', 'start of month') AND game_id = (SELECT id FROM games WHERE slug = 'arena')",
       ...[0, 1, 2].map((dayCount) => `INSERT OR IGNORE INTO loaded_versions (game_id, date, version_id) SELECT id, date('now', '-${dayCount} days'), live_version_id FROM games WHERE slug = 'arena' AND live_version_id IS NOT NULL`),
+      // These have had their second free allowance, so one allowance is what they have. Tiny Farm is in its month of it.
+      "UPDATE games SET second_free_allowance_month_start_date = '2020-01-01' WHERE slug IN ('rocket-lab', 'four-in-a-row', 'cave-crew', 'star-haul', 'arena')",
+      "UPDATE games SET second_free_allowance_month_start_date = date('now', 'start of month') WHERE slug = 'tiny-farm'",
+      "INSERT INTO room_usage (game_id, date, room_awake_duration_sec) SELECT id, date('now'), 1875000 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, date) DO UPDATE SET room_awake_duration_sec = excluded.room_awake_duration_sec",
+      "INSERT INTO game_hosting_months (game_id, month_start_date, used_cents) SELECT id, date('now', 'start of month'), 1200 FROM games WHERE slug = 'tiny-farm' ON CONFLICT (game_id, month_start_date) DO UPDATE SET used_cents = excluded.used_cents",
       "UPDATE games SET monthly_budget_cents = 500 WHERE slug = 'arena'",
       "UPDATE games SET monthly_budget_cents = 200 WHERE slug = 'star-haul'",
       ...[
@@ -1796,7 +1803,9 @@ async function seedFriends(go, form) {
   await (await signedIn(hornet, "198.51.100.211"))(`/friends/add/${new URL(invited.headers.get("location"), SITE).searchParams.get("invite")}`, {});
   const hornetPlayerId = (await (await go("/friends")).text()).match(/Loud_Hornet[\s\S]*?\/friends\/(player_[a-z0-9]+)\/remove/)?.[1];
   if (hornetPlayerId) await go(`/friends/blocks/${hornetPlayerId}`, form({}));
-  seedFriendsNow();
+  // The month's spending stop reaches every free game's rooms, so it's on only for a preview started to look at it.
+runSql(process.env.PREVIEW_SPENDING_STOP ? "INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (date('now', 'start of month'), unixepoch('now') * 1000)" : "DELETE FROM spending_months WHERE settings_missing_told_at_ms IS NULL");
+seedFriendsNow();
   // A 16-year-old who chose open and social while joining, not a friend.
   people.Bright_Reed = await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
   return people;

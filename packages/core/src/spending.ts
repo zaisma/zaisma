@@ -12,7 +12,7 @@ import { monthStartDateOf } from "./hosting.ts";
 export const SPENDING_ALERT_PCTS = [70, 85, 100] as const;
 
 /** R2's price: $0.015 per GB-month. */
-export const STORED_COST_CENTS_PER_BYTE_MONTH = 1.5 / 1024 ** 3;
+export const STORED_PER_BYTE_MONTH_CENTS = 1.5 / 1024 ** 3;
 /** A performance check is about a minute of Browser Rendering, at $0.09 an hour. */
 export const PERFORMANCE_CHECK_COST_CENTS = 0.15;
 /** What a card payment costs: 2.9% and 30¢. */
@@ -36,7 +36,7 @@ export function spendingSettingsOf(env: { MONTHLY_SPENDING_LIMIT_CENTS?: string;
     storageAndChecksCostCents: Number(env.STORAGE_AND_CHECKS_COST_CENTS_PER_MONTH),
     meterCostSharePct: Number(env.METER_COST_SHARE_PCT),
   };
-  return Object.values(settings).every((amount) => Number.isFinite(amount) && amount > 0) ? settings : null;
+  return Object.values(settings).every((settingNumber) => Number.isFinite(settingNumber) && settingNumber > 0) ? settings : null;
 }
 
 /** What the job reads from the database, before it's priced. */
@@ -77,7 +77,7 @@ export interface SpendingMonth {
 export function spendingMonthOf(settings: SpendingSettings, facts: SpendingFacts): SpendingMonth {
   const fixedCostCents = Math.ceil(settings.fixedCostCents);
   const aiCostCents = Math.ceil(facts.reviewCostCents + reviewCostCents(facts.aiModel, { inputTokenCount: facts.aiInputTokenCount, outputTokenCount: facts.aiOutputTokenCount, cacheReadTokenCount: 0, cacheWriteTokenCount: 0 }));
-  const measuredStorageCents = facts.storedSizeBytes * STORED_COST_CENTS_PER_BYTE_MONTH + facts.performanceCheckCount * PERFORMANCE_CHECK_COST_CENTS;
+  const measuredStorageCents = facts.storedSizeBytes * STORED_PER_BYTE_MONTH_CENTS + facts.performanceCheckCount * PERFORMANCE_CHECK_COST_CENTS;
   const storageAndChecksCostCents = Math.ceil(Math.max(settings.storageAndChecksCostCents, measuredStorageCents));
   const freeHostingCostCents = Math.ceil((Math.max(0, facts.unpaidMeterCents) * settings.meterCostSharePct) / 100);
   const earnedLastMonthCents = Math.max(0, Math.floor((facts.lastMonthHostingChargedCents * (100 - settings.meterCostSharePct)) / 100 + facts.lastMonthStorageChargedCents + facts.lastMonthEarningsCents));

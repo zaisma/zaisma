@@ -2817,7 +2817,7 @@ function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
 const dollarsText = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "database_full", "second_free_allowance_started", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;

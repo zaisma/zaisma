@@ -28,9 +28,9 @@ describe("relay credentials", () => {
 
   it("refuses a free game at the month's spending stop, and not one with a budget and credit", async () => {
     const id = await addGame("duel");
-    const month = `${new Date().toISOString().slice(0, 7)}-01`;
+    const month = monthStartDateOf();
     await e.DB.prepare("INSERT OR REPLACE INTO spending_months (month_start_date, free_rooms_stopped_at_ms) VALUES (?, ?)").bind(month, Date.now()).run();
-    await e.DB.prepare("INSERT OR REPLACE INTO owners (id, kind, created_at, credit_balance_cents) VALUES ('owner-relay', 'person', 1, 0)").run();
+    await e.DB.prepare("INSERT OR REPLACE INTO owners (id, kind, created_at_ms, credit_balance_cents) VALUES ('owner-relay', 'person', 1, 0)").run();
     await e.DB.prepare("UPDATE games SET owner_id = 'owner-relay' WHERE id = ?").bind(id).run();
     expect(await (await relay("duel", await issueRoomKey(e.DB, id))).json()).toMatchObject({ error: { code: "hosting_paused" } });
     await e.DB.prepare("UPDATE games SET monthly_budget_cents = 5000 WHERE id = ?").bind(id).run();

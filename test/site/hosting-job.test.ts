@@ -81,7 +81,7 @@ describe("the one-time grace", () => {
 
     await setUseCents(1640);
     await runHostingJob(testEnv);
-    expect(await notices()).toEqual(["hosting_nearly_paused", "second_free_allowance_started"]);
+    expect(await notices()).toEqual(["second_free_allowance_started", "hosting_nearly_paused"]);
 
     await setUseCents(2000);
     await runHostingJob(testEnv);

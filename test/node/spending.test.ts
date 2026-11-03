@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STORED_COST_CENTS_PER_BYTE_MONTH, earnedAfterCardFeeCents, newSpendingAlertPcts, spendingMonthOf, spendingSettingsOf, type SpendingFacts } from "../../packages/core/src/spending.ts";
+import { STORED_PER_BYTE_MONTH_CENTS, earnedAfterCardFeeCents, newSpendingAlertPcts, spendingMonthOf, spendingSettingsOf, type SpendingFacts } from "../../packages/core/src/spending.ts";
 import { FREE_HOSTING_CENTS_PER_MONTH, freeAllowanceCents, freeHostingEndCents, freeUsedPct } from "../../packages/core/src/hosting.ts";
 
 // Zaisma's own month (packages/core/src/spending.ts) and the one-time grace on the free allowance (hosting.ts).
@@ -16,7 +16,7 @@ describe("what a month spends and may", () => {
 
   it("counts the storage line as measured only when that's higher", () => {
     expect(month({ storedSizeBytes: 100 * 1024 ** 3 }).storageAndChecksCostCents).toBe(2000);
-    const big = Math.ceil(4000 / STORED_COST_CENTS_PER_BYTE_MONTH);
+    const big = Math.floor(4000 / STORED_PER_BYTE_MONTH_CENTS);
     expect(month({ storedSizeBytes: big }).storageAndChecksCostCents).toBe(4000);
     expect(month({ storedSizeBytes: big, performanceCheckCount: 100 }).storageAndChecksCostCents).toBe(4015);
   });

@@ -987,7 +987,7 @@ describe("rooms", () => {
 
   it("at the month's spending stop, starts no room for a free game, ends its match an hour after, and leaves a paying game alone", async () => {
     const id = await addGame("stopped");
-    await e.DB.exec("INSERT OR REPLACE INTO owners (id, kind, created_at, credit_balance_cents) VALUES ('owner-stop', 'person', 1, 0);");
+    await e.DB.exec("INSERT OR REPLACE INTO owners (id, kind, created_at_ms, credit_balance_cents) VALUES ('owner-stop', 'person', 1, 0);");
     await e.DB.prepare("UPDATE games SET owner_id = 'owner-stop' WHERE id = ?").bind(id).run();
     const a = await join("stopped", "STOPAA");
     const stoppedAtMs = Date.now();
