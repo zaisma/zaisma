@@ -996,6 +996,7 @@ describe("rooms", () => {
     expect(made.status).toBe(403);
     expect(await made.json()).toMatchObject({ error: { code: "hosting_paused" } });
     const fresh = await connect("stopped", "STPPBB");
+    fresh.ws.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass: (await getPass("stopped")).pass }));
     expect(await fresh.next()).toMatchObject({ type: "error", code: "hosting_paused" });
 
     const stub = e.ROOMS.get(e.ROOMS.idFromName("stopped:STPPAA"));
