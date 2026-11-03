@@ -23,8 +23,8 @@
     url.searchParams.set("bench_screen", `${GROUP}.${screen.name}.${profile}.${bench.isMoving ? "moving" : "still"}`);
     return url.pathname + url.search + url.hash;
   };
-  const screenWindow = (screen) => { try { return screen.frame.contentWindow; } catch { return null; } };
-  const screenApi = (screen) => screenWindow(screen)?.zaismaBenchScreen ?? null;
+  // Null while a screen is on another site, which a page can't read.
+  const screenApi = (screen) => { try { return screen.frame.contentWindow?.zaismaBenchScreen ?? null; } catch { return null; } };
   /** The same page, however its address is written: a browser turns ?play into ?play= and %20 into +. */
   const isSameAddress = (one, other) => {
     const [first, second] = [one, other].map((address) => { const url = new URL(address ?? "/", location.origin); url.searchParams.sort(); return url.pathname + url.search; });

@@ -32,7 +32,7 @@ export interface BenchPlace {
   /** Pages it holds besides its own path: where the rail follows you to it. */
   pathPattern: string;
   seenBy: Viewer;
-  /** Who it opens as when the bench's person can't see it. */
+  /** Who it opens as when the bench's person can't see it. Its states stay with whoever you switched to, unless one needs someone. */
   profile?: string;
   states: BenchState[];
 }
@@ -145,19 +145,19 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", opens: "plan-start" },
       { stateValue: "storage-budget", label: "Storage budget", stateKind: "opened", seenBy: "signed_in", opens: "storage-budget" },
       { stateValue: "add-credit", label: "Add credit", stateKind: "opened", seenBy: "signed_in", opens: "add-credit" },
-      { stateValue: "game-budget", label: "A game's budget", stateKind: "opened", seenBy: "signed_in", opens: "budget-arena", idPattern: "^budget-[a-z0-9-]+$" },
-      { stateValue: "refund-top-up", label: "Refund a top-up", stateKind: "opened", seenBy: "signed_in", opens: "refund-top_up_preview00000000001", idPattern: "^refund-" },
-      { stateValue: "cancel-pro", label: "Cancel Pro", stateKind: "opened", seenBy: "signed_in", opens: "pro-cancel" },
+      { stateValue: "game-budget", label: "A game's budget", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "budget-arena", idPattern: "^budget-[a-z0-9-]+$" },
+      { stateValue: "refund-top-up", label: "Refund a top-up", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "refund-top_up_preview00000000001", idPattern: "^refund-" },
+      { stateValue: "cancel-pro", label: "Cancel Pro", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "pro-cancel" },
       { stateValue: "start-pro", label: "Start Pro", stateKind: "opened", seenBy: "signed_in", profile: "Empty_Handed", opens: "pro-start" },
       { stateValue: "connect-payments", label: "Connect payments", stateKind: "opened", seenBy: "signed_in", profile: "Empty_Handed", opens: "payments-connect" },
-      { stateValue: "tax", label: "Tax", stateKind: "opened", seenBy: "signed_in", opens: "payments-tax" },
-      { stateValue: "disconnect-payments", label: "Disconnect payments", stateKind: "opened", seenBy: "signed_in", opens: "payments-disconnect" },
+      { stateValue: "tax", label: "Tax", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "payments-tax" },
+      { stateValue: "disconnect-payments", label: "Disconnect payments", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "payments-disconnect" },
       { stateValue: "add-webhook", label: "Add a webhook", stateKind: "opened", seenBy: "signed_in", opens: "webhook-add" },
-      { stateValue: "add-server-webhook", label: "Add a server webhook", stateKind: "opened", seenBy: "signed_in", opens: "webhook-server-add" },
-      { stateValue: "webhook-edit", label: "Edit a webhook", stateKind: "opened", seenBy: "signed_in", opens: "webhook-webhook_previewdiscord001-edit", idPattern: "^webhook-webhook_[a-z0-9]+-edit$" },
-      { stateValue: "webhook-test", label: "Test a webhook", stateKind: "opened", seenBy: "signed_in", opens: "webhook-webhook_previewdiscord001-test", idPattern: "^webhook-webhook_[a-z0-9]+-test$" },
-      { stateValue: "webhook-secret", label: "A webhook's secret", stateKind: "opened", seenBy: "signed_in", opens: "webhook-webhook_previewdiscord001-secret", idPattern: "^webhook-webhook_[a-z0-9]+-secret$" },
-      { stateValue: "webhook-delete", label: "Delete a webhook", stateKind: "opened", seenBy: "signed_in", opens: "webhook-webhook_previewdiscord001-delete", idPattern: "^webhook-webhook_[a-z0-9]+-delete$" },
+      { stateValue: "add-server-webhook", label: "Add a server webhook", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "webhook-server-add" },
+      { stateValue: "webhook-edit", label: "Edit a webhook", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "webhook-webhook_previewdiscord001-edit", idPattern: "^webhook-webhook_[a-z0-9]+-edit$" },
+      { stateValue: "webhook-test", label: "Test a webhook", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "webhook-webhook_previewdiscord001-test", idPattern: "^webhook-webhook_[a-z0-9]+-test$" },
+      { stateValue: "webhook-secret", label: "A webhook's secret", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "webhook-webhook_previewdiscord001-secret", idPattern: "^webhook-webhook_[a-z0-9]+-secret$" },
+      { stateValue: "webhook-delete", label: "Delete a webhook", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "webhook-webhook_previewdiscord001-delete", idPattern: "^webhook-webhook_[a-z0-9]+-delete$" },
       { stateValue: "add-app", label: "Add a sign-in app", stateKind: "opened", seenBy: "signed_in", opens: "app-add" },
       { stateValue: "add-key", label: "Add an API key", stateKind: "opened", seenBy: "signed_in", opens: "key-add" },
       { stateValue: "settings-confirm", label: "Confirm it's you", stateKind: "opened", seenBy: "signed_in", opens: "settings-confirm" },
@@ -215,10 +215,10 @@ export interface ReadyState {
 
 export function readyStates(): ReadyState[] {
   return BENCH_PLACES.flatMap((place) => place.states.map((state) => {
-    const shared = { placeValue: place.placeValue, stateValue: state.stateValue, label: state.label, stateKind: state.stateKind, seenBy: state.seenBy, profile: state.profile ?? place.profile, words: state.words };
+    const shared = { placeValue: place.placeValue, stateValue: state.stateValue, label: state.label, stateKind: state.stateKind, seenBy: state.seenBy, profile: state.profile, words: state.words };
     if ("checkedPage" in state) {
       const entry = entryOf(state.checkedPage) as (typeof CHECKED_PAGES)[number] & { setUp?: string; stepsToTake?: unknown };
-      return { ...shared, profile: state.profile ?? entry.account ?? place.profile, path: entry.path, stepsToTake: entry.stepsToTake, setUpName: entry.setUp ? entry.name : undefined, isOwnPage: !entry.setUp };
+      return { ...shared, profile: state.profile ?? entry.account, path: entry.path, stepsToTake: entry.stepsToTake, setUpName: entry.setUp ? entry.name : undefined, isOwnPage: !entry.setUp };
     }
     if ("opens" in state) return { ...shared, path: state.path ?? place.path, opens: state.opens, isOwnPage: false };
     if ("path" in state) return { ...shared, path: state.path, isOwnPage: true };
