@@ -155,7 +155,7 @@ const HEADER_STYLES = `
 /* Search is short at rest, so where you are leads the bar, and grows once it's pressed or holds words. It's never narrower than it can be used:
    with less room than that it's the search button (below). */
 .top .find { flex: 0 1 var(--size-search); min-width: var(--size-search-least); transition: flex-basis var(--motion-glide) var(--ease-glide); }
-.top .find:is(:focus-within, .is-focused, :has(input:not(:placeholder-shown))) { flex-basis: var(--size-search-open); }
+.top .find:is(:has(input:focus-visible), .is-focused, :has(input:not(:placeholder-shown))) { flex-basis: var(--size-search-open); }
 
 /* Where you are: a Switch (switch.ts), filling the room the header gives it; the header only places it.
    With fewer than two tabs to show it isn't a choice, so it's hidden (header()). */

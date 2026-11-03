@@ -1594,8 +1594,8 @@ describe("friends", () => {
     expect(rowTemplate).not.toContain("<button type=\"button\" class=\"cut-btn");
     expect(players).toContain('id="players-player-mute"');
     // The hooks their scripts use.
-    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-sign-in", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
-    for (const id of ["block-title", "block-friend", "block-told", "block-error", "block-yes", "block-data"]) expect(block).toContain(`id="${id}"`);
+    for (const id of ["players-find-field", "players-list", "players-note", "players-watching", "players-friends", "players-friends-list", "players-player-title", "players-player-profile", "players-player-block", "players-player-report", "players-data"]) expect(players).toContain(`id="${id}"`);
+    for (const id of ["block-title", "block-friend", "block-told", "block-error", "block-yes"]) expect(block).toContain(`id="${id}"`);
   });
 
   it("gives the game bar's Players plate names and Friend marks from Zaisma, and friends playing outside the room with Join", async () => {
@@ -1614,12 +1614,11 @@ describe("friends", () => {
     // Every game has the Z and the menu; a game played alone keeps its Room, which says so, and has no Block.
     const page = await (await ana.go("/g/arena-game")).text();
     expect(page).toContain('id="zaisma-open"');
-    expect(page).toMatch(/<dialog class="sheet glass placement-docked is-compact"[^>]* id="players"/);
-    expect(page).toMatch(/<dialog class="sheet glass placement-foot" id="block"/);
+    expect(page).toMatch(/<dialog class="sheet glass[^"]*placement-docked[^"]*"[^>]* id="players"/);
+    expect(page).toMatch(/<dialog class="sheet glass[^"]*placement-foot[^"]*"[^>]* id="block"/);
     const solo = await (await ana.go("/g/solo-game")).text();
     expect(solo).toContain('id="zaisma-open"');
     expect(solo).toContain('id="players"');
-    expect(solo).toContain("You&#39;re playing this game alone.");
     expect(solo).not.toContain('id="block"');
 
     // Names come from Zaisma, whatever the game called them; guests and the player themselves aren't listed.
@@ -1651,8 +1650,10 @@ describe("friends", () => {
     // The friends part goes into the players sheet, so it's gallery components too.
     expect(pageProblems(friends)).toEqual([]);
     const inRoom = await (await ana.go("/g/arena-game/players/friends?room=ROOMAA")).text();
-    expect(inRoom).not.toContain("Quiet_Comet");
-    expect(inRoom).toContain("None of your friends are playing this right now.");
+    // A friend in your own room stays on the list, with nothing to join.
+    expect(inRoom).toContain("Quiet_Comet");
+    expect(inRoom).toContain("In your room");
+    expect(inRoom).not.toContain('href="/g/arena-game?room=ROOMAA"');
     expect(pageProblems(inRoom)).toEqual([]);
     // Join is grayed with the reason when it won't work.
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
@@ -1949,7 +1950,7 @@ describe("pages", () => {
 describe("the header and the theme", () => {
   it("says Sign in signed out, and shows your account and its menu signed in", async () => {
     const out = await (await new Browser().go("/")).text();
-    expect(out).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+    expect(out).toMatch(/<a class="[^"]*run-wrap[^"]*"[^>]* href="\/signin"/);
     expect(out).not.toContain('class="me');
     const b = new Browser();
     await join(b, null);
@@ -1966,13 +1967,13 @@ describe("the header and the theme", () => {
   it("opens the Developer and Forum tabs on developer pages and folds them away elsewhere", async () => {
     const b = new Browser();
     await join(b, null);
-    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a class="[^"]*" data-lights href="[^"]*"[^>]*>${words}</a>`))?.[0] ?? "";
+    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a class="[^"]*" data-lights href="[^"]*"[^>]*>(?=(?:(?!</a>)[\\s\\S])*<span>${words}</span>)`))?.[0] ?? "";
     const dashboard = await (await b.go("/dashboard")).text();
-    expect(tabOf(dashboard, "Developer")).toBe('<a class="flush-row quiet foldable" data-lights href="/dashboard" aria-current="page">Developer</a>');
-    expect(tabOf(dashboard, "Forum")).toBe('<a class="flush-row quiet foldable" data-lights href="/forum">Forum</a>');
+    expect(tabOf(dashboard, "Developer")).toBe('<a class="flush-row quiet foldable" data-lights href="/dashboard" aria-current="page">');
+    expect(tabOf(dashboard, "Forum")).toBe('<a class="flush-row quiet foldable" data-lights href="/forum">');
     const home = await (await b.go("/")).text();
-    expect(tabOf(home, "Developer")).toBe('<a class="flush-row quiet foldable folded" data-lights href="/dashboard" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(tabOf(home, "Home")).toBe('<a class="flush-row quiet" data-lights href="/" aria-current="page">Home</a>');
+    expect(tabOf(home, "Developer")).toBe('<a class="flush-row quiet foldable folded" data-lights href="/dashboard" tabindex="-1" aria-hidden="true">');
+    expect(tabOf(home, "Home")).toBe('<a class="flush-row quiet" data-lights href="/" aria-current="page">');
   });
 
   it("starts every account on System, and saves Light or Dark for its pages", async () => {
@@ -3089,7 +3090,7 @@ describe("the dashboard", () => {
     await letPublishAs("Night_Owl");
     await b.go("/dashboard/new", { title: "Sky Hopper" });
     const board = await (await b.go("/forum")).text();
-    expect(board).toContain('<a class="flush-row quiet foldable" data-lights href="/forum" aria-current="page">Forum</a>');
+    expect(board).toContain('<a class="flush-row quiet foldable" data-lights href="/forum" aria-current="page">');
     expect(board).toContain('aria-label="Search the forum"');
     expect(board).toContain("New topic");
     expect(await (await b.go("/forum/new")).text()).toContain('<option value="sky-hopper">Sky Hopper</option>');

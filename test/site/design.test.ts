@@ -70,7 +70,18 @@ const SOURCES: Record<string, string> = {
 };
 
 /** A rule's selectors, split at its own commas, never at those inside :is(), :not() or :has(). */
-const splitSelectors = (selectors: string) => selectors.split(/,(?![^(]*\))/).map((each) => each.trim());
+/** A list of selectors, split only at its own commas, past nested :is(), :not() and :has(). */
+const splitSelectors = (selectors: string) => {
+  const parts: string[] = [""];
+  let depthNumber = 0;
+  for (const letter of selectors) {
+    if (letter === "(") depthNumber += 1;
+    if (letter === ")") depthNumber -= 1;
+    if (letter === "," && !depthNumber) parts.push("");
+    else parts[parts.length - 1] += letter;
+  }
+  return parts.map((each) => each.trim());
+};
 /** A selector's subject: its last compound, never cut inside :is(), :not() or :has(). */
 const subjectOf = (selector: string) => selector.split(/[\s>+~]+(?![^(]*\))/).pop() ?? "";
 
@@ -137,14 +148,15 @@ async function pageAfterSteps(path: string, steps: readonly StepToTake[]): Promi
 describe("the gallery", () => {
   it("reads every component's source: none is left out of the checks below", () => {
     // Modules with no markup, styles or pieces of their own to check: plain lists and data.
-    const READ_ELSEWHERE = new Set(["components/index.ts", "components/component.ts", "components/checked-pages.ts", "components/layout-measure.ts", "components/shaders.ts"]);
+    const READ_ELSEWHERE = new Set(["components/index.ts", "components/component.ts", "components/checked-pages.ts", "components/layout-measure.ts", "components/shaders.ts", "components/action-list.ts", "components/gallery-sheet.ts"]);
     expect(COMPONENT_FILES.length).toBeGreaterThan(20);
     expect(COMPONENT_FILES.filter((file) => !SOURCES[file] && !READ_ELSEWHERE.has(file))).toEqual([]);
   });
 
   it("shows every component, by name, with its examples, on its subgroup's page", async () => {
     // A component with nothing of its own to draw, shown by its words alone: a Stripe frame is an empty window Stripe draws in.
-    const NOTHING_TO_SHOW = new Set(["stripe-frame"]);
+    // The stand-in game and the Zaisma overlay fill the frames on their pages, so they need no example of their own.
+    const NOTHING_TO_SHOW = new Set(["stripe-frame", "stand-in-game", "zaisma-overlay"]);
     for (const each of COMPONENTS()) {
       const { response, text } = await page(galleryPagePath(each.group, each.subgroup));
       expect(response.status, each.group).toBe(200);
@@ -160,11 +172,13 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details" };
+    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
+    // Not markup: an action's words and icon, and styles shared by what shows an icon alone.
+    const NOT_MARKUP = new Set(["action", "iconAloneFace", "tabIconsAlone"]);
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
     const problems = Object.entries({ actions, inputs, navigation, panes, data, layout: layoutComponents }).flatMap(([file, exports]) =>
       Object.entries(exports)
-        .filter(([name, value]) => typeof value === "function" && !/^class\b/.test(String(value)) && !VARIANTS[name])
+        .filter(([name, value]) => typeof value === "function" && !/^class\b/.test(String(value)) && !VARIANTS[name] && !NOT_MARKUP.has(name))
         .filter(([, value]) => renders.filter((render) => render === value).length !== 1)
         .map(([name]) => `${file}.ts: ${name} isn't the render of exactly one component`),
     );
@@ -215,7 +229,7 @@ describe("the gallery", () => {
       // The glass itself: its slab, the layer it paints its tint and blur on, and pinned glass, which blurs its own box.
       const isTheGlass = /^\.glass(::before|\.pinned)?$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
       const blur = /(?:^|[;\s])backdrop-filter:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      if (blur && blur !== "none" && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
+      if (blur && !/^none\b/.test(blur) && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
       if (/(?:^|[;\s])background(?:-color|-image)?:[^;]*var\(--glass-/.test(declarations) && !isTheGlass) problems.push(`${selectors.trim()}: paints with the glass's tokens`);
     }
     expect(problems).toEqual([]);
@@ -228,7 +242,7 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const clip = /(?:^|[;\s])clip-path:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      if (!clip || clip === "var(--cut-shape)" || clip === "none" || clip === "inset(50%)") continue;
+      if (!clip || clip === "var(--cut-shape)" || /^none\b/.test(clip) || clip === "inset(50%)") continue;
       // Glass cut by its own corners (--glass-clip, the pane cut tokens the edge rule fits everything in it to).
       if (/^var\(--glass-clip\b/.test(clip)) continue;
       const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
@@ -266,7 +280,8 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-      if (!transition || transition === "none" || transition.startsWith("var(--glass-transition)")) continue;
+      // The Zaisma button's --shard-glass starts with the glass's, and adds its own press.
+      if (!transition || transition === "none" || transition.startsWith("var(--glass-transition)") || transition.startsWith("var(--shard-glass)")) continue;
       for (const selector of splitSelectors(selectors.replace(/\/\*[\s\S]*?\*\//g, ""))) {
         const subject = subjectOf(selector);
         if (/::/.test(subject)) continue;
@@ -442,7 +457,7 @@ describe("the gallery", () => {
     for (const { group, subgroup } of GALLERY_PLACES()) {
       const { text } = await page(`${galleryPagePath(group, subgroup)}?theme=dark`);
       expect(text).toContain('<div id="stage" class="stage" data-theme-choice="dark">');
-      expect(text).toMatch(/<a class="sidebar-place[^"]*" href="\/design\/panes\/glass\?theme=dark"/);
+      expect(text).toMatch(/<a class="[^"]*is-in-folder[^"]*" data-lights href="\/design\/panes\/glass\?theme=dark"/);
     }
     // Anything but dark is light: the parameter is closed.
     expect((await page("/design?theme=purple")).text).toContain('<div id="stage" class="stage" data-theme-choice="light">');
@@ -455,19 +470,19 @@ describe("the gallery", () => {
   it("has a page for each subgroup, nested in the sidebar, and none for anything else", async () => {
     const open = (await page("/design")).text;
     // Only the page you're on is selected; its group is open, never selected itself.
-    expect(open).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="true"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Foundations</span>');
-    expect(open).toMatch(/<a class="sidebar-place flush-row compact quiet lights-start" href="\/design" data-cut-line="8" aria-current="page">/);
+    expect(open).toContain('<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="true"><span>Foundations</span>');
+    expect(open).toMatch(/<a class="flush-row quiet is-in-folder" data-lights href="\/design" aria-current="page">/);
     expect(open.match(/aria-current="page"/g)?.length).toBe(2);
     expect(open).toContain("<title>Look · Foundations · Design · Zaisma</title>");
     const fields = await page("/design/inputs/fields");
     expect(fields.response.status).toBe(200);
-    expect(fields.text).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="true"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Inputs</span>');
-    expect(fields.text).toMatch(/<a class="sidebar-place flush-row compact quiet lights-start" href="\/design\/inputs\/fields" data-cut-line="8" aria-current="page">.*?<span class="sidebar-words">Fields<\/span>/);
+    expect(fields.text).toContain('<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="true"><span>Inputs</span>');
+    expect(fields.text).toMatch(/<a class="flush-row quiet is-in-folder" data-lights href="\/design\/inputs\/fields" aria-current="page">.*?Fields/);
     expect(fields.text).toContain('<h1 class="group-name">Fields · Inputs</h1>');
     expect(fields.text).toContain('id="cut-field"');
     expect(fields.text).not.toContain('id="slider"');
     // Every group is a folder of its pages; only the one holding this page starts open.
-    expect(fields.text).toContain('<button class="sidebar-place sidebar-group flush-row compact quiet" type="button" data-cut-line="8" aria-expanded="false"><svg class="cut-line" aria-hidden="true"><polygon/></svg><span class="sidebar-words">Actions</span>');
+    expect(fields.text).toContain('<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="false"><span>Actions</span>');
     expect(fields.text).toContain('href="/design/actions/words"');
     expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
     expect((await page("/design/layout")).response.status).toBe(200);
@@ -497,7 +512,7 @@ describe("components", () => {
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
-    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.toggleButton("Show", { type: "button", isSmall: true, isPressed: false, controls: "field-password" }).html);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain(actions.passwordToggle({ isPasswordShown: false, controls: "field-password" }).html);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error words-margin" id="field-username-error">Use letters only.</p>');
@@ -637,8 +652,10 @@ const HAND_CUT = new Set<string>([
   ".tertiary-line", ".step-mark",
   // A tray's step: its lip's light stops inside the sheet's rim, before its bevel.
   ".tray-group > .glass.tray-head::after",
-  // The gallery's stand-in game screen, cut as a pane is.
-  ".game-stand-in",
+  // What scrolls, when it scrolls: cut by what holds it, its own --cut corners, so its fades reach the holder's corners.
+  ".scrolls:not(.fits)",
+  // The Zaisma button's press: the shard's slanted side, so the pointer only takes what shows.
+  ".zaisma-press",
 ]);
 
 // The gallery's own scaffolding, styled only by GALLERY_STYLES: what holds the components, never a piece of Zaisma's UI itself.
@@ -651,7 +668,9 @@ const GALLERY_ONLY = new Set<string>([
   // for the rail, a cover at a card's width, and the two Spacing examples that mark a pane's own padding and gap.
   "header-frame", "tall", "is-fitted", "header-scroll", "stand-in-page", "stand-in-row", "dropdown-frame", "rail-box", "rail-side-box", "rail-example-part", "cover-sample",
   // A menu's Try it, a backdrop that holds menus and banners side by side, a banner's frame on it, and a stand-in game screen behind a card.
-  "dropdown-try", "holds-menus", "banner-frame", "game-stand-in",
+  "dropdown-try", "holds-menus", "banner-frame",
+  // A footer's frame at a tablet's and a phone's width.
+  "is-phone-width", "is-tablet-width",
 ]);
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
@@ -695,7 +714,8 @@ const OWN_GLASS = new Map<string, string>([
   ['class="video-controls glass', "a video's controls, a bar of smoked glass along its foot"],
   ['class="sidebar glass glass-pane compact pinned"', "Sidebar itself"],
   ['const stillSidebar = ', "Sidebar's still copy on its gallery page"],
-  ['class="sidebar-example-phone glass"', "Sidebar's still phone screen, the sheet over its page"],
+  ['class="zaisma-press"', "the Zaisma button's shard, glass with one slanted side, in the screen's corner"],
+  ['class="glass docked in-place dock-', "Docked glass's still examples"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ["([name, thickness, use]) =>", "the Materials page's own demo: each thickness of glass side by side"],
@@ -721,7 +741,7 @@ const NOT_TYPE = new Set<string>([
   ".run.big | font-size", ".run | font-size",
   ".field input | font", '.find input[type="search"] | font', ".wheel-button | font",
   '.wheel [role="option"] | font', ".tab-switch > a, .tab-switch > button | font",
-  ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top .end .run | font-size",
+  ".tab-switch.small > a, .tab-switch.small > button | font-size",
   // A picture's initials, sized to the picture.
   ":is(.frame, .slab.holds-art) .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size",
   // A PIN's one field, unseen over its marks: 16px, so a phone doesn't zoom in as it's typed in.
@@ -734,6 +754,8 @@ const NOT_TYPE = new Set<string>([
 ]);
 
 const NOT_SPACING = new Set<string>([
+  // Room past the screen's edges and inside its safe areas: env()'s 0px fallback, and the Zaisma button's mark placed on its shard.
+  ".sheet.placement-foot:not(.in-place) | margin", ".sheet.fills-sideways:not(.in-place) > .sheet-in | padding", ".sheet.placement-docked:not(.in-place) > .sheet-in | padding", ".zaisma-button .zaisma-shard | padding",
   // A pane that starts low on a phone: the room above it is the viewport left over, not spacing.
   ".glass-pane.is-started-low | margin-top",
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
@@ -768,7 +790,7 @@ const NOT_SPACING = new Set<string>([
 ".wheel-button | gap",
 ".wheel-chev | margin-right",
   ".logo | padding",
-".top .end .run | gap", ".tag | padding", ".tag.count | padding",
+".tag | padding", ".tag.count | padding",
 ".select-option | gap",
 ".choice-well .choice-words | gap",
   // picked choice up with the field's words, and its choices are a little shorter there.
@@ -1262,7 +1284,8 @@ describe("layout", () => {
   it("gives a pane the whole width or what's in it, never a width of its own: one that should take half the screen is a column", () => {
     expect(glassPane({ paneWidth: "fit", body: layoutComponents.stackOfOne(html`<p>Hi</p>`, "words") }).html).toContain('class="glass glass-pane fit"');
     const paneWidths = [...COMPONENT_STYLES().matchAll(/\.glass-pane(?:\.[a-z-]+)*\s*\{[^}]*?\bwidth:\s*([^;]+);/g)].map((match) => match[1]!.trim());
-    expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content"]);
+    // The third: on a phone on its side, a game page's pane stands beside its art.
+    expect([...new Set(paneWidths)].sort()).toEqual(["100%", "fit-content", "min(var(--size-pane-beside), 100%)"]);
     const halves = columns({ columns: [html`<p>A</p>`, html`<p>B</p>`] }).html;
     expect(halves.match(/<div class="column">/g)).toHaveLength(2);
     expect(COLUMNS_STYLES).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");

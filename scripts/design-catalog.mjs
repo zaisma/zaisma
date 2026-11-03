@@ -100,6 +100,9 @@ export function gallerySheetLines(directory = SITE_DIRECTORY) {
   return readdirSync(directory).filter((name) => name.endsWith(".ts")).flatMap((name) => [...readFileSync(join(directory, name), "utf8").matchAll(/gallerySheet<[^(]*>\(\{\s*name: "([^"]+)",\s*slug: "[^"]+",\s*summary: "([^"]+)"/g)]).map((found) => `- **${found[1]}**: ${found[2]}`).sort();
 }
 
+/** The catalog: every component, then each real sheet. */
+export const wholeCatalog = (components, groups) => `${catalogMarkdown(components, groups)}\n\n### Sheets\n\nEach real sheet's one version (gallerySheet), on Panes › Sheets with every moment it goes through.\n\n${gallerySheetLines().join("\n")}`;
+
 /** docs/DESIGN.md with the catalog between its markers replaced. */
 export function withCatalog(designText, catalog) {
   const start = designText.indexOf("<!-- catalog:start"), end = designText.indexOf(CATALOG_END);
@@ -109,7 +112,7 @@ export function withCatalog(designText, catalog) {
 
 if (process.argv[1] === import.meta.filename) {
   const components = await loadComponentsModule();
-  const catalog = `${catalogMarkdown(components.COMPONENTS(), components.COMPONENT_GROUPS)}\n\n### Sheets\n\nEach real sheet's one version (gallerySheet), on Panes › Sheets with every moment it goes through.\n\n${gallerySheetLines().join("\n")}`;
+  const catalog = wholeCatalog(components.COMPONENTS(), components.COMPONENT_GROUPS);
   writeFileSync(DESIGN_PATH, withCatalog(readFileSync(DESIGN_PATH, "utf8"), catalog));
   console.log(`Wrote the catalog (${catalog.split("\n").length} lines) into ${DESIGN_PATH}`);
 }

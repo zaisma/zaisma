@@ -231,7 +231,7 @@ const GAME_SCREENS = [
 /** One state over the stand-in game on each screen: real frames of those sizes, shown at half size, since the overlay's shape follows the screen it's on. Each loads as it's scrolled to. */
 export function gameScreens(options: { title: string; framePath: string; screenNames?: string[] }): Raw {
   return tray({
-    head: html`<h3 class="component-name">${options.title}</h3>`,
+    head: html`<h2 class="component-name">${options.title}</h2>`,
     body: stackOfOne(html`<div class="game-screens">${GAME_SCREENS.filter((each) => !options.screenNames || options.screenNames.includes(each.screenName)).map((each) => {
       const path = `${options.framePath}&screen=${each.screenName}`;
       return html`<figure class="game-screen" style="--screen-width:${String(each.widthPx)};--screen-height:${String(each.heightPx)}"><div class="game-screen-view"><iframe data-frame-src="${path}" title="${options.title}: ${each.label}" width="${String(each.widthPx)}" height="${String(each.heightPx)}" tabindex="-1"></iframe></div><figcaption>${textLink(each.label, path, { isNewTab: true })}</figcaption></figure>`;
@@ -288,7 +288,7 @@ html.is-leaving body > main > :not(.zaisma-button, .playing-card, .playing-check
 .zaisma-shard > .edge-light::before, .zaisma-shard > .edge-light::after { transform: translateX(calc(var(--shard-height) * ${MARK_LEAN_NUMBER})) skewX(calc(-1 * atan(${MARK_LEAN_NUMBER}))); }
 .zaisma-press:active ~ .zaisma-shard { --shard-sink: rgba(0, 0, 0, 0.14); transition: var(--glass-transition), --shard-sink var(--motion-press) ease, transform 240ms var(--ease-glide), opacity var(--motion-state); }
 .zaisma-press:active ~ .zaisma-shard .logo.mark { transform: translateY(1px) scale(0.95); transition: transform var(--motion-press) ease; }
-.zaisma-press:focus-visible ~ .zaisma-shard .edge .rim { stroke: var(--run); }
+.zaisma-press:focus-visible ~ .zaisma-shard .edge .rim { stroke: var(--focus); }
 /* With a mouse it's out of the screen until pointed at, or while the keyboard is on it. A finger can't point, so a touch screen always shows it. */
 @media (hover: hover) and (pointer: fine) {
   .zaisma-button:not(.in-place, .is-shown, :hover, :has(:focus-visible)) .zaisma-shard { transform: var(--shard-out); opacity: var(--shard-out-ink); transition: var(--shard-glass), transform 160ms var(--ease-glide), opacity var(--motion-state); }
@@ -313,7 +313,7 @@ html:has(.sheet.placement-docked:not(.in-place)[open]:not(.is-leaving)) .zaisma-
   .zaisma-button.has-arrived:not(.in-place, .is-shown, :hover, :has(:focus-visible)) .edge-light, html:has(.sheet.placement-docked:not(.in-place)[open]:not(.is-leaving)) .zaisma-button:not(.in-place) .edge-light { --light-at: calc(var(--shard-height) / 2); }
 }
 
-.sheet.placement-docked:focus { outline: none; }
+.sheet.placement-docked:focus-visible { outline: none; }
 
 /* What Zaisma says over a running game is read over whatever the game draws, which Zaisma can't see, so its glass is thick enough for every word whatever's behind it. */
 html.is-playing :is(.zaisma-shard, .sheet, .notice, .playing-card, .dropdown).glass { --glass-shown-tint: var(--glass-over-game); }

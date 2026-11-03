@@ -106,7 +106,7 @@ describe("game page controls", () => {
       const markup = String(reportSheet({ game: { slug: "arena", title: "Arena" } as Game, isMultiplayer }));
       expect(pageProblems(markup)).toEqual([]);
       // What the sheet's script finds it by.
-      for (const id of ["report-title", "report-sub", "report-reasons-game", "report-reasons-player", "report-details", "report-pic", "report-pic-img", "report-picture", "report-hold", "report-context", "report-error", "report-notices", "report-tell", "report-sent", "report-done", "report-send", "report-data"]) expect(markup).toContain(`id="${id}"`);
+      for (const id of ["report-title", "report-sub", "report-reasons-game", "report-reasons-player", "report-details", "report-pic", "report-pic-img", "report-picture", "report-hold", "report-context", "report-error", "report-notices", "report-tell", "report-sent", "report-done", "report-send"]) expect(markup).toContain(`id="${id}"`);
     }
   });
 });
@@ -169,7 +169,7 @@ describe("room browsing on the game page", () => {
     expect(list).toMatch(/8 of 8 players<\/span>[\s\S]*?<span class="list-row-end">Full<\/span>/);
     expect(list).not.toContain("JKMN3P");
     // A match in progress is a row of its own, last: Join grayed and off with its reason, and no sentence about it. Rooms that stopped checking in aren't shown at all.
-    expect(list).toMatch(/2 of 8 players<\/span>[\s\S]*?<span class="list-row-end">In a match<\/span><span class="list-row-action"><button class="shell cut-btn small" type="button" disabled>/);
+    expect(list).toMatch(/2 of 8 players<\/span>[\s\S]*?<span class="list-row-end">In a match<\/span><\/span><span class="list-row-action"><button class="shell cut-btn small" type="button" disabled>/);
     expect(list.indexOf("In a match")).toBeGreaterThan(list.indexOf(">Full<"));
     expect(list).not.toContain("room=QRSTVW");
     expect(list).not.toContain("in progress that");
@@ -193,11 +193,11 @@ describe("room browsing on the game page", () => {
     await room(id, "CDFGHJ", 2, 0);
     await watching("CDFGHJ", 1, 20);
     const list = await roomsList();
-    expect(list).toMatch(/<span class="list-row-end">In a match<\/span><span class="list-row-action"><div[^>]*><div[^>]*><button class="shell cut-btn small" type="button" disabled>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=CDFGHJ&amp;watch=1">/);
+    expect(list).toMatch(/<span class="list-row-end">In a match<\/span><\/span><span class="list-row-action"><div[^>]*><div[^>]*><button class="shell cut-btn small" type="button" disabled>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=CDFGHJ&amp;watch=1">/);
     expect(list).toContain('<span class="list-row-title">3 of 8 players</span><span class="list-row-detail"><span class="list-row-fact">14\u00a0watching\u00a0·</span>');
     expect(list).toContain('href="/g/arena?room=BCDFGH&amp;watch=1"');
     // A full room can still be watched.
-    expect(list).toMatch(/<span class="list-row-end">Full<\/span><span class="list-row-action"><a class="shell cut-btn small" href="\/g\/arena\?room=JKMN3P&amp;watch=1">/);
+    expect(list).toMatch(/<span class="list-row-end">Full<\/span><\/span><span class="list-row-action"><a class="shell cut-btn small" href="\/g\/arena\?room=JKMN3P&amp;watch=1">/);
     // One whose audience is full shows how many watch, and no Watch.
     expect(list).toContain("5\u00a0watching");
     expect(list).not.toContain("room=QRSTVW&amp;watch=1");
@@ -218,7 +218,7 @@ describe("room browsing on the game page", () => {
     expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count" data-cut-line="0" data-cut-square><svg class="cut-line" aria-hidden="true"><polygon/></svg>12</span></button>');
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
-    expect(list).toContain('class="list-rows hairlines is-capped scrolls own-scroll" style="--shown-row-count:6"');
+    expect(list).toContain('class="list-rows hairlines scrolls own-scroll is-capped" style="--shown-row-count:6"');
     expect(list.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     expect(list).not.toContain("<li hidden>");
     expect(list).toContain('data-load-more="rooms-rows"');

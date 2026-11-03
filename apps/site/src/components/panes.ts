@@ -1831,7 +1831,7 @@ component({
    line takes the width under the button. A notice with no strip of its own (Saved) is its one line already; a purchase's urgent card stays whole. */
 .notice-strip { display: none; position: relative; padding: var(--pad-frame) var(--pad-frame) var(--pad-frame) var(--pad-inside-words); }
 .notice-strip-words { display: flex; align-items: center; gap: var(--pad-frame); font: var(--type-words); font-weight: 500; }
-.notice-strip-line { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.notice-strip-line { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-control-row); }
 .notice-strip-line > p { margin: 0; overflow-wrap: anywhere; }
 .notice-strip-groove { display: block; width: 100%; }
 /* Always one row: on the narrowest phone its words take a second line, never its button. */
