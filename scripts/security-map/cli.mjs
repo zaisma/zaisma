@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writePage } from "./build-page.mjs";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
-import { chains, NIGHTLY_CASE_BUDGET, pickFrontier } from "./frontier.mjs";
 import { defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
 import { demoExport } from "./page/demo-export.mjs";
 import { promiseProblems, promiseSummaries, readPromises, refreshPromises, writePromises } from "./promises.mjs";
+import { finishReview, reviewStepCountOf, startReview } from "./review.mjs";
 import { seedMapDir } from "./seed-robust.mjs";
 
 /**
@@ -14,36 +14,40 @@ import { seedMapDir } from "./seed-robust.mjs";
  *
  *   node scripts/security-map/cli.mjs generate   refresh doors from the code; changed code makes verdicts stale
  *   node scripts/security-map/cli.mjs seed       set robust what the repo's tests and ship checks prove
- *   node scripts/security-map/cli.mjs frontier   tonight's cases: stale, the recheck sample, then unexplored
- *   node scripts/security-map/cli.mjs chains     leak-then-use pairs not tried yet
  *   node scripts/security-map/cli.mjs export     write exports/map-public.json (--check re-checks it)
  *   node scripts/security-map/cli.mjs page       build the Security map page from the export (--out <path>, --export <path> or --demo <doors per sector>)
  *   node scripts/security-map/cli.mjs verify     generate, then stale any case whose cited test is gone
  *   node scripts/security-map/cli.mjs promises   check the sectors' promises, and mark stale the scores whose code changed (--check changes nothing)
+ *   node scripts/security-map/cli.mjs review-start    the daily review's whole catch-up, as JSON
+ *   node scripts/security-map/cli.mjs review-finish --from <night.json> [--again]    check the night whole, apply it, commit and push
+ *   node scripts/security-map/cli.mjs review-steps --from <YYYY-MM-DD> --to <YYYY-MM-DD>    the steps the daily reviews counted in those days
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security),
- * --budget <cases> (frontier, default 40), --date <YYYY-MM-DD> (frontier and export, default today in UTC).
+ * --date <YYYY-MM-DD> (export and the review commands, default today in UTC).
  */
 
 const REPO_ROOT = join(import.meta.dirname, "../..");
-const COMMANDS = ["generate", "seed", "frontier", "chains", "export", "verify", "page", "promises"];
+const COMMANDS = ["generate", "seed", "export", "verify", "page", "promises", "review-start", "review-finish", "review-steps"];
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { mapDir: defaultMapDir(), budgetCaseCount: NIGHTLY_CASE_BUDGET, date: new Date().toISOString().slice(0, 10), isCheck: false, outPath: null, exportPath: null, demoDoorCountPerSector: null };
+  const options = { mapDir: defaultMapDir(), fromText: null, toText: null, isAgain: false, date: new Date().toISOString().slice(0, 10), isCheck: false, outPath: null, exportPath: null, demoDoorCountPerSector: null };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === "--check") options.isCheck = true;
     else if (flag === "--map-dir") options.mapDir = rest[++index];
-    else if (flag === "--budget") options.budgetCaseCount = Number(rest[++index]);
+    else if (flag === "--from") options.fromText = rest[++index];
+    else if (flag === "--to") options.toText = rest[++index];
+    else if (flag === "--again") options.isAgain = true;
     else if (flag === "--date") options.date = rest[++index];
     else if (flag === "--out") options.outPath = rest[++index];
     else if (flag === "--export") options.exportPath = rest[++index];
     else if (flag === "--demo") options.demoDoorCountPerSector = Number(rest[++index]);
-    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --budget <cases>, --date <YYYY-MM-DD>, --check (export, promises), --out <path>, --export <path>, --demo <doors per sector> (page).`);
+    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --from <path or day>, --to <day>, --again, --date <YYYY-MM-DD>, --check (export, promises), --out <path>, --export <path>, --demo <doors per sector> (page).`);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
-  if (!Number.isInteger(options.budgetCaseCount) || options.budgetCaseCount < 1) throw new Error("--budget is a whole number of cases, like 40.");
+  if (command === "review-finish" && !options.fromText) throw new Error("review-finish needs --from <night.json>: the night's record, as the daily-review skill says.");
+  if (command === "review-steps" && !(options.fromText && options.toText)) throw new Error("review-steps needs --from <YYYY-MM-DD> and --to <YYYY-MM-DD>.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) throw new Error("--date is a day like 2026-10-18.");
   if (command === "page") {
     if (!options.outPath) throw new Error("page needs --out <path>: the HTML file to write, in your session's scratchpad.");
@@ -82,11 +86,12 @@ async function main() {
     list("Stale", promiseSummaries(refreshed).flatMap((summary) => summary.stale_refs));
   } else if (command === "seed") {
     list("Seeded robust", seedMapDir({ repoRoot: REPO_ROOT, mapDir }));
-  } else if (command === "frontier") {
-    console.log(JSON.stringify(pickFrontier(readMap(mapDir), { date: options.date, budgetCaseCount: options.budgetCaseCount }), null, 2));
-  } else if (command === "chains") {
-    const triedPath = join(mapDir, "chains-tried.json");
-    console.log(JSON.stringify(chains(readMap(mapDir), existsSync(triedPath) ? JSON.parse(readFileSync(triedPath, "utf8")) : []), null, 2));
+  } else if (command === "review-start") {
+    console.log(JSON.stringify(await startReview({ repoRoot: REPO_ROOT, mapDir, date: options.date, warn }), null, 2));
+  } else if (command === "review-finish") {
+    console.log(JSON.stringify(finishReview({ repoRoot: REPO_ROOT, mapDir, night: JSON.parse(readFileSync(options.fromText, "utf8")), now: new Date().toISOString(), date: options.date, isAgain: options.isAgain }), null, 2));
+  } else if (command === "review-steps") {
+    console.log(JSON.stringify(reviewStepCountOf(mapDir, { fromDate: options.fromText, toDate: options.toText }), null, 2));
   } else if (options.isCheck) {
     const problems = checkMapDirExport({ mapDir });
     if (problems.length) throw new Error(`The public export leaks: ${problems.join("; ")}.`);

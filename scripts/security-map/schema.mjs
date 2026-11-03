@@ -22,10 +22,10 @@ export const SECTOR_IDS = SECTORS.map((sector) => sector.sector_id);
 
 export const DOOR_KINDS = ["api_call", "mcp_tool", "admin_tool", "page_form", "page_route", "game_file_address", "room_message", "token_or_session", "stored_value"];
 
-/** What a case can be stored as. A night's "recheck" is a frontier bucket, never a stored status. */
+/** What a case can be stored as. */
 export const STATUSES = ["unexplored", "robust", "weak", "hole", "fixed", "stale"];
 
-/** On weak and hole cases only. The Nightly security review decides which. */
+/** On weak and hole cases only. */
 export const SEVERITY_TIERS = ["urgent", "important", "hardening"];
 
 /** What proves a verdict. A hole's repro is never evidence: it stays in the private finding. */

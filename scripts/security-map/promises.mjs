@@ -43,18 +43,18 @@ export function priorityOf(defenseScore, damageScore) {
   return isHarmful ? "harden" : "watch";
 }
 
-const isFilledText = (value) => typeof value === "string" && value.trim().length > 0;
-const isScore = (value) => SCORE_STEPS.includes(value);
+export const isFilledText = (value) => typeof value === "string" && value.trim().length > 0;
+export const isScore = (value) => SCORE_STEPS.includes(value);
 
-function unknownFieldProblems(record, fields, label) {
+export function unknownFieldProblems(record, fields, label) {
   return Object.keys(record).filter((field) => !fields.includes(field)).map((field) => `${label} has an unknown field ${field}`);
 }
 
-function isObject(value) {
+export function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function anchorProblems(anchors, label) {
+export function anchorProblems(anchors, label) {
   if (!Array.isArray(anchors) || anchors.length === 0) return [`${label} cites no code in anchors`];
   return anchors.flatMap((anchor, index) => {
     const anchorLabel = `${label} anchor ${index + 1}`;
@@ -66,7 +66,7 @@ function anchorProblems(anchors, label) {
   });
 }
 
-function scoreChangeProblems(change, label) {
+export function scoreChangeProblems(change, label) {
   if (!isObject(change)) return [`${label} isn't an object`];
   const problems = unknownFieldProblems(change, SCORE_CHANGE_FIELDS, label);
   if (!ISO_TIME.test(change.changed_at ?? "")) problems.push(`${label} needs changed_at as an ISO time`);
@@ -154,7 +154,7 @@ export function promiseProblems({ scales, promises }) {
 const hashesAsScored = (anchors) => Object.fromEntries(anchors.map((anchor) => [anchor.anchor_id, anchor.source_hash_sha256]));
 
 /** One record's anchors stamped where they have no hash yet, and why what it says no longer holds (null when the code is identical). */
-function refreshedAnchors(anchors, currentHashes) {
+export function refreshedAnchors(anchors, currentHashes) {
   const stamped = anchors.map((anchor) => ({ ...anchor, source_hash_sha256: anchor.source_hash_sha256 ?? currentHashes[anchor.anchor_id] ?? null }));
   return { anchors: stamped, stale_reason: staleReasonOf(hashesAsScored(stamped), currentHashes) };
 }
@@ -180,12 +180,12 @@ export function refreshPromises({ stored, repoRoot, sourceByPath = new Map() }) 
 }
 
 /**
- * A way looked at again: it rests on the code as it is now, and a score that moved keeps its old value and
+ * A way or an item looked at again: it rests on the code as it is now, and a score that moved keeps its old value and
  * the fact that moved it, appended. Scores never move without changed_because.
  */
 export function rescoreWay(way, { defense_score, defense_reason, damage_score, damage_reason, changed_because, now, currentHashes }) {
   const isMoved = defense_score !== way.defense_score || damage_score !== way.damage_score;
-  if (isMoved && !isFilledText(changed_because)) throw new Error(`${way.way_id}: a score moves only with changed_because, the fact that changed.`);
+  if (isMoved && !isFilledText(changed_because)) throw new Error(`${way.way_id ?? way.item_id}: a score moves only with changed_because, the fact that changed.`);
   const change = { changed_at: now, old_defense_score: way.defense_score, old_damage_score: way.damage_score, new_defense_score: defense_score, new_damage_score: damage_score, changed_because };
   return {
     ...way,

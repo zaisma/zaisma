@@ -17,11 +17,10 @@ import { temporaryFolder } from "../temporary-folder.ts";
 const NOW = "2026-10-19T09:00:00.000Z";
 const QUEUE = `# Queue
 
-Findings waiting for a fix, most serious first. The Nightly security review adds and clears lines here.
+Findings waiting for a fix, most serious first. The daily review and the coordinator add and clear lines here.
 
 URGENT: Accounts, findings/2026-10-18-some-slug.md
 Security fix: findings/2026-10-18-some-slug.md; tier urgent; branch zaisma/security fix/fnd_2026-10-18_some-slug
-hardening: propose roadmap row Tighter session lifetimes (accounts)
 `;
 const README = "# Zaisma security\n\nMap page: https://claude.ai/artifact/abc\nMap page shows: 2026-10-18T03:00:00.000Z\n";
 const GIT_IDENTITY = { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" };
@@ -63,7 +62,6 @@ describe("reading the private repo", () => {
     expect(queueItemsOf(QUEUE)).toEqual([
       "URGENT: Accounts, findings/2026-10-18-some-slug.md",
       "Security fix: findings/2026-10-18-some-slug.md; tier urgent; branch zaisma/security fix/fnd_2026-10-18_some-slug",
-      "hardening: propose roadmap row Tighter session lifetimes (accounts)",
     ]);
     expect(queueItemsOf("# Queue\n\nFindings waiting for a fix.\n")).toEqual([]);
   });
@@ -75,6 +73,7 @@ describe("reading the private repo", () => {
       map_page_url: "https://claude.ai/artifact/abc",
       map_page_shows_generated_at: "2026-10-18T03:00:00.000Z",
       export_generated_at: "2026-10-19T03:00:00.000Z",
+      last_review_date: null,
       is_map_page_behind: true,
     });
     expect(pageLinesOf("# Zaisma security\n")).toEqual({ map_page_url: null, map_page_shows_generated_at: null });
@@ -85,7 +84,7 @@ describe("changing the private repo's files", () => {
   it("removes a finding's queue lines, its URGENT line too, and leaves the rest", () => {
     const { text, removed_lines } = withoutQueueLines(QUEUE, "findings/2026-10-18-some-slug.md");
     expect(removed_lines).toHaveLength(2);
-    expect(queueItemsOf(text)).toEqual(["hardening: propose roadmap row Tighter session lifetimes (accounts)"]);
+    expect(queueItemsOf(text)).toEqual([]);
     expect(text).toContain("Findings waiting for a fix");
     expect(() => withoutQueueLines(QUEUE, " ")).toThrow(/Say which queue line/);
   });
@@ -121,7 +120,7 @@ describe("git on the private repo", () => {
     const { remoteDir, seedDir, cloneDir } = remoteAndClone();
     writeFileSync(join(seedDir, "log.md"), "2026-10-19: quiet night\n");
     git(seedDir, "add", "-A");
-    git(seedDir, "commit", "--quiet", "-m", "Nightly report");
+    git(seedDir, "commit", "--quiet", "-m", "Report");
     git(seedDir, "push", "--quiet", "origin", "main");
     expect(pullClone(cloneDir)).toBe("pulled");
     expect(pullClone(cloneDir)).toBe("up to date");
@@ -136,12 +135,12 @@ describe("git on the private repo", () => {
     const { remoteDir, seedDir, cloneDir } = remoteAndClone();
     writeFileSync(join(seedDir, "log.md"), "2026-10-19: quiet night\n");
     git(seedDir, "add", "-A");
-    git(seedDir, "commit", "--quiet", "-m", "Nightly report");
+    git(seedDir, "commit", "--quiet", "-m", "Report");
     git(seedDir, "push", "--quiet", "origin", "main");
 
-    writeFileSync(join(cloneDir, "queue.md"), withoutQueueLines(QUEUE, "hardening:").text);
+    writeFileSync(join(cloneDir, "queue.md"), withoutQueueLines(QUEUE, "URGENT:").text);
     expect(commitAndPush(cloneDir, { message: "Queue line handled", paths: ["queue.md"] }).pushed).toBe(true);
-    expect(git(remoteDir, "log", "--format=%s", "main").split("\n")).toEqual(["Queue line handled", "Nightly report", "Start"]);
+    expect(git(remoteDir, "log", "--format=%s", "main").split("\n")).toEqual(["Queue line handled", "Report", "Start"]);
 
     mkdirSync(join(cloneDir, "findings", "candidates"), { recursive: true });
     writeFileSync(join(cloneDir, "findings", "candidates", "2026-10-19-try.md"), "an unproven repro");

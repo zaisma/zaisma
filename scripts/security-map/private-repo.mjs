@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
+import { itemFilePathOf, itemsWithFindingFixed, readItems } from "./items.mjs";
 import { caseRefOf, withVerdict } from "./schema.mjs";
 
 /**
@@ -15,7 +16,7 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *   node scripts/security-map/private-repo.mjs pull              pull (clone when missing)
  *   node scripts/security-map/private-repo.mjs mark-fixed <finding_id> --test <path> [--note <text>]
  *        the finding fixed: its map cases fixed with that test as evidence, verify, export, the finding's
- *        status line, its queue lines gone, then commit and push
+ *        status line, the item it came from done, its queue lines gone, then commit and push
  *   node scripts/security-map/private-repo.mjs remove-queue-line <text>    queue.md lines holding <text> gone, then commit and push
  *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the export's generated_at, then commit and push
  *   node scripts/security-map/private-repo.mjs commit --message <text> [--path <path>]    commit and push what's changed in the clone (after cli.mjs or a verdict), or only under each --path
@@ -30,17 +31,17 @@ const COMMANDS = ["read", "pull", "mark-fixed", "remove-queue-line", "page-shown
 const SECURITY_REPO = "zaisma/security";
 /** The public code the map's doors and test evidence are drawn from; mark-fixed needs it as on origin/main. */
 const MAP_SOURCE_PATHS = ["apps", "packages", "scripts", "test"];
-/** Unproven repros (hole-hunt keeps them out of commits); never committed even when .gitignore is missing. */
+/** Unproven repros; never committed even when .gitignore is missing. */
 const CANDIDATES_PATH = "findings/candidates/";
-const QUEUE_ITEM = /^\s*(?:[-*]\s+)?(URGENT:|Security fix:|hardening:)/;
+const QUEUE_ITEM = /^\s*(?:[-*]\s+)?(URGENT:|Security fix:)/;
 const FINDING_ID = /^fnd_\d{4}-\d{2}-\d{2}_[a-z0-9-]+$/;
 
-/** queue.md's work lines (URGENT, Security fix and hardening), without its heading and intro. */
+/** queue.md's work lines (URGENT and Security fix), without its heading and intro. */
 export const queueItemsOf = (queueText) => queueText.split("\n").filter((line) => QUEUE_ITEM.test(line)).map((line) => line.trim());
 
 /** queue.md without the work lines that hold matchText; answers the new text and the lines removed. */
 export function withoutQueueLines(queueText, matchText) {
-  if (!matchText.trim()) throw new Error("Say which queue line to remove: text it holds, like findings/2026-10-18-slug.md or the hardening row's name.");
+  if (!matchText.trim()) throw new Error("Say which queue line to remove: text it holds, like findings/2026-10-18-slug.md.");
   const removedLines = [];
   const kept = queueText.split("\n").filter((line) => {
     const isMatch = QUEUE_ITEM.test(line) && line.includes(matchText);
@@ -95,7 +96,7 @@ export function markFindingFixed(map, { findingId, evidence, now }) {
   return { map: next, case_refs: caseRefs };
 }
 
-function run(command, args, cwd) {
+export function run(command, args, cwd) {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 }).trim();
 }
 
@@ -105,6 +106,15 @@ function runOrNull(command, args, cwd) {
   } catch {
     return null;
   }
+}
+
+/** queue.md with these work lines put above the ones it holds, under its heading and intro. */
+export function withQueueLines(queueText, lines) {
+  const queueLines = queueText.split("\n");
+  const firstItemIndex = queueLines.findIndex((line) => QUEUE_ITEM.test(line));
+  if (firstItemIndex === -1) return `${queueText.replace(/\n*$/, "")}\n\n${lines.join("\n")}\n`;
+  queueLines.splice(firstItemIndex, 0, ...lines);
+  return queueLines.join("\n");
 }
 
 /** The clone pulled (fast-forward only) onto main, or cloned when the folder is missing. */
@@ -167,7 +177,14 @@ export function commitAndPush(mapDir, { message, paths = [] }) {
   return { committed_paths: staged, pushed: true };
 }
 
-/** What the coordinator reads at the top of every run: the queue's work lines and whether the map page is behind the export. */
+/** The newest reviews/<date>.json's day, or null before the first review. */
+function lastReviewDateOf(mapDir) {
+  const reviewsPath = join(mapDir, "reviews");
+  if (!existsSync(reviewsPath)) return null;
+  return readdirSync(reviewsPath).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, 10)).sort().at(-1) ?? null;
+}
+
+/** What the coordinator reads at the top of every run: the queue's work lines, whether the map page is behind the export and the last daily review's day. */
 export function readState(mapDir) {
   const exportText = readClonedText(mapDir, "exports/map-public.json");
   const exportGeneratedAt = exportText ? JSON.parse(exportText).generated_at ?? null : null;
@@ -176,6 +193,7 @@ export function readState(mapDir) {
     queue_items: queueItemsOf(readClonedText(mapDir, "queue.md")),
     ...pageLines,
     export_generated_at: exportGeneratedAt,
+    last_review_date: lastReviewDateOf(mapDir),
     is_map_page_behind: Boolean(pageLines.map_page_url && exportGeneratedAt && exportGeneratedAt !== pageLines.map_page_shows_generated_at),
   };
 }
@@ -220,8 +238,10 @@ async function markFixed(mapDir, { findingId, testPath, note, date, isDry }) {
     if (findingPath) writeFileSync(join(mapDir, findingPath), withFindingStatus(readFileSync(join(mapDir, findingPath), "utf8"), `fixed ${date}`));
     const queue = withoutQueueLines(readClonedText(mapDir, "queue.md"), queueMatch);
     if (queue.removed_lines.length) writeFileSync(join(mapDir, "queue.md"), queue.text);
-    const pushed = commitAndPush(mapDir, { message: `Mark ${findingId} fixed`, paths: ["map", "exports", "queue.md", ...(findingPath ? [findingPath] : [])] });
-    return { ...plan, case_refs: marked.case_refs, ...pushed };
+    const fixedItems = itemsWithFindingFixed(readItems(mapDir), { findingId, testPath, date, now });
+    for (const item of fixedItems) writeFileSync(join(mapDir, itemFilePathOf(item.item_id)), `${JSON.stringify(item, null, 2)}\n`);
+    const pushed = commitAndPush(mapDir, { message: `Mark ${findingId} fixed`, paths: ["map", "exports", "queue.md", ...(findingPath ? [findingPath] : []), ...fixedItems.map((item) => itemFilePathOf(item.item_id))] });
+    return { ...plan, case_refs: marked.case_refs, fixed_item_ids: fixedItems.map((item) => item.item_id), ...pushed };
   } catch (error) {
     restoreClone(mapDir);
     throw error;
@@ -264,13 +284,14 @@ function readArguments(argv) {
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) throw new Error("--date is a day like 2026-10-18.");
-  if (command === "commit" && !options.message) throw new Error('commit needs --message <text>: plain, like "Nightly map update 2026-10-18".');
+  if (command === "commit" && !options.message) throw new Error('commit needs --message <text>: plain, like "Map update 2026-10-18".');
   return { command, options };
 }
 
 function printRead(state, pullResult) {
   console.log(`Clone: ${pullResult}`);
   console.log(`Queue: ${state.queue_items.length}${state.queue_items.length ? `\n  ${state.queue_items.join("\n  ")}` : " (empty)"}`);
+  console.log(`Last daily review: ${state.last_review_date ?? "none yet"}`);
   if (!state.map_page_url) console.log("Map page: not published yet");
   else console.log(`Map page: ${state.map_page_url}\nMap page shows: ${state.map_page_shows_generated_at ?? "nothing yet"}\nExport generated_at: ${state.export_generated_at ?? "no export yet"}\nMap page behind: ${state.is_map_page_behind ? "yes, republish it (security-map skill, Page)" : "no"}`);
 }
