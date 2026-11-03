@@ -18,7 +18,7 @@ export const CONTENT_RULES = {
   sexual: "Sexually explicit content.",
   malware: "Malware, crypto mining, phishing, scams or anything that tries to break out of the game.",
   illegal: "Content that is illegal in the United States, including real-money gambling.",
-  real_people: "Private details about real people, or real threats.",
+  real_people: "Private details about real people, real threats, or calls for real violence.",
   copyright: "Other people's games, art, music or characters used without permission.",
   defamation: "False claims that a real private person committed a crime.",
   personal_details:
@@ -64,11 +64,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
   },
   real_people: {
     title: "Real people",
-    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
+    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), make a real threat of violence against a real person, or urge players to commit real violence against real people?",
     explanation:
       "Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that is gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
-    notFine: "a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
+    notFine: "a celebrity's leaked phone number, the school a kid goes to, a message that means a real threat, or a call for players to go out and hurt real people, whoever they are.",
   },
   copyright: {
     title: "Copyright",

@@ -533,7 +533,7 @@ Each developer gets two kinds of review a day, across all their games. A large r
 | `sexual` | Sexually explicit content. |
 | `malware` | Malware, crypto mining, phishing, scams or anything that tries to break out of the game. |
 | `illegal` | Content that is illegal in the United States, including real-money gambling. |
-| `real_people` | Private details about real people, or real threats. |
+| `real_people` | Private details about real people, real threats, or calls for real violence. |
 | `copyright` | Other people's games, art, music or characters used without permission. |
 | `defamation` | False claims that a real private person committed a crime. |
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |

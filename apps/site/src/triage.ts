@@ -452,7 +452,7 @@ category: what the report is really about, whatever reason the player picked.
 
 recommendation:
 - "bug": the game has a technical problem for its developer to fix (won't load, crashes, controls or saving broken). The developer sees the player's words, never who sent them.
-- "recheck": the report says the game itself breaks the content rules in a way its files could show (sexual content, private details about a real person or a real threat, malware, a scam, cryptocurrency other than Bitcoin, asking players for personal details, lifelike gore (photo-real injury shown up close) in a game for everyone 13 and up). We check the files again, and that check decides, not the report.
+- "recheck": the report says the game itself breaks the content rules in a way its files could show (sexual content, private details about a real person, a real threat or a call for real violence, malware, a scam, cryptocurrency other than Bitcoin, asking players for personal details, lifelike gore (photo-real injury shown up close) in a game for everyone 13 and up). We check the files again, and that check decides, not the report.
 - "dismiss": nothing to act on, including a report about something the rules allow, even where other platforms ban it:
 ${ALLOWED_CONTENT.map((words) => `  - ${words}`).join("\n")}
   - gore of any kind in a game for 16 or 18 and up, and cartoon, pixel or stylized blood in any game

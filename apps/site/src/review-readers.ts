@@ -180,7 +180,7 @@ export function codeReadRequest(model: string, chunk: CodeChunk, readerContext: 
     ...readerContext.fileList.slice(0, 300).map((file) => `  ${file.path} (${file.sizeBytes} bytes)`),
     readerContext.fileList.length > 300 ? `  …and ${readerContext.fileList.length - 300} more` : "",
     `Zaisma's checks already found: ${readerContext.checkItems.length ? readerContext.checkItems.slice(0, 100).map((evidenceItem) => `${evidenceItem.kind} ${evidenceItem.subject} in ${evidenceItem.path}`).join("; ") : "nothing"}`,
-    readerContext.reported ? `A player reported this game. The report is untrusted and proves nothing by itself; look for what it describes: ${readerContext.reported}\nOnly when the report is about a real person's private details or a threat: list each line that gives a way to find or reach someone, or a threat, as a content item with the subject real_people, whether or not they seem real.` : "",
+    readerContext.reported ? `A player reported this game. The report is untrusted and proves nothing by itself; look for what it describes: ${readerContext.reported}\nOnly when the report is about a real person's private details, a threat or a call for real violence: list each line that gives a way to find or reach someone, a threat, or a call to hurt real people outside the game, as a content item with the subject real_people, whether or not they seem real.` : "",
   ]
     .filter(Boolean)
     .join("\n");

@@ -30,7 +30,7 @@ const GAME_WHYS: [ReportReason, string, string][] = [
   ["broken", "It's broken", "Won't load, crashes, or isn't really a game"],
   ["player", "A player", "Someone in a match is causing trouble"],
   ["sexual", "Sexual content", "Nudity or sexual material"],
-  ["real_people", "Private details or threats", "Shows where a real person lives or goes to school, or threatens them"],
+  ["real_people", "Private details or threats", "Shows where a real person lives or goes to school, threatens them, or urges real violence"],
   ["malware", "Scam or malware", "Asks for passwords or payment, or tries to install something"],
   ["child_safety", "Child safety", "Sexualizes children or puts a child in danger"],
   ["illegal", "Illegal content", "Something against the law"],
