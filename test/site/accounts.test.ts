@@ -8,7 +8,7 @@ import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { checkProfiles } from "../../apps/site/src/profile-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
-import { passingScanDeps } from "./scan-stubs.ts";
+import { reviewedScan, passingScanDeps } from "./scan-stubs.ts";
 import { changeSaveAsDeveloper, storedSaveText } from "../../apps/site/src/saves.ts";
 
 /** A localStorage-only save as Zaisma stores it (the v1 envelope). */
@@ -2938,7 +2938,7 @@ describe("the dashboard", () => {
     await b.go(`/api/dev/games/${slug}/uploads`, undefined, { method: "POST", body: JSON.stringify({ files }) });
     expect((await b.go(`/api/dev/files/${sha256}`, undefined, { method: "PUT", body: text })).status).toBe(200);
     const { version } = (await (await b.go(`/api/dev/games/${slug}/versions`, undefined, { method: "POST", body: JSON.stringify({ files }) })).json()) as { version: { id: string } };
-    await scanVersion({ ...env, ANTHROPIC_API_KEY: "test-key" }, version.id, pass);
+    await reviewedScan({ ...env, ANTHROPIC_API_KEY: "test-key" }, version.id, pass);
     return version.id;
   }
 

@@ -18,6 +18,7 @@ export * from "./scan/decide.ts";
 export * from "./accounts.ts";
 export * from "./bans.ts";
 export * from "./standing.ts";
+export * from "./ai-review.ts";
 export * from "./social-settings.ts";
 export * from "./friends.ts";
 export * from "./blocks.ts";

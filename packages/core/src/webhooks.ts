@@ -16,6 +16,7 @@ const now = () => Date.now();
  *   get_reports lists it;
  * - scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later (a person
  *   approved or rejected it, a report paused it, image matching held it);
+ * - ai_review_finished: a version's AI review ended, with scan_status and ai_review_status saying how;
  * - live_version_changed: players get another version: published, rolled back, published at its set
  *   time, or put back while a report is checked;
  * - review_status_changed: Zaisma held or took down a game, or put it back;
@@ -34,7 +35,7 @@ const now = () => Date.now();
  * - purchase_refunded: a purchase or grant was refunded or charged back: purchase, whose purchase_status
  *   says which.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "country_blocks_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert", "purchase_completed", "purchase_refunded"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "ai_review_finished", "live_version_changed", "review_status_changed", "country_blocks_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert", "purchase_completed", "purchase_refunded"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */

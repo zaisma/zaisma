@@ -18,7 +18,7 @@ export const CONTENT_RULES = {
   sexual: "Sexually explicit content.",
   malware: "Malware, crypto mining, phishing, scams or anything that tries to break out of the game.",
   illegal: "Content that is illegal in the United States, including real-money gambling.",
-  real_people: "Private details about real people, or real threats.",
+  real_people: "Private details about real people, real threats, or calls for real violence.",
   copyright: "Other people's games, art, music or characters used without permission.",
   defamation: "False claims that a real private person committed a crime.",
   personal_details:
@@ -64,11 +64,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
   },
   real_people: {
     title: "Real people",
-    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), or make a real threat of violence against a real person?",
+    test: "Does it give a way to find or reach a real person who did not make it public (a home address, phone number, personal email, private account, school or work), make a real threat of violence against a real person, or urge players to commit real violence against real people?",
     explanation:
       "Anything that lets players find or reach a real person who did not make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that is gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
-    notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
+    notFine: "a celebrity's leaked phone number, the school a kid goes to, a message that means a real threat, or a call for players to go out and hurt real people, whoever they are.",
   },
   copyright: {
     title: "Copyright",
@@ -122,8 +122,14 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
  * Oct 18, 2026), and whether a claim about a real person is true isn't Zaisma's to judge.
  */
 export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation"];
+/**
+ * Rules Zaisma acts on only when someone reports the game: the review judges only what a stranger could prove from
+ * a game's files alone (Julius, Nov 2, 2026), and no file shows whether a person is real. On a report, the files are
+ * read for the lines it's about, and a person decides.
+ */
+export const REPORT_ONLY_CONTENT_RULES: readonly ContentRule[] = ["real_people"];
 /** The rules the review looks for, in the page's order. */
-export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule));
+export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule) && !REPORT_ONLY_CONTENT_RULES.includes(rule));
 /**
  * What other platforms often ban that's fine on Zaisma, so developers and their AI don't hedge: the
  * rules page lists it, and the AI review and report triage treat it as fine.
@@ -274,7 +280,7 @@ export const REVIEW_CODES = {
   image_matching_off: { meaning: "Image matching isn't connected, so a person at Zaisma approves each version.", messageForPeople: "Image matching isn't connected here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
   image_matching_failed: { meaning: "Image matching couldn't check every picture and video, so a person at Zaisma looks first.", messageForPeople: "Image matching couldn't check every picture and video, so a person at Zaisma looks first, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_off: { meaning: "AI review isn't set up, so a person at Zaisma approves each version.", messageForPeople: "AI review isn't set up here, so a person at Zaisma approves each version.", contentRule: null, fix: PERSON_LOOKS },
-  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so a person at Zaisma approves each version.", messageForPeople: "This month's AI reviews are used, so a person at Zaisma approves each version, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
+  ai_review_budget_used: { meaning: "This month's AI reviews are used up, so this version went on with the fixed checks alone.", messageForPeople: "This month's AI reviews are used, so this version went on with the fixed checks alone. Nothing is held: this is a note.", contentRule: null, fix: "Nothing to change: nothing is held, this is a note." },
   ai_review_declined: { meaning: "The AI reviewer wouldn't review the game, so a person at Zaisma looks.", messageForPeople: "The AI review wouldn't review the game, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   ai_review_failed: { meaning: "The AI review didn't finish, so a person at Zaisma looks.", messageForPeople: "The AI review didn't finish, so a person at Zaisma looks, usually within a day.", contentRule: null, fix: PERSON_LOOKS },
   daily_large_reviews_used: {
@@ -556,7 +562,7 @@ export const REVIEW_CODES = {
 export type ReviewCodeName = keyof typeof REVIEW_CODES;
 
 /** Codes whose findings are only notes (severity info), yet the developer is told: the version isn't held or rejected for them. */
-export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address"];
+export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address", "ai_review_budget_used"];
 
 /**
  * Codes on scan findings that only Zaisma sees: notes for a person (severity info), and child-safety

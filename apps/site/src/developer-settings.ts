@@ -72,6 +72,7 @@ const EVENT_WORDS: Record<(typeof WEBHOOK_EVENT_KINDS)[number], string> = {
   bug_reported: "A bug is reported",
   player_reported: "A player is reported",
   scan_status_changed: "A version's check finishes",
+  ai_review_finished: "A version's AI review finishes",
   live_version_changed: "The live version changes",
   review_status_changed: "A review decides",
   country_blocks_changed: "Country blocks change",

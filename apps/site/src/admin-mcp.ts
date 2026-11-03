@@ -256,6 +256,7 @@ async function versionAnswer(env: Env, game: Game, version: Version) {
   return {
     id: version.id,
     scan_status: version.scan_status,
+    ai_review_status: version.ai_review_status,
     has_threads: hasThreads(scan),
     is_live: game.live_version_id === version.id,
     patch_notes: version.patch_notes,

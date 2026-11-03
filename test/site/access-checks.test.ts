@@ -155,6 +155,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /games/:slug/versions": (world) => ({ body: { files: [{ path: "index.html", sha256: world.storedFile.sha256, size_bytes: world.storedFile.sizeBytes }], patch_notes: "Faster jumps." } }),
   "GET /games/:slug/versions/:version_id": () => ({}),
   "POST /games/:slug/versions/:version_id/publish": () => ({}),
+  "POST /games/:slug/versions/:version_id/ai-review": () => ({}),
   "GET /storage": () => ({}),
   "PATCH /storage": () => ({ body: { monthly_storage_budget_cents: null } }),
   "DELETE /games/:slug": (world) => ({ body: { confirm_slug: world.values.slug } }),

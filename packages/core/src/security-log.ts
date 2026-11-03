@@ -62,6 +62,8 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   background_chosen: "Chose a background",
   version_uploaded: "Uploaded a version",
   version_published: "Published a version",
+  version_waiting_for_ai_review: "Asked for a version to go live once its AI review passes",
+  ai_review_started: "Started a version's AI review",
   version_rolled_back: "Rolled back to an earlier version",
   version_deleted: "Deleted a version",
   game_deleted: "Deleted a game",

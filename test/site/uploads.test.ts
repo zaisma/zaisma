@@ -2,7 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CODES, addImage, KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, brotliKeyOf, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
-import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
+import { reviewedScan, judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { adminForm } from "../../apps/site/src/admin.ts";
 import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 import { letPublish } from "../helpers.ts";
@@ -36,7 +36,7 @@ async function describeFiles(files: Record<string, string>) {
 
 /** Scan with the checks this test wants. Tests run scans themselves; nothing reads the scan queue. */
 async function scan(id: string, deps: ScanDeps) {
-  return scanVersion(testEnv, id, deps);
+  return reviewedScan(testEnv, id, deps);
 }
 
 /** What the upload command does: ask what's missing, send it, make the version. */

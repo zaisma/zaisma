@@ -93,7 +93,7 @@ import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { isAiHold, isAiStop, proposedReviewPrecedent, releaseAiStop, reviewPrecedentAction, reviewPrecedentProblem, reviewPrecedentsPage, saveReviewPrecedent, teachTheReviewBlock } from "./review-precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
-import { KNOWN_IMAGE_ALERT, changesSince, passVersion, type ChangesSince } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, changesSince, passVersion, stopLiveVersion, type ChangesSince } from "./scan.ts";
 import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -295,7 +295,9 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     } else {
       const rejectedReason = decidedReason("rejected_by_zaisma", pickedRule(form), reason);
       await saveScan(env.DB, version.id, "rejected", null);
-      await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      await env.DB.prepare("UPDATE versions SET review_reason = ?, ai_review_status = 'stopped', ai_review_waiting_reason = NULL WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
+      const rejectedGame = await gameById(env.DB, version.game_id);
+      if (rejectedGame) await stopLiveVersion(env, rejectedGame, { ...version, review_reason: JSON.stringify(rejectedReason) }, null);
       await noteRulingOnGame(env, version.game_id);
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);

@@ -597,10 +597,46 @@ runSql(`INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, creat
      INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
      INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
        SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`);
+/** Each state the AI review leaves a version in: pending behind a live version, waiting to go live, rolled back, taken down, and past the budget. */
+function seedAiReviewStates() {
+  const nowMs = Date.now();
+  const report = (finding, decision) => JSON.stringify({ finished_at_ms: nowMs, decision, findings: finding ? [finding] : [], outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: null, is_child_safety: false }).replaceAll("'", "''");
+  const stop = { stage: "ai", severity: "reject", code: "ai_phishing_or_scam", message: "A page in the game asks players for their Steam password." };
+  const stopReason = JSON.stringify({ code: stop.code, message: stop.message, content_rule: "malware" }).replaceAll("'", "''");
+  const budgetNote = { stage: "ai", severity: "info", code: "ai_review_budget_used", message: "This month's AI reviews are used up, so this version went on with the fixed checks alone." };
+  const row = (id, slug, scanStatus, reportJson, reviewStatus, speed, isOpen, isPublished) =>
+    `INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled, ai_review_status, ai_review_speed, ai_review_requested_at_ms, ai_review_queued_at_ms, is_open_before_ai_review, preview_link_key, published_at_ms)
+       SELECT '${id}', id, 'manifests/${id}', 3, 12000, '${scanStatus}', '${reportJson}', ${nowMs + 1000}, 'files', 'A new level.', 1, '${reviewStatus}', ${speed ? `'${speed}'` : "NULL"}, ${speed ? nowMs - 600_000 : "NULL"}, ${speed ? nowMs : "NULL"}, ${isOpen}, 'previewkey${id}', ${isPublished ? nowMs : "NULL"} FROM games WHERE slug = '${slug}';`;
+  const developer = (username) => `(SELECT owners.id FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = '${username}')`;
+  runSql(`INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewfirststeps01', 'first-steps', 'First Steps', 'A first game, waiting for its AI review.', 'pending', ${developer("New_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, visibility_after_ai_review, created_at_ms, updated_at_ms) VALUES ('game_previewhiddenpath01', 'hidden-path', 'Hidden Path', 'Set listed, and waiting for its AI review.', 'live', ${developer("New_Studio")}, 'private', 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewbrokenbridge', 'broken-bridge', 'Broken Bridge', 'Stopped by its AI review, with no earlier version.', 'pending', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewpastbudget01', 'past-budget', 'Past Budget', 'Went on with the fixed checks alone.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewgoesfirst0001', 'goes-first', 'Goes First', 'Live, with its AI review pending.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewrolledback01', 'rolled-back', 'Rolled Back', 'Its update was stopped, and players are back on the version before.', 'live', ${developer("Preview_Studio")}, 'listed', ${nowMs}, ${nowMs});
+     ${row("version_previewfirststeps1", "first-steps", "approved", report(null, "approved"), "waiting", "at_once", 0, false)}
+     ${row("version_previewhiddenpath1", "hidden-path", "approved", report(null, "approved"), "waiting", "batch", 0, true)}
+     UPDATE games SET live_version_id = 'version_previewhiddenpath1' WHERE slug = 'hidden-path';
+     ${row("version_previewbrokenbridg", "broken-bridge", "rejected", report(stop, "rejected"), "stopped", "batch", 1, true)}
+     UPDATE games SET review_reason = '${stopReason}', live_version_id = NULL WHERE slug = 'broken-bridge';
+     ${row("version_previewpastbudget1", "past-budget", "approved", report(budgetNote, "approved"), "skipped", null, 0, true)}
+     UPDATE games SET live_version_id = 'version_previewpastbudget1' WHERE slug = 'past-budget';
+     ${row("version_previewgoesfirst01", "goes-first", "approved", report(null, "approved"), "waiting", "batch", 1, true)}
+     UPDATE games SET live_version_id = 'version_previewgoesfirst01' WHERE slug = 'goes-first';
+     ${row("version_previewgoesfirst02", "goes-first", "approved", report(null, "approved"), "not_started", null, 1, false)}
+     ${row("version_previewrolledbak01", "rolled-back", "approved", report(null, "approved"), "passed", "batch", 0, true)}
+     UPDATE games SET live_version_id = 'version_previewrolledbak01' WHERE slug = 'rolled-back';
+     ${row("version_previewrolledbak02", "rolled-back", "rejected", report(stop, "rejected"), "stopped", "batch", 1, true)}
+     DELETE FROM audit_log WHERE action = 'ai-review-rolled-back' AND game_id = 'game_previewrolledback01';
+     INSERT INTO audit_log (game_id, action, reason, actor, review_reason, happened_at_ms) SELECT id, 'ai-review-rolled-back', 'Stopped; players are back on the version before', 'system', '${stopReason}', ${nowMs} FROM games WHERE slug = 'rolled-back'`);
+}
+
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
+// The AI review's states, again this run, for the links under AI review below.
+seedAiReviewStates();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
@@ -711,6 +747,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Started in Chrome ${SITE}/dashboard/texture-tour/versions  (Texture Tour's real run in this preview's Chrome: its first frame, a missing file
                   and two files that could be smaller, under "2 notes"; each engine sample's under /dashboard/<sample>/versions;
                   versions past the account's 20 runs today say so). On ${SITE}/g/texture-tour its first files download before Play.
+  AI review       ${SITE}/dashboard/goes-first/versions  (as Preview_Studio: live with its review pending, and a build with the expected time, Go live only once it passes and Start AI review);
+                  ${SITE}/dashboard/rolled-back/versions  (stopped, players back on the version before);  ${SITE}/dashboard/broken-bridge/versions  (stopped with no earlier version);
+                  ${SITE}/dashboard/past-budget/versions  (past the budget: fixed checks alone);
+                  ${SITE}/dashboard/first-steps/versions and ${SITE}/dashboard/hidden-path  (as New_Studio: goes live once it passes, goes listed once it passes)
   Preview links   ${SITE}/dashboard/rocket-lab/versions  (Preview on the unpublished build: a fresh link for a day; Preview links to turn them off)
   Best match      ${SITE}/games?search_text=ember  (the exact name first, then word starts, then inside a word); ?search_text=embr  (the closest title);
                   ?search_text=racing  (a genre word: no exact place); ?search_text=a  (the game named A behind real games); ${SITE}/games  (the daily shuffle)
