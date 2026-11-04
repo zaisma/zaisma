@@ -1,6 +1,7 @@
 import { describe, it } from "vitest";
 import { ROOM_MESSAGE_DOORS, RoomCore, relay, type Transport } from "../../packages/game-server/src/internal.ts";
-import { cellOf, type CallerKind, type GridCell } from "./cells.ts";
+import { schemaProblems } from "@zaisma/core";
+import { cellOf, wrongValueOf, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
  * Every message a room takes, by every kind of caller in a room (test/grid/cells.ts): its host, a player, a spectator, someone
@@ -57,6 +58,12 @@ describe("every room message", () => {
     const goesThrough = (playerId: string, callerKind: CallerKind) => cells.push(cellOf(doorId, callerKind, answerOf(playerId).answer === "not_allowed" ? "Refused, where it should go through." : null));
 
     goesThrough("host", "owner");
+    // What the door sends is what its contract says: every frame, to everyone in the room.
+    const frameProblems = (contract.answers.kind === "json" ? answerOf("host").sent : []).flatMap((line) => {
+      const frame = line.slice(line.indexOf(" ") + 1);
+      return frame === "bytes" || frame === "closed" ? [] : schemaProblems((contract.answers as { schema: Record<string, unknown> }).schema, JSON.parse(frame), type);
+    });
+    cells.push(cellOf(doorId, "answer_shape", frameProblems[0] ? `Sent a frame it doesn't declare: ${frameProblems[0]}.` : null));
     if (contract.whoMayCall === "room_host") refused("other", "another_account");
     else goesThrough("other", "another_account");
     // A spectator is the weaker caller: in the room, without a player's say.
@@ -66,5 +73,16 @@ describe("every room message", () => {
     // A ban takes someone out of the room: what they send after that does nothing.
     refused("removed", "banned_account");
     refused("removed", "banned_developer");
+
+    // A wrong shape is refused before any of the door's code: what a door takes by size alone is tried by test/game-server/room.test.ts.
+    const body = contract.takes.body;
+    if (body?.kind === "json") {
+      const fieldToBreak = Object.entries(body.fields).find(([name, shape]) => name !== "type" && wrongValueOf(shape) !== undefined);
+      if (fieldToBreak) {
+        const { room } = roomWithEveryone();
+        const answer = room.receive("host", JSON.stringify({ type, ...SAMPLE_MESSAGES[type], [fieldToBreak[0]]: wrongValueOf(fieldToBreak[1]) }));
+        cells.push(cellOf(doorId, "wrong_shape", answer === "bad_message" ? null : `Answered ${String(answer)} to a message of the wrong shape.`));
+      }
+    }
   });
 });

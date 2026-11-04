@@ -239,7 +239,7 @@ describe("games", () => {
     const made = (await (await api("/games", { body: { title: "Genre Hop", genres: ["puzzle", "platformer"] } })).json()) as { game: Record<string, unknown> };
     expect(made.game.genres).toEqual(["platformer", "puzzle"]);
     for (const genres of [["rpg"], ["multiplayer"], ["action", "action"], ["action", "puzzle", "racing", "horror"], "action"]) {
-      expect(await refusal(await api("/games/genre-hop", { method: "PATCH", body: { genres } }))).toMatchObject({ code: "bad_genres", field: "genres", fix: expect.stringContaining("role_playing") });
+      expect(await refusal(await api("/games/genre-hop", { method: "PATCH", body: { genres } }))).toMatchObject({ code: expect.stringMatching(/^(bad_genres|wrong_shape)$/), field: "genres" });
     }
     const cleared = (await (await api("/games/genre-hop", { method: "PATCH", body: { genres: [] } })).json()) as { game: Record<string, unknown> };
     expect(cleared.game.genres).toEqual([]);
@@ -509,7 +509,7 @@ describe("players", () => {
     expect(on.game.account_offer_enabled).toBe(true);
     const bad = await api("/games/own-offer", { method: "PATCH", body: { account_offer_enabled: "no" } });
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "bad_account_offer_enabled", field: "account_offer_enabled" });
+    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "wrong_shape", field: "account_offer_enabled" });
   });
 
   it("erases players who delete their account from the game database unless the game turns it off", async () => {
@@ -523,7 +523,7 @@ describe("players", () => {
     expect((await gameBySlug(env.DB, "keeps-none"))!.deleted_account_erase_enabled).toBe(0);
     const bad = await api("/games/keeps-records", { key: other, method: "PATCH", body: { deleted_account_erase_enabled: "no" } });
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "bad_deleted_account_erase_enabled", field: "deleted_account_erase_enabled" });
+    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "wrong_shape", field: "deleted_account_erase_enabled" });
   });
 
   it("describes each way to play in plain words", () => {

@@ -124,7 +124,7 @@ describe("games with no real players", () => {
     await runSpendingJob(testEnv, NOW_MS);
     expect((await row())?.unplayed_games_stopped_at_ms).toBe(NOW_MS);
     expect(pushes.map((push) => push.title)).toEqual(["Games with no real players stopped"]);
-    expect(await gameHosting(env.DB, game.id, NOW_MS)).toEqual({ pausedAtMs: NOW_MS, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null });
+    expect(await gameHosting(env.DB, game.id, NOW_MS)).toEqual({ pausedAtMs: NOW_MS, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs: null });
     // The game people play goes on, and a game with a budget and credit isn't touched.
     expect((await isHostingPaused(env.DB, played.id, NOW_MS)).isPaused).toBe(false);
     await setPlayed(1);
@@ -199,7 +199,7 @@ describe("the ceiling past the limit", () => {
 
     await setUnpaidMeterCents(25800); // Past it by the ceiling.
     await runSpendingJob(testEnv, NOW_MS + 300_000);
-    expect(await gameHosting(env.DB, game.id, NOW_MS + 300_000)).toEqual({ pausedAtMs: NOW_MS + 300_000, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null });
+    expect(await gameHosting(env.DB, game.id, NOW_MS + 300_000)).toEqual({ pausedAtMs: NOW_MS + 300_000, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs: null });
     expect(pushes.at(-1)!.title).toBe("Free hosting ended: past the ceiling");
     await giveBudgetAndCredit();
     expect((await isHostingPaused(env.DB, game.id, NOW_MS + 300_000)).isPaused).toBe(false);

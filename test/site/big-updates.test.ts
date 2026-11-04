@@ -117,10 +117,10 @@ describe("publishing", () => {
     const live = (await env.DB.prepare("SELECT live_version_id FROM games WHERE id = ?").bind(gameId).first<{ live_version_id: string }>())!.live_version_id;
     const noNotes = await draft(gameId);
     expect(await refusedWith(await publish(noNotes, { is_big_update: true }))).toBe("big_update_needs_patch_notes");
-    expect(await refusedWith(await publish(noNotes, { is_big_update: "yes" }))).toBe("bad_is_big_update");
+    expect(await refusedWith(await publish(noNotes, { is_big_update: "yes" }))).toBe("wrong_shape");
     expect(await refusedWith(await publish(live, { is_big_update: true }))).toBe("big_update_already_live");
     expect(await refusedWith(await publish(live, { patch_notes: "Rewritten." }))).toBe("bad_patch_notes");
-    expect(await refusedWith(await publish(noNotes, { patch_notes: 7 }))).toBe("bad_patch_notes");
+    expect(await refusedWith(await publish(noNotes, { patch_notes: 7 }))).toBe("wrong_shape");
     expect(await refusedWith(await publish(noNotes, { is_big: true }))).toBe("unknown_field");
     expect((await versionById(env.DB, noNotes))!.published_at_ms).toBeNull();
   });
@@ -159,7 +159,7 @@ describe("publishing", () => {
     await api("/games/hop/uploads", "POST", { files });
     await SELF.fetch(`${SITE}/api/dev/files/${sha256}`, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: bytes });
     expect(await refusedWith(await api("/games/hop/versions", "POST", { files, is_big_update: true, patch_notes: "New." }))).toBe("bad_is_big_update");
-    expect(await refusedWith(await api("/games/hop/versions", "POST", { files, publish_when_approved: true, is_big_update: "yes", patch_notes: "New." }))).toBe("bad_is_big_update");
+    expect(await refusedWith(await api("/games/hop/versions", "POST", { files, publish_when_approved: true, is_big_update: "yes", patch_notes: "New." }))).toBe("wrong_shape");
     expect(await refusedWith(await api("/games/hop/versions", "POST", { files, publish_when_approved: true, is_big_update: true }))).toBe("big_update_needs_patch_notes");
     const uploaded = (await (await api("/games/hop/versions", "POST", { files, publish_when_approved: true, is_big_update: true, patch_notes: "New." })).json()) as { version: { is_big_update: boolean } };
     expect(uploaded.version.is_big_update).toBe(true);

@@ -1,6 +1,6 @@
-import { banScopeOf, checkDoor, type DoorCaller } from "@zaisma/core";
+import { banScopeOf, bodyProblem, checkDoor, formProblem, isPastDoorLimit, queryProblem, type DoorCaller } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
-import { authConfigured, currentSession } from "./auth.ts";
+import { authConfigured, connectionAddressOf, currentSession } from "./auth.ts";
 import { safeNext } from "./account.ts";
 import { siteDoorAt, type SiteDoor, type WhenSignedOut } from "./doors.ts";
 import type { Env } from "./env.ts";
@@ -26,6 +26,51 @@ function isOriginTaken(request: Request, env: Env, door: SiteDoor): boolean {
   if (!origin) return door.origin === "own_pages_if_sent";
   return origin === new URL(request.url).origin || origin === new URL(env.SITE_ORIGIN).origin;
 }
+
+function answerAs(door: SiteDoor, httpStatus: number, code: string, words: string): Response {
+  if (door.answersAs === "json") return Response.json({ error: { code, message: words } }, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+  return door.answersAs === "empty" ? new Response(null, { status: httpStatus, headers: { "Cache-Control": "no-store" } }) : new Response(words, { status: httpStatus, headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" } });
+}
+
+const wrongShape = (door: SiteDoor, field: string) => answerAs(door, 400, "wrong_shape", `${field} isn't the right shape.`);
+const tooOften = (door: SiteDoor) => answerAs(door, 429, "slow_down", "Too many requests. Try again in a minute.");
+
+/** A request that isn't its door's shape: its query's names, its body's size, then its fields. A body is read from a copy, on doors that take one. */
+async function refusedByShape(request: Request, door: SiteDoor): Promise<Response | null> {
+  const { query, body } = door.contract.takes;
+  const wrong = queryProblem(query, new URL(request.url).searchParams, true);
+  if (wrong) return wrongShape(door, wrong.field);
+  const { method } = request;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return null;
+  const maximumSizeBytes = body?.maximumSizeBytes ?? NO_BODY_MAXIMUM_SIZE_BYTES;
+  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) return answerAs(door, 413, "wrong_shape", "That's too big.");
+  if (!body || body.kind === "bytes") return null;
+  const contentType = request.headers.get("content-type") ?? "";
+  if (body.kind === "form") {
+    if (!contentType.includes("form")) return null;
+    const form = await request.clone().formData().catch(() => null);
+    if (!form) return answerAs(door, 400, "wrong_shape", "That form can't be read.");
+    const problem = formProblem(body.fields, body.fileNames ?? [], form as unknown as Parameters<typeof formProblem>[2]);
+    return problem ? wrongShape(door, problem.field) : null;
+  }
+  const bodyText = await request.clone().text();
+  if (bodyText.length > maximumSizeBytes) return answerAs(door, 413, "wrong_shape", "That's too big.");
+  if (!bodyText.trim() && body.isOptional) return null;
+  let given: unknown;
+  try {
+    given = JSON.parse(bodyText);
+  } catch {
+    return answerAs(door, 400, "wrong_shape", "That isn't JSON.");
+  }
+  if (!given || typeof given !== "object" || Array.isArray(given)) return answerAs(door, 400, "wrong_shape", "That isn't a JSON object.");
+  const problem = bodyProblem(body.fields, body.required ?? [], given as Record<string, unknown>);
+  if (!problem) return null;
+  // A name it doesn't take is said as the API says it.
+  return problem.field in body.fields || (body.required ?? []).includes(problem.field) ? wrongShape(door, problem.field) : answerAs(door, 400, "unknown_field", `${problem.field} isn't one of this door's fields.`);
+}
+
+/** A door that takes no body still gets asked: what's sent to one is never read, up to this. */
+const NO_BODY_MAXIMUM_SIZE_BYTES = 64 * 1024;
 
 async function signedOutAnswer(request: Request, path: string, whenSignedOut: WhenSignedOut): Promise<Response> {
   const url = new URL(request.url);
@@ -64,7 +109,15 @@ export async function guardSiteDoor(request: Request, env: Env, path: string): P
   if (door === "no_door") return message(env, "Page not found", "There's nothing at this address.", 404);
   if (door === "wrong_method") return new Response("Method not allowed", { status: 405 });
   if (!isOriginTaken(request, env, door)) return wrongOrigin(door);
+  // An address's limit first, where no player is known yet: it reads nothing. Then who, then what they sent, all before any of the door's own code.
+  const { limit } = door.contract;
+  if ("counts" in limit && limit.counts === "address" && (await isPastDoorLimit(env, limit, door.path, connectionAddressOf(request) ?? "unknown"))) return tooOften(door);
+  return (await whoIsRefused(request, env, path, door)) ?? refusedByShape(request, door);
+}
 
+/** Who may call the door: its answer for anyone else. */
+async function whoIsRefused(request: Request, env: Env, path: string, door: SiteDoor): Promise<Response | null> {
+  const { limit } = door.contract;
   const proven: DoorCaller[] = [];
   if (door.contract.whoMayCall === "admin") {
     if (await adminIdentity(request, env)) proven.push("admin");
@@ -80,6 +133,8 @@ export async function guardSiteDoor(request: Request, env: Env, path: string): P
     return null;
   }
   if (!session) return signedOutAnswer(request, path, door.whenSignedOut);
+  // A door for a session counts the account, so it can't be aimed at anyone else.
+  if (await isPastDoorLimit(env, limit, door.path, session.userId)) return tooOften(door);
   proven.push("signed_in");
   const isDeveloperBanned = session.accountRow !== null && banScopeOf(session.accountRow) !== null;
   if ("whenNoAccount" in door) {

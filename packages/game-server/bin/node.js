@@ -26,7 +26,7 @@ import { createServer } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync, realpathSync } from "node:fs";
-import { BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, OUTSIDE_ZAISMA_CHAT_SETTINGS, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, checkedOutsidePlayer, clientIdle, defineGameServer, errorMessage, guestPlayer, newServer, isPlayerToken, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
+import { roomMessageProblem, BUSY_CLOSE_CODE, ENDED_CLOSE_CODE, ERROR_TEXT, NO_ANSWER_CLOSE_CODE, PASS_ISSUER_URL, OUTSIDE_ZAISMA_CHAT_SETTINGS, PassError, ReceiptError, REMOVED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, ROOM_TUNING, WEBHOOK_LIMITS, GameServerError, RoomCore, chatSettingsOf, checkChat, readChatMessage, restoreInfoOf, passesAreFriends, passesHaveBlockBetween, answerRequest, startSchedules, checkRoomData, checkedOutsidePlayer, clientIdle, defineGameServer, errorMessage, guestPlayer, newServer, isPlayerToken, isRoomCode, readRequestBody, relay, requestError, runWebhook, tidyRoomInfo, verifyPass, verifyReceipt, verifyWebhook } from "../src/internal.ts";
 import { OutsideCallError } from "../src/outside-calls.ts";
 import { startFastLane } from "./fast-lane.js";
 import { checkedStartServerOptions, localDatabase, localRoomStates, passKeysFrom, profilesFrom, receiptKeysFrom, secretsFromEnvironment } from "./node-parts.js";
@@ -666,7 +666,7 @@ export function startServer(options) {
         const hello = JSON.parse(text ?? "");
         // A Zaisma pass, or from a game played off Zaisma, its playerToken (null for a guest).
         const isOutside = hello.pass === undefined && isPlayerToken(hello.playerToken);
-        if (hello.type !== "hello" || (typeof hello.pass !== "string" && !isOutside)) return refuse("no_hello");
+        if (hello.type !== "hello" || (typeof hello.pass !== "string" && !isOutside) || roomMessageProblem("hello", hello)) return refuse("no_hello");
         if (isOutside) playerToken = hello.playerToken;
         else pass = hello.pass;
         isSpectator = hello.isSpectator === true;

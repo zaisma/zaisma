@@ -276,15 +276,15 @@ describe("registration", () => {
   });
 
   it("allows 10 registrations a minute from one address", async () => {
-    expect(configuredRateLimit(siteWranglerText, "REGISTER_LIMIT")).toEqual({ limit: 10, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_RARE")).toEqual({ limit: 10, period: 60 });
     // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 11 calls can straddle.
     const registerLimit = countingRateLimiter(10);
     const ip = "10.3.3.3";
-    for (let i = 0; i < 10; i++) expect((await registerApp(undefined, ip, { REGISTER_LIMIT: registerLimit })).status).toBe(201);
-    expect((await registerApp(undefined, ip, { REGISTER_LIMIT: registerLimit })).status).toBe(429);
-    expect(new Set(registerLimit.keys)).toEqual(new Set([ip]));
+    for (let i = 0; i < 10; i++) expect((await registerApp(undefined, ip, { LIMIT_RARE: registerLimit })).status).toBe(201);
+    expect((await registerApp(undefined, ip, { LIMIT_RARE: registerLimit })).status).toBe(429);
+    expect(new Set(registerLimit.keys)).toEqual(new Set([`register:${ip}`]));
     // Another address has its own count.
-    expect((await registerApp(undefined, "10.3.3.4", { REGISTER_LIMIT: registerLimit })).status).toBe(201);
+    expect((await registerApp(undefined, "10.3.3.4", { LIMIT_RARE: registerLimit })).status).toBe(201);
   });
 });
 

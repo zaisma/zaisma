@@ -1,4 +1,4 @@
-import {
+import { HOSTING_NETWORKS, isPastGameLimit, isReturningBrowser, networkNumberOf, signPlayMark,
   CRASH_KINDS,
   FRAME_RATE_BUCKETS,
   LOADING_BUCKETS_SEC,
@@ -13,7 +13,7 @@ import {
   type PerformanceDay,
   type PlayerPerformanceRow, monthStartDateOf } from "@zaisma/core";
 import { accountById, createEntryGrant, fullGameOwner, gameBySlug, isIdOf, isOldEnoughFor, isTesterLinkOn, issueRoomKey, playsOnline, recordReturningPlay, testerLinkVersion, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
-import { currentSession } from "./auth.ts";
+import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { playable } from "./home.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -74,10 +74,6 @@ const ok = (body?: unknown) => (body === undefined ? new Response(null, { status
 export async function handlePlays(request: Request, env: Env, path: string): Promise<Response | null> {
   const match = path.match(/^\/api\/plays\/([a-z0-9-]+)(\/account|\/entry)?$/);
   if (!match) return null;
-  // By connection address, checked by Cloudflare and never stored.
-  const ip = request.headers.get("cf-connecting-ip") ?? "local";
-  if (env.PLAY_LIMIT && !(await env.PLAY_LIMIT.limit({ key: ip })).success) return new Response(null, { status: 429 });
-
   const text = await request.text();
   if (text.length > 4096) return new Response(null, { status: 413 });
   let body: Record<string, unknown>;
@@ -99,7 +95,9 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
       if (await countTicket(env.DB, game.id, body.ticket, network(request))) {
         const { accountId, cookies } = await signedIn(request, env);
         if (accountId && !(await ownGame(env, game, accountId))) await recordReturningPlay(env.DB, game.id, accountId, today());
-        return withCookies(ok(), cookies);
+        // The browser's first play, signed: from then on it can say it played this game before, and can't claim it earlier.
+        const playMark = body.has_play_mark === true || !env.STORED_SECRETS_KEY ? null : await signPlayMark(env.STORED_SECRETS_KEY, game.id, today(), !HOSTING_NETWORKS.has(network(request)));
+        return withCookies(ok(playMark ? { play_mark: playMark } : undefined), cookies);
       }
     } else {
       await addTime(env.DB, game.id, body.ticket, body.seconds);
@@ -115,12 +113,15 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   if (!playable(game) && !isOwner) return withCookies(new Response(null, { status: 404 }), viewer?.cookies ?? []);
   const turnedAway = viewer ? refusal(game, viewer.account, isOwner) : null;
   if (turnedAway) return withCookies(turnedAway, viewer!.cookies);
+  // Past its share of the shared database a game's new plays still run, uncounted; their online play waits.
+  if (await isPastGameLimit(env, env.DB, game.id, connectionAddressOf(request) ?? "unknown")) return ok();
   const facts = startFacts(body);
   await countStart(env.DB, game.id, facts);
   if (!(await isRealBrowser(env, body.token, "play"))) return ok();
   const { accountId, cookies } = viewer ?? (await signedIn(request, env));
   // A signed-in player plays as their account in every game, everyone else as a guest.
-  const key = playsOnline(game) ? await issueRoomKey(env.DB, game.id, accountId) : undefined;
+  const isReturning = Boolean(env.STORED_SECRETS_KEY) && (await isReturningBrowser(env.STORED_SECRETS_KEY, game.id, body.play_mark));
+  const key = playsOnline(game) ? await issueRoomKey(env.DB, game.id, accountId, Date.now(), isReturning) : undefined;
   // Only plays from a checked browser, and not the developer's own, can be counted.
   const ticket = (await ownGame(env, game, accountId)) ? undefined : await issueTicket(env.DB, game.id, facts);
   const playerKind = accountId ? "account" : "guest";
@@ -479,36 +480,7 @@ async function ownGame(env: Env, game: Game, accountId: string | null): Promise<
   return Boolean(await env.DB.prepare("SELECT 1 FROM owners WHERE id = ? AND account_id = ?").bind(game.owner_id, accountId).first());
 }
 
-/** The internet provider's network number (ASN) of the connection, or 0 when unknown. */
-function network(request: Request): number {
-  const autonomousSystemNumber = Number((request as { cf?: { asn?: unknown } }).cf?.asn);
-  return Number.isInteger(autonomousSystemNumber) && autonomousSystemNumber > 0 ? autonomousSystemNumber : 0;
-}
-
-/**
- * Cloud and hosting networks, where bots usually run and few players do (people on a VPN can land
- * here too). Their players count for developers' stats but not for the shelves.
- */
-export const HOSTING_NETWORKS = new Set([
-  16509, 14618, 8987, // Amazon
-  15169, 396982, 19527, // Google
-  8075, 8068, // Microsoft
-  14061, // DigitalOcean
-  16276, // OVH
-  24940, 213230, // Hetzner
-  63949, // Linode (Akamai)
-  20473, // Vultr
-  31898, // Oracle
-  45102, 37963, // Alibaba
-  132203, 45090, // Tencent
-  51167, // Contabo
-  12876, // Scaleway
-  60781, 16265, 28753, // Leaseweb
-  36352, // ColoCrossing
-  9009, // M247
-  212238, 60068, // Datacamp, CDN77
-  13335, // Cloudflare
-]);
+const network = (request: Request): number => networkNumberOf(request);
 
 /**
  * Players a game's day counts for on the shelves: counted players, without hosting networks, and
@@ -683,7 +655,7 @@ const tick = () => {
   if (ticket && !counted && onScreen() >= 60000) {
     counted = true;
     flush(document.hidden);
-    post({ ticket, counted: true }).then(() => { const mine = load()[SLUG] || {}; save({ ...mine, cfirst: mine.cfirst || day(), clast: day() }); });
+    post({ ticket, counted: true, has_play_mark: Boolean((load()[SLUG] || {}).play_mark) }).then((answer) => { const mine = load()[SLUG] || {}; save({ ...mine, cfirst: mine.cfirst || day(), clast: day(), ...(answer && answer.play_mark ? { play_mark: answer.play_mark } : {}) }); });
   }
   if (onScreen() - sent >= 300000) flush(document.hidden);
 };
@@ -691,7 +663,7 @@ return () => {
   // A tester link's play is never counted: the check is only for multiplayer.
   if (TESTER) return check().then((token) => post({ tester: TESTER, token, tlast: (load()[SLUG] || {}).tlast || null })).then((answer) => { save({ ...(load()[SLUG] || {}), tlast: day() }); return gotKey(answer); });
   const mine = load()[SLUG] || {};
-  const start = { first: mine.first || null, last: mine.last || null, cfirst: mine.cfirst || null, clast: mine.clast || null };
+  const start = { first: mine.first || null, last: mine.last || null, cfirst: mine.cfirst || null, clast: mine.clast || null, play_mark: mine.play_mark || null };
   save({ ...mine, first: mine.first || day(), last: day() });
   since = document.hidden ? 0 : Date.now();
   document.addEventListener("visibilitychange", () => {

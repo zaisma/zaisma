@@ -166,8 +166,7 @@ describe("publishing a game through the MCP", () => {
     expect(later.version.scheduled_publish_at).toBe(at);
     expect(later.version.is_live).toBe(false);
     const numeric = await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: Date.now() + 3 * 3600_000 });
-    expect(numeric).toMatchObject({ code: "bad_time", field: "scheduled_publish_at", retry_after_sec: null });
-    expect(numeric.fix).toMatch(/like "\d{4}-\d{2}-\d{2}T\d{2}:00:00Z"/);
+    expect(numeric).toMatchObject({ code: "wrong_shape", field: "scheduled_publish_at", retry_after_sec: null });
     expect((await tool("cancel_scheduled_publish", { slug: "hop", version_id: up.version.id })).version.scheduled_publish_at).toBeNull();
   });
 
@@ -190,7 +189,7 @@ describe("publishing a game through the MCP", () => {
 
   it("turns friends' Join off for a whole game", async () => {
     expect((await tool("create_game", { title: "Quiet Rooms" })).game.friend_joins_enabled).toBe(true);
-    expect(await tool("update_game", { slug: "quiet-rooms", friend_joins_enabled: "no" })).toMatchObject({ code: "bad_friend_joins_enabled", field: "friend_joins_enabled" });
+    expect(await tool("update_game", { slug: "quiet-rooms", friend_joins_enabled: "no" })).toMatchObject({ code: "wrong_shape", field: "friend_joins_enabled" });
     expect((await tool("update_game", { slug: "quiet-rooms", friend_joins_enabled: false })).game.friend_joins_enabled).toBe(false);
   });
 
@@ -223,7 +222,7 @@ describe("publishing a game through the MCP", () => {
       expect.objectContaining({ version_id: "version_new", browser_name: "chrome", os_name: "windows", device_kind: "computer", graphics_family: "nvidia", play_count: 25, median_frames_per_sec: 60, long_frames_per_min: 1.2, error_stop_count: 1, context_lost_count: 0, stopped_responding_count: 0, crashed_play_pct: 4, median_peak_memory_size_bytes: null, is_measured: true }),
       expect.objectContaining({ version_id: "version_new", browser_name: "other", os_name: "other", device_kind: "other", graphics_family: "other", play_count: 20 }),
     ]);
-    expect(await tool("update_game", { slug: "hop", performance_measuring_enabled: "off" }, key)).toMatchObject({ code: "bad_performance_measuring_enabled", field: "performance_measuring_enabled" });
+    expect(await tool("update_game", { slug: "hop", performance_measuring_enabled: "off" }, key)).toMatchObject({ code: "wrong_shape", field: "performance_measuring_enabled" });
     expect((await tool("update_game", { slug: "hop", performance_measuring_enabled: false }, key)).game.performance_measuring_enabled).toBe(false);
     expect((await tool("get_stats", { slug: "hop" }, key)).performance).toBeNull();
     await env.DB.exec("DELETE FROM performance_days;");
@@ -290,7 +289,7 @@ describe("publishing a game through the MCP", () => {
     expect(await tool("upload_files", { slug: "hop", files: [page, { path: "build.js.gz", content_base64: "H4sI" }] })).toMatchObject({ code: "precompressed_file", field: "files[1].path" });
     expect(await tool("upload_files", { slug: "hop", files: [page, { path: "tool.exe", content_base64: "TVo=" }] })).toMatchObject({ code: "file_type_not_allowed", field: "files[1].path" });
     expect(await tool("upload_files", { slug: "hop", files: [page, { path: "a.png", content_base64: "not base64!" }] })).toMatchObject({ code: "bad_base64", field: "files[1].content_base64" });
-    expect(await tool("upload_files", { slug: "hop", files: { "index.html": "<p>hop</p>" } })).toMatchObject({ code: "bad_files", field: "files" });
+    expect(await tool("upload_files", { slug: "hop", files: { "index.html": "<p>hop</p>" } })).toMatchObject({ code: "wrong_shape", field: "files" });
   });
 
   it("explains what it can't do", async () => {

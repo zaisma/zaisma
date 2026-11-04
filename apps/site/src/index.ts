@@ -9,13 +9,15 @@ import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
+import { withDeclaredAnswer } from "./answers.ts";
+import { siteDoorAt } from "./doors.ts";
 import { guardSiteDoor } from "./guard.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { heldUntilOpened, isPreparedRequest, speculationRulesResponse } from "./prepared-pages.ts";
 import { handleMcp } from "./mcp.ts";
 import { handleGithubSecretScanning } from "./leaked-keys.ts";
-import { recordBlockedScripts } from "./security-alerts.ts";
+import { tellAnswerCuts, recordBlockedScripts } from "./security-alerts.ts";
 import { pageScriptResponse } from "./page-scripts.ts";
 import { pageStyleResponse } from "./page-styles.ts";
 import { browsePage, browseSuggestions } from "./browse.ts";
@@ -77,7 +79,14 @@ export { ChatCheckService } from "./chat-check.ts";
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
 
+/** Every door's answer goes out cut to what it declares (answers.ts). The API's and MCP's own rows answer bytes here, since each call is checked by its own. */
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const response = await routeToDoor(request, env, ctx);
+  const door = siteDoorAt(new URL(request.url).pathname.replace(/\/+$/, "") || "/", request.method);
+  return typeof door === "string" || door.contract.answers.kind !== "json" ? response : withDeclaredAnswer(env, response, door.contract.answers, `page:${request.method} ${door.path}`, (promise) => ctx.waitUntil(promise));
+}
+
+async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method;
@@ -261,7 +270,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), tellAnswerCuts(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

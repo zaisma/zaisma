@@ -1653,6 +1653,7 @@ declare namespace Zaisma {
    * - ended: the match is over.
    * - kept_out: the player was removed for the rest of the match.
    * - refused: the game server's canJoin turned them away.
+   * - rented_share_used: this player is on a rented-server network, and the share of the game's hosting such traffic gets is used. Zaisma's page tells them to turn off their VPN or sign in. Everyone else plays on.
    * - hosting_paused: the game's hosting on Zaisma is paused this month (its free allowance, or its developer's budget or credit, is used); new rooms open again when the month resets (UTC) or its developer adds credit, and a running match takes no new players and ends within the hour.
    * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
    * - game_not_open_to_player: the account is younger than the game's minimum age (set on the dashboard); the game never learns its age.
@@ -1684,6 +1685,7 @@ declare namespace Zaisma {
     | "kept_out"
     | "refused"
     | "hosting_paused"
+    | "rented_share_used"
     | "account_needed"
     | "game_not_open_to_player"
     | "game_unavailable"
@@ -1720,6 +1722,7 @@ declare namespace Zaisma {
    * - game_unavailable: the game can't be played right now.
    * - no_request_handler: the game's server has no onRequest.
    * - game_server_error: onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds.
+   * - rented_share_used: this player is on a rented-server network, and the share of the game's hosting such traffic gets is used. Zaisma's page tells them to turn off their VPN or sign in. Everyone else plays on.
    * - hosting_paused: the game's hosting on Zaisma is paused this month; requests work again when the month resets (UTC) or its developer adds credit.
    * - slow_down: too many requests from this address; try again in a minute.
    * - bad_origin: the request didn't come from the game's own page.
@@ -1738,6 +1741,7 @@ declare namespace Zaisma {
     | "no_request_handler"
     | "game_server_error"
     | "hosting_paused"
+    | "rented_share_used"
     | "slow_down"
     | "bad_origin"
     | "busy";

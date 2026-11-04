@@ -148,7 +148,7 @@ describe("the SDK's types say what the SDK does", () => {
     // The held seat runs out, then the player presses a key.
     const back = heard(room, "back", () => {
       socket.onclose!({ code: 4002, reason: "" });
-      sdk.listeners.keydown![0]!();
+      sdk.listeners.keydown!.forEach((listener) => listener());
     });
     expect(fields(back)).toEqual(fieldsOf("Back"));
     const { room: other, socket: otherSocket } = await joinedRoom(sdk);
@@ -1381,7 +1381,7 @@ describe("v1 room messages in the SDK", () => {
     say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 300 });
     expect(room.send({ type: "while_away" })).toBe(true);
     expect(messagesOn(socket)).toEqual([]);
-    sdk.listeners.keydown![0]!();
+    sdk.listeners.keydown!.forEach((listener) => listener());
     say(socket, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
     expect(messagesOn(socket).map((message) => message.data.type)).toEqual(["while_away"]);
   });
@@ -1462,7 +1462,7 @@ describe("v1 room messages in the SDK", () => {
     expect(sdk.page.posted.filter((message: any) => message.type === "zaisma:connection").at(-1)).toMatchObject({ connectionStatus: "away" });
     // Back to the held seat: the room's new welcome, then back with isSeatHeld.
     const held = heard(room, "back", () => {
-      sdk.listeners.keydown![0]!();
+      sdk.listeners.keydown!.forEach((listener) => listener());
       say(socket, { type: "welcome", me, isSpectator: false, players: [me], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null }, protocolVersionNumber: 1 });
     });
     expect(held.isSeatHeld).toBe(true);
@@ -1471,7 +1471,7 @@ describe("v1 room messages in the SDK", () => {
     say(socket, { type: "away", awayReason: "idle", seatHoldDurationSec: 300 });
     socket.onclose!({ code: 4002, reason: "" });
     expect(room.connectionStatus).toBe("closed");
-    const gone = heard(room, "back", () => sdk.listeners.keydown![0]!());
+    const gone = heard(room, "back", () => sdk.listeners.keydown!.forEach((listener) => listener()));
     expect(gone.isSeatHeld).toBe(false);
     expect(sdk.sockets.at(-1)).toBe(socket);
     (gone.rejoin as () => void)();
@@ -1498,7 +1498,7 @@ describe("v1 room messages in the SDK", () => {
     try {
       clock.mockReturnValue(startMs + 31_000);
       check();
-      sdk.listeners.keydown![0]!();
+      sdk.listeners.keydown!.forEach((listener) => listener());
       clock.mockReturnValue(startMs + 62_000);
       check();
       clock.mockReturnValue(startMs + 93_000);

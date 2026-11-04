@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   ApiError,
   DATABASE_RESTORE_LIMITS,
   MAXIMUM_GAME_STORAGE_SIZE_BYTES,
@@ -147,7 +147,7 @@ async function restoreRoute(env: Env, game: Game, what: "restores" | "undo", che
   } else {
     restoreToAtMs = readRestoreToAtMs(game, checked.body.restore_to_at, nowMs);
   }
-  if (env.DATABASE_RESTORE_LIMIT && !(await env.DATABASE_RESTORE_LIMIT.limit({ key: game.id })).success) {
+  if (await isPastLevel(env, "guess", "database_restore", game.id)) {
     throw new ApiError("slow_down", { message: "Too many restores of this game's database in the last minute.", fix: "Wait a minute: up to 5 restores and undos a minute per game.", retryAfterSec: 60 });
   }
   const restoredAtMs = Date.now();

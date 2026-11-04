@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, checkIdKind, freeAllowanceCents, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
+import { isPastLevel, ApiError, CREDIT_LIMITS, FREE_HOSTING_CENTS_PER_MONTH, checkIdKind, freeAllowanceCents, creditOf, isCreditLow, iso, monthStartDateOf, newId, passkeysFor, refundableTopUps, type CreditEntryKind } from "@zaisma/core";
 import { confirmationOf } from "./session-proofs.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { refundCharge, topUpCheckout } from "./stripe.ts";
@@ -108,7 +108,7 @@ export async function creditRoute(env: Env, path: string, method: string, body: 
   }
 
   if (path === "/credit/top-ups" || path === "/credit/refunds") {
-    if (env.CREDIT_LIMIT && !(await env.CREDIT_LIMIT.limit({ key: ownerId })).success) {
+    if (await isPastLevel(env, "rare", "credit", ownerId)) {
       throw new ApiError("slow_down", { message: "Too many top-ups and refunds in a minute.", fix: "Wait a minute and try again.", retryAfterSec: 60 });
     }
   }

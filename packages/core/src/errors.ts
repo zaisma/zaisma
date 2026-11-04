@@ -31,6 +31,7 @@ export const ERROR_CODES = {
   gone: { httpStatus: 410, meaning: "The call was removed, like the first feedback calls.", messageForPeople: "That was removed from Zaisma." },
   bad_json: { httpStatus: 400, meaning: "The body isn't a JSON object.", messageForPeople: "Zaisma couldn't read what was sent. Try again." },
   json_too_big: { httpStatus: 413, meaning: "The JSON body is over the call's size limit.", messageForPeople: "What was sent is too large. Send less at once." },
+  wrong_shape: { httpStatus: 400, meaning: "A field that isn't the type or size its call takes, refused before any of the call's own code runs.", messageForPeople: "Something was sent that this doesn't take. Reload the page and try again." },
   unknown_field: { httpStatus: 400, meaning: "A field, argument or query parameter the call doesn't take.", messageForPeople: "Something was sent that this doesn't take. Reload the page and try again." },
   missing_field: { httpStatus: 400, meaning: "A field the call needs wasn't sent.", messageForPeople: "Something this needs is missing. Fill in every field and try again." },
   wrong_id_kind: { httpStatus: 400, meaning: "An ID of another kind was sent, like an image ID as version_id.", messageForPeople: "An ID of the wrong kind was sent. Reload the page and try again." },

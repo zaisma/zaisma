@@ -41,6 +41,7 @@ export const REVIEWED_SITES = [
   { rule_id: "pattern_from_a_value", source_path: "apps/site/src/components/gallery-sheet.ts", symbol_name: "tagOf", site_count: 1, safe_because: "Ids from the gallery's own pieces, on a page for looking at them." },
   { rule_id: "pattern_from_a_value", source_path: "apps/site/src/components/gallery-sheet.ts", symbol_name: "applied", site_count: 1, safe_because: "Ids from the gallery's own pieces, on a page for looking at them." },
   { rule_id: "pattern_from_a_value", source_path: "apps/site/src/prepared-pages.ts", symbol_name: "NEVER", site_count: 1, safe_because: "Its text is NEVER_PREPARED_PATH_SOURCE, a constant." },
+  { rule_id: "pattern_from_a_value", source_path: "packages/game-server/src/doors.ts", symbol_name: "compiled", site_count: 1, safe_because: "A schema's pattern: every schema is written in Zaisma's code, never sent by a caller." },
   { rule_id: "pattern_from_a_value", source_path: "packages/core/src/saves.ts", symbol_name: "decodeValue", site_count: 1, safe_because: "Only tries that a save's regular expression can be made; it's never matched against anything." },
   { rule_id: "pattern_from_a_value", source_path: "packages/sdk/performance.js", symbol_name: "familyOf", site_count: 1, safe_because: "The patterns are in the config Zaisma's own server sends." },
   { rule_id: "pattern_from_a_value", source_path: "packages/sdk/saves.js", symbol_name: "decode", site_count: 1, safe_because: "Gives a game back a regular expression it saved, in its own page; Zaisma's code never matches with it." },

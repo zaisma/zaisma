@@ -1,4 +1,4 @@
-import type { DoorContract } from "@zaisma/core";
+import { ANSWERS_PAGE, TAKES_NOTHING, type DoorContract } from "@zaisma/core";
 
 /**
  * Every value Zaisma stores that someone outside Zaisma's code chose: what developers and players save,
@@ -60,7 +60,7 @@ const DETAILS = checkedIn("packages/core/src/developers.ts", "checkDetails");
 /** A stored value's contract (docs/DOORS.md): who chose it is who may call the doors that save it. */
 export function storedValueContract(entry: StoredValue): DoorContract {
   const whoMayCall = ({ developer: "developer", player: "signed_in", outside: "anyone", zaisma: "admin" } as const)[entry.source];
-  return { whoMayCall, reaches: "account", trusts: entry.source === "outside" ? [] : entry.source === "zaisma" ? ["admin_access"] : ["session"] };
+  return { whoMayCall, reaches: "account", trusts: entry.source === "outside" ? [] : entry.source === "zaisma" ? ["admin_access"] : ["session"], takes: TAKES_NOTHING, answers: ANSWERS_PAGE, limit: { whyNoLimit: "counted_by_its_call" } };
 }
 
 export const STORED_VALUES: readonly StoredValue[] = [
@@ -211,6 +211,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
 export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|_(id|ids|sha256|hash|key|token|code|status|kind|level|mode|band|choice|via|access|date)$|^who_/;
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
+  "door_answer_cuts.door_id",
+  "door_answer_cuts.field_paths",
   // A game's own review status and reason, kept only to put back on the game (a bring-back).
   "game_deletions.review_status_before", "game_deletions.review_reason_before",
   // Choices from fixed lists.

@@ -145,7 +145,14 @@ export function adminDoors(site) {
       source_path: "apps/site/src/admin-mcp.ts",
       anchors: [anchorOf("apps/site/src/admin.ts", "handleAdmin"), anchorOf("apps/site/src/admin-mcp.ts", "handleAdminMcp")],
       trusts: ["admin_access"],
-      contract: { whoMayCall: "admin", reaches: tool.reaches, trusts: ["admin_access"] },
+      contract: {
+        whoMayCall: "admin",
+        reaches: tool.reaches,
+        trusts: ["admin_access"],
+        takes: { query: {}, body: { kind: "json", fields: tool.inputSchema.properties ?? {}, required: tool.inputSchema.required ?? [], maximumSizeBytes: 16 * 1024 * 1024 } },
+        answers: { kind: "json", schema: tool.outputSchema },
+        limit: { whyNoLimit: "admin_only" },
+      },
     }),
   );
 }

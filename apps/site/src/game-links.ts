@@ -42,8 +42,6 @@ const refusal = (httpStatus: number, code: string, message: string) => Response.
 export async function handleGameLinks(request: Request, env: Env, path: string): Promise<Response | null> {
   const match = path.match(/^\/api\/links\/([a-z0-9-]+)$/);
   if (!match) return null;
-  const ip = request.headers.get("cf-connecting-ip") ?? "local";
-  if (env.PLAY_LIMIT && !(await env.PLAY_LIMIT.limit({ key: `links:${ip}` })).success) return refusal(429, "slow_down", "Too many links opened in the last minute. Try again in a minute.");
   const text = await request.text();
   if (text.length > 8192) return new Response(null, { status: 413 });
   let body: Record<string, unknown>;

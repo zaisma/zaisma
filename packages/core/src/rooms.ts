@@ -129,9 +129,9 @@ export const PASS_COUNT_PER_KEY = 5;
  * its game, which trades it for player passes (useRoomKey). For a signed-in player it names their
  * account, so the passes are for it; otherwise nothing about the player.
  */
-export async function issueRoomKey(database: D1Database, gameId: string, accountId: string | null = null, nowMs = Date.now()): Promise<string> {
+export async function issueRoomKey(database: D1Database, gameId: string, accountId: string | null = null, nowMs = Date.now(), isReturningBrowser = false): Promise<string> {
   const id = newId("room_key");
-  await database.prepare("INSERT INTO room_keys (id, game_id, account_id, issued_at_ms) VALUES (?, ?, ?, ?)").bind(id, gameId, accountId, nowMs).run();
+  await database.prepare("INSERT INTO room_keys (id, game_id, account_id, issued_at_ms, is_returning_browser) VALUES (?, ?, ?, ?, ?)").bind(id, gameId, accountId, nowMs, isReturningBrowser ? 1 : 0).run();
   return id;
 }
 
@@ -139,13 +139,13 @@ export async function issueRoomKey(database: D1Database, gameId: string, account
  * Take one pass from a game's room key, if it's this game's, still good and not used up: whose pass it
  * is (the account, or null for a guest), or null when the key gives none.
  */
-export async function useRoomKey(database: D1Database, gameId: string, key: unknown, nowMs = Date.now()): Promise<{ accountId: string | null } | null> {
+export async function useRoomKey(database: D1Database, gameId: string, key: unknown, nowMs = Date.now()): Promise<{ accountId: string | null; isReturningBrowser: boolean } | null> {
   if (!isIdOf("room_key", key)) return null;
   const row = await database
-    .prepare("UPDATE room_keys SET pass_count = pass_count + 1 WHERE id = ? AND game_id = ? AND issued_at_ms > ? AND pass_count < ? RETURNING account_id")
+    .prepare("UPDATE room_keys SET pass_count = pass_count + 1 WHERE id = ? AND game_id = ? AND issued_at_ms > ? AND pass_count < ? RETURNING account_id, is_returning_browser")
     .bind(key, gameId, nowMs - ROOM_KEY_MS, PASS_COUNT_PER_KEY)
-    .first<{ account_id: string | null }>();
-  return row ? { accountId: row.account_id } : null;
+    .first<{ account_id: string | null; is_returning_browser: number }>();
+  return row ? { accountId: row.account_id, isReturningBrowser: row.is_returning_browser === 1 } : null;
 }
 
 /**
@@ -156,10 +156,10 @@ export async function useRoomKey(database: D1Database, gameId: string, key: unkn
 export async function tradeRoomKey(database: D1Database, gameId: string, key: unknown, accountId: string, nowMs = Date.now()): Promise<string | null> {
   if (!isIdOf("room_key", key)) return null;
   const row = await database
-    .prepare("DELETE FROM room_keys WHERE id = ? AND game_id = ? AND account_id IS NULL AND issued_at_ms > ? RETURNING issued_at_ms")
+    .prepare("DELETE FROM room_keys WHERE id = ? AND game_id = ? AND account_id IS NULL AND issued_at_ms > ? RETURNING issued_at_ms, is_returning_browser")
     .bind(key, gameId, nowMs - ROOM_KEY_MS)
-    .first<{ issued_at_ms: number }>();
-  return row ? issueRoomKey(database, gameId, accountId, row.issued_at_ms) : null;
+    .first<{ issued_at_ms: number; is_returning_browser: number }>();
+  return row ? issueRoomKey(database, gameId, accountId, row.issued_at_ms, row.is_returning_browser === 1) : null;
 }
 
 /** A country's name in English, like Germany for DE. */

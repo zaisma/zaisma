@@ -1,4 +1,4 @@
-import { ApiError, DEVICE_KINDS } from "@zaisma/core";
+import { isPastLevel, ApiError, DEVICE_KINDS } from "@zaisma/core";
 import { CHECKED_PAGES } from "./components/checked-pages.ts";
 import type { Env } from "./env.ts";
 import { connectionAddressOf } from "./auth.ts";
@@ -56,7 +56,7 @@ export async function handleSpeedReports(request: Request, env: Env, path: strin
   if (path !== SPEED_REPORT_PATH) return null;
   const done = new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
   // Counted by connection, never kept.
-  if (env.SPEED_REPORT_LIMIT && !(await env.SPEED_REPORT_LIMIT.limit({ key: connectionAddressOf(request) ?? "unknown" })).success) return done;
+  if (await isPastLevel(env, "steady", "speed_report", connectionAddressOf(request) ?? "unknown")) return done;
   if (Number(request.headers.get("content-length") ?? "0") > REPORT_SIZE_LIMIT_BYTES) return refused();
   const text = await request.text();
   if (text.length > REPORT_SIZE_LIMIT_BYTES) return refused();

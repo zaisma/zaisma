@@ -1,10 +1,10 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterAll, afterEach, beforeAll, describe, it, vi } from "vitest";
 import { createApiKey, type KeyScope } from "@zaisma/core";
 import { PATH_PARTS, SITE_DOORS, siteDoorIds, type SiteDoor } from "../../apps/site/src/doors.ts";
 import { everything, keyFor, setUpOwnersCall, useRealServers, useStandInServers, type SiteWorker } from "../site/access-world.ts";
 import { samplePathOf } from "../door-samples.ts";
-import { CALLER_KINDS, cellOf, expectedAtSiteDoor, problemWithAnswer, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { CALLER_KINDS, cellOf, expectedAtSiteDoor, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
 import { makePageWorld } from "./page-world.ts";
 import { CHANGES_NOTHING, COVERED_ELSEWHERE, MAY_TOUCH_OWNER, OWNER_NOT_PROVEN, OWNER_SETUP_ROUTES, PAGE_SAMPLES, type PageSample, type PageWorld } from "./samples.ts";
 import { SITE, emptyWorlds, ownersThings, rememberEmptyTables, sessionCookie, showsPrivateValue, useSessions, whileBanned } from "./site-world.ts";
@@ -84,19 +84,21 @@ function bodyOf(sample: PageSample): { body: BodyInit; headers: Record<string, s
   return { body: form.toString(), headers: { "content-type": "application/x-www-form-urlencoded" } };
 }
 
-async function callDoor(method: string, path: string, sample: PageSample, credential: Credential) {
+async function callDoor(method: string, path: string, sample: PageSample, credential: Credential, workerEnv = env) {
   const query = sample.query ? `?${new URLSearchParams(sample.query)}` : "";
   const isGet = method === "GET" || method === "HEAD" || method === "OPTIONS";
   const sent = isGet ? { headers: {} } : bodyOf(sample);
   const headers: Record<string, string> = { ...credential.headers, "cf-connecting-ip": nextAddress(), ...sent.headers };
+  const context = createExecutionContext();
   let response: Response;
   try {
-    response = await worker.fetch(new Request(`${credential.site}${path}${query}`, { method, headers, redirect: "manual", ...("body" in sent ? { body: sent.body } : {}) }), env, createExecutionContext());
+    response = await worker.fetch(new Request(`${credential.site}${path}${query}`, { method, headers, redirect: "manual", ...("body" in sent ? { body: sent.body } : {}) }), workerEnv, context);
   } catch {
     // What Cloudflare answers when a Worker throws.
     return { http_status: 500, location: null, answerText: "" };
   }
   const answerText = new TextDecoder().decode(await response.arrayBuffer());
+  await waitOnExecutionContext(context);
   return { http_status: response.status, location: response.headers.get("location"), answerText };
 }
 
@@ -163,5 +165,42 @@ describe("every door on the site", () => {
       if (!problem && isWrite && door.contract.whoMayCall !== "anyone" && !(rowName in CHANGES_NOTHING) && (await everything(ownersWorld)) === before) problem = `Changed nothing (${made.http_status} to ${made.location}), so the sample proves nothing.`;
     }
     cells.push(cellOf(doorId, "owner", problem));
+    // What the owner got is what the contract says: anything else was cut and noted (apps/site/src/answers.ts).
+    const cutAnswer = await env.DB.prepare("SELECT field_paths FROM door_answer_cuts WHERE door_id = ?").bind(`page:${method} ${door.path}`).first<{ field_paths: string }>();
+    cells.push(cellOf(doorId, "answer_shape", cutAnswer ? `Answered with ${cutAnswer.field_paths}, which it doesn't declare.` : null));
+
+    // What the door's contract says it takes and how much it can be used: a wrong shape and a door past its limit are refused before any of its own code runs.
+    const { takes, limit } = door.contract;
+    const ownerCredential = await credentialOf(door, "owner", ownersWorld, scopeKey);
+    const ownersPath = pathWith(door, ownersWorld, { ...ownersSample.pathValues, ...ownersSample.ownerPathValues });
+    const wrongSamples: PageSample[] = [];
+    for (const [name, shape] of Object.entries(takes.query)) {
+      const tooLong = tooLongFor(shape);
+      if (tooLong) wrongSamples.push({ ...ownersSample, query: { ...ownersSample.query, [name]: tooLong } });
+      break;
+    }
+    if (!["GET", "HEAD", "OPTIONS"].includes(method) && takes.body?.kind === "form" && !ownersSample.jsonBody && !ownersSample.multipart) wrongSamples.push({ ...ownersSample, form: { ...ownersSample.form, zzz_no_such_field: "x" } });
+    if (!["GET", "HEAD", "OPTIONS"].includes(method) && takes.body?.kind === "json") {
+      wrongSamples.push({ ...ownersSample, form: undefined, multipart: undefined, jsonBody: { ...(ownersSample.jsonBody as object | undefined), zzz_no_such_field: "x" } });
+      for (const [name, shape] of Object.entries(takes.body.fields)) {
+        const wrong = wrongValueOf(shape);
+        if (wrong === undefined) continue;
+        wrongSamples.push({ ...ownersSample, form: undefined, multipart: undefined, jsonBody: { ...(ownersSample.jsonBody as object | undefined), [name]: wrong } });
+        break;
+      }
+    }
+    if (wrongSamples.length && door.contract.whoMayCall !== "admin") {
+      const ownersBefore = await everything(ownersWorld);
+      const answers = [];
+      for (const wrongSample of wrongSamples) answers.push(await callDoor(method, ownersPath, wrongSample, ownerCredential));
+      const isChanged = (await everything(ownersWorld)) !== ownersBefore;
+      const passed = answers.find((answer) => answer.http_status < 400 || answer.http_status >= 500);
+      cells.push(cellOf(doorId, "wrong_shape", isChanged ? "A request of the wrong shape changed something." : passed ? `Answered ${passed.http_status} to a request of the wrong shape.` : null));
+    }
+    if ("level" in limit) {
+      const refusing = { ...env, [`LIMIT_${limit.level.toUpperCase()}`]: { limit: async () => ({ success: false }) } };
+      const past = await callDoor(method, ownersPath, ownersSample, ownerCredential, refusing as typeof env);
+      cells.push(cellOf(doorId, "past_limit", past.http_status === 429 ? null : `Answered ${past.http_status} past its limit.`));
+    }
   });
 });

@@ -1,4 +1,24 @@
+import { withDeclaredAnswer } from "./answers.ts";
+import { ERROR } from "./schemas.ts";
 import {
+  rentedShareLimitCents,
+  rentedShareUsedCents,
+  ANSWERS_BYTES,
+  answersJson,
+  anyOf,
+  bodyProblem,
+  fieldsOf,
+  gameData,
+  realNumber,
+  isPastLevel,
+  listOf,
+  orNothing,
+  queryProblem,
+  text,
+  yesOrNo,
+  type DoorAnswer,
+  type DoorLimit,
+  type DoorShape,
   gameDeletionOf,
   isPlayedByOthers,
   countryBlocksAnswer,
@@ -396,6 +416,10 @@ export async function handleDeveloper(request: Request, env: Env, path: string, 
 
 /** waitUntil: the Worker's ctx.waitUntil, set on the caller before the key's use is noted, so its security alerts run after the answer. */
 export async function authenticate(request: Request, env: Env, via: "api" | "mcp" = "api", waitUntil?: WaitUntil): Promise<Caller> {
+  // Before a key is read, an address counts, at the level a whole building clears (docs/DOORS.md).
+  if (await isPastLevel(env, "building", "api_address", connectionAddressOf(request) ?? "unknown")) {
+    throw new ApiError("slow_down", { message: "Too many calls from this address in the last minute.", fix: "Wait a minute, then carry on.", retryAfterSec: 60 });
+  }
   const header = request.headers.get("authorization");
   let accountId: string | null = null;
   let cookies: string[] = [];
@@ -442,9 +466,9 @@ export async function authenticate(request: Request, env: Env, via: "api" | "mcp
     accountId = session.userId;
     cookies = session.cookies;
   }
-  // Sending a game's files is many small requests, so it has its own, bigger allowance.
-  const rateLimit = new URL(request.url).pathname.startsWith("/api/dev/files/") ? env.FILE_LIMIT : env.DEV_LIMIT;
-  if (rateLimit && !(await rateLimit.limit({ key: accountId })).success) {
+  // Every call's limit, before anything else about it is read: its row's level (DoorLimit), by the account. A row with its own, like an export's, keeps this too.
+  const isFiles = new URL(request.url).pathname.startsWith("/api/dev/files/");
+  if (await isPastLevel(env, isFiles ? "building" : "busy", isFiles ? "api_files" : "api", accountId)) {
     throw new ApiError("slow_down", { message: "Too many calls in the last minute.", fix: "Wait a minute, then carry on; up to 120 calls a minute (1,000 for sending files).", retryAfterSec: 60 });
   }
   const caller = await callerFor(env, request, accountId, cookies);
@@ -549,12 +573,15 @@ export type ApiPathPart =
 
 /** What one input in the body or the query is. */
 export type ApiInput =
-  /** Taken as it is: the call checks its value. */
+  /** Its shape is API_INPUT_SHAPES' for its name, and the call checks the rest of its value. */
   | { kind: "plain" }
   /** Does a higher choice's work, so it needs that choice too whenever it's sent as anything but false or null; withoutIt says what happens when it's left out. */
   | { kind: "needs"; area: AccessArea; choice: string; withoutIt: string }
   /** Names something the caller must own: one of their games by its slug, a list of them (null for every game), files stored for them, or a forum topic they can see. */
   | { kind: "names"; what: "game" | "game_list" | "files" | "forum_topic" };
+
+/** What a call answers: the outputSchema of the tool that makes it, or its own. */
+export type ApiAnswer = { toolName: string } | DoorAnswer;
 
 /** A call's body: a JSON object with only these inputs, up to maximumSizeBytes (64 KB if not said), or raw bytes (an image or a file) the call reads itself. */
 export type ApiBody = { inputs: Record<string, ApiInput>; maximumSizeBytes?: number; isOptional?: true } | "bytes";
@@ -583,6 +610,8 @@ export interface ApiRoute {
   isFullKeyOnly: boolean;
   /** It makes a game, sends its files, makes a version or publishes one, so until the beta only accounts Zaisma adds can call it. */
   isPublishing: boolean;
+  answers: ApiAnswer;
+  limit: DoorLimit;
 }
 
 /** The :names in a path, so a call that leaves one undeclared doesn't type-check. */
@@ -591,6 +620,9 @@ type PathPartName<Path extends string> = Path extends `${string}:${infer Name}/$
 type ApiRouteDeclaration<Path extends string> = {
   method: ApiRoute["method"];
   path: Path;
+  /** What it answers: required, so a call that doesn't say doesn't type-check. */
+  answers: ApiAnswer;
+  limit?: DoorLimit;
   reaches: ApiReach;
   access: { area: AccessArea | null; choice: string };
   alsoNeeds?: { area: AccessArea; choice: string }[];
@@ -601,19 +633,34 @@ type ApiRouteDeclaration<Path extends string> = {
   isPublishing?: true;
 } & ([PathPartName<Path>] extends [never] ? { pathParts?: undefined } : { pathParts: Record<PathPartName<Path>, ApiPathPart> });
 
-const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({ pathParts: {}, alsoNeeds: [], query: {}, body: null, isAccountWide: false, isFullKeyOnly: false, isPublishing: false, ...declaration, ...access });
+const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({
+  pathParts: {},
+  alsoNeeds: [],
+  query: {},
+  body: null,
+  isAccountWide: false,
+  isFullKeyOnly: false,
+  isPublishing: false,
+  // Sending a game's files is many small requests, so it has its own, bigger allowance.
+  limit: declaration.path.startsWith("/files/") ? { level: "building", counts: "account", group: "api_files" } : { level: "busy", counts: "account", group: "api" },
+  ...declaration,
+  ...access,
+});
 
 const anyKey = { area: null, choice: "" } as const;
 const needs = <Area extends AccessArea>(area: Area, choice: (typeof AREA_ACCESS_CHOICES)[Area][number]) => ({ area, choice });
 const plain = { kind: "plain" } as const satisfies ApiInput;
-const plainInputs = (...names: string[]): Record<string, ApiInput> => Object.fromEntries(names.map((name) => [name, plain]));
+const plainInputs = (...names: readonly ApiInputName[]): Record<string, ApiInput> => Object.fromEntries(names.map((name) => [name, plain]));
+/** What a call answers: a tool's outputSchema, since a tool's answer is its call's, or a schema or kind of its own. */
+const fromTool = (toolName: string): ApiAnswer => ({ toolName });
+const fieldsAnswer = (...names: readonly string[]): ApiAnswer => answersJson({ anyOf: [{ type: "object", properties: Object.fromEntries(names.map((name) => [name, {}])), required: [], additionalProperties: false }, ERROR] });
 const needsToo = <Area extends AccessArea>(area: Area, choice: (typeof AREA_ACCESS_CHOICES)[Area][number], withoutIt: string): ApiInput => ({ kind: "needs", area, choice, withoutIt });
 const naming = (what: "game" | "game_list" | "files" | "forum_topic"): ApiInput => ({ kind: "names", what });
 
 /** What a tester link opens and until when, besides its name. */
-const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"];
-const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"];
-const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
+const TESTER_LINK_INPUTS = ["version_choice", "picked_version_id", "ends_at"] as const;
+const GAME_DETAIL_INPUTS = ["title", "description", "devices", "controls", "genres", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "deleted_account_erase_enabled", "friend_joins_enabled", "performance_measuring_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "minimum_player_age_years", "game_server_allowed_hosts", "own_server_urls", "links", "glass_tint_color"] as const;
+const FORUM_POST_INPUTS = ["text_markdown", "debug_context", "author_kind", "images_base64"] as const;
 /** Posts carry their images inline as base64, so they can be big. */
 const MAXIMUM_FORUM_POST_BODY_SIZE_BYTES = 72 * 1024 * 1024;
 /** Values up to 1 MB each, up to 100 statements: the body can be big, but not unbounded. */
@@ -626,9 +673,152 @@ const MAXIMUM_SAVE_BODY_SIZE_BYTES = SAVE_LIMIT_BYTES * 2 + 64 * 1024;
 const MAXIMUM_CHECK_BODY_SIZE_BYTES = 8 * 1024 * 1024;
 const atGame = { slug: "game" } as const;
 /** A shader as add_shader and check_shader send it (backgrounds-api.ts). */
-const SHADER_INPUTS = ["screen", "image", "buffers"];
+const SHADER_INPUTS = ["screen", "image", "buffers"] as const;
 /** Five passes of up to 64 KB each, with room for JSON's escapes. */
 const MAXIMUM_SHADER_BODY_SIZE_BYTES = (1 + SHADER_LIMITS.maximumBufferCount) * SHADER_LIMITS.maximumPassSizeBytes * 2 + 64 * 1024;
+
+/** Any game's title, name or line of text is at most this: the outer wall, inside which a call says what it allows with its own fix. */
+const WALL_TEXT = text(16 * 1024);
+const SLUG_INPUT = text(200);
+const ID_INPUT = text(200);
+const URL_INPUT = text(4000);
+const TIME_INPUT = text(100);
+const LIST_OF_WORDS = listOf(text(100), 100);
+/** A number: whole or not, and how big, is the call's to say with its own fix. */
+const COUNT_INPUT = realNumber(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+const nullable = orNothing;
+/**
+ * Every input's shape, by its name: a name means one thing in every call (docs/NAMING.md), and a name with no shape here
+ * doesn't type-check, so "accepts anything" can't be written. Each is the outer wall: type, size and closed fields, with
+ * what a call allows inside it still the call's to say. A query's values read as these too.
+ */
+export const API_INPUT_SHAPES = {
+  account_offer_enabled: yesOrNo,
+  account_requirement: WALL_TEXT,
+  amount_cents: COUNT_INPUT,
+  amount_minor_units: COUNT_INPUT,
+  answer_post_id: nullable(ID_INPUT),
+  author_kind: WALL_TEXT,
+  buffers: listOf(gameData(MAXIMUM_SHADER_BODY_SIZE_BYTES), 100),
+  category: nullable(WALL_TEXT),
+  cloud_saves_enabled: yesOrNo,
+  confirm: yesOrNo,
+  confirm_slug: SLUG_INPUT,
+  controls: nullable(LIST_OF_WORDS),
+  currency_code: nullable(text(40)),
+  cursor: nullable(text(4000)),
+  debug_context: nullable(fieldsOf({ call: text(4000), error_code: text(4000), error_message: text(8000), request_json: text(16000), notes: text(8000) })),
+  deleted_account_erase_enabled: yesOrNo,
+  demo_game_slug: nullable(SLUG_INPUT),
+  description: nullable(WALL_TEXT),
+  destination_kind: WALL_TEXT,
+  detail: WALL_TEXT,
+  details: nullable(WALL_TEXT),
+  devices: nullable(LIST_OF_WORDS),
+  dump_sql: text(MAXIMUM_IMPORT_BODY_SIZE_BYTES),
+  endpoint_url: nullable(URL_INPUT),
+  ends_at: nullable(TIME_INPUT),
+  event_kinds: LIST_OF_WORDS,
+  files: listOf(gameData(MAXIMUM_CHECK_BODY_SIZE_BYTES), 100_000),
+  friend_joins_enabled: yesOrNo,
+  full_game_item_name: nullable(ID_INPUT),
+  game_account_id: nullable(text(1000)),
+  game_server_allowed_hosts: nullable(listOf(text(1000), 100)),
+  game_slug: nullable(SLUG_INPUT),
+  game_slugs: nullable(listOf(SLUG_INPUT, MAXIMUM_GAME_COUNT_PER_OWNER)),
+  genres: nullable(LIST_OF_WORDS),
+  glass_tint_color: nullable(text(40)),
+  image: gameData(MAXIMUM_SHADER_BODY_SIZE_BYTES),
+  image_id: nullable(ID_INPUT),
+  images_base64: listOf(text(MAXIMUM_FORUM_POST_BODY_SIZE_BYTES), 100),
+  indexeddb_databases: gameData(MAXIMUM_SAVE_BODY_SIZE_BYTES),
+  is_answered: yesOrNo,
+  is_big_update: yesOrNo,
+  is_kept_out: yesOrNo,
+  is_on_game_page: yesOrNo,
+  is_public: yesOrNo,
+  is_stripe_tax_used: yesOrNo,
+  item_category: WALL_TEXT,
+  item_count: COUNT_INPUT,
+  item_kind: WALL_TEXT,
+  item_name: ID_INPUT,
+  keys: anyOf(text(MAXIMUM_SAVE_BODY_SIZE_BYTES), listOf(text(4000), 1000)),
+  kind: WALL_TEXT,
+  known_issue_topic_id: nullable(ID_INPUT),
+  labels: anyOf(text(4000), listOf(gameData(4096), 100), gameData(4096)),
+  links: nullable(listOf(gameData(8192), 100)),
+  local_prices: nullable(listOf(gameData(1024), 1000)),
+  local_storage_items: gameData(MAXIMUM_SAVE_BODY_SIZE_BYTES),
+  match_update_mode: WALL_TEXT,
+  maximum_line_count: COUNT_INPUT,
+  maximum_topic_count: COUNT_INPUT,
+  message: gameData(256 * 1024),
+  minimum_level: WALL_TEXT,
+  minimum_player_age_years: nullable(COUNT_INPUT),
+  monthly_budget_cents: nullable(COUNT_INPUT),
+  monthly_storage_budget_cents: nullable(COUNT_INPUT),
+  multiplayer_mode: WALL_TEXT,
+  name: nullable(WALL_TEXT),
+  name_prefix: WALL_TEXT,
+  new_lines_cursor: nullable(text(4000)),
+  own_payment_categories: LIST_OF_WORDS,
+  own_server_urls: nullable(listOf(URL_INPUT, 100)),
+  parts: listOf(gameData(4096), 100_000),
+  patch_notes: nullable(WALL_TEXT),
+  performance_measuring_enabled: yesOrNo,
+  period_duration_days: COUNT_INPUT,
+  picked_version_id: nullable(ID_INPUT),
+  play_modes: nullable(listOf(gameData(4096), 100)),
+  player_id: ID_INPUT,
+  post_selection: WALL_TEXT,
+  price_minor_units: nullable(COUNT_INPUT),
+  publish_after_ai_review_enabled: yesOrNo,
+  publish_when_approved: yesOrNo,
+  purchase_delivery: WALL_TEXT,
+  purchase_source: WALL_TEXT,
+  purchase_status: WALL_TEXT,
+  rating: nullable(WALL_TEXT),
+  reason: nullable(WALL_TEXT),
+  redirect_urls: nullable(listOf(URL_INPUT, 100)),
+  refill_level_cents: COUNT_INPUT,
+  refund_policy: nullable(WALL_TEXT),
+  refund_policy_text: nullable(WALL_TEXT),
+  reopen: yesOrNo,
+  replace_client_secret: yesOrNo,
+  replace_signing_secret: yesOrNo,
+  reply_to_post_id: nullable(ID_INPUT),
+  restore_to_at: TIME_INPUT,
+  room_browsing: WALL_TEXT,
+  room_code: nullable(text(40)),
+  scheduled_publish_at: nullable(TIME_INPUT),
+  screen: nullable(WALL_TEXT),
+  screen_orientation: nullable(WALL_TEXT),
+  search_text: WALL_TEXT,
+  secret_value: text(256 * 1024),
+  section: nullable(WALL_TEXT),
+  send_at: nullable(TIME_INPUT),
+  shader_id: nullable(ID_INPUT),
+  size_bytes: COUNT_INPUT,
+  slug: nullable(SLUG_INPUT),
+  source: WALL_TEXT,
+  source_kind: WALL_TEXT,
+  sql: text(MAXIMUM_DATABASE_BODY_SIZE_BYTES),
+  statements: listOf(gameData(MAXIMUM_DATABASE_BODY_SIZE_BYTES), 10_000),
+  tab: WALL_TEXT,
+  tag: WALL_TEXT,
+  tags: nullable(LIST_OF_WORDS),
+  text_markdown: text(MAXIMUM_FORUM_POST_BODY_SIZE_BYTES),
+  title: nullable(WALL_TEXT),
+  top_up_id: ID_INPUT,
+  topic_id: ID_INPUT,
+  topic_status: WALL_TEXT,
+  upload_id: text(4000),
+  values: listOf(gameData(MAXIMUM_DATABASE_BODY_SIZE_BYTES), 10_000),
+  version_choice: WALL_TEXT,
+  visibility: WALL_TEXT,
+} as const satisfies Readonly<Record<string, DoorShape>>;
+export type ApiInputName = keyof typeof API_INPUT_SHAPES;
+
 /** Everything an export reads besides the game itself: read keys have all of it (game-export.ts). */
 const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "read"), needs("database_access", "read"), needs("save_access", "read")];
 
@@ -638,36 +828,37 @@ const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "r
  * test/site/access-checks.test.ts calls each one as a stranger and with every key that's too weak.
  */
 export const API_ROUTES: readonly ApiRoute[] = [
-  call({ method: "GET", path: "/access", reaches: "nothing_private", access: anyKey }),
-  call({ method: "GET", path: "/activity", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
-  call({ method: "GET", path: "/api-keys", reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
-  call({ method: "GET", path: "/storage", reaches: "account", access: anyKey }),
-  call({ method: "PATCH", path: "/storage", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("monthly_storage_budget_cents") } }),
-  call({ method: "GET", path: "/games", reaches: "account", access: needs("game_access", "read") }),
-  call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
-  call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "DELETE", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
-  call({ method: "POST", path: "/games/:slug/bring-back", reaches: "game", access: needs("game_access", "write"), pathParts: atGame }),
-  call({ method: "POST", path: "/games/:slug/erase-now", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
-  call({ method: "GET", path: "/games/:slug/deletion-requests/:game_deletion_request_id", reaches: "game", access: needs("game_access", "read"), pathParts: { ...atGame, game_deletion_request_id: "plain" } }),
-  call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
-  call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
-  call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/shaders", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
+  call({ method: "GET", path: "/access", answers: fromTool("get_access"), reaches: "nothing_private", access: anyKey }),
+  call({ method: "GET", path: "/activity", answers: fromTool("get_activity"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
+  call({ method: "GET", path: "/api-keys", answers: fromTool("list_api_keys"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
+  call({ method: "GET", path: "/storage", answers: fromTool("get_storage"), reaches: "account", access: anyKey }),
+  call({ method: "PATCH", path: "/storage", answers: fromTool("set_storage_budget"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("monthly_storage_budget_cents") } }),
+  call({ method: "GET", path: "/games", answers: fromTool("list_games"), reaches: "account", access: needs("game_access", "read") }),
+  call({ method: "POST", path: "/games", answers: fromTool("create_game"), reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
+  call({ method: "GET", path: "/games/:slug", answers: fromTool("get_game"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug", answers: fromTool("delete_game"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
+  call({ method: "POST", path: "/games/:slug/bring-back", answers: fromTool("bring_back_game"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame }),
+  call({ method: "POST", path: "/games/:slug/erase-now", answers: fromTool("erase_game_now"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
+  call({ method: "GET", path: "/games/:slug/deletion-requests/:game_deletion_request_id", answers: fromTool("get_game_deletion_request"), reaches: "game", access: needs("game_access", "read"), pathParts: { ...atGame, game_deletion_request_id: "plain" } }),
+  call({ method: "PATCH", path: "/games/:slug", answers: fromTool("update_game"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
+  call({ method: "POST", path: "/games/:slug/images", answers: fromTool("add_image"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
+  call({ method: "DELETE", path: "/games/:slug/images/:image_id", answers: fromTool("remove_image"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/shaders", answers: fromTool("add_shader"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
   // The same shader, drawn and measured before it's sent: it changes nothing of the game's, but takes from the developer's day of checks.
-  call({ method: "POST", path: "/games/:slug/shader-checks", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
-  call({ method: "DELETE", path: "/games/:slug/shaders/:shader_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", shader_id: "in_game" } }),
-  call({ method: "PUT", path: "/games/:slug/backgrounds/:screen", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", screen: "plain" }, body: { inputs: plainInputs("source", "image_id", "shader_id") } }),
+  call({ method: "POST", path: "/games/:slug/shader-checks", answers: fromTool("check_shader"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs(...SHADER_INPUTS), maximumSizeBytes: MAXIMUM_SHADER_BODY_SIZE_BYTES } }),
+  call({ method: "DELETE", path: "/games/:slug/shaders/:shader_id", answers: fromTool("remove_shader"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", shader_id: "in_game" } }),
+  call({ method: "PUT", path: "/games/:slug/backgrounds/:screen", answers: fromTool("set_background"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", screen: "plain" }, body: { inputs: plainInputs("source", "image_id", "shader_id") } }),
   // Which of these files still need sending: it only answers hashes, so the list is plain.
-  call({ method: "POST", path: "/check", reaches: "nothing_private", access: anyKey, body: { inputs: { files: plain, slug: naming("game") }, maximumSizeBytes: MAXIMUM_CHECK_BODY_SIZE_BYTES } }),
-  call({ method: "POST", path: "/games/:slug/uploads", reaches: "game", access: needs("version_access", "upload"), isPublishing: true, pathParts: atGame, body: { inputs: plainInputs("files"), maximumSizeBytes: 4 * 1024 * 1024 } }),
-  call({ method: "PUT", path: "/files/:sha256", reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: "bytes" }),
-  call({ method: "POST", path: "/files/:sha256/parts", reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("size_bytes") } }),
-  call({ method: "PUT", path: "/files/:sha256/parts/:part_number", reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash", part_number: "plain" }, query: plainInputs("upload_id"), body: "bytes" }),
-  call({ method: "POST", path: "/files/:sha256/parts/done", reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
+  call({ method: "POST", path: "/check", answers: fromTool("check_game"), reaches: "nothing_private", access: anyKey, body: { inputs: { files: plain, slug: naming("game") }, maximumSizeBytes: MAXIMUM_CHECK_BODY_SIZE_BYTES } }),
+  call({ method: "POST", path: "/games/:slug/uploads", answers: fieldsAnswer("file_count", "size_bytes", "missing_file_hashes", "next_steps"), reaches: "game", access: needs("version_access", "upload"), isPublishing: true, pathParts: atGame, body: { inputs: plainInputs("files"), maximumSizeBytes: 4 * 1024 * 1024 } }),
+  call({ method: "PUT", path: "/files/:sha256", answers: fieldsAnswer("sha256", "storage_status"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: "bytes" }),
+  call({ method: "POST", path: "/files/:sha256/parts", answers: fieldsAnswer("sha256", "storage_status", "upload_id", "part_size_bytes", "part_count"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("size_bytes") } }),
+  call({ method: "PUT", path: "/files/:sha256/parts/:part_number", answers: fieldsAnswer("part_number", "etag"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash", part_number: "plain" }, query: plainInputs("upload_id"), body: "bytes" }),
+  call({ method: "POST", path: "/files/:sha256/parts/done", answers: fieldsAnswer("sha256", "storage_status", "size_bytes"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
   call({
     method: "POST",
     path: "/games/:slug/versions",
+    answers: fieldsAnswer("version", "sent_file_count", "next_steps"),
     reaches: "game",
     access: needs("version_access", "upload"),
     isPublishing: true,
@@ -685,127 +876,160 @@ export const API_ROUTES: readonly ApiRoute[] = [
       maximumSizeBytes: 4 * 1024 * 1024,
     },
   }),
-  call({ method: "GET", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "DELETE", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes", "publish_after_ai_review_enabled"), isOptional: true } }),
-  call({ method: "POST", path: "/games/:slug/versions/:version_id/ai-review", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "DELETE", path: "/games/:slug/versions/:version_id/preview-links", reaches: "game", access: needs("version_access", "upload"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
-  call({ method: "GET", path: "/games/:slug/stats", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("period_duration_days") }),
-  call({ method: "GET", path: "/games/:slug/history", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame }),
-  call({ method: "GET", path: "/games/:slug/qr-code", reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("room_code") }),
-  call({ method: "GET", path: "/games/:slug/logs", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor") }),
-  call({ method: "GET", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/versions/:version_id", answers: fromTool("get_version"), reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "DELETE", path: "/games/:slug/versions/:version_id", answers: fromTool("delete_version"), reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", answers: fromTool("publish_version"), reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode", "is_big_update", "patch_notes", "publish_after_ai_review_enabled"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/ai-review", answers: fromTool("start_ai_review"), reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", answers: fromTool("cancel_scheduled_publish"), reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "DELETE", path: "/games/:slug/versions/:version_id/preview-links", answers: fromTool("end_preview_links"), reaches: "game", access: needs("version_access", "upload"), pathParts: { slug: "game", version_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/reports", answers: fromTool("get_reports"), reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
+  call({ method: "GET", path: "/games/:slug/stats", answers: fromTool("get_stats"), reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("period_duration_days") }),
+  call({ method: "GET", path: "/games/:slug/history", answers: fromTool("get_history"), reaches: "game", access: needs("stats_access", "read"), pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/qr-code", answers: fromTool("get_qr_code"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("room_code") }),
+  call({ method: "GET", path: "/games/:slug/logs", answers: fromTool("get_logs"), reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor") }),
+  call({ method: "GET", path: "/games/:slug/testers", answers: fieldsAnswer("testers"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   // picked_version_id is checked in the handler: a version of the path's game that passed.
-  call({ method: "POST", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
-  call({ method: "PATCH", path: "/games/:slug/testers/:tester_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", tester_id: "in_game" }, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
-  call({ method: "DELETE", path: "/games/:slug/testers/:tester_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", tester_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/database", reaches: "game", access: needs("database_access", "read"), pathParts: atGame }),
-  call({ method: "POST", path: "/games/:slug/database/query", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("sql", "values"), maximumSizeBytes: MAXIMUM_DATABASE_BODY_SIZE_BYTES } }),
-  call({ method: "POST", path: "/games/:slug/database/batch", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("statements"), maximumSizeBytes: MAXIMUM_DATABASE_BODY_SIZE_BYTES } }),
-  call({ method: "GET", path: "/games/:slug/database/export", reaches: "game", access: needs("database_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
-  call({ method: "POST", path: "/games/:slug/database/import", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("dump_sql"), maximumSizeBytes: MAXIMUM_IMPORT_BODY_SIZE_BYTES } }),
-  call({ method: "POST", path: "/games/:slug/database/erase-player", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id") } }),
-  call({ method: "POST", path: "/games/:slug/database/restores", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
-  call({ method: "POST", path: "/games/:slug/database/restores/:database_restore_id/undo", reaches: "game", access: needs("database_access", "write"), pathParts: { slug: "game", database_restore_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/export", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
-  call({ method: "GET", path: "/games/:slug/export/download", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
-  call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
-  call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/kept-rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/bring-back", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/erase-now", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/rooms", reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("labels", "cursor") }),
-  call({ method: "GET", path: "/games/:slug/rooms/:room_code", reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/rooms/:room_code/messages", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message") } }),
-  call({ method: "POST", path: "/games/:slug/rooms/:room_code/kick", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("player_id", "message", "is_kept_out") } }),
-  call({ method: "POST", path: "/games/:slug/rooms/:room_code/end", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message", "confirm"), isOptional: true } }),
-  call({ method: "POST", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("message", "labels", "send_at") } }),
-  call({ method: "GET", path: "/games/:slug/room-messages", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
-  call({ method: "DELETE", path: "/games/:slug/room-messages/:scheduled_room_message_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", scheduled_room_message_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
-  call({ method: "PUT", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
-  call({ method: "DELETE", path: "/games/:slug/items/:item_name", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
-  call({ method: "PATCH", path: "/games/:slug/purchase-settings", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories", "purchase_delivery") } }),
-  call({ method: "GET", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
-  call({ method: "POST", path: "/games/:slug/purchases", reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
-  call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" }, body: { inputs: plainInputs("amount_minor_units"), isOptional: true } }),
-  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/handled", reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/players/:player_id/items", reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/saves", reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
-  call({ method: "GET", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
-  call({ method: "PATCH", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
-  call({ method: "PUT", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items", "indexeddb_databases"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
-  call({ method: "DELETE", path: "/games/:slug/saves/:player_id", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/saves/:player_id/copies", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
-  call({ method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" }, query: plainInputs("keys") }),
-  call({ method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" } }),
-  call({ method: "GET", path: "/forum", reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
+  call({ method: "POST", path: "/games/:slug/testers", answers: fromTool("add_tester_link"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
+  call({ method: "PATCH", path: "/games/:slug/testers/:tester_id", answers: fromTool("update_tester_link"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", tester_id: "in_game" }, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
+  call({ method: "DELETE", path: "/games/:slug/testers/:tester_id", answers: fromTool("remove_tester_link"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", tester_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/database", answers: fromTool("get_database"), reaches: "game", access: needs("database_access", "read"), pathParts: atGame }),
+  call({ method: "POST", path: "/games/:slug/database/query", answers: fromTool("query_database"), reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("sql", "values"), maximumSizeBytes: MAXIMUM_DATABASE_BODY_SIZE_BYTES } }),
+  call({ method: "POST", path: "/games/:slug/database/batch", answers: fromTool("batch_database"), reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("statements"), maximumSizeBytes: MAXIMUM_DATABASE_BODY_SIZE_BYTES } }),
+  call({ method: "GET", path: "/games/:slug/database/export", answers: fromTool("export_database"), reaches: "game", access: needs("database_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
+  call({ method: "POST", path: "/games/:slug/database/import", answers: fromTool("import_database"), reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("dump_sql"), maximumSizeBytes: MAXIMUM_IMPORT_BODY_SIZE_BYTES } }),
+  call({ method: "POST", path: "/games/:slug/database/erase-player", answers: fromTool("erase_player"), reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id") } }),
+  call({ method: "POST", path: "/games/:slug/database/restores", answers: fromTool("restore_database"), reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
+  call({ method: "POST", path: "/games/:slug/database/restores/:database_restore_id/undo", answers: fromTool("undo_database_restore"), reaches: "game", access: needs("database_access", "write"), pathParts: { slug: "game", database_restore_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/export", answers: fromTool("export_game"), reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/export/download", answers: ANSWERS_BYTES, reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/secrets", answers: fromTool("list_secrets"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", answers: fromTool("set_secret"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
+  call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", answers: fromTool("delete_secret"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/kept-rooms", answers: fromTool("list_kept_rooms"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", answers: fromTool("delete_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/bring-back", answers: fromTool("bring_back_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/erase-now", answers: fromTool("erase_kept_room_now"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/rooms", answers: fromTool("list_rooms"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("labels", "cursor") }),
+  call({ method: "GET", path: "/games/:slug/rooms/:room_code", answers: fromTool("get_room"), reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/messages", answers: fromTool("send_room_message"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/kick", answers: fromTool("kick_player"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("player_id", "message", "is_kept_out") } }),
+  call({ method: "POST", path: "/games/:slug/rooms/:room_code/end", answers: fromTool("end_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message", "confirm"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/room-messages", answers: fromTool("send_to_every_room"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("message", "labels", "send_at") } }),
+  call({ method: "GET", path: "/games/:slug/room-messages", answers: fromTool("list_room_messages"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
+  call({ method: "DELETE", path: "/games/:slug/room-messages/:scheduled_room_message_id", answers: fromTool("cancel_room_message"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", scheduled_room_message_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/items", answers: fromTool("list_items"), reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame }),
+  call({ method: "PUT", path: "/games/:slug/items/:item_name", answers: fromTool("set_item"), reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" }, body: { inputs: plainInputs(...ITEM_FIELDS) } }),
+  call({ method: "DELETE", path: "/games/:slug/items/:item_name", answers: fromTool("remove_item"), reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", item_name: "in_game" } }),
+  call({ method: "PATCH", path: "/games/:slug/purchase-settings", answers: fromTool("set_purchase_settings"), reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("refund_policy", "refund_policy_text", "own_payment_categories", "purchase_delivery") } }),
+  call({ method: "GET", path: "/games/:slug/purchases", answers: fromTool("list_purchases"), reaches: "game", access: needs("purchase_access", "read"), pathParts: atGame, query: plainInputs("player_id", "item_name", "purchase_source", "purchase_status", "cursor") }),
+  call({ method: "POST", path: "/games/:slug/purchases", answers: fromTool("grant_item"), reaches: "game", access: needs("purchase_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id", "item_name", "item_count", "game_account_id") } }),
+  call({ method: "GET", path: "/games/:slug/purchases/:purchase_id", answers: fromTool("get_purchase"), reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/refund", answers: fromTool("refund_purchase"), reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" }, body: { inputs: plainInputs("amount_minor_units"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/purchases/:purchase_id/handled", answers: fromTool("mark_purchase_handled"), reaches: "game", access: needs("purchase_access", "write"), pathParts: { slug: "game", purchase_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/players/:player_id/items", answers: fromTool("get_player_items"), reaches: "game", access: needs("purchase_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/saves", answers: fromTool("list_saves"), reaches: "game", access: needs("save_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
+  call({ method: "GET", path: "/games/:slug/saves/:player_id", answers: fromTool("get_save"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" }, query: plainInputs("keys") }),
+  call({ method: "PATCH", path: "/games/:slug/saves/:player_id", answers: fromTool("change_save"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
+  call({ method: "PUT", path: "/games/:slug/saves/:player_id", answers: fromTool("replace_save"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" }, body: { inputs: plainInputs("local_storage_items", "indexeddb_databases"), maximumSizeBytes: MAXIMUM_SAVE_BODY_SIZE_BYTES } }),
+  call({ method: "DELETE", path: "/games/:slug/saves/:player_id", answers: fromTool("reset_save"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/saves/:player_id/copies", answers: fromTool("list_save_copies"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", answers: fromTool("get_save_copy"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" }, query: plainInputs("keys") }),
+  call({ method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", answers: fromTool("restore_save_copy"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" } }),
+  call({ method: "GET", path: "/forum", answers: fieldsAnswer("topics", "pinned_topics", "tab", "next_cursor", "remaining_post_count"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
   call({
     method: "POST",
     path: "/forum",
+    answers: fromTool("post_topic"),
     reaches: "account",
     access: needs("forum_access", "write"),
     body: { inputs: { ...plainInputs("kind", "title", "category", "tags", "is_public", ...FORUM_POST_INPUTS), game_slug: naming("game"), known_issue_topic_id: naming("forum_topic") }, maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES },
   }),
-  call({ method: "GET", path: "/forum/similar", reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text") }),
-  call({ method: "GET", path: "/forum/people", reaches: "nothing_private", access: needs("forum_access", "read"), query: { name_prefix: plain, topic_id: naming("forum_topic") } }),
-  call({ method: "POST", path: "/forum/media", reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
-  call({ method: "GET", path: "/forum/:topic_id", reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic" }, query: plainInputs("post_selection") }),
+  call({ method: "GET", path: "/forum/similar", answers: fieldsAnswer("topics"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text") }),
+  call({ method: "GET", path: "/forum/people", answers: fromTool("forum_people"), reaches: "nothing_private", access: needs("forum_access", "read"), query: { name_prefix: plain, topic_id: naming("forum_topic") } }),
+  call({ method: "POST", path: "/forum/media", answers: fieldsAnswer("id", "image_url", "image_markdown"), reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
+  call({ method: "GET", path: "/forum/:topic_id", answers: fromTool("get_topic"), reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic" }, query: plainInputs("post_selection") }),
   // reply_to_post_id and answer_post_id are posts in the path's topic, which the forum finds there alone.
-  call({ method: "POST", path: "/forum/:topic_id/posts", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("reply_to_post_id", "reopen", ...FORUM_POST_INPUTS), maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES } }),
-  call({ method: "POST", path: "/forum/:topic_id/vote", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/vote", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
-  call({ method: "POST", path: "/forum/:topic_id/follow", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/follow", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
-  call({ method: "POST", path: "/forum/:topic_id/answer", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("answer_post_id"), maximumSizeBytes: 16 * 1024 } }),
-  call({ method: "POST", path: "/forum/:topic_id/misplaced", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: {}, maximumSizeBytes: 16 * 1024 } }),
-  call({ method: "POST", path: "/forum/:topic_id/still-happening", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("text_markdown"), maximumSizeBytes: 16 * 1024 } }),
-  call({ method: "PUT", path: "/forum/:topic_id/posts/:post_id/rating", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("rating"), maximumSizeBytes: 1024 } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/rating", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/bookmark", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/bookmark", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts", answers: fromTool("reply_to_topic"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("reply_to_post_id", "reopen", ...FORUM_POST_INPUTS), maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES } }),
+  call({ method: "POST", path: "/forum/:topic_id/vote", answers: fromTool("vote"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/vote", answers: fromTool("vote"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/follow", answers: fromTool("follow_topic"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/follow", answers: fromTool("follow_topic"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/answer", answers: fromTool("mark_answer"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("answer_post_id"), maximumSizeBytes: 16 * 1024 } }),
+  call({ method: "POST", path: "/forum/:topic_id/misplaced", answers: fromTool("flag_misplaced"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: {}, maximumSizeBytes: 16 * 1024 } }),
+  call({ method: "POST", path: "/forum/:topic_id/still-happening", answers: fromTool("still_happening"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("text_markdown"), maximumSizeBytes: 16 * 1024 } }),
+  call({ method: "PUT", path: "/forum/:topic_id/posts/:post_id/rating", answers: fromTool("rate_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("rating"), maximumSizeBytes: 1024 } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/rating", answers: fromTool("rate_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   // Deprecated: /rating replaces /helpful, which goes 90 days after this shipped.
-  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/report", reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("reason", "details"), maximumSizeBytes: 8 * 1024 } }),
-  call({ method: "GET", path: "/forum/:topic_id/media/:media_id", reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic", media_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("like_count", "dislike_count", "your_rating", "helpful_count", "has_marked_helpful", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("like_count", "dislike_count", "your_rating", "helpful_count", "has_marked_helpful", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/report", answers: fromTool("report_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("reason", "details"), maximumSizeBytes: 8 * 1024 } }),
+  call({ method: "GET", path: "/forum/:topic_id/media/:media_id", answers: ANSWERS_BYTES, reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic", media_id: "in_forum_topic" } }),
   // A public profile, the same as any game gets with no key at all.
-  call({ method: "GET", path: "/players/:player_id", reaches: "nothing_private", access: anyKey, pathParts: { player_id: "plain" } }),
-  call({ method: "GET", path: "/sign-in-apps", reaches: "account", access: needs("sign_in_app_access", "read") }),
-  call({ method: "POST", path: "/sign-in-apps", reaches: "account", access: needs("sign_in_app_access", "write"), body: { inputs: plainInputs("name", "kind", "redirect_urls") } }),
-  call({ method: "PATCH", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" }, body: { inputs: plainInputs("name", "redirect_urls", "replace_client_secret") } }),
-  call({ method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" } }),
-  call({ method: "GET", path: "/credit", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
-  call({ method: "POST", path: "/credit/top-ups", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("amount_cents") } }),
-  call({ method: "GET", path: "/spending-requests/:spending_request_id", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true, pathParts: { spending_request_id: "plain" } }),
-  call({ method: "GET", path: "/pro", reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
-  call({ method: "POST", path: "/pro/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
-  call({ method: "POST", path: "/pro/cancel", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
-  call({ method: "POST", path: "/pro/resume", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
-  call({ method: "POST", path: "/pro/refund", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
-  call({ method: "POST", path: "/credit/refunds", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
-  call({ method: "POST", path: "/credit/plan/checkout", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
-  call({ method: "PATCH", path: "/credit/plan", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
-  call({ method: "POST", path: "/credit/plan/stop", reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
-  call({ method: "GET", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
-  call({ method: "POST", path: "/stripe-account/connection-links", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
-  call({ method: "PATCH", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
-  call({ method: "DELETE", path: "/stripe-account", reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
-  call({ method: "GET", path: "/webhooks", reaches: "account", access: needs("webhook_access", "read") }),
-  call({ method: "POST", path: "/webhooks", reaches: "account", access: needs("webhook_access", "write"), body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds"), game_slugs: naming("game_list") } } }),
-  call({ method: "PATCH", path: "/webhooks/:webhook_id", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" }, body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds", "replace_signing_secret"), game_slugs: naming("game_list") } } }),
-  call({ method: "DELETE", path: "/webhooks/:webhook_id", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" } }),
-  call({ method: "POST", path: "/webhooks/:webhook_id/test", reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" } }),
-  call({ method: "GET", path: "/webhooks/:webhook_id/deliveries", reaches: "webhook", access: needs("webhook_access", "read"), pathParts: { webhook_id: "webhook" }, query: plainInputs("cursor") }),
+  call({ method: "GET", path: "/players/:player_id", answers: fromTool("get_player"), reaches: "nothing_private", access: anyKey, pathParts: { player_id: "plain" } }),
+  call({ method: "GET", path: "/sign-in-apps", answers: fromTool("list_sign_in_apps"), reaches: "account", access: needs("sign_in_app_access", "read") }),
+  call({ method: "POST", path: "/sign-in-apps", answers: fromTool("create_sign_in_app"), reaches: "account", access: needs("sign_in_app_access", "write"), body: { inputs: plainInputs("name", "kind", "redirect_urls") } }),
+  call({ method: "PATCH", path: "/sign-in-apps/:sign_in_app_id", answers: fromTool("update_sign_in_app"), reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" }, body: { inputs: plainInputs("name", "redirect_urls", "replace_client_secret") } }),
+  call({ method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", answers: fromTool("delete_sign_in_app"), reaches: "sign_in_app", access: needs("sign_in_app_access", "write"), pathParts: { sign_in_app_id: "sign_in_app" } }),
+  call({ method: "GET", path: "/credit", answers: fromTool("get_credit"), reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/credit/top-ups", answers: fromTool("top_up_credit"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("amount_cents") } }),
+  call({ method: "GET", path: "/spending-requests/:spending_request_id", answers: fromTool("get_spending_request"), reaches: "account", access: needs("credit_access", "read"), isAccountWide: true, pathParts: { spending_request_id: "plain" } }),
+  call({ method: "GET", path: "/pro", answers: fromTool("get_pro"), reaches: "account", access: needs("credit_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/checkout", answers: fromTool("start_pro"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/cancel", answers: fromTool("cancel_pro"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/resume", answers: fromTool("resume_pro"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/pro/refund", answers: fromTool("refund_pro"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "POST", path: "/credit/refunds", answers: fromTool("refund_top_up"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("top_up_id") } }),
+  call({ method: "POST", path: "/credit/plan/checkout", answers: fromTool("start_credit_plan"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "PATCH", path: "/credit/plan", answers: fromTool("change_credit_plan"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true, body: { inputs: plainInputs("refill_level_cents") } }),
+  call({ method: "POST", path: "/credit/plan/stop", answers: fromTool("stop_credit_plan"), reaches: "account", access: needs("credit_access", "write"), isAccountWide: true }),
+  call({ method: "GET", path: "/stripe-account", answers: fromTool("get_stripe_account"), reaches: "account", access: needs("stripe_account_access", "read"), isAccountWide: true }),
+  call({ method: "POST", path: "/stripe-account/connection-links", answers: fromTool("connect_stripe_account"), reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
+  call({ method: "PATCH", path: "/stripe-account", answers: fromTool("update_stripe_account"), reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true, body: { inputs: plainInputs("is_stripe_tax_used") } }),
+  call({ method: "DELETE", path: "/stripe-account", answers: fromTool("disconnect_stripe_account"), reaches: "account", access: needs("stripe_account_access", "write"), isAccountWide: true }),
+  call({ method: "GET", path: "/webhooks", answers: fromTool("list_webhooks"), reaches: "account", access: needs("webhook_access", "read") }),
+  call({ method: "POST", path: "/webhooks", answers: fromTool("create_webhook"), reaches: "account", access: needs("webhook_access", "write"), body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds"), game_slugs: naming("game_list") } } }),
+  call({ method: "PATCH", path: "/webhooks/:webhook_id", answers: fromTool("update_webhook"), reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" }, body: { inputs: { ...plainInputs("destination_kind", "endpoint_url", "event_kinds", "replace_signing_secret"), game_slugs: naming("game_list") } } }),
+  call({ method: "DELETE", path: "/webhooks/:webhook_id", answers: fromTool("delete_webhook"), reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" } }),
+  call({ method: "POST", path: "/webhooks/:webhook_id/test", answers: fromTool("test_webhook"), reaches: "webhook", access: needs("webhook_access", "write"), pathParts: { webhook_id: "webhook" } }),
+  call({ method: "GET", path: "/webhooks/:webhook_id/deliveries", answers: fromTool("list_webhook_deliveries"), reaches: "webhook", access: needs("webhook_access", "read"), pathParts: { webhook_id: "webhook" }, query: plainInputs("cursor") }),
 ];
 
 /** A call's contract (docs/DOORS.md), from its declarations: the router below proves its caller and everything the call names. */
-export const apiRouteContract = (apiRoute: ApiRoute): DoorContract => ({ whoMayCall: "api_caller", reaches: apiRoute.reaches, trusts: ["api_key", "session"], provenBy: { source_path: "apps/site/src/developer.ts", symbol_name: "checkCall" } });
+export const apiRouteContract = (apiRoute: ApiRoute): DoorContract => ({
+  whoMayCall: "api_caller",
+  reaches: apiRoute.reaches,
+  trusts: ["api_key", "session"],
+  provenBy: { source_path: "apps/site/src/developer.ts", symbol_name: "checkCall" },
+  takes: {
+    query: inputShapes(apiRoute.query),
+    body:
+      apiRoute.body === null
+        ? null
+        : apiRoute.body === "bytes"
+          ? { kind: "bytes", maximumSizeBytes: MAXIMUM_RAW_BODY_SIZE_BYTES }
+          : { kind: "json", fields: inputShapes(apiRoute.body.inputs), maximumSizeBytes: apiRoute.body.maximumSizeBytes ?? 64 * 1024, ...(apiRoute.body.isOptional ? { isOptional: true as const } : {}) },
+  },
+  answers: answerOfRoute(apiRoute),
+  limit: apiRoute.limit,
+});
+
+const inputShapes = (inputs: Readonly<Record<string, ApiInput>>): Record<string, DoorShape> => Object.fromEntries(Object.keys(inputs).map((name) => [name, API_INPUT_SHAPES[name as ApiInputName]]));
+
+/** The most of a raw body any call reads: a file's part, or an image. */
+const MAXIMUM_RAW_BODY_SIZE_BYTES = 110 * 1024 * 1024;
+
+/** Each tool's outputSchema, by its name, which mcp.ts fills as it loads: a tool's answer is its call's. */
+export const TOOL_ANSWER_SCHEMAS = new Map<string, Readonly<Record<string, unknown>>>();
+
+/** What a call answers. Before mcp.ts has loaded, a tool's schema reads as nothing to cut. */
+export function answerOfRoute(apiRoute: ApiRoute): DoorAnswer {
+  const { answers } = apiRoute;
+  if (!("toolName" in answers)) return answers;
+  const schema = TOOL_ANSWER_SCHEMAS.get(answers.toolName);
+  return schema ? { kind: "json", schema } : ANSWERS_BYTES;
+}
 
 const routePatterns = new Map(
   API_ROUTES.map((apiRoute) => [apiRoute, new RegExp(`^${apiRoute.path.replace(/:([a-z0-9_]+)/g, (_, name: string) => `(?<${name}>${name === "sha256" ? "[0-9a-f]{64}" : "[^/]+"})`)}$`)]),
@@ -876,6 +1100,9 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
   closedQuery(checked.query, Object.keys(apiRoute.query));
   const body = apiRoute.body;
   if (!body) await refuseBody(request);
+  if (body === "bytes" && Number(request.headers.get("content-length") ?? 0) > MAXIMUM_RAW_BODY_SIZE_BYTES) {
+    throw new ApiError("wrong_shape", { message: `The body is over ${MAXIMUM_RAW_BODY_SIZE_BYTES / 1024 / 1024} MB, the most any call reads.`, fix: "Send it in parts: POST /files/<sha256>/parts." });
+  }
   if (body && body !== "bytes") {
     checked.body = await readJson(request, body.maximumSizeBytes, body.isOptional);
     closedBody(checked.body, Object.keys(body.inputs));
@@ -894,6 +1121,13 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
       fix: `Leave ${name} out: ${input.withoutIt}. To send it, the developer makes a key with ${input.area} ${input.choice} on zaisma.com/dashboard/settings; keys can't be made through the API.`,
     });
   }
+  // The shape of everything sent, before any of the call's own code runs (docs/DOORS.md).
+  const queryRefusal = queryProblem(inputShapes(apiRoute.query), checked.query);
+  if (queryRefusal) throw wrongShape(queryRefusal);
+  if (body && body !== "bytes") {
+    const bodyRefusal = bodyProblem(inputShapes(body.inputs), [], checked.body);
+    if (bodyRefusal) throw wrongShape(bodyRefusal);
+  }
   for (const [name, input, given] of inputs) {
     if (input.kind !== "names") continue;
     // A version's files are its whole point, so a list left out is refused like one that isn't a list.
@@ -906,6 +1140,9 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
   }
   return checked;
 }
+
+const wrongShape = ({ field, problem }: { field: string; problem: string }) =>
+  new ApiError("wrong_shape", { message: `${field} isn't the right shape: ${problem}.`, field, fix: "docs/DEVELOPER-API.md and the MCP tool's input schema say what each field takes. Change this field and send it again." });
 
 /** A path part as it was meant: %-escapes decoded, or as sent when they don't decode. */
 function decodePathPart(given: string): string {
@@ -940,7 +1177,14 @@ async function storedFiles(env: Env, given: unknown, caller: Caller): Promise<Ch
   return { list, found };
 }
 
+/** Answers a call, cut to what it declares (answers.ts): whatever it's wrong about, the caller still gets the answer and Zaisma hears. */
 export async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
+  const response = await answerCall(request, env, path, caller);
+  const apiRoute = apiRoutesAt(path).find((candidate) => candidate.method === request.method);
+  return apiRoute ? withDeclaredAnswer(env, response, answerOfRoute(apiRoute), `api:${apiRoute.method} ${apiRoute.path}`, caller.waitUntil) : response;
+}
+
+async function answerCall(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
   const method = request.method;
   const answer = (body: unknown, httpStatus = 200) => json(body, httpStatus, caller.cookies);
 
@@ -2072,6 +2316,22 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
  * game is paused and why, and, for a game with a budget, what credit paid; the raw counts are facts for tuning,
  * never priced.
  */
+/** Where a game's hours went this month: new or returning players, which kind of network, and how much of the rented share is used. Totals only, never who. */
+function playHoursJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>) {
+  const hours = (durationSec: number) => Math.round(durationSec / 360) / 10;
+  const { playSplit, use, kinds } = hosting;
+  const usedCents = rentedShareUsedCents(kinds, use, { roomUseCents: playSplit.rented_share_room_use_cents, requestCount: playSplit.rented_share_request_count, relayCredentialCount: playSplit.rented_share_relay_credential_count, relayCredentialTotalCount: playSplit.relay_credential_count });
+  const limitCents = rentedShareLimitCents(freeAllowanceCents(hosting.secondFreeAllowanceMonthStartDate, monthStartDateOf(Date.now())), game.monthly_budget_cents);
+  return {
+    total_duration_hours: hours(use.roomPlayDurationSec),
+    new_player_duration_hours: hours(playSplit.new_player_room_play_duration_sec),
+    returning_player_duration_hours: hours(Math.max(0, use.roomPlayDurationSec - playSplit.new_player_room_play_duration_sec)),
+    rented_network_duration_hours: hours(playSplit.rented_network_room_play_duration_sec),
+    other_network_duration_hours: hours(Math.max(0, use.roomPlayDurationSec - playSplit.rented_network_room_play_duration_sec)),
+    rented_share_used_pct: Math.min(100, Math.floor((usedCents / limitCents) * 100)),
+  };
+}
+
 export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number }, stops: GameHosting) {
   return {
     free_used_pct: hosting.freeUsedPct,
@@ -2085,6 +2345,7 @@ export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof ho
     monthly_budget_cents: game.monthly_budget_cents,
     spent_from_credit_cents: month.charged_cents,
     room_play_duration_hours: Math.round(hosting.use.roomPlayDurationSec / 360) / 10,
+    play_hours: playHoursJson(game, hosting),
     room_awake_duration_hours: Math.round(hosting.use.roomAwakeDurationSec / 360) / 10,
     room_connection_count: hosting.use.roomConnectionCount,
     inbound_message_count: hosting.use.inboundMessageCount,
