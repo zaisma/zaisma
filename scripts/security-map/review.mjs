@@ -87,7 +87,7 @@ export function mergesSince(repoRoot, sinceTime) {
 export function reviewOutlineOf({ promises, items, reviews, date }) {
   const challenge = challengeOf(promises, reviews);
   const challenged = promises.find((promise) => promise.sector_id === challenge.sector_id);
-  const summaryOf = (item) => ({ item_id: item.item_id, item_kind: item.item_kind, item_state: item.item_state, sector_id: item.sector_id, way_id: item.way_id, item_line: item.item_line, priority: priorityOfItem(item), score_stale_reason: item.score_stale_reason, calls: item.calls });
+  const summaryOf = (item) => ({ item_id: item.item_id, item_kind: item.item_kind, item_state: item.item_state, sector_id: item.sector_id, way_id: item.way_id, item_line: item.item_line, priority: priorityOfItem(item), score_stale_reason: item.score_stale_reason, calls: item.calls, settled_calls: item.settled_calls ?? [], claimed_by_launch_id: item.claimed_by_launch_id ?? null });
   return {
     review_date: date,
     step_budget: STEP_BUDGET_PER_NIGHT,
