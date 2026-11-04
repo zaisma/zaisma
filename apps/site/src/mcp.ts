@@ -1,5 +1,5 @@
-import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
-import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
+import { ApiError, cutUndeclared, noteAnswerCut, typeProblems, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { INTERNAL_ERROR, TOOL_ANSWER_SCHEMAS, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
 import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
@@ -2061,6 +2061,9 @@ export const TOOLS: Tool[] = [
   },
 ];
 
+// A tool's answer is the call's it makes, so its schema states both (ApiAnswer).
+for (const tool of TOOLS) if (tool.outputSchema) TOOL_ANSWER_SCHEMAS.set(tool.name, tool.outputSchema);
+
 /** Text as UTF-8, or base64 (a data: URL prefix is fine) as the bytes it holds. */
 function decode(given: string, encoding: "text" | "base64", field: string): Uint8Array {
   if (encoding === "text") return new TextEncoder().encode(given);
@@ -2193,6 +2196,9 @@ export function checkArguments(tool: Pick<Tool, "name" | "inputSchema">, toolArg
     if (toolArguments[key] !== undefined) continue;
     throw new ApiError("missing_field", { message: `${tool.name} needs ${key}.`, field: key, fix: `Add ${key}${properties[key]?.description ? `: ${properties[key]!.description}` : ""}.` });
   }
+  // The types of what it's given, before any of its own code runs (docs/DOORS.md): what's allowed inside them is the call's to say, with its own fix.
+  const [problem] = typeProblems(tool.inputSchema, toolArguments, "arguments");
+  if (problem) throw new ApiError("wrong_shape", { message: `The arguments aren't the right shape: ${problem}.`, field: problem.match(/^arguments\.([^.:[]+)/)?.[1] ?? null, fix: "The tool's input schema (tools/list) says what each argument takes. Change it and call again." });
 }
 
 /** A JSON-RPC 2.0 message, in the standard's own names. */
@@ -2281,6 +2287,7 @@ export async function serveMcp(
   server: { name: string; title: string; instructions: string },
   tools: McpTool[],
   userError: (error: unknown) => string | { text: string; structuredContent: unknown } | null,
+  onAnswerCut: (doorId: string, cutPaths: string[]) => void = () => {},
 ): Promise<Response> {
   if (request.method !== "POST") return new Response("Send MCP messages as POST requests.", { status: 405, headers: { Allow: "POST" } });
   if (Number(request.headers.get("content-length") ?? 0) > MAXIMUM_BODY_SIZE_BYTES) return Response.json(rpcError(null, -32600, "That message is too big."), { status: 413 });
@@ -2315,7 +2322,11 @@ export async function serveMcp(
         const toolArguments = message.params?.arguments && typeof message.params.arguments === "object" ? (message.params.arguments as Record<string, unknown>) : {};
         try {
           const ran = await tool.run(toolArguments);
-          const structured = ran instanceof WithImages ? ran.answer : ran;
+          const given = ran instanceof WithImages ? ran.answer : ran;
+          // A field the tool's outputSchema didn't declare is cut, and the caller still gets the answer.
+          const cut = tool.outputSchema ? cutUndeclared(tool.outputSchema, given) : { kept: given, cutPaths: [] };
+          if (cut.cutPaths.length) onAnswerCut(`mcp:${tool.name}`, cut.cutPaths);
+          const structured = cut.kept;
           const images = ran instanceof WithImages ? ran.images.map((image) => ({ type: "image", ...image })) : [];
           // Compact JSON: indenting costs the AI tokens and tells it nothing.
           return succeed({ content: [{ type: "text", text: JSON.stringify(structured) }, ...images], structuredContent: structured });

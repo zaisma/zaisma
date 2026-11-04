@@ -383,3 +383,59 @@ describe("the meter keeps its promises", () => {
     expect(await alertKinds()).not.toContain("credit_low");
   });
 });
+
+describe("the rented share", () => {
+  const setRentedUseCents = (cents: number) =>
+    env.DB.prepare("INSERT INTO room_usage (game_id, date, rented_share_room_use_cents) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET rented_share_room_use_cents = excluded.rented_share_room_use_cents")
+      .bind(game.id, "2031-03-10", cents)
+      .run();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2031-03-10T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("runs out at a tenth of the free time, however little the game has used of the rest, and pauses nothing", async () => {
+    await setUseCents(120);
+    await setRentedUseCents(99);
+    await runHostingJob(testEnv);
+    expect((await month()).rented_share_stopped_at_ms).toBeNull();
+    await setRentedUseCents(100);
+    await runHostingJob(testEnv);
+    expect((await month()).rented_share_stopped_at_ms).toEqual(expect.any(Number));
+    expect((await month()).paused_at_ms).toBeNull();
+    expect((await month()).rented_share_used_cents).toBeCloseTo(100);
+  });
+
+  it("gets a tenth of a budget too, and lifts when a budget makes room", async () => {
+    await setUseCents(120);
+    await setRentedUseCents(120);
+    await runHostingJob(testEnv);
+    const stoppedAtMs = (await month()).rented_share_stopped_at_ms;
+    expect(stoppedAtMs).toEqual(expect.any(Number));
+    await runHostingJob(testEnv);
+    // It keeps its first moment, so every room gives the same hour.
+    expect((await month()).rented_share_stopped_at_ms).toBe(stoppedAtMs);
+    await setBudget(1000);
+    await runHostingJob(testEnv);
+    expect((await month()).rented_share_stopped_at_ms).toBeNull();
+  });
+
+  it("leaves real players the rest: they stop only where the game stops, at its whole free time", async () => {
+    await setUseCents(999);
+    await runHostingJob(testEnv);
+    expect((await month()).paused_at_ms).toBeNull();
+    expect((await month()).rented_share_stopped_at_ms).toBeNull();
+    await setUseCents(1000);
+    await runHostingJob(testEnv);
+    expect((await month()).paused_reason).toBe("free_used");
+  });
+
+  it("tells a developer and their AI where the hours went", async () => {
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec, new_player_room_play_duration_sec, rented_network_room_play_duration_sec, rented_share_room_use_cents) VALUES (?, ?, 36000, 9000, 3600, 25)").bind(game.id, "2031-03-10").run();
+    const caller = await callerFor(testEnv, new Request("https://zaisma.test"), "dev-1", []);
+    const { hosting_use_this_month: hosting } = (await apiCall(testEnv, caller!, "GET", "/games/arena/stats")) as { hosting_use_this_month: { play_hours: Record<string, number> } };
+    expect(hosting.play_hours).toEqual({ total_duration_hours: 10, new_player_duration_hours: 2.5, returning_player_duration_hours: 7.5, rented_network_duration_hours: 1, other_network_duration_hours: 9, rented_share_used_pct: 25 });
+  });
+});

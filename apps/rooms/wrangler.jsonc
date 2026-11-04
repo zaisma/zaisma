@@ -51,27 +51,17 @@
   "services": [{ "binding": "CHAT_CHECK", "service": "zaisma-site", "entrypoint": "ChatCheckService" }],
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "ratelimits": [
-    { "name": "PASS_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },
-    { "name": "ROOM_LIMIT", "namespace_id": "1003", "simple": { "limit": 10, "period": 60 } },
-    { "name": "REPORT_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
-    { "name": "FILTER_LIMIT", "namespace_id": "1010", "simple": { "limit": 60, "period": 60 } },
-    // Opening room connections: each one can wake a room, so a script can't keep waking them.
-    { "name": "CONNECT_LIMIT", "namespace_id": "1011", "simple": { "limit": 60, "period": 60 } },
+    // One binding per level of a door's limit (DOOR_LIMIT_LEVELS, packages/game-server/src/doors.ts): a door's own counter runs on the level it states, by the player, or by the address before a player is known.
+    { "name": "LIMIT_GUESS", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "LIMIT_RARE", "namespace_id": "1003", "simple": { "limit": 10, "period": 60 } },
+    { "name": "LIMIT_STEADY", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    { "name": "LIMIT_BUSY", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } },
+    { "name": "LIMIT_BUILDING", "namespace_id": "1011", "simple": { "limit": 1000, "period": 60 } },
+    // A game's share of the shared database, per shard: its shards grow with its real players (gameShardCount, packages/core/src/hosting.ts). The site's Worker counts on the same one.
+    { "name": "GAME_LIMIT", "namespace_id": "1187", "simple": { "limit": 600, "period": 60 } },
     // A game's sends to every room, from its game server, the API and the MCP together (ROOM_MESSAGE_LIMITS.maximumEveryRoomSendsPerMin).
     { "name": "EVERY_ROOM_SEND_LIMIT", "namespace_id": "1140", "simple": { "limit": 10, "period": 60 } },
-    // Public profiles by player ID: a developer's own game server looks up each account that joins.
-    { "name": "PROFILE_LIMIT", "namespace_id": "1012", "simple": { "limit": 300, "period": 60 } },
-    // Requests to games' own game servers (Zaisma.server.request): plenty for a player, not for a script.
-    { "name": "REQUEST_LIMIT", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } },
     // Game servers' calls to other servers, per game (src/outbound.ts; OUTSIDE_CALL_LIMITS.maximumCallsPerMin).
-    { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } },
-    // A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends).
-    { "name": "FRIENDS_LIMIT", "namespace_id": "1016", "simple": { "limit": 60, "period": 60 } },
-    // A game asking for the player's purchases still to hand over, or marking one handled (Zaisma.items.unhandled, markHandled).
-    { "name": "ITEMS_LIMIT", "namespace_id": "1102", "simple": { "limit": 60, "period": 60 } },
-    // Relay credentials for connections between players (src/relay.ts): like passes.
-    { "name": "RELAY_LIMIT", "namespace_id": "1017", "simple": { "limit": 20, "period": 60 } },
-    // Developers' own servers checking chat (POST /v1/chat/check), per game and sender: more than anyone types.
-    { "name": "CHAT_CHECK_LIMIT", "namespace_id": "1023", "simple": { "limit": 120, "period": 60 } }
+    { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } }
   ]
 }

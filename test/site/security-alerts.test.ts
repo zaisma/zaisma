@@ -1,9 +1,11 @@
 import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SECURITY_LOG_LIMITS, SPIKE_THRESHOLDS, createAccount, createApiKey, createGame, createWebhook, personOwner, NO_WHERE } from "@zaisma/core";
+import { SECURITY_LOG_LIMITS, SPIKE_THRESHOLDS, createAccount, createApiKey, createGame, createWebhook, personOwner, NO_WHERE, answersJson } from "@zaisma/core";
 import worker from "../../apps/site/src/index.ts";
 import { ADMIN_TOOLS } from "../../apps/site/src/admin-mcp.ts";
+import { withDeclaredAnswer } from "../../apps/site/src/answers.ts";
 import { noteWrongPassword } from "../../apps/site/src/device-marks.ts";
+import { tellAnswerCuts } from "../../apps/site/src/security-alerts.ts";
 import { ACTIVITY, WEBHOOK_EVENT } from "../../apps/site/src/schemas.ts";
 import { logSecurityEvent, type SecurityEventRow } from "../../apps/site/src/security-log.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
@@ -27,7 +29,7 @@ let realFetch: typeof fetch;
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM security_spikes; DELETE FROM blocked_scripts; DELETE FROM sign_in_networks; DELETE FROM wrong_passwords; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM door_answer_cuts; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM security_spikes; DELETE FROM blocked_scripts; DELETE FROM sign_in_networks; DELETE FROM wrong_passwords; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   emails = [];
   hooked = [];
@@ -204,15 +206,15 @@ describe("script policy reports", () => {
     await report("not json");
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM blocked_scripts").first()).toEqual({ row_count: 0 });
     // 30 a minute from one address, counted by a limiter with no clock (test/rate-limits.ts), so the 31 reports can't straddle two minutes.
-    expect(configuredRateLimit(siteWranglerText, "CSP_REPORT_LIMIT")).toEqual({ limit: 30, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_STEADY")).toEqual({ limit: 30, period: 60 });
     const reportLimit = countingRateLimiter(30);
     for (let i = 0; i < 31; i++) {
       const context = createExecutionContext();
       const sent = new Request(`${SITE}/csp-reports`, { method: "POST", headers: { "content-type": "application/csp-report", "cf-connecting-ip": "192.0.2.250" }, body: JSON.stringify(legacy("https://evil.example/a.js")) });
-      expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, CSP_REPORT_LIMIT: reportLimit }, context)).status).toBe(204);
+      expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, LIMIT_STEADY: reportLimit }, context)).status).toBe(204);
       await waitOnExecutionContext(context);
     }
-    expect(new Set(reportLimit.keys)).toEqual(new Set(["192.0.2.250"]));
+    expect(new Set(reportLimit.keys)).toEqual(new Set(["csp_report:192.0.2.250"]));
     expect(await env.DB.prepare("SELECT occurrence_count FROM blocked_scripts").first()).toEqual({ occurrence_count: 30 });
   });
 
@@ -220,5 +222,34 @@ describe("script policy reports", () => {
     const response = await SELF.fetch(`${SITE}/`);
     expect(response.headers.get("content-security-policy")).toContain("report-uri /csp-reports; report-to csp");
     expect(response.headers.get("reporting-endpoints")).toBe('csp="/csp-reports"');
+  });
+});
+
+describe("an answer that says more than its door declares", () => {
+  const DECLARED = answersJson({ type: "object", properties: { id: {} }, required: ["id"], additionalProperties: false });
+  const cutRow = (doorId: string) => env.DB.prepare("SELECT field_paths, alerted_at_ms FROM door_answer_cuts WHERE door_id = ?").bind(doorId).first<{ field_paths: string; alerted_at_ms: number | null }>();
+
+  it("cuts the field, still answers, and tells Zaisma once a door a day", async () => {
+    const said = vi.spyOn(console, "log").mockImplementation(() => {});
+    const answered = await withDeclaredAnswer(env, Response.json({ id: 1, secret_key: "x" }, { headers: { "x-kept": "yes" } }), DECLARED, "api:GET /one");
+    expect(await answered.json()).toEqual({ id: 1 });
+    expect(answered.headers.get("x-kept")).toBe("yes");
+    await withDeclaredAnswer(env, Response.json({ id: 2, other: "y" }), DECLARED, "api:GET /one");
+    expect((await cutRow("api:GET /one"))?.field_paths).toContain("answer.secret_key");
+    await tellAnswerCuts(env, 1000);
+    await tellAnswerCuts(env, 2000);
+    expect(said.mock.calls.filter(([line]) => String(line).includes("api:GET /one"))).toHaveLength(1);
+    expect((await cutRow("api:GET /one"))?.alerted_at_ms).toBe(1000);
+    said.mockRestore();
+  });
+
+  it("leaves a refusal, a page and an answer with nothing to cut as they are", async () => {
+    const refusal = Response.json({ error: { code: "no_game" } }, { status: 404 });
+    expect(await withDeclaredAnswer(env, refusal, DECLARED, "api:GET /two")).toBe(refusal);
+    const page = new Response("<p>Hi</p>", { headers: { "content-type": "text/html" } });
+    expect(await withDeclaredAnswer(env, page, DECLARED, "api:GET /two")).toBe(page);
+    const fits = Response.json({ id: 1 });
+    expect(await withDeclaredAnswer(env, fits, DECLARED, "api:GET /two")).toBe(fits);
+    expect(await cutRow("api:GET /two")).toBeNull();
   });
 });

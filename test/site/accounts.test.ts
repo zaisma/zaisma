@@ -634,18 +634,18 @@ describe("signing in", () => {
   });
 
   it("limits password tries on one username, from any address", async () => {
-    expect(configuredRateLimit(siteWranglerText, "PASSWORD_LIMIT")).toEqual({ limit: 5, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_GUESS")).toEqual({ limit: 5, period: 60 });
     await join(new Browser(), null);
     const passwordLimit = countingRateLimiter(5);
     const statuses = [];
     for (let i = 0; i < 7; i++) {
       const b = new Browser();
-      b.bindings = { PASSWORD_LIMIT: passwordLimit };
+      b.bindings = { LIMIT_GUESS: passwordLimit };
       statuses.push((await signIn(b, { username: "Night_Owl", password: `guess number ${i}` })).status);
     }
     expect(statuses).toEqual([400, 400, 400, 400, 400, 429, 429]);
     // Counted by the account, whatever address each try came from.
-    expect(new Set(passwordLimit.keys)).toEqual(new Set([await idOf("Night_Owl")]));
+    expect(new Set(passwordLimit.keys)).toEqual(new Set([`password:${await idOf("Night_Owl")}`]));
   });
 
   it("only sends people back to our own pages", async () => {
@@ -670,6 +670,12 @@ describe("signing in", () => {
     const b = new Browser();
     b.jar.set("__Host-zaisma", "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3Qta2V5In0.eyJzdWIiOiJ4In0.AAAA~r-x");
     expect((await b.go("/account")).headers.get("location")).toBe("/signin");
+  });
+
+  it("signs in with the field Cloudflare's script adds to the form by itself", async () => {
+    await join(new Browser(), "fox@example.com", "Night_Owl");
+    const res = await signIn(new Browser(), { username: "Night_Owl", password: PASSWORD, "cf-turnstile-response": "sign_in" });
+    expect(res.headers.get("location")).toBe("/");
   });
 
   it("refuses forms posted from other sites", async () => {
@@ -4459,9 +4465,9 @@ describe("download your data", () => {
 
     const page = await (await b.go("/account")).text();
     expect(page).toContain('href="/account/data.zip" data-download');
-    expect(configuredRateLimit(siteWranglerText, "EXPORT_LIMIT")).toEqual({ limit: 2, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_VERY_RARE")).toEqual({ limit: 2, period: 60 });
     const exportLimit = countingRateLimiter(2);
-    b.bindings = { EXPORT_LIMIT: exportLimit };
+    b.bindings = { LIMIT_VERY_RARE: exportLimit };
     const res = await b.go("/account/data.zip");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/zip");
@@ -4504,7 +4510,7 @@ describe("download your data", () => {
     expect((await readZip(await b.go("/account/data.zip"))).json("activity.json").events.map((event: { kind: string }) => event.kind)).toContain("account_data_downloaded");
     // Two a minute, shared with Export everything.
     expect((await b.go("/account/data.zip")).status).toBe(429);
-    expect(exportLimit.keys).toEqual([id, id, id]);
+    expect(exportLimit.keys).toEqual([`export:${id}`, `export:${id}`, `export:${id}`]);
   });
 
   it("needs Confirm it's you, like deleting the account", async () => {

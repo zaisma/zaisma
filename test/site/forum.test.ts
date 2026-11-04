@@ -148,8 +148,8 @@ describe("posting", () => {
     expect((await api("/forum", { body: { is_public: false, kind: "nope", title: "x", text_markdown: "y" } })).status).toBe(400);
     const oldName = await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text: "y" } });
     expect([oldName.status, oldName.data.error.code]).toEqual([400, "unknown_field"]);
-    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: { tool: "upload_files" } } })).data.error.code).toBe("bad_debug_context");
-    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: "too_big" } })).data.error.code).toBe("bad_debug_context");
+    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: { tool: "upload_files" } } })).data.error.code).toBe("wrong_shape");
+    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: "too_big" } })).data.error.code).toBe("wrong_shape");
     expect((await api("/forum?q=too_big")).data.error.code).toBe("unknown_field");
   });
 
@@ -272,7 +272,7 @@ describe("threads and known issues", () => {
     expect(decided.next_steps).toEqual([]);
     // Values and names it doesn't take are refused, saying what it does take, and nothing changes.
     expect(await admin("decide_topic", { topic_id: topic.id, topic_status: "nope" })).toMatchObject({ code: "bad_topic_status", field: "topic_status" });
-    expect(await admin("decide_topic", { topic_id: topic.id, severity: 4 })).toMatchObject({ code: "bad_severity", field: "severity" });
+    expect(await admin("decide_topic", { topic_id: topic.id, severity: 4 })).toMatchObject({ code: "wrong_shape", field: "severity" });
     expect(await admin("decide_topic", { id: topic.id, status: "fixed" })).toMatchObject({ code: "unknown_field", field: "id" });
     expect(await admin("decide_topic", { topic_id: topic.id, known_issue: { title: "Webhooks", roadmap: "x" } })).toMatchObject({ code: "bad_known_issue", field: "known_issue.roadmap" });
     expect(await admin("decide_topic", { topic_id: topic.id })).toMatchObject({ code: "missing_field" });

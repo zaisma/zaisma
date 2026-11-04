@@ -1,4 +1,4 @@
-import {
+import { isPastGameLimit, isPastLevel,
   SAVE_LIMIT_BYTES,
   accountById,
   addSaveCopy,
@@ -81,7 +81,7 @@ export async function handleSaves(request: Request, env: Env, slug: string, copi
     return withCookies(json({ tag, version_number: row.version_number, sha256: row.sha256, saved_at: iso(row.saved_at_ms), changed_by_kind: row.changed_by_kind, save_data: JSON.parse(text) }));
   }
 
-  if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: account.id })).success) return tooOften();
+  if ((await isPastLevel(env, "steady", "save", account.id)) || (await isPastGameLimit(env, env.DB, game.id, account.id))) return tooOften();
   const contentLengthBytes = Number(request.headers.get("content-length") ?? 0);
   if (contentLengthBytes > SAVE_LIMIT_BYTES * 2 + 1024) return json({ error: "This save is too big." }, 413);
   let body: { tag?: unknown; base_version_number?: unknown; save_json?: unknown; version_id?: unknown; replace?: unknown; keep?: unknown; played_at?: unknown };
@@ -163,7 +163,7 @@ async function copiesAnswer(request: Request, env: Env, accountId: string, gameI
   const body = (await request.json().catch(() => null)) as { tag?: unknown } | null;
   if (typeof body?.tag !== "string") return json({ error: "Bad restore." }, 400);
   if (body.tag !== tag) return accountChanged();
-  if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: accountId })).success) return tooOften();
+  if (await isPastLevel(env, "steady", "save", accountId)) return tooOften();
   const restored = await restoreSaveAsPlayer(env, accountId, gameId, text, copy.version_id);
   if (!restored) return json({ error: "Played on another device at the same moment." }, 409);
   return json({ version_number: restored.row.version_number, sha256: restored.row.sha256, saved_at: iso(restored.row.saved_at_ms), kept_save_copy_id: restored.keptSaveCopyId });

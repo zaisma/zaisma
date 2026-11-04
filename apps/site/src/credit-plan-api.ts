@@ -1,4 +1,4 @@
-import { ApiError, CREDIT_LIMITS, iso } from "@zaisma/core";
+import { isPastLevel, ApiError, CREDIT_LIMITS, iso } from "@zaisma/core";
 import { checkSpendingConfirmed, creditAnswer, isAccountProtected } from "./credit-api.ts";
 import { logCallerEvent } from "./security-log.ts";
 import { creditPlanCheckout, nextMonthStartSec, stopCreditPlan } from "./stripe.ts";
@@ -58,7 +58,7 @@ const noPlan = () => new ApiError("no_credit_plan", { message: "The developer ha
 /** One call, once the router (developer.ts, checkCall) has checked the key. */
 export async function creditPlanRoute(env: Env, path: string, method: string, body: Record<string, unknown>, caller: Caller): Promise<[unknown, number?]> {
   const ownerId = caller.ownerId;
-  if (env.CREDIT_LIMIT && !(await env.CREDIT_LIMIT.limit({ key: ownerId })).success) {
+  if (await isPastLevel(env, "rare", "credit", ownerId)) {
     throw new ApiError("slow_down", { message: "Too many credit changes in a minute.", fix: "Wait a minute and try again.", retryAfterSec: 60 });
   }
   const row = await planRow(env, ownerId);

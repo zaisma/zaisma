@@ -161,10 +161,11 @@ const confirmed = async () => {
 
 describe("a saved card's receipts (review 14 and 21)", () => {
   it("never takes a receipt address from the browser: a saved card's receipts go to the account's email", async () => {
-    const setup = await player("/api/payment-methods/setup", { body: { receipt_email: "victim@example.com" } });
+    expect((await player("/api/payment-methods/setup", { body: { receipt_email: "victim@example.com" } })).answer.error.code).toBe("unknown_field");
+    const setup = await player("/api/payment-methods/setup", { body: {} });
     expect(setup.answer).toEqual({ setup_intent_id: "seti_test", client_secret: expect.any(String) });
     expect(setupMetadata.receipt_email).toBeUndefined();
-    const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test", receipt_email: "victim@example.com" } });
+    const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test" } });
     expect(kept.answer).toEqual({ saved_card: { card_brand: "visa", card_last_digits: "4242" } });
   });
 });
@@ -359,10 +360,10 @@ describe("the purchase PIN's lock (review 20)", () => {
 });
 
 describe("the rate limit on every call that reaches Stripe (review 24)", () => {
-  /** zaisma.com's own call to the handler, with a PURCHASE_LIMIT that is used up (and the keys it was asked about). */
+  /** zaisma.com's own call to the handler, with a LIMIT_STEADY that is used up (and the keys it was asked about). */
   async function limited(path: string, method: string, body?: unknown) {
     const keys: string[] = [];
-    const used = { ...env, PURCHASE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
+    const used = { ...env, LIMIT_STEADY: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
     const request = new Request(`${SITE}${path}`, { method, headers: { cookie: await sessionCookie("player-1"), ...(method !== "GET" ? { origin: SITE, "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const response = (await handleBuy(request as never, used as never, path))!;
     return { status: response.status, answer: (await response.json()) as any, keys };
@@ -459,7 +460,7 @@ describe("a game blocked in the player's country (review 31)", () => {
 describe("the rate limit on paying and forgetting the card (review 32)", () => {
   async function limited(path: string, method: string) {
     const keys: string[] = [];
-    const used = { ...env, PURCHASE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
+    const used = { ...env, LIMIT_STEADY: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
     const request = new Request(`${SITE}${path}`, { method, headers: { cookie: await sessionCookie("player-1"), origin: SITE, "content-type": "application/json" }, body: method === "DELETE" ? undefined : "{}" });
     const response = (await handleBuy(request as never, used as never, path))!;
     return { status: response.status, answer: (await response.json()) as any, keys };
@@ -471,9 +472,9 @@ describe("the rate limit on paying and forgetting the card (review 32)", () => {
     const purchaseId = await started();
     stripeCalls = [];
     const paid = await limited(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, "POST");
-    expect(paid).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["pay:player-1"] });
+    expect(paid).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["purchase:pay:player-1"] });
     const forgotten = await limited("/api/payment-methods/saved", "DELETE");
-    expect(forgotten).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["card:player-1"] });
+    expect(forgotten).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["purchase:card:player-1"] });
     expect(stripeCalls).toEqual([]);
     expect(await env.DB.prepare("SELECT 1 FROM saved_payment_methods").first()).not.toBeNull();
   });

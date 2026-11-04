@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   ACROSS_ZAISMA_NETWORK_NUMBER,
   SECURITY_ALERT_WORDS,
   SECURITY_LOG_LIMITS,
@@ -156,6 +156,18 @@ ${options.isConfirmed || options.backTo === "/account"
     : html`<div class="row"><a class="btn" href="/account?confirm-first#email">Add an email</a> ${skip}</div>`}</div>`;
 }
 
+// --- Answers cut to what they declare -------------------------------------------------
+
+/** Every 5 minutes: one alert a door a day for an answer that had a field its door didn't declare (answers.ts). A cut is a bug. */
+export async function tellAnswerCuts(env: Env, nowMs = Date.now()): Promise<void> {
+  const { results } = await env.DB.prepare("SELECT door_id, date, field_paths FROM door_answer_cuts WHERE alerted_at_ms IS NULL LIMIT 20").all<{ door_id: string; date: string; field_paths: string }>();
+  for (const row of results) {
+    const claimed = await env.DB.prepare("UPDATE door_answer_cuts SET alerted_at_ms = ? WHERE door_id = ? AND date = ? AND alerted_at_ms IS NULL").bind(nowMs, row.door_id, row.date).run();
+    if (claimed.meta.changes !== 1) continue;
+    await sendAlert(env, `An answer had a field its door didn't declare: ${row.door_id}`, `${row.door_id} answered with ${row.field_paths}, which its contract doesn't declare. The field was cut and the caller still got the answer. The admin MCP's list_security_spikes lists it. Declare the field, or stop sending it.`);
+  }
+}
+
 // --- Spikes across Zaisma ------------------------------------------------------------
 
 /**
@@ -190,7 +202,11 @@ export async function securitySpikesAnswer(env: Env, nowMs = Date.now()) {
   const { results } = await env.DB.prepare("SELECT * FROM security_spikes WHERE alerted_at_ms IS NOT NULL AND last_happened_at_ms > ? ORDER BY hour_number DESC, occurrence_count DESC LIMIT 100")
     .bind(nowMs - SECURITY_SIGNAL_KEPT_DURATION_DAYS * DAY_MS)
     .all<{ spike_kind: SpikeKind; network_number: number; network_name: string | null; hour_number: number; occurrence_count: number }>();
+  const { results: answerCuts } = await env.DB.prepare("SELECT door_id AS door_name, date, field_paths, occurrence_count FROM door_answer_cuts WHERE first_cut_at_ms > ? ORDER BY date DESC, door_id LIMIT 100")
+    .bind(nowMs - SECURITY_SIGNAL_KEPT_DURATION_DAYS * DAY_MS)
+    .all<{ door_name: string; date: string; field_paths: string; occurrence_count: number }>();
   return {
+    answer_cuts: answerCuts,
     security_spikes: results.map((row) => ({
       spike_kind: row.spike_kind,
       autonomous_system: row.network_number === ACROSS_ZAISMA_NETWORK_NUMBER ? null : `AS${row.network_number}`,
@@ -216,7 +232,7 @@ export async function recordBlockedScripts(request: Request, env: Env, nowMs = D
   const done = new Response(null, { status: 204 });
   try {
     const address = connectionAddressOf(request) ?? "unknown";
-    if (env.CSP_REPORT_LIMIT && !(await env.CSP_REPORT_LIMIT.limit({ key: address })).success) return done;
+    if (await isPastLevel(env, "steady", "csp_report", address)) return done;
     const declaredBytes = Number(request.headers.get("content-length") ?? "0");
     if (declaredBytes > MAXIMUM_REPORT_BODY_BYTES) return done;
     const text = await request.text();

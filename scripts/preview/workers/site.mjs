@@ -1,8 +1,8 @@
 // The site Worker as the preview runs it: unchanged, except database calls are tried again when
 // another preview server has the database locked (retry-when-locked.mjs), a request at localhost gets the site's
 // settings at localhost (addresses.mjs), developers' calls
-// (DEV_LIMIT, FILE_LIMIT) have no rate limit, so seeding the test data never waits on a 429, nor does a password's
-// (PASSWORD_LIMIT), since the layout check signs in as a closed account on every screen to measure its page, the Brotli
+// (LIMIT_BUSY, LIMIT_BUILDING) have no rate limit, so seeding the test data never waits on a 429, nor does a password's
+// (LIMIT_GUESS), since the layout check signs in as a closed account on every screen to measure its page, the Brotli
 // jobs it queues are noted (notingCompressJobs, below), every page gets the feedback overlay (withFeedback), and the Screens bench lives here (withBench,
 // ../bench/). Production keeps its limits and never has the overlay or the bench: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
@@ -17,7 +17,7 @@ import { readyStates, setUpsScript } from "../bench/places.ts";
 export * from "../../../apps/site/src/index.ts";
 
 const unlimited = { limit: async () => ({ success: true }) };
-const unlimitedBindings = new Set(["DEV_LIMIT", "FILE_LIMIT", "PASSWORD_LIMIT"]);
+const unlimitedBindings = new Set(["LIMIT_BUSY", "LIMIT_BUILDING", "LIMIT_GUESS"]);
 const withoutDeveloperLimits = new WeakMap();
 
 // Each Brotli job the site queues is noted in preview_compress_jobs, so the preview can wait until the compress Worker has

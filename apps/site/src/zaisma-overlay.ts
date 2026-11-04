@@ -7,6 +7,7 @@ import { icon } from "./components/icons.ts";
 import { row, stack, stackOfOne, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
 import { notice, sheet, type SheetStep } from "./components/panes.ts";
 import { zaismaOverlay } from "./components/playing.ts";
+import { RENTED_SHARE_TEXT } from "@zaisma/core";
 import { html, NO_EMPTY_NOTE, type Raw } from "./markup.ts";
 import { pageScript } from "./page-scripts.ts";
 import { ROOM_CODE_TYPING } from "./rooms.ts";
@@ -126,6 +127,19 @@ export const signInAskCard = (options: AccountCardOptions): Raw =>
       { kind: "words", markup: html`<p id="sign-in-text">Make a free Zaisma account or sign in. The game keeps running here while you do.</p>` },
       { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Make an account", { href: options.joinHref, dataAttributes: { "sign-in": "/join" } }) }, { kind: "control", markup: secondaryButton("Not now", { id: "sign-in-later", type: "button" }) }] }) },
       { kind: "words", markup: html`<p>Have an account? ${textLink("Sign in", options.signInHref, { dataAttributes: { "sign-in": "/signin" } })}</p>` },
+    ] }),
+  });
+
+/** A game's rented share is used and this player's network looks like a server, so their play has stopped until they turn off a VPN or sign in. */
+export const rentedShareCard = (signInHref: string, isShown = false): Raw =>
+  notice({ placement: "over-game",
+    id: "rented-share",
+    title: "This network looks like a server",
+    isShown,
+    strip: { words: RENTED_SHARE_TEXT, action: primaryButton(action("signIn"), { href: signInHref, isSmall: true }), closePresses: "rented-share-later" },
+    body: stack({ items: [
+      { kind: "words", markup: html`<p>Turn off your VPN or sign in with an account that has played before.</p>` },
+      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton(action("signIn"), { href: signInHref }) }, { kind: "control", markup: secondaryButton("Not now", { id: "rented-share-later", type: "button" }) }] }) },
     ] }),
   });
 

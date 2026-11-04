@@ -1,5 +1,5 @@
 import { gallerySheet } from "./components/gallery-sheet.ts";
-import { acceptedFriendRequestsFrom, accountById, answerFriendRequest, friendRequestRefusalFor, gameBySlug, sendFriendRequest, waitingFriendRequestsTo, type WaitingFriendRequest } from "@zaisma/core";
+import { isPastLevel, acceptedFriendRequestsFrom, accountById, answerFriendRequest, friendRequestRefusalFor, gameBySlug, sendFriendRequest, waitingFriendRequestsTo, type WaitingFriendRequest } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
@@ -40,7 +40,7 @@ export async function handleFriendRequests(request: Request, env: Env, path: str
     if (isForm) return done(redirect(`/signin?next=${encodeURIComponent("/friends#requests")}`));
     return done(answer({ error: { code: "not_signed_in", message: "Sign in to add friends." } }, 401));
   }
-  if (post && env.FRIEND_REQUEST_LIMIT && !(await env.FRIEND_REQUEST_LIMIT.limit({ key: account.id })).success) {
+  if (post && await isPastLevel(env, "steady", "friend_request", account.id)) {
     return done(isForm ? redirect("/friends#requests") : answer({ error: { code: "slow_down", message: "That's a lot of friend requests at once. Wait a minute and try again." } }, 429));
   }
 

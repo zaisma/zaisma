@@ -19,7 +19,7 @@ import { playingPeople, friendRequestRow, friendRows, type ListedFriend } from "
 import { reportStep } from "./report.ts";
 import { shareDialog } from "./share-cards.ts";
 import { stillThereCard } from "./still-there.ts";
-import { HINT_WORDS, ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
+import { HINT_WORDS, ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, rentedShareCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
 
 /*
  * Over a game: everything of Zaisma's that shows over a running game, already showing, on real screen shapes, with nothing to play or trigger. Each state is a small real page (the frame below) from the
@@ -58,7 +58,7 @@ interface OverGameState {
   screenNames?: string[];
   /** Which moment of its sheet: a state a gallerySheet declares. Left out, its usual one. */
   sheetState?: string;
-  card?: "hint" | "keep" | "sign-in" | "friend-request" | "friends-now" | "still-there" | "saved";
+  card?: "hint" | "keep" | "sign-in" | "rented-share" | "friend-request" | "friends-now" | "still-there" | "saved";
   isPlayedAlone?: boolean;
   isGuest?: boolean;
   isLongRoom?: boolean;
@@ -101,6 +101,7 @@ const OVER_GAME_PARTS: { partValue: string; states: OverGameState[] }[] = [
       { stateValue: "hint", title: "The hint when play starts, on a computer: the Zaisma button shows itself", shown: { isButtonShown: true }, card: "hint", screenNames: ["computer"] },
       { stateValue: "keep", title: "Keep your progress", shown: {}, card: "keep" },
       { stateValue: "sign-in", title: "A game asking a guest to sign in", shown: {}, card: "sign-in" },
+      { stateValue: "rented-share", title: "A game's rented share used, on a network that looks like a server", shown: {}, card: "rented-share" },
       { stateValue: "friend-request", title: "A friend request coming in", shown: { words: { "friend-request-card-name": "Mia_Plays" } }, card: "friend-request" },
       { stateValue: "friends-now", title: "A request accepted", shown: { words: { "friend-accepted-name": "Mia_Plays" } }, card: "friends-now" },
       { stateValue: "still-there", title: "The away timer", shown: {}, card: "still-there" },
@@ -192,6 +193,7 @@ function cardOf(state: OverGameState): Raw | string {
     case "hint": return saidCard("over-a-game-card", HINT_WORDS, true);
     case "keep": return keepProgressCard(accountCard);
     case "sign-in": return signInAskCard(accountCard);
+    case "rented-share": return rentedShareCard("#", true);
     case "friend-request": return friendRequestCard(true);
     case "friends-now": return friendAcceptedCard(true);
     case "still-there": return stillThereCard(true);

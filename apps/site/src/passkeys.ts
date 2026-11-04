@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   MAXIMUM_PASSKEY_COUNT,
   PASSKEY_ALGORITHM_NUMBERS,
   PASSKEY_APPROVAL_WAIT_MS,
@@ -132,7 +132,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
   }
 
   if (path === "/api/passkeys/signin") {
-    if (env.SIGNIN_LIMIT && !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success) return json({ error: "Too many tries. Wait a minute and try again." }, 429);
+    if (await isPastLevel(env, "rare", "sign_in", request.headers.get("cf-connecting-ip") ?? "local")) return json({ error: "Too many tries. Wait a minute and try again." }, 429);
     const challenge = await takeChallenge(request, env, "in");
     const body = await readJson(request);
     const key = challenge && typeof body.id === "string" ? await passkeyById(env.DB, body.id) : null;
@@ -166,7 +166,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
   }
 
   if (path === "/api/passkeys/tap/options") {
-    if (env.SIGNIN_LIMIT && !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success) return json({ error: "Too many tries. Wait a minute and try again." }, 429, session.cookies);
+    if (await isPastLevel(env, "rare", "sign_in", request.headers.get("cf-connecting-ip") ?? "local")) return json({ error: "Too many tries. Wait a minute and try again." }, 429, session.cookies);
     const purpose = (await readJson(request)).purpose;
     if (purpose !== "confirm" && purpose !== "key" && purpose !== "purchase") return json({ error: "Say what the tap is for: confirm, key or purchase." }, 400, session.cookies);
     const keys = await passkeysFor(env.DB, account.id);

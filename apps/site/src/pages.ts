@@ -1,7 +1,7 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
-import {
+import { RENTED_SHARE_VPN_TEXT,
   readReviewReason,
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -74,7 +74,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
 import { blockSheetParts } from "./blocks.ts";
 import { playingPeople } from "./players-sheet.ts";
-import { ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
+import { ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, rentedShareCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
 import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, updateButton } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
@@ -508,6 +508,7 @@ ${multiplayer ? html`${reportScript(game, { gameOrigin })}${blockSheetParts({ ga
 ${saves ? keepProgressCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
 ${saves ? signedOutCard(signinHere) : ""}
 ${canSignIn ? signInAskCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
+${canSignIn ? rentedShareCard(signinHere) : ""}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
@@ -515,6 +516,7 @@ ${isClosed ? "" : buySheetParts({ joinHref: joinHere, signInHref: signinHere, co
 ${shareDialog({ gameTitle: game.title, hasQrCode: !tester })}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
+      rented_share_text: RENTED_SHARE_VPN_TEXT,
       slug: game.slug,
       tester_token: tester?.token ?? null,
       room_code: inRoom ? code : "",
@@ -913,7 +915,8 @@ function privacyBody(): Raw {
 </ul>
 <p>Accounts are for people 13 and older. Anyone younger cannot create one, and nothing they entered is kept. If Zaisma learns that an account belongs to someone under 13, the account is deleted.</p>
 <h2>Cookies</h2>
-<p>Zaisma uses cookies only to keep you signed in, to complete account creation, and to recognize a device you have signed in on before. Zaisma uses no advertising, tracking or analytics cookies.</p>`,
+<p>Zaisma uses cookies only to keep you signed in, to complete account creation, and to recognize a device you have signed in on before. Zaisma uses no advertising, tracking or analytics cookies.</p>
+<p>Your browser keeps the date it first played each game, signed by Zaisma, so a browser that has played before keeps playing when a network looks like a server. It stays in your browser: Zaisma keeps no copy, and it says nothing about you or your device. Clearing your browser's storage removes it.</p>`,
       ),
       pane(
         "Games and payments",
@@ -1340,6 +1343,18 @@ share.onclick = () => shareFrom(share);
 const gameOrigin = new URL(gamePage.frame_url).origin;
 // Whenever a sheet or card of Zaisma's covers the game, or stops, the game hears it (Zaisma.page.coveredBy), so it can pause.
 addEventListener("zaisma:covered", (e) => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "zaisma:covered", coveredBy: e.detail.coveredBy }, gameOrigin); });
+let isRentedShareTold = false;
+const rentedShareLater = document.getElementById("rented-share-later");
+if (rentedShareLater) rentedShareLater.onclick = () => zaismaLayers.leave(document.getElementById("rented-share"));
+function tellRentedShareUsed() {
+  if (isRentedShareTold) return;
+  isRentedShareTold = true;
+  const card = document.getElementById("rented-share");
+  if (card && !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) zaismaLayers.show(card);
+  else zaismaLayers.say({ text: gamePage.rented_share_text, noticeUrgency: "ask" });
+}
+// The local preview shows the words by a link (?play&preview_bar=rented_share). Never on zaisma.com.
+if (/^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) && new URLSearchParams(location.search).get("preview_bar") === "rented_share") setTimeout(tellRentedShareUsed, 1000);
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -1382,6 +1397,8 @@ addEventListener("message", (e) => {
   }
   // The game asks a guest to sign in (Zaisma.player.signIn).
   if (d && d.type === "zaisma:sign-in" && window.askSignIn) askSignIn();
+  // This network's share of the game is used: only Zaisma can say why and offer signing in.
+  if (d && d.type === "zaisma:rented-share-used") tellRentedShareUsed();
   // The game asks to open one of its registered links (Zaisma.links.open).
   if (d && d.type === "zaisma:link" && typeof d.requestNumber === "number" && typeof d.linkName === "string") askLink(d);
   // The game asks to buy one of its items (Zaisma.items.buy): the buy sheet rises over it.
