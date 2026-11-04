@@ -9,7 +9,7 @@ import { readState } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { readPromises, writePromises } from "../../scripts/security-map/promises.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { applyNight, challengeOf, finishReview, mergesSince, readGridFailures, readReviews, reviewOutlineOf, reviewStepCountOf, SECOND_GUESS_WAY_COUNT, secondGuessSampleOf } from "../../scripts/security-map/review.mjs";
+import { applyNight, challengeOf, finishReview, mergesSince, readGridFailures, readPatternFindings, readReviews, reviewOutlineOf, reviewStepCountOf, SECOND_GUESS_WAY_COUNT, secondGuessSampleOf } from "../../scripts/security-map/review.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SECTOR_IDS, SECTORS } from "../../scripts/security-map/schema.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
@@ -65,7 +65,7 @@ function promisesFixture(): Promise_[] {
 const firstSector = SECTOR_IDS[0];
 
 function night(extra: Record<string, unknown> = {}) {
-  return { summary_line: "A quiet night", model_name: "claude-opus-5-5", started_at: NOW, step_count: 42, is_contracts_checked: false, is_grid_checked: false, way_rescores: [], strength_refreshes: [], new_ways: [], new_items: [], item_updates: [], second_guesses: [], challenge: { sector_id: firstSector, way_ids_done: [], is_finished: false, stopped_because: "out of steps" }, ...extra };
+  return { summary_line: "A quiet night", model_name: "claude-opus-5-5", started_at: NOW, step_count: 42, is_pattern_rules_checked: false, is_contracts_checked: false, is_grid_checked: false, way_rescores: [], strength_refreshes: [], new_ways: [], new_items: [], item_updates: [], second_guesses: [], challenge: { sector_id: firstSector, way_ids_done: [], is_finished: false, stopped_because: "out of steps" }, ...extra };
 }
 
 function newItem(extra: Record<string, unknown> = {}) {
@@ -340,6 +340,14 @@ describe("what a run reads", () => {
     mkdirSync(join(mapDir, "grid"));
     writeFileSync(join(mapDir, "grid", "failures.json"), JSON.stringify({ commit_sha: "abc", failures: [{ door_id: "page:GET /x", caller_kind: "stranger" }] }));
     expect(readGridFailures(mapDir).failures).toHaveLength(1);
+  });
+
+  it("reads the pattern rules' last run from the private repo, and none before its first", () => {
+    const mapDir = temporaryFolder("pattern-findings-");
+    expect(readPatternFindings(mapDir)).toBeNull();
+    mkdirSync(join(mapDir, "patterns"));
+    writeFileSync(join(mapDir, "patterns", "findings.json"), JSON.stringify({ commit_sha: "abc", findings: [{ rule_id: "code_from_text", source_path: "apps/x.ts" }] }));
+    expect(readPatternFindings(mapDir).findings).toHaveLength(1);
   });
 
   it("outlines stale records, open items and tonight's challenge", () => {

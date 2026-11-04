@@ -11,6 +11,7 @@
     "test:affected": "node scripts/affected-tests.mjs",
     "check": "node scripts/check.mjs",
     "grid": "node scripts/contract-grid.mjs",
+    "patterns": "node scripts/pattern-rules.mjs",
     "test:list": "node scripts/preview/background.mjs list",
     "typecheck": "tsc --noEmit",
     "dev:site": "npm run dev -w apps/site",

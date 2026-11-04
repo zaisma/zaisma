@@ -112,7 +112,7 @@ describe("runTestsThatFit", () => {
 });
 
 describe("formatResult", () => {
-  const empty = { test_failures: [], typecheck_failures: [], layout_failures: [], left_to_github: [], notes: [], is_pass: true };
+  const empty = { test_failures: [], typecheck_failures: [], pattern_failures: [], layout_failures: [], left_to_github: [], notes: [], is_pass: true };
   it("ends on PASS when nothing failed", () => {
     expect(formatResult(empty).split("\n").at(-1)).toBe("PASS");
   });

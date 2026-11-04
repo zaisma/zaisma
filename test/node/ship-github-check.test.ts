@@ -76,7 +76,7 @@ describe("the workflow and ship agree", () => {
     expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --measured .wrangler/layout-sweep-measured.json --changed-only");
     expect(sweepJob).toContain("restore-keys: layout-sweep-measured-");
     expect(sweepJob).toContain("name: layout-sweep-measured-${{ matrix.shard }}");
-    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, engines, seed, layout, sweep, docs-tests]");
+    expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, pattern-rules, engines, seed, layout, sweep, docs-tests]");
     expect(workflow).toContain(`if [ "$EVENT_NAME" = merge_group ]; then sweep_ok=false; if [ "$SWEEP_RESULT" = success ]; then sweep_ok=true; fi; fi`);
     // Its measured pages reach main's cache once its commit is main, where the next merge group reads them.
     const mainJob = workflow.slice(workflow.indexOf("name: Measured pages for main"), workflow.indexOf("\n  check:"));
