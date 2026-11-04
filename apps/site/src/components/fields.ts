@@ -269,7 +269,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
   return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
 <label class="words-margin" for="${id}-input">${options.label}</label>
-<span class="pin-marks">${marks}${input}</span>
+<span class="pin-marks words-margin">${marks}${input}</span>
 <p class="field-error words-margin" id="${errorId}"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p>
 </div>`, "field", { hasOwnWords: true });
 }
@@ -1021,7 +1021,8 @@ component({
    light as the digits go in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
 .pin-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .pin-field > label { font: var(--type-label); color: var(--ink-2); }
-.pin-marks { position: relative; display: flex; align-items: center; gap: var(--pad-inside-words); min-height: var(--control-height-small); }
+/* The marks are words to a pane's edges, keeping its margin, and sit in the middle of the width they have. */
+.pin-marks { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--pad-inside-words); min-height: var(--control-height-small); }
 .pin-mark { position: relative; flex: none; width: 20px; height: 20px; }
 .pin-fill { position: absolute; z-index: 2; inset: 4px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 .pin-mark.is-filled > .pin-fill { opacity: 1; transform: none; }
