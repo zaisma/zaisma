@@ -6,6 +6,7 @@ import type { Env } from "../../apps/rooms/src/index.ts";
 import { storedValueJson, storedValueOf, type Room } from "../../apps/rooms/src/room.ts";
 import { gameDatabaseObject, type GameDatabaseObject } from "../../apps/rooms/src/database.ts";
 import { GameStorageService } from "../../apps/rooms/src/game-storage.ts";
+import { GameRoomsService } from "../../apps/rooms/src/room-updates.ts";
 
 // Kept rooms (room.setKept): worlds that sleep with nobody in them and wake as they were.
 
@@ -230,6 +231,103 @@ describe("kept rooms", () => {
     await runInDurableObject(stub, async (_room: Room, state) => {
       expect((await state.storage.list()).size).toBe(0);
       expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it("wait out their week when their developer deletes them through the API: players go, the world stays, and nothing reaches it", async () => {
+    await addSandboxGame("waiting-world", WORLD);
+    const a = await join("waiting-world", "WATTXX");
+    a.say("chop");
+    a.say("how");
+    expect((await a.next()).data).toMatchObject({ logCount: 1 });
+    await until(() => liveRow("waiting-world", "WATTXX"));
+    await until(() => keptRow("waiting-world", "WATTXX"));
+    const service = new GameRoomsService(createExecutionContext(), e);
+    const stub = roomOf("waiting-world", "WATTXX");
+    const reached = { gameId: gameIdOf("waiting-world"), slug: "waiting-world", roomCode: "WATTXX" };
+    const erasesAtMs = Date.now() + 7 * 86_400_000;
+    expect(await service.holdKeptRoom({ gameId: "gsomeoneelse", slug: "waiting-world", roomCode: "WATTXX", erasesAtMs, message: null })).toEqual({ holdOutcome: "no_room" });
+    expect(await service.holdKeptRoom({ ...reached, erasesAtMs, message: null })).toEqual({ holdOutcome: "held" });
+    expect(await a.next()).toEqual({ type: "ended", message: "This world was deleted.", endReason: "kept_room_deleted" });
+    expect(await a.closed).toBe(REMOVED_CLOSE_CODE);
+    await e.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ? WHERE room_code = 'WATTXX'").bind(erasesAtMs).run();
+    expect(await liveRow("waiting-world", "WATTXX")).toBeNull();
+    expect(await keptRow("waiting-world", "WATTXX")).not.toBeNull();
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      expect(await state.storage.getAlarm()).toBe(erasesAtMs);
+      expect(await state.storage.get("erasesAtMs")).toBe(erasesAtMs);
+    });
+
+    // A second call changes nothing: the first week stands.
+    expect(await service.holdKeptRoom({ ...reached, erasesAtMs: erasesAtMs + 1000, message: null })).toEqual({ holdOutcome: "held" });
+    await runInDurableObject(stub, async (_room: Room, state) => expect(await state.storage.getAlarm()).toBe(erasesAtMs));
+
+    // Nobody joins, and no message or new version reaches it.
+    const up = await SELF.fetch(`${R}/v1/rooms/waiting-world/WATTXX`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": "198.51.100.77" } });
+    expect(up.status).toBe(101);
+    const refused = new Promise<any>((resolve) => up.webSocket!.addEventListener("message", (event) => resolve(JSON.parse(event.data as string))));
+    up.webSocket!.accept();
+    expect(await refused).toMatchObject({ type: "error", code: "ended", message: "This world was deleted." });
+    expect((await service.sendRoomMessage({ ...reached, message: { kind: "wake" } })).deliveryOutcome).toBe("no_room");
+    expect((await stub.fetch("https://room/room-message", { method: "POST", headers: { "x-game-id": gameIdOf("waiting-world") }, body: "{}" })).status).toBe(404);
+    expect((await stub.fetch("https://room/version-update", { method: "POST", headers: { "x-game-id": gameIdOf("waiting-world") }, body: JSON.stringify({ versionId: "vnew" }) })).status).toBe(404);
+
+    // An early alarm erases nothing and is set again.
+    await runInDurableObject(stub, async (_room: Room, state) => state.storage.setAlarm(Date.now() + 1000));
+    await runDurableObjectAlarm(stub);
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      expect(await state.storage.getAlarm()).toBe(erasesAtMs);
+      expect((await state.storage.list()).size).toBeGreaterThan(1);
+    });
+
+    // Brought back, it's as it was, with the same code, back on the Rooms tab.
+    expect(await service.bringBackKeptRoom({ ...reached, gameId: "gsomeoneelse" })).toEqual({ bringBackOutcome: "no_room" });
+    expect(await service.bringBackKeptRoom(reached)).toEqual({ bringBackOutcome: "brought_back" });
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      expect(await state.storage.getAlarm()).not.toBe(erasesAtMs);
+      expect(await state.storage.get("erasesAtMs")).toBeUndefined();
+    });
+    expect((await liveRow("waiting-world", "WATTXX"))?.is_kept).toBe(1);
+    const b = await join("waiting-world", "WATTXX");
+    b.say("how");
+    expect((await b.next()).data).toMatchObject({ logCount: 1, isKept: true });
+    b.ws.close(1000);
+  });
+
+  it("are erased when their week is over, with their rows", async () => {
+    await addSandboxGame("erased-world", WORLD);
+    const a = await join("erased-world", "ERASXX");
+    await until(() => keptRow("erased-world", "ERASXX"));
+    const service = new GameRoomsService(createExecutionContext(), e);
+    const stub = roomOf("erased-world", "ERASXX");
+    expect(await service.holdKeptRoom({ gameId: gameIdOf("erased-world"), slug: "erased-world", roomCode: "ERASXX", erasesAtMs: Date.now() - 1, message: "Closing." })).toEqual({ holdOutcome: "held" });
+    expect(await a.next()).toEqual({ type: "ended", message: "Closing.", endReason: "kept_room_deleted" });
+    await runDurableObjectAlarm(stub);
+    await until(async () => (await keptRow("erased-world", "ERASXX")) === null);
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it("keep waiting through a backup and a restore, since their row says so", async () => {
+    await addSandboxGame("restored-wait", WORLD);
+    const a = await join("restored-wait", "RWATTX");
+    await until(() => keptRow("restored-wait", "RWATTX"));
+    const gameId = gameIdOf("restored-wait");
+    const erasesAtMs = Date.now() + 86_400_000;
+    await new GameRoomsService(createExecutionContext(), e).holdKeptRoom({ gameId, slug: "restored-wait", roomCode: "RWATTX", erasesAtMs, message: null });
+    await a.closed;
+    await e.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ? WHERE room_code = 'RWATTX'").bind(erasesAtMs).run();
+    const service = new GameStorageService(createExecutionContext(), e);
+    const worldText = await new Response(await service.keptRoomBackup(gameId, "restored-wait", "RWATTX")).text();
+    expect(worldText).not.toContain("erasesAtMs");
+
+    await e.DB.prepare("UPDATE kept_rooms SET room_code = 'RSTWAT' WHERE room_code = 'RWATTX'").run();
+    await service.restoreKeptRoom(gameId, "restored-wait", "RSTWAT", new Response(worldText).body!);
+    await runInDurableObject(roomOf("restored-wait", "RSTWAT"), async (_room: Room, state) => {
+      expect(await state.storage.get("erasesAtMs")).toBe(erasesAtMs);
+      expect(await state.storage.getAlarm()).toBe(erasesAtMs);
     });
   });
 

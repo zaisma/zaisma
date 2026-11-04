@@ -6,9 +6,18 @@ import { MAXIMUM_DATABASE_SIZE_BYTES } from "./game-database.ts";
  * kept_rooms as they empty, and at most hourly while players are in them, so the sum is close, not exact.
  */
 
-/** The saved size of all of a game's kept rooms, from kept_rooms. */
+/** How long a world deleted through the API waits before it's erased, for its developer to bring it back. */
+export const KEPT_ROOM_ERASE_WAIT_DURATION_DAYS = 7;
+
+/** The saved size of a game's kept rooms that count towards its storage, from kept_rooms. */
 export async function keptRoomsSizeBytes(database: D1Database, gameId: string): Promise<number> {
-  const row = await database.prepare("SELECT COALESCE(SUM(saved_size_bytes), 0) AS size_bytes FROM kept_rooms WHERE game_id = ?").bind(gameId).first<{ size_bytes: number }>();
+  const row = await database.prepare("SELECT COALESCE(SUM(saved_size_bytes), 0) AS size_bytes FROM kept_rooms WHERE game_id = ? AND erases_at_ms IS NULL").bind(gameId).first<{ size_bytes: number }>();
+  return row?.size_bytes ?? 0;
+}
+
+/** The saved size of a game's kept rooms waiting to be erased: on the hosting meter, since they're still stored, but off the limit, so deleting a world makes room at once. */
+export async function waitingKeptRoomsSizeBytes(database: D1Database, gameId: string): Promise<number> {
+  const row = await database.prepare("SELECT COALESCE(SUM(saved_size_bytes), 0) AS size_bytes FROM kept_rooms WHERE game_id = ? AND erases_at_ms IS NOT NULL").bind(gameId).first<{ size_bytes: number }>();
   return row?.size_bytes ?? 0;
 }
 

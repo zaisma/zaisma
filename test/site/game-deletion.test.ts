@@ -97,7 +97,7 @@ describe("deleting a game", () => {
     expect((await answerGameDeletionRequest(env, { ...caller, accountId: "someone-else", isPasskeyConfirmed: true }, requestId, "approved")).outcome).toBe("not_waiting");
     expect(await hop()).toMatchObject({ review_status: before.review_status });
 
-    expect(await answerGameDeletionRequest(env, await tappedCaller(), requestId, "approved")).toEqual({ outcome: "answered", gameSlug: "hop" });
+    expect(await answerGameDeletionRequest(env, await tappedCaller(), requestId, "approved")).toEqual({ outcome: "answered", gameSlug: "hop", requestKind: "delete_game" });
     expect(await hop()).toMatchObject({ review_status: "removed", owner_id: ownerId });
     expect((await api("/games/hop")).answer.game).toMatchObject({ is_erase_now_allowed: false });
     expect((await api(`/games/hop/deletion-requests/${requestId}`)).answer.game_deletion_request.request_status).toBe("approved");

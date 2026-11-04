@@ -114,13 +114,18 @@ export async function cancelGameDeletionWait(database: D1Database, gameId: strin
  * room or a counted play. Any trace counts: this decides whether deleting the game takes the developer's passkey.
  */
 export async function isPlayedByOthers(database: D1Database, gameId: string): Promise<boolean> {
+  if (await isPlayedByOthersOutsideKeptRooms(database, gameId)) return true;
+  return (await database.prepare("SELECT 1 AS has_kept_room FROM kept_rooms WHERE game_id = ? LIMIT 1").bind(gameId).first()) !== null;
+}
+
+/** The same without kept rooms, which a game's developer makes by playing alone: this decides whether a deleted kept world waits its week. */
+export async function isPlayedByOthersOutsideKeptRooms(database: D1Database, gameId: string): Promise<boolean> {
   const row = await database
     .prepare(
       `WITH developer AS (SELECT owners.account_id FROM games JOIN owners ON owners.id = games.owner_id WHERE games.id = ?1)
        SELECT EXISTS (SELECT 1 FROM games_ever_played WHERE game_id = ?1 AND account_id IS NOT (SELECT account_id FROM developer))
          OR EXISTS (SELECT 1 FROM saves WHERE game_id = ?1 AND account_id IS NOT (SELECT account_id FROM developer))
          OR EXISTS (SELECT 1 FROM purchases WHERE game_id = ?1)
-         OR EXISTS (SELECT 1 FROM kept_rooms WHERE game_id = ?1)
          OR EXISTS (SELECT 1 FROM play_days WHERE game_id = ?1 AND (play_count > 0 OR player_count > 0)) AS is_played`,
     )
     .bind(gameId)

@@ -332,7 +332,7 @@ describe("every call", () => {
     const eventCountBefore = await eventCount();
     await setUpOwnersCall(routeName, world);
     // Erasing at once always asks for the passkey, and the asking is logged.
-    if (routeName === "POST /games/:slug/erase-now") {
+    if (routeName === "POST /games/:slug/erase-now" || routeName === "POST /games/:slug/kept-rooms/:room_code/erase-now") {
       expect((await call(apiRoute, developerKey, asDeveloper)).answer.error?.code).toBe("confirmation_needed");
       expect((await eventCount()) - eventCountBefore).toBe(1);
       return;

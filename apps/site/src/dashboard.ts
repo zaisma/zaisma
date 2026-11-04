@@ -179,6 +179,7 @@ const ACCOUNT_REQUIREMENT_LABELS: Record<AccountRequirement, { label: string; hi
 const DONE: Record<string, string> = {
   "game-deleted": "Deleted. It's off for every player.",
   "game-brought-back": "It's back, as it was.",
+  "kept-room-erased": "Erased. That world is gone for good.",
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
   details: "Details saved.",

@@ -212,7 +212,9 @@ const COMMANDS = {
   },
   "items remove": { about: "Remove an item nobody bought or was granted", arguments: [{ name: "slug" }, { name: "item_name" }], flags: {} },
   "kept-rooms": { about: "A game's kept rooms (room.setKept), worlds that sleep with nobody in them: each one's code, name, size and when it was last played, and the game's storage", arguments: [{ name: "slug" }], flags: {} },
-  "kept-rooms delete": { about: "Delete a kept room's world for good; players in it are sent out", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms delete": { about: "Delete a kept room's world; players in it are sent out, and it waits a week before it's erased", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms bring-back": { about: "Bring back a kept room's world waiting to be erased, as it was", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms erase-now": { about: "Erase a waiting kept room's world at once; answers a link where the developer approves with a passkey tap", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
   rooms: { about: "A game's live rooms on Zaisma, newest first: each one's code, name, labels, players and spectators, and whether it's kept", arguments: [{ name: "slug" }], flags: {} },
   logs: {
     about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
@@ -315,7 +317,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], items: ["set", "remove"], "kept-rooms": ["delete"] };
+const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], items: ["set", "remove"], "kept-rooms": ["delete", "bring-back", "erase-now"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -1948,19 +1950,28 @@ async function liveRooms(values) {
   if (answer.next_cursor) console.log(`${answer.room_count} rooms in all; --json, or list_rooms with cursor, gives the rest.`);
 }
 
-/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms and delete_kept_room. */
+/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms, delete_kept_room, bring_back_kept_room and erase_kept_room_now. */
 async function keptRooms(command, values) {
   if (command === "kept-rooms") {
     const answer = await api("GET", `/games/${values.slug}/kept-rooms`);
     if (isJson) return printJson(answer);
     if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
-    for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
+    for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.erases_at ? `waiting, erased ${when(keptRoom.erases_at)}  ` : ""}${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
     console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of the ${sizeText(answer.maximum_storage_size_bytes)} a game can keep (database and kept rooms).`);
     return;
   }
-  const answer = await api("DELETE", `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`);
+  const roomPath = `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`;
+  const code = values.room_code.toUpperCase();
+  if (command === "kept-rooms bring-back" || command === "kept-rooms erase-now") {
+    const isBringingBack = command === "kept-rooms bring-back";
+    const answer = await api("POST", `${roomPath}/${isBringingBack ? "bring-back" : "erase-now"}`);
+    if (isJson) return printJson(answer);
+    console.log(isBringingBack ? `Kept room ${code} of ${values.slug} is back, as it was.` : `Erased kept room ${code} of ${values.slug} for good.`);
+    return;
+  }
+  const answer = await api("DELETE", roomPath);
   if (isJson) return printJson(answer);
-  console.log(`Deleted kept room ${values.room_code.toUpperCase()} from ${values.slug}, and its world with it.`);
+  console.log(answer.erases_at ? `Deleted kept room ${code} from ${values.slug}. Its world waits until ${when(answer.erases_at)}: zaisma kept-rooms bring-back ${values.slug} ${code} brings it back.` : `Deleted kept room ${code} from ${values.slug}, and its world with it.`);
 }
 
 /** A game server's logs (GET …/games/<slug>/logs), as the MCP's get_logs; --follow asks for new lines every 2 seconds. */
