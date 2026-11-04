@@ -2,6 +2,7 @@ import { requestCountryCode } from "@zaisma/core";
 import { readCookie } from "./auth.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
+import { CLOSED_NEWS_COOKIE, PLAYED_COOKIE } from "./home-script.ts";
 import { isLocalSite } from "./html.ts";
 
 /**
@@ -12,6 +13,7 @@ import { isLocalSite } from "./html.ts";
  * purge. These pages vary for a guest only by the kind of device (device-kind.ts) and the country (a game blocked in it), which are in the
  * key; a page that comes to vary on
  * anything else adds it to the key here (test/site/first-paint.test.ts renders each twice for a guest and fails when they differ).
+ * The one exception is the home of a guest with a part of their own, HOME_OWN_PART_COOKIES: it's made for them, never a copy made for another guest.
  */
 
 export const GUEST_PAGE_CACHE_DURATION_SEC = 60;
@@ -26,17 +28,24 @@ const GUEST_CACHED_PAGES: readonly RegExp[] = [
   /^\/developers\/(covers|backgrounds)$/,
 ];
 
+/**
+ * What a guest's home shows of their own, from the first paint: what this device played, and without the news it closed (home.ts). A copy
+ * made for another guest would show neither, and the home's script would then push the page down to add Continue playing.
+ */
+const HOME_OWN_PART_COOKIES: readonly string[] = [PLAYED_COOKIE, CLOSED_NEWS_COOKIE];
+
 /** The longest address kept, query included: a longer one is answered without the cache. */
 const MAXIMUM_ADDRESS_CHARACTER_COUNT = 512;
 
 /** Whether the answer came from the cache, for the tests and the ship check. */
 export const PAGE_CACHE_HEADER = "Zaisma-Page-Cache";
 
-function cacheKey(request: Request, url: URL): Request | null {
+function cacheKey(request: Request, env: Env, url: URL): Request | null {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   const path = url.pathname.replace(/\/+$/, "") || "/";
   if (!GUEST_CACHED_PAGES.some((page) => page.test(path))) return null;
   if (url.pathname.length + url.search.length > MAXIMUM_ADDRESS_CHARACTER_COUNT) return null;
+  if (path === "/" && HOME_OWN_PART_COOKIES.some((name) => readCookie(request, env, name))) return null;
   // The key is an address of its own on the site: the page, its query, the device kind it was laid out for and the country it was made
   // for (a game a developer blocked there answers 451).
   const key = new URL(`/__guest-page${path}`, url.origin);
@@ -57,7 +66,7 @@ export async function withGuestPageCache(request: Request, env: Env, ctx: Execut
   const url = new URL(request.url);
   // The local preview keeps nothing: a page there shows the change just made, and the layout check's steps see what they did.
   const durationSec = Number(env.GUEST_PAGE_CACHE_SECONDS ?? GUEST_PAGE_CACHE_DURATION_SEC);
-  const key = isLocalSite(env) || !(durationSec > 0) || readCookie(request, env, "zaisma_in") ? null : cacheKey(request, url);
+  const key = isLocalSite(env) || !(durationSec > 0) || readCookie(request, env, "zaisma_in") ? null : cacheKey(request, env, url);
   if (!key) return render();
   const cache = caches.default;
   const kept = await cache.match(key);

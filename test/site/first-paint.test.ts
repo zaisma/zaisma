@@ -4,6 +4,7 @@ import { createAccount, createGame, personOwner } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
 import { FIRST_PAINT_SCRIPT_TEXTS } from "../../apps/site/src/html.ts";
 import { PAGE_CACHE_HEADER, withGuestPageCache } from "../../apps/site/src/guest-page-cache.ts";
+import { CLOSED_NEWS_COOKIE, PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
 import { handleSpeedReports, pageSpeedAnswer, SPEED_REPORT_PATH } from "../../apps/site/src/speed-reports.ts";
 import type { Env } from "../../apps/site/src/env.ts";
 
@@ -86,6 +87,18 @@ describe("guest pages from the cache near the player", () => {
     expect((await open("/g/cache-one", { headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14) Mobile Safari" } })).cacheState).toBe("miss");
     expect((await open("/g/cache-one", { cf: { country: "DE" } } as RequestInit)).cacheState).toBe("miss");
     expect(renderCount).toBe(3);
+  });
+
+  it("makes the home for a guest who has played or closed the news, never handing them another guest's copy, and shares every other page", async () => {
+    const playedCookie = `__Host-${PLAYED_COOKIE}=sky-hopper`;
+    await open("/");
+    expect((await open("/")).cacheState).toBe("hit");
+    for (const cookie of [playedCookie, `__Host-${CLOSED_NEWS_COOKIE}=news_one`]) {
+      expect((await open("/", { headers: { Cookie: cookie } })).cacheState).toBeNull();
+    }
+    expect((await open("/", { headers: { Cookie: `__Host-${PLAYED_COOKIE}=` } })).cacheState).toBe("hit");
+    await open("/g/cache-played");
+    expect((await open("/g/cache-played", { headers: { Cookie: playedCookie } })).cacheState).toBe("hit");
   });
 
   it("never keeps a signed-in viewer's page, one that sets a cookie or says no-store, or a page off the list", async () => {
