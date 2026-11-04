@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { action, type ListedAction } from "./action-list.ts";
+import { type ActionName, action, type ListedAction } from "./action-list.ts";
 export { ACTION_NAMES, action, type ActionName, type ListedAction, type ListedIcon } from "./action-list.ts";
 import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, leavesZaisma, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
@@ -71,6 +71,10 @@ const disabledAttribute = (target: ButtonTarget & { isDisabled?: boolean; isBusy
 
 /** What a button says: its own words and no icon, or an action from the list, which gives it its word and icon. */
 export type ButtonWords = string | ListedAction;
+/** Back and Close: with only their icon they're the quiet way out, so a tertiary button. */
+export type WayOutAction = ListedAction<"back" | "close">;
+/** What a secondary button takes with no question: its words, or any action but Back and Close. */
+export type SecondaryButtonWords = string | ListedAction<Exclude<ActionName, WayOutAction["actionName"]>>;
 const faceOf = (button: ButtonWords): { label: string; chosenIcon?: IconName; pressedIcon?: IconName } => (typeof button === "string" ? { label: button } : { label: button.label, chosenIcon: button.icon, ...(button.pressedIcon ? { pressedIcon: button.pressedIcon } : {}) });
 
 export interface PrimaryButtonOptions extends ButtonTarget {
@@ -141,9 +145,13 @@ export interface SecondaryButtonOptions extends ButtonTarget {
 }
 
 /**
- * A secondary button: a solid cut slab. It brightens under the pointer and carves in under a press. A delete is one too, never orange.
+ * A secondary button: a solid cut slab. Back or Close with only its icon is the quiet way out, a tertiary button: it doesn't compile here without
+ * staysSecondaryBecause, for the few that aren't (the game page header's Back). It brightens under the pointer and carves in under a press. A delete is one too, never orange.
  * Another way in (a passkey, Google, Discord) is one with the way's mark, its slab tinted the way's color, as wide as the column.
  */
+export function secondaryButton(button: WayOutAction, options: SecondaryButtonOptions & { isLabelHidden: true; staysSecondaryBecause: string }): ControlMarkup;
+export function secondaryButton(button: WayOutAction, options?: SecondaryButtonOptions & { isLabelHidden?: false }): ControlMarkup;
+export function secondaryButton(button: SecondaryButtonWords, options?: SecondaryButtonOptions): ControlMarkup;
 export function secondaryButton(button: ButtonWords, options: SecondaryButtonOptions = {}): ControlMarkup {
   const { label, chosenIcon } = faceOf(button);
   return secondaryButtonMarkup(label, { ...options, ...(chosenIcon ? { icon: chosenIcon } : {}) });
@@ -478,7 +486,7 @@ component({
   slug: "secondary-button",
   group: "actions",
   subgroup: "buttons",
-  summary: "Everything else you can press: Details, Make an account, Cancel. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a secondary button too, never orange; only its confirm step turns red.",
+  summary: "Everything else you can press: Details, Make an account, Cancel. Not Back or Close with only its icon: that's a Tertiary button. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a secondary button too, never orange; only its confirm step turns red.",
   styles: `
 /* Beside a field on a narrow screen, a button with an icon shows its icon alone, as it does in a narrow list's row. */
 @media (max-width: ${NARROW_HOLDER_WIDTH}) {
@@ -559,7 +567,7 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
     { label: "A delete's confirm, pointed", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pointed" }), isStill: true },
     { label: "A delete's confirm, pressed: it carves in", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", state: "is-pressed" }), isStill: true },
     { label: "A delete's confirm, deleting", markup: secondaryButton("Delete Ashen Crown", { type: "submit", tint: "red", isBusy: true }), isStill: true },
-    { label: "Small, only its icon: a sheet's Close, a Copy", markup: controlsBeside(secondaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }), secondaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true })) },
+    { label: "Small, only its icon: a Share, a Copy", markup: controlsBeside(secondaryButton(action("share"), { type: "button", isLabelHidden: true, isSmall: true }), secondaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true })) },
     { label: "Can't press", markup: controlsBeside(secondaryButton("Details", { type: "button", isDisabled: true }), secondaryButton(action("settings"), { type: "button", isDisabled: true })), isStill: true },
     { label: "Folds a Sidebar: small, only the sidebar's icon, at the start of the page's header (sidebarButton)", markup: controlsBeside(secondaryButton(action("settings"), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: true }), secondaryButton(action("settings"), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: false })), isStill: true },
     { label: "With a count: the players in a room", markup: secondaryButton(action("players"), { type: "button", isLabelHidden: true, reactionCount: 3 }) },
@@ -620,7 +628,7 @@ component({
   slug: "tertiary-button",
   group: "actions",
   subgroup: "buttons",
-  summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, a sheet's Back and Close. Beside a secondary button it's the way out; never the one thing to do.",
+  summary: "The quietest thing to press: words, an icon, or both, with no slab until it's pointed at. Skip for now, Show all, Undo; only its icon, Back and Close, wherever they're the way out. Beside a secondary button it's the way out; never the one thing to do.",
   styles: `
 /* A tertiary button: words only, at rest, in a control's box: its words keep a field's inset (--pad-inside-words), so on a pane's edge they're
    at the pane's margin while its box is at the frame gap, cut by the edge rule like any control's (slanting toward a control beside it).

@@ -82,7 +82,7 @@ export function header(options: HeaderOptions): Raw {
     ? secondaryButton(action("signIn"), { href: "/signin", dataAttributes: { "sign-in-icon": "", ...(options.hasBackButton ? { "sign-in-narrows": "" } : {}) } })
     : primaryButton(action("signIn"), { href: "/signin", isArrowKept: true, dataAttributes: { "sign-in-icon": "" } });
   return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}${options.isWaiting ? raw(" data-stays-waiting") : ""}>${EDGE}
-  ${options.hasBackButton ? secondaryButton(action("back"), { id: `${id}-back`, href: "/", isLabelHidden: true, isSmall: true, dataAttributes: { "header-back": "" } }) : ""}${options.sidebarButton ?? ""}${wordmark}${hasTabRow ? logo("mark") : ""}
+  ${options.hasBackButton ? secondaryButton(action("back"), { staysSecondaryBecause: "It sits with the header's other controls, where a bare icon would look out of place.", id: `${id}-back`, href: "/", isLabelHidden: true, isSmall: true, dataAttributes: { "header-back": "" } }) : ""}${options.sidebarButton ?? ""}${wordmark}${hasTabRow ? logo("mark") : ""}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(action("search", options.search.label), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${

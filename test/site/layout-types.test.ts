@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { secondaryButton, primaryButton } from "../../apps/site/src/components/actions.ts";
+import { action, secondaryButton, primaryButton } from "../../apps/site/src/components/actions.ts";
 import { grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { NO_EMPTY_NOTE, html } from "../../apps/site/src/markup.ts";
 
@@ -20,6 +20,10 @@ describe("layouts that don't build", () => {
     row({ widths: "equal", alignment: "end", items: [] });
     // @ts-expect-error One line is for covers, which have words under them and share it.
     grid({ itemSize: "card", isAllOnOneLine: true, whenEmpty: NO_EMPTY_NOTE, items: [] });
+    // @ts-expect-error Back or Close with only its icon is the quiet way out: a tertiary button.
+    secondaryButton(action("close"), { isLabelHidden: true });
+    // @ts-expect-error The same, for Back.
+    secondaryButton(action("back"), { isLabelHidden: true });
     // @ts-expect-error A grid's cells are a named size.
     grid({ itemSize: 180, items: [] });
     // @ts-expect-error A control is given as a control, so it's spaced and sized as one.
