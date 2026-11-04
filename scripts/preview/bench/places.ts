@@ -191,7 +191,7 @@ export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
 /** Checked states with no button, each with why. */
 export const CHECKED_PAGES_NOT_ON_THE_BENCH: readonly { name: CheckedPageName; reason: string }[] = [
   { name: "Pick a username", reason: "it passes through the stand-in Google sign-in on another site, where a screen loses the mark that says whose it is" },
-  ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
+  ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Security", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
 ];
 
 /** Who a button or a choice is for: short, since the menus hold them on one line. Each of the preview's test accounts has one. */

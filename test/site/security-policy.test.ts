@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_LIFETIME_DAYS, securityTextFile } from "../../apps/site/src/security-policy.ts";
+import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_LIFETIME_DAYS, securityPromisesSection, securityTextFile } from "../../apps/site/src/security-policy.ts";
 
 // "Anyone can report a hole safely, and is promised no trouble for it." in docs/DECISIONS.md:
 // the security page, /.well-known/security.txt and SECURITY.md all say the same thing.
@@ -21,6 +21,17 @@ describe("the security page", () => {
     expect(text).toContain(`within ${FIX_WITHIN_DAYS}`);
     expect(text).toContain("no cash reward");
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain('<a class="link quiet" href="/legal/security">Security</a>');
+  });
+});
+
+describe("the security page's promises", () => {
+  it("print nothing while the list is empty, and escape what they print", () => {
+    expect(String(securityPromisesSection([]))).toBe("");
+    const printed = String(securityPromisesSection([{ promise_line: "Only <b>a</b> player.", strengths: [{ strength_kind: "math", strength_line: "A signature." }], way_lines: ["Someone steals a pass."] }]));
+    expect(printed).toContain("What Zaisma promises");
+    expect(printed).toContain("Only &lt;b&gt;a&lt;/b&gt; player.");
+    expect(printed).toContain("Someone steals a pass.");
+    expect(printed).toContain("Cannot be forged:");
   });
 });
 
