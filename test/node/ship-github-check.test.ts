@@ -34,7 +34,7 @@ describe("the workflow and ship agree", () => {
   it("on the required check's name and the docs tests' name", () => {
     expect(workflow).toContain(`name: ${GITHUB_CHECK_NAME}\n`);
     expect(workflow).toContain(`name: ${DOCS_TESTS_CHECK_NAME}\n`);
-    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 4)\n`);
+    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 8)\n`);
   });
   it("on what the engine exports run, from the repository's graph", () => {
     expect(workflow).toContain("node scripts/affected-tests.mjs --github");
