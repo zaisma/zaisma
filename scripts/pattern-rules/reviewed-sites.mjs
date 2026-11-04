@@ -14,6 +14,7 @@ export const REVIEWED_SITES = [
   { rule_id: "sql_text_from_a_value", source_path: "apps/site/src/forum-search.ts", symbol_name: "searchTopics", site_count: 1, safe_because: "filters.where holds only fixed text from forum.ts; the search words are bound." },
   { rule_id: "sql_text_from_a_value", source_path: "apps/site/src/plays.ts", symbol_name: "addPerformance", site_count: 1, safe_because: "addedCounts builds its text from fixed column names and list lengths." },
   { rule_id: "sql_text_from_a_value", source_path: "apps/site/src/restore.ts", symbol_name: "ownerRows", site_count: 1, safe_because: "ownerSql comes from the fixed table in restore-rules.ts." },
+  { rule_id: "sql_text_from_a_value", source_path: "apps/site/src/storage-api.ts", symbol_name: "filesVersionIdsWhere", site_count: 1, safe_because: "Every call gives it a fixed condition, with the id bound." },
   { rule_id: "sql_text_from_a_value", source_path: "packages/cli/zaisma.mjs", symbol_name: "exportDatabase", site_count: 1, safe_because: "Runs on the developer's own computer, on their own files." },
   { rule_id: "sql_text_from_a_value", source_path: "packages/cli/zaisma.mjs", symbol_name: "exportGame", site_count: 1, safe_because: "Runs on the developer's own computer, on their own files." },
   { rule_id: "sql_text_from_a_value", source_path: "packages/cli/zaisma.mjs", symbol_name: "sqliteDumpStatements", site_count: 1, safe_because: "Runs on the developer's own computer, on their own files." },
