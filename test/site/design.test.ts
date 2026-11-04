@@ -643,17 +643,13 @@ describe("components", () => {
     expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
   });
 
-  it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
-    // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
-    // rectangles and cut corners to the pass round the shader, whose arrays are that long.
-    expect(MOST_GLASS_PANE_COUNT).toBeLessThanOrEqual(16);
-    expect(BACKDROP_SCRIPT).toContain('document.querySelectorAll("[data-glass]:not([data-cut-line])")');
-    expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
-    expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
-    expect(BACKDROP_SCRIPT).toContain('window.zaismaCorners(el, "pane")');
+  it("draws nothing in the backdrop for the glass, so nothing trails a pane on a scroll", () => {
+    // The browser moves glass ahead of anything a page can draw: a backdrop only runs its shader, and asks for no frame when glass moves.
+    expect(BACKDROP_SCRIPT).not.toContain("iGlassPanes");
+    expect(BACKDROP_SCRIPT).not.toContain("zaismaWatch.scroll");
+    expect(BACKDROP_SCRIPT).toContain("mainImage(color, gl_FragCoord.xy + zaismaViewOffset)");
+    // What a developer's shader can read stays: it still builds, with no glass told to it.
     expect(SHADER_HEAD).toContain(`uniform vec4 iGlassPanes[${MOST_GLASS_PANE_COUNT}];`);
-    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
-    // Every shader keeps its own mainImage: the pass calls it once a pixel.
     expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);
   });
 
@@ -1340,13 +1336,6 @@ describe("layout", () => {
 
   it("gives a bench screen its own bezel, so it draws with no bench round it", () => {
     expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
-  });
-
-  it("bends the light under glass only at rest: a canvas can't follow glass the browser moves ahead of it", () => {
-    expect(GLASS_LIGHT_PASS).toContain("uniform float zaismaBendShare;");
-    expect(GLASS_LIGHT_PASS).toMatch(/at = mix\(f, .*, zaismaBendShare\);/);
-    expect(BACKDROP_SCRIPT).toContain('window.addEventListener("scroll", pageScrolling, { passive: true });');
-    expect(BACKDROP_SCRIPT).toContain("gl.uniform1f(at.zaismaBendShare, bendShare);");
   });
 
   it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {

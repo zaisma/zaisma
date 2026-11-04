@@ -511,9 +511,9 @@ component({
       isWide: true,
       markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="pane" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
     },
-    { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
+    { label: "Light glass over a background", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is blurred, with light gathered on the lit facets of its cut edge."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
-    { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ standInSlug: "neon-drift", cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
+    { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ standInSlug: "neon-drift", cards: [["Neon Drift", "A city in the rain behind thick glass: blurred, lit along the edge, and the words as clear as ever."]] }) },
   ],
 });
 
@@ -647,7 +647,7 @@ component({
   slug: "shader-background",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up. A shader drawn in the page bends the light under the glass: what's behind each pane magnified and bent as through thick glass, with light gathered along its cut edge. A game's own shader runs in a frame on the game's site, which can't redraw a bend in the frame the page scrolls in, so behind Zaisma's glass it shows as drawn, never bent.",
+  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up. It shows as drawn behind the glass, which blurs it and gathers light along its own cut edge, so nothing drawn for the glass ever trails it on a scroll.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
 /* Its lines run on sideways where the frame is narrow, fading at the side with more (data-fades-sideways), never cut off. */

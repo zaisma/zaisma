@@ -25,7 +25,6 @@ export const GLASS_LIGHT_PASS = `
 uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // each pane's cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
 uniform float zaismaPixel;      // canvas pixels per CSS pixel
 uniform vec2 zaismaViewOffset;  // where the canvas sits in the scene it shows a part of (the gallery's framed examples), in its pixels
-uniform float zaismaBendShare;  // how much of the bend shows, 0 to 1: none while the page scrolls, since the canvas can only follow the glass frames late
 out vec4 zaismaFragColor;
 // Signed distance to a pane's cut shape (negative inside), and the outward normal of its nearest side.
 float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
@@ -50,7 +49,7 @@ void main() {
       float depth = -d, edge = 1.0 - smoothstep(0.0, rim, depth);
       vec2 center = (iGlassPanes[i].xy + iGlassPanes[i].zw) * 0.5;
       // Thick glass: what's behind is magnified a little and bent inward along the rim, most at the very edge.
-      at = mix(f, center + (f - center) * (1.0 - 0.018 * strength) - n * rim * 0.45 * strength * edge * edge, zaismaBendShare);
+      at = center + (f - center) * (1.0 - 0.018 * strength) - n * rim * 0.45 * strength * edge * edge;
       break;
     }
   }
