@@ -1,4 +1,4 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterAll, afterEach, beforeAll, describe, it, vi } from "vitest";
 import { createApiKey, type KeyScope } from "@zaisma/core";
 import { PATH_PARTS, SITE_DOORS, siteDoorIds, type SiteDoor } from "../../apps/site/src/doors.ts";
@@ -89,14 +89,16 @@ async function callDoor(method: string, path: string, sample: PageSample, creden
   const isGet = method === "GET" || method === "HEAD" || method === "OPTIONS";
   const sent = isGet ? { headers: {} } : bodyOf(sample);
   const headers: Record<string, string> = { ...credential.headers, "cf-connecting-ip": nextAddress(), ...sent.headers };
+  const context = createExecutionContext();
   let response: Response;
   try {
-    response = await worker.fetch(new Request(`${credential.site}${path}${query}`, { method, headers, redirect: "manual", ...("body" in sent ? { body: sent.body } : {}) }), workerEnv, createExecutionContext());
+    response = await worker.fetch(new Request(`${credential.site}${path}${query}`, { method, headers, redirect: "manual", ...("body" in sent ? { body: sent.body } : {}) }), workerEnv, context);
   } catch {
     // What Cloudflare answers when a Worker throws.
     return { http_status: 500, location: null, answerText: "" };
   }
   const answerText = new TextDecoder().decode(await response.arrayBuffer());
+  await waitOnExecutionContext(context);
   return { http_status: response.status, location: response.headers.get("location"), answerText };
 }
 
@@ -163,6 +165,9 @@ describe("every door on the site", () => {
       if (!problem && isWrite && door.contract.whoMayCall !== "anyone" && !(rowName in CHANGES_NOTHING) && (await everything(ownersWorld)) === before) problem = `Changed nothing (${made.http_status} to ${made.location}), so the sample proves nothing.`;
     }
     cells.push(cellOf(doorId, "owner", problem));
+    // What the owner got is what the contract says: anything else was cut and noted (apps/site/src/answers.ts).
+    const cutAnswer = await env.DB.prepare("SELECT field_paths FROM door_answer_cuts WHERE door_id = ?").bind(`page:${method} ${door.path}`).first<{ field_paths: string }>();
+    cells.push(cellOf(doorId, "answer_shape", cutAnswer ? `Answered with ${cutAnswer.field_paths}, which it doesn't declare.` : null));
 
     // What the door's contract says it takes and how much it can be used: a wrong shape and a door past its limit are refused before any of its own code runs.
     const { takes, limit } = door.contract;

@@ -64,7 +64,7 @@ npm run grid
 
 runs it and prints every failure. GitHub's check runs `npm run grid -- --compare <the commit a change left>`: anyone can read a check's log, so it prints and fails only on what the change adds. A change to the grid itself gets a count, and a local run says the rest. A failure already on main is a security item, kept privately until it's fixed; a fix needs no change here, since main stops failing that cell.
 
-The grid also sends each door a request of the wrong shape, and calls it with its limit's binding refusing everything, as the `wrong_shape` and `past_limit` cells; a door that doesn't refuse fails.
+The grid also sends each door a request of the wrong shape, and calls it with its limit's binding refusing everything, as the `wrong_shape` and `past_limit` cells, and checks what the owner's call answered against the contract as the `answer_shape` cell; a door that doesn't refuse fails.
 
 ## Adding a door
 

@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isReturningBrowser, signPlayMark } from "@zaisma/core";
 import { addPerformance, addTime, clearCountedDay, countStart, countTicket, issueTicket, playingNowCounts, playSpikes, playStats, reportPlaying, shelfPlayers } from "../../apps/site/src/plays.ts";
 import { shelves } from "../../apps/site/src/home.ts";
 import { pageDataOf, pageScriptNames, pageScriptText } from "../strict-scripts.ts";
@@ -49,6 +50,26 @@ describe("counted plays", () => {
     expect(await row()).toMatchObject({ started_play_count: 3, play_count: 0 });
     expect((await send("play-game", { ticket, counted: true })).status).toBe(204);
     expect(await row()).toMatchObject({ play_count: 0 });
+  });
+
+  it("gives a browser's first counted play a signed mark, which only a browser that holds one can show", async () => {
+    const { ticket } = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string }>();
+    const counted = await send("play-game", { ticket, counted: true, has_play_mark: false }, { origin: SITE, "cf-connecting-ip": "192.0.2.10" });
+    expect(counted.status).toBe(200);
+    const { play_mark: playMark } = await counted.json<{ play_mark: string }>();
+    expect(playMark).toEqual(expect.any(String));
+    // It says when the browser first played, so a browser that has one keeps it: the first play can't move.
+    const { ticket: again } = await (await send("play-game", { ...NEW, token: "good", play_mark: playMark })).json<{ ticket: string }>();
+    expect((await send("play-game", { ticket: again, counted: true, has_play_mark: true })).status).toBe(204);
+    // The mark is for this game, and made here: nothing else reads as having played.
+    const storedSecretsKey = (env as unknown as { STORED_SECRETS_KEY: string }).STORED_SECRETS_KEY;
+    expect(await isReturningBrowser(storedSecretsKey, "g-play", playMark)).toBe(true);
+    expect(await isReturningBrowser(storedSecretsKey, "g-other", playMark)).toBe(false);
+    expect(await isReturningBrowser(storedSecretsKey, "g-play", `${playMark}x`)).toBe(false);
+    // One made on a rented network counts only after a week.
+    const onRentedNetwork = await signPlayMark(storedSecretsKey, "g-play", "2031-03-10", false);
+    expect(await isReturningBrowser(storedSecretsKey, "g-play", onRentedNetwork, Date.parse("2031-03-16T00:00:00Z"))).toBe(false);
+    expect(await isReturningBrowser(storedSecretsKey, "g-play", onRentedNetwork, Date.parse("2031-03-18T00:00:00Z"))).toBe(true);
   });
 
   it("counts a ticket once, after a minute, and never more time than has passed", async () => {

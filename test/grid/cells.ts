@@ -125,7 +125,7 @@ declare module "vitest" {
 }
 
 /** What the grid tries besides callers: a request of the wrong shape, and a door past its limit. Each door's own contract says what it should do. */
-export type ShapeCheckKind = "wrong_shape" | "past_limit";
+export type ShapeCheckKind = "wrong_shape" | "past_limit" | "answer_shape";
 
 /** A value that can't fit a shape, or undefined when none can be said: a game's own data goes by size alone. */
 export function wrongValueOf(shape: Readonly<Record<string, unknown>>): unknown {

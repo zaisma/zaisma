@@ -131,5 +131,8 @@ describe("every call", () => {
     const ownersAnswer: CallAnswer = { http_status: owner.httpStatus, location: null, is_owners_changed: false, is_private_value_shown: false };
     if (CONFIRMED_ON_A_PAGE.has(routeName)) cells.push(cellOf(doorId, "owner", owner.httpStatus === 403 ? null : `Answered ${owner.httpStatus}, where it needs a passkey on a page first.`));
     else cells.push(cellOf(doorId, "owner", problemWithAnswer("goes_through", null, ownersAnswer)));
+    // What the owner got is what the contract says: anything else was cut and noted (apps/site/src/answers.ts).
+    const cutAnswer = await env.DB.prepare("SELECT field_paths FROM door_answer_cuts WHERE door_id = ?").bind(`api:${apiRoute.method} ${apiRoute.path}`).first<{ field_paths: string }>();
+    cells.push(cellOf(doorId, "answer_shape", cutAnswer ? `Answered with ${cutAnswer.field_paths}, which it doesn't declare.` : null));
   });
 });

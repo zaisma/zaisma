@@ -942,7 +942,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   }),
   call({ method: "GET", path: "/forum/similar", answers: fieldsAnswer("topics"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text") }),
   call({ method: "GET", path: "/forum/people", answers: fromTool("forum_people"), reaches: "nothing_private", access: needs("forum_access", "read"), query: { name_prefix: plain, topic_id: naming("forum_topic") } }),
-  call({ method: "POST", path: "/forum/media", answers: answersJson({ type: "object" }), reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
+  call({ method: "POST", path: "/forum/media", answers: fieldsAnswer("id", "image_url", "image_markdown"), reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
   call({ method: "GET", path: "/forum/:topic_id", answers: fromTool("get_topic"), reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic" }, query: plainInputs("post_selection") }),
   // reply_to_post_id and answer_post_id are posts in the path's topic, which the forum finds there alone.
   call({ method: "POST", path: "/forum/:topic_id/posts", answers: fromTool("reply_to_topic"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("reply_to_post_id", "reopen", ...FORUM_POST_INPUTS), maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES } }),
@@ -958,8 +958,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   // Deprecated: /rating replaces /helpful, which goes 90 days after this shipped.
-  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", answers: answersJson({ type: "object" }), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", answers: answersJson({ type: "object" }), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("like_count", "dislike_count", "your_rating", "helpful_count", "has_marked_helpful", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("like_count", "dislike_count", "your_rating", "helpful_count", "has_marked_helpful", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/report", answers: fromTool("report_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("reason", "details"), maximumSizeBytes: 8 * 1024 } }),
   call({ method: "GET", path: "/forum/:topic_id/media/:media_id", answers: ANSWERS_BYTES, reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic", media_id: "in_forum_topic" } }),
   // A public profile, the same as any game gets with no key at all.

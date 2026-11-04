@@ -1,4 +1,4 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { expect } from "vitest";
 import {
   accountById,
@@ -436,6 +436,7 @@ export const makeCall = (worker: SiteWorker, workerEnv = env) => async function 
   const query = sample.query ? `?${new URLSearchParams(sample.query)}` : "";
   const isJson = sample.body !== undefined;
   // The site's own fetch, not SELF's, so it runs with this file's stand-in shader renderer.
+  const context = createExecutionContext();
   const response = await worker.fetch(
     new Request(`${SITE}/api/dev${path}${query}`, {
       method: apiRoute.method,
@@ -444,10 +445,11 @@ export const makeCall = (worker: SiteWorker, workerEnv = env) => async function 
       body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
     }),
     workerEnv,
-    createExecutionContext(),
+    context,
   );
   // Bytes, then text: a served image is an answer too.
   const answerText = new TextDecoder().decode(await response.arrayBuffer());
+  await waitOnExecutionContext(context);
   let answer: { error?: { code: string; field: string | null } } = {};
   try {
     answer = JSON.parse(answerText);

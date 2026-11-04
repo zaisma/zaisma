@@ -87,6 +87,35 @@ describe("the rented share", () => {
     expect((await join("AAAAAM", await passFor(), HOME, { ...bothSigns, hasGraphicsChip: true })).answer.type).toBe("welcome");
   });
 
+  it("lets a whole school play from one address: limits count the player", async () => {
+    const SCHOOL = "198.51.100.251";
+    const answers = [];
+    for (let playerNumber = 0; playerNumber < 25; playerNumber++) {
+      const roomKey = await issueRoomKey(e.DB, GAME_ID);
+      answers.push(await roomsWorker.fetch(new Request(`${R}/v1/pass`, { method: "POST", headers: { origin: ORIGIN, "cf-connecting-ip": SCHOOL }, body: JSON.stringify({ gameSlug: GAME, roomKey }) }) as never, { ...e, ...HOME } as Env));
+    }
+    expect(answers.map((answer) => answer.status)).toEqual(Array(25).fill(200));
+  });
+
+  it("has a game past its share of the shared database wait with new joins, and keeps its running match", async () => {
+    const refusing = { limit: async () => ({ success: false }) };
+    const refusedPass = await call("/v1/pass", { roomKey: await issueRoomKey(e.DB, GAME_ID) }, { ...HOME, GAME_LIMIT: refusing } as Partial<Env>);
+    expect(refusedPass.status).toBe(503);
+    expect(await refusedPass.json()).toMatchObject({ error: { code: "busy" } });
+    const inMatch = await passFor();
+    const { answer: first } = await join("AAAAAN", inMatch, HOME);
+    expect(first.type).toBe("welcome");
+    const newcomer = await passFor();
+    const room = (e.ROOMS as unknown as DurableObjectNamespace<Room>).get(e.ROOMS.idFromName(`${GAME}:AAAAAN`));
+    await runInDurableObject(room, (instance) => void ((instance as unknown as { env: Partial<Env> }).env.GAME_LIMIT = refusing as never));
+    try {
+      expect((await join("AAAAAN", inMatch, HOME)).answer.type).toBe("welcome");
+      expect((await join("AAAAAN", newcomer, HOME)).answer).toMatchObject({ type: "error", code: "busy" });
+    } finally {
+      await runInDurableObject(room, (instance) => void delete (instance as unknown as { env: Partial<Env> }).env.GAME_LIMIT);
+    }
+  });
+
   it("doesn't take a forged word for history", async () => {
     await stopShare();
     const { pass } = await passFor();

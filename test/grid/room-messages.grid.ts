@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
 import { ROOM_MESSAGE_DOORS, RoomCore, relay, type Transport } from "../../packages/game-server/src/internal.ts";
+import { schemaProblems } from "@zaisma/core";
 import { cellOf, wrongValueOf, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
@@ -57,6 +58,12 @@ describe("every room message", () => {
     const goesThrough = (playerId: string, callerKind: CallerKind) => cells.push(cellOf(doorId, callerKind, answerOf(playerId).answer === "not_allowed" ? "Refused, where it should go through." : null));
 
     goesThrough("host", "owner");
+    // What the door sends is what its contract says: every frame, to everyone in the room.
+    const frameProblems = (contract.answers.kind === "json" ? answerOf("host").sent : []).flatMap((line) => {
+      const frame = line.slice(line.indexOf(" ") + 1);
+      return frame === "bytes" || frame === "closed" ? [] : schemaProblems((contract.answers as { schema: Record<string, unknown> }).schema, JSON.parse(frame), type);
+    });
+    cells.push(cellOf(doorId, "answer_shape", frameProblems[0] ? `Sent a frame it doesn't declare: ${frameProblems[0]}.` : null));
     if (contract.whoMayCall === "room_host") refused("other", "another_account");
     else goesThrough("other", "another_account");
     // A spectator is the weaker caller: in the room, without a player's say.

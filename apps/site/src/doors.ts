@@ -285,8 +285,8 @@ const PASSKEY_SIGN_IN = statusOf(401, { error: "Sign in first." });
 const passkey = (path: string) => signedIn(["POST"], path, PASSKEY_SIGN_IN, { trusts: ["session", "passkey"], takes: json(PASSKEY_FIELDS), ...ownPagesJson("challenge", "rpId", "allow", "ok", "is_waiting", "rp", "user", "algs", "exclude", "next") });
 
 const NEEDS_ACCOUNT_TO_BUY = statusOf(403, { error: { code: "account_needed", message: "Make a free account (or sign in) to buy." } });
-const buying = (methods: DoorRowFields["methods"], path: string, origin: DoorOrigin = "own_pages") =>
-  signedIn(methods, path, NEEDS_ACCOUNT_TO_BUY, { reaches: "purchase", origin, answersAs: "json", takes: json(BUY_FIELDS), answers: answersJson({ type: "object" }) });
+const buying = (methods: DoorRowFields["methods"], path: string, answerNames: readonly string[], origin: DoorOrigin = "own_pages") =>
+  signedIn(methods, path, NEEDS_ACCOUNT_TO_BUY, { reaches: "purchase", origin, takes: json(BUY_FIELDS), ...jsonAnswer(...answerNames) });
 
 const SAVES_SIGN_IN = statusOf(401, { error: "Sign in to save to your account." });
 const SAVE_ANSWER = { answersAs: "json", answers: fieldsAnswer("saved_at", "changed_by_kind", "save_data", "save_copies", "save_copy", "is_kept", "save_copy_id", "kept_save_copy_id", "sha256", "tag", "version_number") } as const;
@@ -417,14 +417,14 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   // Playing.
   open(["GET"], "/", { trusts: ["session"], takes: BROWSE_QUERY }),
   open(["GET"], "/games", { trusts: ["session"], takes: BROWSE_QUERY }),
-  open(["GET"], "/games/suggestions", { trusts: ["session"], takes: BROWSE_QUERY, answersAs: "page" }),
+  open(["GET"], "/games/suggestions", { trusts: ["session"], takes: BROWSE_QUERY, ...jsonAnswer("finishes", "games") }),
   open(["GET"], "/g/:slug", { trusts: ["session"], takes: query("room", "server", "watch", "play", "buy", "theme", "state", "screen", "preview_bar") }),
   open(["GET"], "/g/:slug/rooms", { takes: query("room_order", "is_hiding_full_rooms", "labels", "cursor", "region", "shown_row_count", "left") }),
-  open(["GET"], "/g/:slug/live-version"),
+  open(["GET"], "/g/:slug/live-version", jsonAnswer("live_version_id", "live_version_match_update_mode")),
   open(["GET"], "/g/:slug/qr-code.svg", { takes: query("room"), answers: ANSWERS_FILE }),
   open(["GET", "POST"], "/g/:slug/report", { trusts: ["session"], takes: REPORT_FORM }),
   signedIn(["GET"], "/g/:slug/friends", statusOf(401), { answersAs: "empty" }),
-  signedIn(["GET"], "/g/:slug/players/friends", statusOf(401, { error: { code: "not_signed_in", message: "Sign in to see your friends." } }), { origin: "anywhere", answersAs: "json", answers: answersJson({ type: "object" }), takes: query("player_ids", "room") }),
+  signedIn(["GET"], "/g/:slug/players/friends", statusOf(401, { error: { code: "not_signed_in", message: "Sign in to see your friends." } }), { origin: "anywhere", takes: query("player_ids", "room") }),
   proven(["GET"], "/t/:tester_token", { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: proof("apps/site/src/pages.ts", "testerPage"), takes: query("room"), answers: ANSWERS_PAGE, limit: BY_ADDRESS }),
   proven(["POST"], "/t/:tester_token/enter", { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: proof("apps/site/src/pages.ts", "testerEnter"), takes: json({ room_code: text(40) }), answers: fieldsAnswer("frame_url"), limit: BY_ADDRESS }),
   proven(["GET"], "/p/:preview_token", { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: proof("apps/site/src/pages.ts", "previewPage"), takes: query("room"), answers: ANSWERS_PAGE, limit: BY_ADDRESS }),
@@ -444,14 +444,14 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   signedIn(["POST"], "/api/saves/:slug/copies/:save_copy_id/restore", SAVES_SIGN_IN, { reaches: "player_save", origin: "own_pages", takes: json({ tag: gameData(1024) }, [], 4096), ...SAVE_ANSWER }),
 
   // Buying.
-  open(["POST"], "/api/buy/:slug/start", { reaches: "purchase", trusts: ["session"], takes: json(BUY_FIELDS), origin: "own_pages", answersAs: "json", answers: answersJson({ type: "object" }), limit: BY_ADDRESS }),
-  buying(["POST"], "/api/buy/confirm"),
-  buying(["GET"], "/api/buy/purchases/:sale_id", "anywhere"),
-  buying(["POST"], "/api/buy/purchases/:sale_id/pay-with-saved-card"),
-  buying(["POST"], "/api/buy/purchases/:sale_id/wallet-intent"),
-  buying(["POST"], "/api/payment-methods/setup"),
-  buying(["POST", "DELETE"], "/api/payment-methods/saved"),
-  buying(["PUT", "DELETE"], "/api/account/purchase-pin"),
+  open(["POST"], "/api/buy/:slug/start", { reaches: "purchase", trusts: ["session"], takes: json(BUY_FIELDS), origin: "own_pages", ...jsonAnswer("purchase_id", "item", "item_count", "price", "seller", "refund_policy", "refund_policy_words", "is_eu_withdrawal_line_shown", "saved_card", "has_account_email", "is_confirmation_needed", "confirmation_reason", "confirmation_methods", "wallet"), limit: BY_ADDRESS }),
+  buying(["POST"], "/api/buy/confirm", ["is_confirmed"]),
+  buying(["GET"], "/api/buy/purchases/:sale_id", ["purchase"], "anywhere"),
+  buying(["POST"], "/api/buy/purchases/:sale_id/pay-with-saved-card", ["status", "purchase", "client_secret", "stripe_account_id"]),
+  buying(["POST"], "/api/buy/purchases/:sale_id/wallet-intent", ["client_secret", "stripe_account_id"]),
+  buying(["POST"], "/api/payment-methods/setup", ["setup_intent_id", "client_secret"]),
+  buying(["POST", "DELETE"], "/api/payment-methods/saved", ["saved_card"]),
+  buying(["PUT", "DELETE"], "/api/account/purchase-pin", ["has_purchase_pin"]),
   open(["GET"], "/buy/stripe-frame", { takes: query("opener_origin") }),
   open(["GET"], "/buy/:slug/:item_name", { trusts: ["session"], takes: query("preview_country", "item_count", "opener_origin", "game_account_id", "request_number", "preview_wallet") }),
   open(["GET"], "/stripe/connect-return", { reaches: "account", trusts: ["session"], takes: query("state", "code", "error", "error_description", "scope") }),
@@ -464,7 +464,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   friendForm("/friends/invites/:invite_code/remove"),
   friendForm("/friends/:player_id/remove"),
   open(["GET", "POST"], "/friends/add/:invite_link_code", { reaches: "account", trusts: ["session"], origin: "own_pages_if_sent", takes: FRIEND_FORM }),
-  open(["GET"], "/friends/among", { trusts: ["session"], takes: query("player_ids", "room") }),
+  open(["GET"], "/friends/among", { trusts: ["session"], takes: query("player_ids", "room"), ...jsonAnswer("players") }),
   signedIn(["GET"], "/friends/requests", FRIEND_REQUEST_SIGN_IN, { origin: "anywhere", ...jsonAnswer("requests", "accepted", "player", "can_send", "has_sent", "is_friend") }),
   signedIn(["POST"], "/friends/requests", FRIEND_REQUEST_SIGN_IN, { takes: json({ player_id: text(80), game_slug: orNothing(text(40)) }), ...ownPagesJson("status") }),
   signedIn(["GET"], "/friends/requests/about/:player_id", FRIEND_REQUEST_SIGN_IN, { origin: "anywhere", ...jsonAnswer("requests", "accepted", "player", "can_send", "has_sent", "is_friend") }),
