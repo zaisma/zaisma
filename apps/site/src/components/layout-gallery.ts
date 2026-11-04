@@ -121,8 +121,8 @@ component({
       markup: glassPane({ paneWidth: "fit", body: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Continue", { type: "button" }) }, { kind: "control", markup: secondaryButton("Cancel", { type: "button" }) }] }) }),
     },
     {
-      label: "One height: a small Dismiss beside Read more takes its height",
-      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: secondaryButton("Dismiss", { type: "button", isSmall: true }) }, { kind: "control", markup: secondaryButton("Read more", { type: "button" }) }] }) }),
+      label: "One height: a small Share beside Read more takes its height",
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: secondaryButton("Share", { type: "button", isSmall: true }) }, { kind: "control", markup: secondaryButton("Read more", { type: "button" }) }] }) }),
     },
     {
       label: "Fit, between: a heading at the start, its control at the end, on the control's center line",
@@ -243,7 +243,7 @@ component({
     },
     {
       label: "Both top corners: Back and Close, as on a sheet's second step",
-      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { start: secondaryButton(action("back"), { type: "button", isLabelHidden: true }), words: html`<h2>Report this game</h2>`, end: secondaryButton(action("close"), { type: "button", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Say what's wrong, and a person reads it within a day.</p>`)] }) }) }),
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { start: tertiaryButton(action("back"), { type: "button", isLabelHidden: true, isSmall: true }), words: html`<h2>Report this game</h2>`, end: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }) }, body: stack({ items: [words(html`<p>Say what's wrong, and a person reads it within a day.</p>`)] }) }) }),
     },
     {
       label: "A foot alone",
