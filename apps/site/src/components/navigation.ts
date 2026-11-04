@@ -1377,12 +1377,16 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
       button.setAttribute("aria-expanded", String(isSheet(nav) ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
     });
   }
+  function endFold(nav, layout) { layout.classList.remove("is-folding"); nav.classList.remove("is-leaving"); ["--sidebar-left", "--sidebar-top", "--sidebar-width", "--sidebar-height"].forEach(function (name) { nav.style.removeProperty(name); }); }
   // Folding moves only transforms and opacity: the sidebar leaves from where it was, held there out of the page's way, and the page, laid out
   // at its new width at once, slides from where it was into its new place (first, last, invert, play), so nothing snaps.
   function fold(nav, isFolded, isKept) {
     var layout = nav.closest(".sidebar-layout");
     if (!layout) return;
     if (isKept) try { localStorage.setItem(keyOf(nav), isFolded ? "hidden" : "shown"); } catch (error) {}
+    // Pressed again while it's still going, the last fold ends here: left to run, it would keep the sidebar out of its column as it comes back, and the page would drop into that column.
+    cancelAnimationFrame(nav.foldFrame); clearTimeout(nav.foldTimer); clearTimeout(nav.slideTimer);
+    endFold(nav, layout);
     var main = layout.querySelector(".sidebar-main"), isMoving = isKept && !isReduced() && main;
     var first = isMoving ? main.getBoundingClientRect() : null, held = isMoving && isFolded ? nav.getBoundingClientRect() : null;
     if (held) {
@@ -1393,8 +1397,8 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     layout.classList.toggle("is-collapsed", isFolded);
     say(nav);
     if (held) {
-      requestAnimationFrame(function () { nav.classList.add("is-leaving"); });
-      setTimeout(function () { layout.classList.remove("is-folding"); nav.classList.remove("is-leaving"); ["--sidebar-left", "--sidebar-top", "--sidebar-width", "--sidebar-height"].forEach(function (name) { nav.style.removeProperty(name); }); }, 350);
+      nav.foldFrame = requestAnimationFrame(function () { nav.classList.add("is-leaving"); });
+      nav.foldTimer = setTimeout(function () { endFold(nav, layout); }, 350);
     }
     if (!isMoving) return;
     var shiftPx = first.left - main.getBoundingClientRect().left;
@@ -1402,7 +1406,7 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     main.style.transition = "none"; main.style.transform = "translateX(" + shiftPx + "px)";
     void main.offsetWidth;
     main.style.transition = "transform 0.45s cubic-bezier(.2,.8,.2,1)"; main.style.transform = "";
-    setTimeout(function () { main.style.removeProperty("transition"); main.style.removeProperty("transform"); }, 500);
+    nav.slideTimer = setTimeout(function () { main.style.removeProperty("transition"); main.style.removeProperty("transform"); }, 500);
   }
   window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
     try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
