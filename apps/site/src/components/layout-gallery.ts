@@ -2,13 +2,13 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
-import { cutField, selectField } from "./inputs.ts";
+import { copyField, cutField, searchField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
 import { STAND_IN_COVERS, banner, gameCard } from "./panes.ts";
 import { gamePaneExample, keyDetails, table, stateNote } from "./data.ts";
 import { gameMedia } from "./game-media.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
+import { CARVING_END_STYLES, GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, carvingEnd, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -254,5 +254,21 @@ component({
       isWide: true,
       markup: glassPane({ paneWidth: "full", body: paneParts({ head: { words: html`<h2>Rooms where your friends are playing right now</h2><p>Liam, Sofia and Noah, in 3 rooms</p>`, end: secondaryButton(action("refresh"), { type: "button", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Join one to play with them.</p>`)] }) }) }),
     },
+  ],
+});
+
+component({
+  name: "Carving end",
+  slug: "carving-end",
+  group: "layout",
+  subgroup: "inside",
+  summary: "The one place for a control inside a carving, like a password's Show, a search's Clear or a well's Copy: at its end, the carving's frame gap from its edges, so the gap is even along the sides and round the corner, where the edge rule cuts it along the carving's. The control is the size class that fills the carving less that gap: regular in a field or a well, small in a search. What's typed stops short of it. Not for a button beside a field (Row), or anything in a pane's corner (Pane parts).",
+  styles: CARVING_END_STYLES,
+  render: carvingEnd,
+  examples: [
+    { label: "In a field: a password's Show", markup: glassPane({ paneWidth: "full", body: stackOfOne(cutField({ id: "carving-end-hidden", name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse" })) }) },
+    { label: "On, its face risen from the same place, its corner cut the same", markup: glassPane({ paneWidth: "full", body: stackOfOne(cutField({ id: "carving-end-shown", name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", isPasswordShown: true })) }) },
+    { label: "In a search: Clear, the small size in its shorter carving", markup: glassPane({ paneWidth: "full", body: stackOfOne(searchField({ id: "carving-end-search", action: "#carving-end", name: "search_text", searchText: "rally", placeholder: "Search games", label: "Search games" })) }) },
+    { label: "In a well: Copy", markup: glassPane({ paneWidth: "full", body: stackOfOne(copyField({ id: "carving-end-copy", label: "Your link", copiedText: "https://zaisma.com/g/ashen-crown" })) }) },
   ],
 });

@@ -76,9 +76,7 @@ export const MATERIAL_STYLES = `
    glass, so the glass blurs its own box instead, cut to its shape; what stands on it is cut at its edge too. */
 .glass.pinned { clip-path: var(--glass-clip, none); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
-/* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
-/* The one place for a control in a carving: at its end, the carving's frame gap from its edges, so the edge rule cuts its corner along the carving's. It's the size class that fills the carving less that gap each side: regular in a field or a well, small in a search. */
-.carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact); right: calc(var(--pad-frame-compact) + var(--slant-end, 0px)); display: flex; }
+/* A carving with a control at its end (Carving end, layout.ts): what's in it stops short of the control. */
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-regular) + var(--pad-frame-compact) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thin glass over the page, capped at the screen, with the page dimmed
    behind it: a task's dim, a little for one hanging from its button, deep for one thing large, whose words turn light; a store panel and a

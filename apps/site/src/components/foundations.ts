@@ -15,7 +15,7 @@ import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.gene
 export { ICONS, MARK, WORDMARK, icon, largeIcon, leavesZaisma, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
-import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
+import { carvingEnd, paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
 export { GLASS_SCRIPT, WATCH_SCRIPT } from "./glass-script.ts";
 
 /** The backdrop's still: soft light in the theme's colors, shown until a shader draws, wherever WebGL is missing, and while it's lost. */
@@ -135,7 +135,7 @@ export function well(options: WellOptions): Raw {
   const className = ["well", "carving", options.isUsed ? "is-used sized" : "", options.kind ?? "", options.scrollDirection ? `scrolls-${options.scrollDirection}` : "", options.state ?? ""].filter(Boolean).join(" ");
   const bodyClass = ["well-body", "carving-words", options.scrollDirection ? "scrolls" : "", isAcross ? "across" : ""].filter(Boolean).join(" ");
   return html`<div class="${className}" data-cut-line="${options.cornerCutPx ?? 10}"${isAcross ? raw(" data-side-rail") : ""}${options.edgeLight ? html` data-edge-light="${options.edgeLight}"` : ""}>${CUT_LINE}${options.edgeLight ? EDGE_LIGHT : ""}<div class="${bodyClass}"${isAcross ? raw(" data-fades-sideways data-rail-scroller") : ""}>${options.body}</div>${
-    options.end ? html`<div class="well-end carving-end">${options.end}${options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : ""}</div>` : ""
+    options.end ? carvingEnd(options.end, options.endNote ? html`<span class="well-end-note" aria-hidden="true">${options.endNote}</span>` : undefined) : ""
   }</div>`;
 }
 

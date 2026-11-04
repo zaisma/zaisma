@@ -1350,6 +1350,8 @@ describe("layout", () => {
     expect(styles).not.toContain(".field > .cut-btn {");
     expect(styles).not.toContain(".well > .well-end {");
     expect(styles).not.toContain(".find > .tertiary-btn {");
+    expect(layoutComponents.carvingEnd(actions.secondaryButton("Copy")).html).toMatch(/^<span class="carving-end">/);
+    expect(COMPONENTS().some((each) => each.slug === "carving-end" && each.group === "layout")).toBe(true);
     expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain('<span class="carving-end"><button');
     expect(glassScriptSource).toContain('el.parentElement.classList.contains("toggle-btn") ? el.parentElement : el');
   });

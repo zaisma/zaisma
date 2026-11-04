@@ -402,7 +402,7 @@ export const COPY_SCRIPT = `/* copy fields */(function () {
     var field = event.target.closest && event.target.closest(".copy-field");
     if (!field || !event.target.closest(".well")) return;
     var text = field.querySelector(".copy-field-text"), said = field.querySelector(".copy-said");
-    if (!event.target.closest(".well-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
+    if (!event.target.closest(".carving-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
     function saying(words) {
       said.textContent = words; field.classList.add("is-copied");
       clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
@@ -433,14 +433,14 @@ component({
 .copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
 .copy-field.is-copied .well-end-note { display: grid; }
-.copy-field.is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
+.copy-field.is-copied .carving-end > .tertiary-btn .ico { visibility: hidden; }
 .copy-field-text:focus-visible { outline: none; }
 /* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
 .copy-field:not(.is-code) .well { cursor: pointer; }
 .copy-field:not(.is-code) .well-body { display: flex; align-items: center; padding-block: 0; }
 .copy-field:not(.is-code) .copy-field-text { flex: 1; }
-.copy-field:not(.is-code) .well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
-.copy-field:not(.is-code) .well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
+.copy-field:not(.is-code) .well:hover .carving-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
+.copy-field:not(.is-code) .well:active .carving-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
 /* Code: all of it in code's letters, wrapping onto more lines rather than hiding any; one long token (a key) breaks at a line's end. Only
    its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
 .copy-field.is-code .well { align-items: stretch; min-height: var(--control-height-field); }

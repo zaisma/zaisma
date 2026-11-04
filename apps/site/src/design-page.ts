@@ -73,7 +73,7 @@ const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return secondaryButton(action("lightDark", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"), { href: `${other.pathname}${other.search}`, isLabelHidden: true, isSmall: true });
+  return secondaryButton(action("lightDark", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"), { href: `${other.pathname}${other.search}`, isLabelHidden: true, isSmall: true, dataAttributes: { "theme-button": "" } });
 };
 
 /**
@@ -157,7 +157,7 @@ ${checkedPageTag(options.checkedPage)}
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
-${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: themeButton(options.path, theme) }, { kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }] })}</span></header>
+<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [...(isLocalSite(env) ? [{ kind: "control" as const, id: "gallery-screens", markup: secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true }) }] : []), { kind: "control", markup: themeButton(options.path, theme) }, { kind: "control", id: "gallery-sidebar-button", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: "gallery" }),
     main: html`<main class="gallery-main">
@@ -187,12 +187,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
-/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. */
-.gallery-screens { margin-left: auto; }
-@media (min-width: 761px) { .gallery-screens + .gallery-buttons { margin-left: 0; } }
-@media (max-width: 760px) { .gallery-screens { display: none; } }
+/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. Its cell goes, so its row ends at what shows. */
+@media (max-width: 760px) { #gallery-screens { display: none; } }
 /* The sidebar's button is always at the bar's far edge: over the sidebar, at its start; on a phone, where the sidebar is a sheet, in its end corner, after light or dark. */
-@media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
+@media (min-width: 761px) { #gallery-sidebar-button { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }
 .gallery-main { min-width: 0; }
 /* The page's name is already the current place in the sidebar, so on the page it's only for screen readers. */
@@ -287,7 +285,7 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another page of the gallery keeps it. (The sidebar folds away by itself: SIDEBAR_SCRIPT.)
-  var button = document.querySelector(".gallery-buttons a.cut-btn");
+  var button = document.querySelector("[data-theme-button]");
   // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
   function pickTheme(theme) {
     document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
@@ -319,7 +317,7 @@ export const GALLERY_SCRIPT = pageScript(
     });
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-buttons a.cut-btn");
+    var link = event.target.closest && event.target.closest("[data-theme-button]");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");

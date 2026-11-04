@@ -313,6 +313,14 @@ export function paneParts(options: PanePartsOptions): LayoutMarkup {
   return asLayout(html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`);
 }
 
+/**
+ * The one place for a control in a carving (a field, a search, a well): at its end, the carving's frame gap from its edges, so the edge rule
+ * cuts its corner along the carving's. Exactly one control, by its type; note is what shows over it for a moment (Copied).
+ */
+export function carvingEnd(control: LayoutControl, note?: Raw): Raw {
+  return html`<span class="carving-end">${control}${note ?? ""}</span>`;
+}
+
 /* ---- Styles: each layout component's own, in gallery order. ---- */
 
 const GAP_TOKENS: LayoutGap[] = ["control-row-boxes", "control-stack", "words-control", "words-words", "block-block"];
@@ -589,6 +597,11 @@ export const COLUMNS_STYLES = `
 .columns-in > .column > .glass-pane { width: 100%; }
 .layout-columns.sticky-first > .columns-in > .column:first-child, .layout-columns.sticky-second > .columns-in > .column:last-child { position: sticky; top: var(--header-room, var(--pad-pane)); }
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
+`;
+
+export const CARVING_END_STYLES = `
+/* It's the size class that fills the carving less the frame gap each side: regular in a field or a well, small in a search. */
+.carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact); right: calc(var(--pad-frame-compact) + var(--slant-end, 0px)); display: flex; }
 `;
 
 export const PANE_PARTS_STYLES = `
