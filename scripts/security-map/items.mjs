@@ -1,13 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { anchorProblems, isFilledText, isObject, isScore, priorityOf, rescoreWay, scoreChangeProblems, unknownFieldProblems } from "./promises.mjs";
-import { SECTOR_IDS } from "./schema.mjs";
+import { SECTOR_IDS, SECTORS } from "./schema.mjs";
 
 /**
  * Security items as records with a closed shape. The records live in the private repo (zaisma/security,
  * items/), never this one; this file only knows their shape and how one may change. An item names the way
  * to break it's about and the goal of the work; how that work is done is never in it. Lines written when it
- * opened never change: a run moves fields and appends evidence. A question is an item with no proof yet.
+ * opened never change: a run moves fields and appends evidence. A question is an item with no proof yet. The
+ * coordinator reads them as a second roadmap: it claims one for a session, a talk settles its calls, and the
+ * session closes it with the test that guards it.
  */
 
 export const ITEM_KINDS = ["item", "question"];
@@ -22,7 +24,9 @@ export const QUESTION_LIFETIME_DAYS = 14;
 /** The states a daily review may move an item to: doing is the coordinator's, accepted is Julius's, closed_unproven only comes with age. */
 export const REVIEW_SET_STATES = ["next", "done"];
 
-const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence"];
+const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence", "settled_calls", "claimed_by_launch_id"];
+const SETTLED_CALL_FIELDS = ["call_line", "answer_line", "settled_at"];
+const SETTLE_ANSWER_FIELDS = ["call_line", "answer_line"];
 const EVIDENCE_FIELDS = ["added_at", "evidence_line", "rests_on_commit"];
 const NEW_ITEM_FIELDS = ["item_slug", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_by", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "calls", "waits_on", "proof_kind", "proof_line", "test_path"];
 const ITEM_UPDATE_FIELDS = ["item_id", "evidence_line", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "changed_because", "anchors", "calls", "waits_on", "proof_kind", "proof_line", "test_path"];
@@ -32,6 +36,10 @@ const ITEM_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const FINDING_ID = /^fnd_\d{4}-\d{2}-\d{2}_[a-z0-9-]+$/;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 const OPEN_STATES = ["next", "doing"];
+/** The priorities a session takes in turn, in the order they're picked: fix now goes first by the queue, and watch takes none. */
+const TURN_PRIORITIES = ["harden", "fix_soon"];
+/** The states that end what waits on an item. */
+const FINISHED_STATES = ["done", "closed_unproven"];
 const MS_PER_DAY = 86400000;
 
 const isTextList = (value) => Array.isArray(value) && value.every(isFilledText);
@@ -63,6 +71,16 @@ export function itemProblems(item) {
   for (const field of ["defense_score", "damage_score"]) if (!isScore(item[field])) problems.push(`${label} has ${field} outside 1 to 5`);
   if (item.score_stale_reason !== null && !isFilledText(item.score_stale_reason)) problems.push(`${label} needs score_stale_reason as text or null`);
   if (!isTextList(item.calls) || !isTextList(item.waits_on)) problems.push(`${label} needs calls and waits_on as lists of text`);
+  if (item.claimed_by_launch_id !== undefined && item.claimed_by_launch_id !== null && !isFilledText(item.claimed_by_launch_id)) problems.push(`${label} needs claimed_by_launch_id as text or null`);
+  if (item.settled_calls !== undefined && !Array.isArray(item.settled_calls)) problems.push(`${label} needs settled_calls as a list`);
+  else for (const settled of item.settled_calls ?? []) {
+    if (!isObject(settled)) {
+      problems.push(`${label} has a settled call that isn't an object`);
+      continue;
+    }
+    problems.push(...unknownFieldProblems(settled, SETTLED_CALL_FIELDS, `${label} settled call`));
+    if (!isFilledText(settled.call_line) || !isFilledText(settled.answer_line) || !ISO_TIME.test(settled.settled_at ?? "")) problems.push(`${label} settled call needs call_line, answer_line and settled_at`);
+  }
   if (item.finding_id !== null && !FINDING_ID.test(item.finding_id ?? "")) problems.push(`${label} needs finding_id like fnd_2026-11-04_some-words, or null`);
   if (!Array.isArray(item.anchors)) problems.push(`${label} needs anchors as a list`);
   else if (item.anchors.length) problems.push(...anchorProblems(item.anchors, label));
@@ -122,6 +140,8 @@ export function itemFromNight(input, { date, now, anchors }) {
     test_path: input.test_path ?? null,
     finding_id: null,
     evidence: [],
+    settled_calls: [],
+    claimed_by_launch_id: null,
   };
   return { item, problems: itemProblems(item) };
 }
@@ -138,6 +158,9 @@ export function itemWithUpdate(item, update, { now, commit, anchors, currentHash
   const movedFields = ITEM_UPDATE_FIELDS.filter((field) => !["item_id", "evidence_line"].includes(field) && update[field] !== undefined);
   if (item.item_state === "accepted" && movedFields.length) problems.push(`${label} changes ${movedFields.join(", ")}, but ${item.item_id} is accepted: a run only appends evidence, and reopening it is Julius's`);
   if (update.item_state !== undefined && !REVIEW_SET_STATES.includes(update.item_state)) problems.push(`${label} sets item_state ${JSON.stringify(update.item_state)}, and a run only sets ${REVIEW_SET_STATES.join(" or ")}`);
+  if (item.item_state === "doing" && update.item_state === "next") problems.push(`${label} puts it back to next, but ${item.item_id} is doing: the claim is the coordinator's`);
+  const reopenedCalls = (update.calls ?? []).filter((call) => (item.settled_calls ?? []).some((settled) => settled.call_line === call));
+  if (reopenedCalls.length) problems.push(`${label} reopens a call already settled: ${reopenedCalls.join("; ")}`);
   if (problems.length) return { problems };
   const evidence = [...item.evidence, { added_at: now, evidence_line: update.evidence_line, rests_on_commit: commit }];
   if (item.item_state === "accepted") return { item: { ...item, evidence }, problems: [] };
@@ -173,16 +196,97 @@ export function isQuestionPastLifetime(item, date) {
   return (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${item.opened_at.slice(0, 10)}T00:00:00Z`)) / MS_PER_DAY >= QUESTION_LIFETIME_DAYS;
 }
 
+/** An item done, with the test that now guards it as its proof. */
+const itemGuardedBy = (item, { testPath, date, now, commit }) => ({
+  ...item,
+  item_state: "done",
+  proof_kind: "failing_test",
+  proof_line: `${testPath} guards it since ${date}.`,
+  test_path: testPath,
+  claimed_by_launch_id: null,
+  evidence: [...item.evidence, { added_at: now, evidence_line: `Fixed on ${date}, guarded by ${testPath}.`, rests_on_commit: commit }],
+});
+
 /** The items a fixed finding came from, done, with the test that now guards them as their proof. */
 export function itemsWithFindingFixed(items, { findingId, testPath, date, now }) {
-  return items.filter((item) => item.finding_id === findingId).map((item) => ({
+  return items.filter((item) => item.finding_id === findingId).map((item) => itemGuardedBy(item, { testPath, date, now, commit: testPath }));
+}
+
+/** An item claimed for the session of this launch on the desk board: only one waiting, and never a question, which has no proof to act on. */
+export function itemWithClaim(item, { launchId }) {
+  if (item.item_state !== "next") throw new Error(`${item.item_id} is ${item.item_state}, and only a next item can be claimed.`);
+  if (item.item_kind === "question") throw new Error(`${item.item_id} is a question: it takes no session until a daily review proves it.`);
+  if (!isFilledText(launchId)) throw new Error("A claim needs the launch id of the session's row on the desk board.");
+  return { ...item, item_state: "doing", claimed_by_launch_id: launchId };
+}
+
+/** A claimed item put back, when its start failed, its session stopped or its talk ended with nothing built. */
+export function itemBackToNext(item) {
+  if (item.item_state !== "doing") throw new Error(`${item.item_id} is ${item.item_state}, and only a doing item goes back to next.`);
+  return { ...item, item_state: "next", claimed_by_launch_id: null };
+}
+
+/** An open item with these calls answered: each leaves calls and joins settled_calls, and any others stay open. */
+export function itemWithCallsSettled(item, answers, { now }) {
+  if (!isOpenItem(item)) throw new Error(`${item.item_id} is ${item.item_state}, so its calls aren't open.`);
+  if (!Array.isArray(answers) || !answers.length) throw new Error("Give the answers as a list of call_line and answer_line.");
+  const problems = answers.flatMap((answer, index) => {
+    if (!isObject(answer)) return [`answer ${index + 1} isn't an object`];
+    const answerProblems = unknownFieldProblems(answer, SETTLE_ANSWER_FIELDS, `answer ${index + 1}`);
+    if (!item.calls.includes(answer.call_line)) answerProblems.push(`answer ${index + 1} names a call ${item.item_id} doesn't have open`);
+    if (!isFilledText(answer.answer_line)) answerProblems.push(`answer ${index + 1} has no answer_line`);
+    return answerProblems;
+  });
+  if (problems.length) throw new Error(problems.join("; "));
+  const answered = answers.map((answer) => answer.call_line);
+  return {
     ...item,
-    item_state: "done",
-    proof_kind: "failing_test",
-    proof_line: `${testPath} guards it since ${date}.`,
-    test_path: testPath,
-    evidence: [...item.evidence, { added_at: now, evidence_line: `Fixed on ${date}, guarded by ${testPath}.`, rests_on_commit: testPath }],
-  }));
+    calls: item.calls.filter((call) => !answered.includes(call)),
+    settled_calls: [...(item.settled_calls ?? []), ...answers.map(({ call_line, answer_line }) => ({ call_line, answer_line, settled_at: now }))],
+  };
+}
+
+/** An item a session finished, done with its guarding test; one a daily review already closed stays as it is. A finding's item closes through mark-fixed instead. */
+export function itemDoneWithTest(item, { testPath, date, now, commit }) {
+  if (item.finding_id) throw new Error(`${item.item_id} came with finding ${item.finding_id}: close it with mark-fixed.`);
+  if (item.item_state === "done") return item;
+  if (item.item_state !== "doing") throw new Error(`${item.item_id} is ${item.item_state}, and only a doing item is finished by a session.`);
+  return itemGuardedBy(item, { testPath, date, now, commit });
+}
+
+/**
+ * Where every item stands for the coordinator: fix-now items, the ones a session could take in turn (in the order
+ * they're picked, with what they still wait on), what's claimed, and counts of what takes no session. A wait named
+ * by an item's id clears when that item ends; any other wait stays open here, for the caller who can read it.
+ */
+export function itemQueueOf(items) {
+  const entryOf = (item) => ({
+    item_id: item.item_id,
+    item_kind: item.item_kind,
+    sector_id: item.sector_id,
+    sector_name: SECTORS.find((sector) => sector.sector_id === item.sector_id)?.sector_name ?? item.sector_id,
+    priority: priorityOfItem(item),
+    item_line: item.item_line,
+    goal_line: item.goal_line,
+    calls: item.calls,
+    settled_calls: item.settled_calls ?? [],
+    opens_with: item.calls.length ? "talk" : "build",
+    open_waits_on: item.waits_on.filter((wait) => !FINISHED_STATES.includes(items.find((other) => other.item_id === wait)?.item_state)),
+    finding_id: item.finding_id,
+    claimed_by_launch_id: item.claimed_by_launch_id ?? null,
+    score_stale_reason: item.score_stale_reason,
+  });
+  const waiting = items.filter((item) => item.item_state === "next" && item.item_kind === "item");
+  const inTurn = waiting.filter((item) => TURN_PRIORITIES.includes(priorityOfItem(item)));
+  const pickOrder = (first, second) => TURN_PRIORITIES.indexOf(priorityOfItem(first)) - TURN_PRIORITIES.indexOf(priorityOfItem(second)) || second.damage_score - first.damage_score || first.defense_score - second.defense_score || first.opened_at.localeCompare(second.opened_at);
+  return {
+    fix_now_items: waiting.filter((item) => priorityOfItem(item) === "fix_now").map(entryOf),
+    in_turn_items: [...inTurn].sort(pickOrder).map(entryOf),
+    doing_items: items.filter((item) => item.item_state === "doing").map(entryOf),
+    watch_items: waiting.filter((item) => priorityOfItem(item) === "watch").map(entryOf),
+    question_count: items.filter((item) => item.item_kind === "question" && isOpenItem(item)).length,
+    accepted_count: items.filter((item) => item.item_state === "accepted").length,
+  };
 }
 
 /** Every items/*.json in the private repo. */
