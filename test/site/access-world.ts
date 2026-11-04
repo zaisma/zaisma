@@ -478,7 +478,8 @@ export async function everything(world: World): Promise<string> {
   }
   for (const slug of [world.values.slug!, world.otherSlug]) {
     const game = await env.DB.prepare("SELECT id FROM games WHERE slug = ?").bind(slug).first<{ id: string }>();
-    parts.push(JSON.stringify(await env.GAME_DATABASES!.exportDump(game!.id, null)), JSON.stringify(await env.GAME_SECRETS!.list(game!.id)));
+    // Deleting the account erases its games.
+    if (game) parts.push(JSON.stringify(await env.GAME_DATABASES!.exportDump(game.id, null)), JSON.stringify(await env.GAME_SECRETS!.list(game.id)));
   }
   return parts.join("\n\n");
 }

@@ -1,7 +1,7 @@
 import { stackOfOne } from "../../apps/site/src/components/layout.ts";
 import { createExecutionContext, env, SELF } from "cloudflare:test";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, addOwnedBlob, manifestKey, ownedBlobKey, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { handleSignIn } from "../../apps/site/src/sign-in.ts";
 import type { Env as SiteEnv } from "../../apps/site/src/env.ts";
@@ -15,7 +15,7 @@ import { changeSaveAsDeveloper, storedSaveText } from "../../apps/site/src/saves
 
 /** A localStorage-only save as Zaisma stores it (the v1 envelope). */
 const savedText = (localStorageItems: Record<string, string>) => canonicalSave(saveFromParts(localStorageItems, []));
-import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, deleteAbandonedSignIns } from "../../apps/site/src/cleanup.ts";
+import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, deleteWaitingSignIns } from "../../apps/site/src/cleanup.ts";
 import worker from "../../apps/site/src/index.ts";
 import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
 import { sendEmailCode } from "../../apps/site/src/email-codes.ts";
@@ -66,6 +66,7 @@ const sessions = new Map<string, { userId: string; seconds: number }>();
 /** What Supabase was asked to sign out (/logout's scope), newest last, and whether it says no. */
 const logouts: { scope: string | null }[] = [];
 let isLogoutFailing = false;
+let isSignInDeleteFailing = false;
 /** How many seconds before now the next sign-ins say they happened, for a device that signed in a while ago. */
 let signInAgeSeconds = 0;
 const codes = new Map<string, { email: string; challenge: string }>(); // Google/Discord one-time code -> who
@@ -209,6 +210,7 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     return email ? Response.json({ id: del[1], email }) : Response.json({}, { status: 404 });
   }
   if (del && init.method === "DELETE") {
+    if (isSignInDeleteFailing) return new Response("no", { status: 500 });
     deleted.push(del[1]!);
     for (const [e, id] of users) if (id === del[1]) users.delete(e);
     return Response.json({});
@@ -230,6 +232,7 @@ beforeEach(async () => {
   sessions.clear();
   logouts.length = 0;
   isLogoutFailing = false;
+  isSignInDeleteFailing = false;
   signInAgeSeconds = 0;
   links.clear();
   codes.clear();
@@ -1190,6 +1193,83 @@ describe("deleting an account deletes its games", () => {
     expect(taken.status).toBe(409);
     expect(errorProblems(answer, taken.status)).toEqual([]);
     expect(answer).toMatchObject({ error: { code: "slug_taken", field: "slug" } });
+  });
+
+  it("deletes a developer whose big files a kept game still uses, then the files nothing uses any more", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const owner = await personOwner(env.DB, accountId);
+    const kept = await ownGame(accountId, "flagged-game", "Flagged Game");
+    const keptVersionId = newId("version");
+    await createVersion(env.DB, { id: keptVersionId, gameId: kept.id, r2Prefix: `manifests/${keptVersionId}`, fileCount: 1, sizeBytes: 5, kind: "files" });
+    await saveScan(env.DB, keptVersionId, "held", SCAN_REPORT);
+    const usedSha256 = "a".repeat(64);
+    const unusedSha256 = "b".repeat(64);
+    await env.GAMES.put(manifestKey(keptVersionId), JSON.stringify({ files: { "index.html": { sha256: usedSha256, owner_id: owner.id } } }));
+    for (const sha256 of [usedSha256, unusedSha256]) {
+      await addOwnedBlob(env.DB, owner.id, sha256, 5);
+      await env.GAMES.put(ownedBlobKey(owner.id, sha256), "hello");
+    }
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(await accountById(env.DB, accountId)).toBeNull();
+    expect(await env.DB.prepare("SELECT 1 FROM owners WHERE id = ?").bind(owner.id).first()).toBeNull();
+
+    await dailyCleanup(env, Date.now() + 3 * 86_400_000);
+    await dailyCleanup(env, Date.now() + 6 * 86_400_000);
+    expect(await env.GAMES.head(ownedBlobKey(owner.id, usedSha256))).not.toBeNull();
+    expect(await env.GAMES.head(ownedBlobKey(owner.id, unusedSha256))).toBeNull();
+    const { results } = await env.DB.prepare("SELECT sha256 FROM owned_blobs WHERE owner_id = ?").bind(owner.id).all<{ sha256: string }>();
+    expect(results.map((row) => row.sha256)).toEqual([usedSha256]);
+  });
+
+  it("removes the sign-in only once the account's rows are gone, so a deletion that stops leaves its owner able to try again", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    await env.DB.exec("CREATE TABLE stops_deleting (account_id TEXT REFERENCES accounts(id))");
+    onTestFinished(async () => void (await env.DB.exec("DROP TABLE IF EXISTS stops_deleting")));
+    await env.DB.prepare("INSERT INTO stops_deleting (account_id) VALUES (?)").bind(accountId).run();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const stopped = await b.go("/account/delete", { confirm: "delete" });
+    expect(stopped.status).toBe(502);
+    expect(await stopped.text()).toContain("Couldn&#39;t delete your account");
+    expect(deleted).not.toContain(accountId);
+    expect(await accountById(env.DB, accountId)).not.toBeNull();
+    errors.mockRestore();
+    await env.DB.exec("DROP TABLE stops_deleting");
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(deleted).toContain(accountId);
+    expect(await accountById(env.DB, accountId)).toBeNull();
+  });
+
+  it("deletes the account when Supabase won't take the sign-in, and asks Supabase again until it does", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const waitingCount = async () => (await env.DB.prepare("SELECT COUNT(*) AS waiting_count FROM waiting_sign_in_deletions").first<{ waiting_count: number }>())!.waiting_count;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    isSignInDeleteFailing = true;
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(await accountById(env.DB, accountId)).toBeNull();
+    expect(await waitingCount()).toBe(1);
+    await deleteWaitingSignIns(env);
+    expect(await waitingCount()).toBe(1);
+    errors.mockRestore();
+
+    isSignInDeleteFailing = false;
+    await deleteWaitingSignIns(env);
+    expect(deleted).toContain(accountId);
+    expect(await waitingCount()).toBe(0);
+  });
+
+  it("leaves a waiting sign-in alone once its person has joined again", async () => {
+    await createAccount(env.DB, { id: "back-again", username: "Back_Again", ageBand: "18+" });
+    await env.DB.prepare("INSERT INTO waiting_sign_in_deletions (account_id, created_at_ms) VALUES ('back-again', 1)").run();
+    await deleteWaitingSignIns(env);
+    expect(deleted).not.toContain("back-again");
+    expect(await env.DB.prepare("SELECT 1 FROM waiting_sign_in_deletions").first()).toBeNull();
   });
 
   it("keeps a game under a child-safety hold whole, taken down with no owner", async () => {

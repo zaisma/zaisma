@@ -99,18 +99,18 @@ export const ROOM_ADDRESS_DOORS: readonly RoomAddressDoor[] = [
     answerOf({ pass: JSON_TEXT, player: JSON_OBJECT, expiresAt: JSON_TEXT, playShare: JSON_TEXT }),
     { level: "steady", counts: "player" },
   ),
-  proven("POST", "/v1/relay", "game_page", "isGameOrigin", "room", ["game_origin", "player_pass"], jsonBody({ gameSlug: SLUG, roomKey: ROOM_KEY, playShare: text(400), hasGraphicsChip: yesOrNo, isInputSeen: yesOrNo }, ["gameSlug"]), answerOf({ iceServers: JSON_LIST, expiresAt: JSON_TEXT }), {
+  proven("POST", "/v1/relay", "game_page", "isGameOrigin", "room", ["game_origin", "session"], jsonBody({ gameSlug: SLUG, roomKey: ROOM_KEY, playShare: text(400), hasGraphicsChip: yesOrNo, isInputSeen: yesOrNo }, ["gameSlug"]), answerOf({ iceServers: JSON_LIST, expiresAt: JSON_TEXT }), {
     level: "steady",
     counts: "player",
   }),
-  proven("POST", "/v1/rooms", "game_page", "isGameOrigin", "room", ["game_origin", "player_pass"], jsonBody({ gameSlug: SLUG }, ["gameSlug"]), answerOf({ roomCode: JSON_TEXT }), BY_ADDRESS),
+  proven("POST", "/v1/rooms", "game_page", "isGameOrigin", "room", ["game_origin"], jsonBody({ gameSlug: SLUG }, ["gameSlug"]), answerOf({ roomCode: JSON_TEXT }), BY_ADDRESS),
   proven(
     "POST",
     "/v1/report",
     "game_page",
     "isGameOrigin",
     "room",
-    ["game_origin", "player_pass"],
+    ["game_origin"],
     jsonBody({ gameSlug: SLUG, reason: text(100), roomCode: text(40), playerId: text(100), playerName: text(200), details: text(4000), chatMessages: gameData(4 * 1024 * 1024) }, ["gameSlug"], 4 * 1024 * 1024),
     answerOf({ isReported: JSON_FLAG }),
     BY_ADDRESS,

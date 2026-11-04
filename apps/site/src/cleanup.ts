@@ -49,6 +49,15 @@ const AUTH_USERS_PER_PAGE_COUNT = 50;
 export const RECENT_SIGN_IN_SWEEP_MS = 30 * 60_000;
 export const DAILY_SIGN_IN_SWEEP_MS = 3 * DAY_MS;
 
+/** Every few minutes: deleted accounts' sign-ins Supabase didn't take at the time. A sign-in whose person has joined again is theirs now, and stays. */
+export async function deleteWaitingSignIns(env: Env): Promise<void> {
+  if (!authConfigured(env)) return;
+  const { results } = await env.DB.prepare("SELECT account_id, EXISTS (SELECT 1 FROM accounts WHERE accounts.id = waiting_sign_in_deletions.account_id) AS is_account_back FROM waiting_sign_in_deletions ORDER BY created_at_ms LIMIT 50").all<{ account_id: string; is_account_back: number }>();
+  for (const waiting of results) {
+    if (waiting.is_account_back || (await deleteAuthUser(env, waiting.account_id).catch(() => false))) await env.DB.prepare("DELETE FROM waiting_sign_in_deletions WHERE account_id = ?").bind(waiting.account_id).run();
+  }
+}
+
 /**
  * Supabase's Google and Discord start page has to stay open for the browser, so someone can make a Supabase
  * sign-in there around Zaisma's age question and checks (docs/DECISIONS.md, "Accounts open only through

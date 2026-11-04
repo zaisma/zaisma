@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { createAccount, issueRoomKey } from "@zaisma/core";
+import { bodyProblem, createAccount, issueRoomKey } from "@zaisma/core";
 import { ROOM_ADDRESS_DOORS } from "../../apps/rooms/src/doors.ts";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import { cellOf, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
@@ -69,17 +69,21 @@ async function helloAnswer(game: { slug: string }, pass: string): Promise<string
   return answer;
 }
 
-/** What the owner's page sends each address. Addresses not named here take nothing but the game's name. */
-const BODIES: Readonly<Record<string, (pass: string) => Record<string, unknown>>> = {
-  "/v1/friends": (pass) => ({ pass }),
-  "/v1/friends/room": (pass) => ({ pass, roomCode: "K7Q2MX" }),
-  "/v1/chat/check": (pass) => ({ pass, text: "hello" }),
-  "/v1/items/unhandled": (pass) => ({ pass }),
-  "/v1/items/handled": (pass) => ({ pass }),
-  "/v1/relay": (pass) => ({ pass }),
-  "/v1/report": (pass) => ({ pass, reason: "cheating" }),
+/** What the owner's page sends each address, with the player's proof where it takes one. Addresses not named here take nothing but the game's name. */
+const BODIES: Readonly<Record<string, (proof: string) => Record<string, unknown>>> = {
+  "/v1/friends": (proof) => ({ pass: proof }),
+  "/v1/friends/room": (proof) => ({ pass: proof, roomCode: "K7Q2MX" }),
+  "/v1/chat/check": (proof) => ({ senderPass: proof, receiverPasses: [], text: "hello" }),
+  "/v1/items/unhandled": (proof) => ({ pass: proof }),
+  "/v1/items/handled": (proof) => ({ pass: proof }),
+  "/v1/pass": (proof) => ({ roomKey: proof }),
+  "/v1/relay": (proof) => ({ roomKey: proof }),
+  "/v1/requests/:slug": (proof) => ({ pass: proof, request: {} }),
+  "/v1/report": () => ({ reason: "cheating" }),
   "/v1/filter": () => ({ text: "hello" }),
 };
+/** The fields that hold a player's proof: a pass, or the room key that gets one. */
+const PROOF_FIELDS = ["pass", "senderPass", "roomKey"];
 /** Addresses whose owner's call takes more than a stand-in here, and where it's tried. */
 const OWNER_NOT_PROVEN: Readonly<Record<string, string>> = {
   "/v1/requests/:slug": "A game server's request to its own site: test/rooms/reach.test.ts.",
@@ -108,8 +112,11 @@ describe("every address on rooms.zaisma.com", () => {
     const pathOf = (slug: string) => door.path.replace(":slug", slug).replace(":room_code", "K7Q2MX").replace(":player_id", "player_grid");
     const pass = await passFor(game, "grid-rooms-owner");
     const othersPass = await passFor(other, "grid-rooms-owner");
-    const bodyOf = (slug: string, given: string) => (method === "POST" ? { gameSlug: slug, ...(door.path === "/v1/pass" ? { roomKey: given } : BODIES[door.path]?.(given) ?? {}) } : undefined);
-    const ownersProof = door.path === "/v1/pass" ? await issueRoomKey(e.DB, game.id, "grid-rooms-owner") : pass;
+    const { takes, limit } = door.contract;
+    const fields = takes.body?.kind === "json" ? takes.body.fields : {};
+    const bodyOf = (slug: string, proof: string) => (method === "POST" ? { ...("gameSlug" in fields ? { gameSlug: slug } : {}), ...BODIES[door.path]?.(proof) } : undefined);
+    const takesRoomKey = "roomKey" in fields;
+    const ownersProof = takesRoomKey ? await issueRoomKey(e.DB, game.id, "grid-rooms-owner") : pass;
 
     if (door.contract.whoMayCall === "anyone") {
       const answer = await answered(await hit(method, pathOf(game.slug), null));
@@ -117,8 +124,14 @@ describe("every address on rooms.zaisma.com", () => {
       return;
     }
 
+    // A body the door wouldn't take is refused for its shape, so its answer would prove nothing about who's calling.
+    const ownersBody = bodyOf(game.slug, ownersProof);
+    if (takes.body?.kind === "json" && ownersBody && bodyProblem(fields, takes.body.required ?? [], ownersBody)) {
+      push("owner", "The grid's own body doesn't fit the door's shape, so no caller here was tried.");
+      return;
+    }
+
     // A wrong shape and a door past its limit are refused before any of its own code runs.
-    const { takes, limit } = door.contract;
     if (takes.body?.kind === "json") {
       const answers = [await hit(method, pathOf(game.slug), ORIGIN, { gameSlug: game.slug, zzz_no_such_field: "x" })];
       const fieldToBreak = Object.entries(takes.body.fields).find(([name, shape]) => name !== "gameSlug" && wrongValueOf(shape) !== undefined);
@@ -139,20 +152,20 @@ describe("every address on rooms.zaisma.com", () => {
       cells.push(cellOf(doorId, "past_limit", past.status === 429 || past.webSocket ? null : `Answered ${past.status} past its limit.`));
     }
     if (!(door.path in OWNER_NOT_PROVEN)) push("owner", problemWithAnswer("goes_through", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, ownersProof)))));
-    // Another site's page, and no page at all: the same body, from where a game's page isn't. A door a game's page proves says so
-    // itself, so a body it wouldn't take anyway can't pass for its refusal.
+    // Another site's page, and no page at all: the same body, from where a game's page isn't, and a door a game's page proves says so
+    // itself. A pass proves its holder from anywhere, a game's server included, so at such a door they come without one.
     const fromElsewhere = async (origin: string | null) => {
-      const answer = await answered(await hit(method, pathOf(game.slug), origin, bodyOf(game.slug, ownersProof)));
+      const answer = await answered(await hit(method, pathOf(game.slug), origin, bodyOf(game.slug, door.contract.whoMayCall === "pass_holder" ? "not-a-pass" : ownersProof)));
       return door.contract.whoMayCall === "game_page" && answer.http_status !== 403 ? `Answered ${answer.http_status}, where a game's page is what proves the caller.` : problemWithAnswer("refused", null, answer);
     };
     push("another_account", await fromElsewhere(EVIL));
     push("stranger", await fromElsewhere(null));
     // A game that's down.
     push("banned_developer", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(down.slug), ORIGIN, bodyOf(down.slug, ownersProof)))));
-    // Where a pass proves the player: a pass for another game, and a token that isn't one.
-    const isPassDoor = door.contract.trusts.includes("player_pass") && method === "POST" && door.path in BODIES;
-    if (isPassDoor) {
-      push("another_games_key", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, othersPass)))));
+    // Where a pass or a room key proves the player: one for another game, and a token that isn't one.
+    if (PROOF_FIELDS.some((field) => field in fields)) {
+      const othersProof = takesRoomKey ? await issueRoomKey(e.DB, other.id, "grid-rooms-owner") : othersPass;
+      push("another_games_key", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, othersProof)))));
       push("weaker_key", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, "not-a-pass")))));
     }
     // A whole-account ban: a new pass doesn't carry the account.

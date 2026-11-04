@@ -144,6 +144,24 @@ describe("rooms", () => {
     elsewhere.ws.close();
   });
 
+  it("gives an account closed since its key was given no pass as itself, and a developer ban takes nothing from a player", async () => {
+    const gameId = await addGame("arena");
+    const account = await createAccount(e.DB, { id: "supabase-user-closed", username: "Closed_Owl", ageBand: "18+" });
+    const passWith = async () => post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) });
+    const ban = (banScope: string) => e.DB.prepare("UPDATE accounts SET banned_at_ms = 1, ban_scope = ? WHERE id = ?").bind(banScope, account.id).run();
+
+    await ban("developer");
+    expect((await (await passWith()).json<{ player: { id: string; kind: string } }>()).player).toMatchObject({ id: account.player_id, kind: "account" });
+
+    await ban("whole_account");
+    const { player } = await (await passWith()).json<{ player: { id: string; kind: string } }>();
+    expect(player.kind).toBe("guest");
+    expect(player.id).not.toBe(account.player_id);
+
+    await e.DB.prepare("UPDATE games SET account_requirement = 'multiplayer' WHERE id = ?").bind(gameId).run();
+    expect(await (await passWith()).json()).toMatchObject({ error: { code: "account_needed" } });
+  });
+
   it("gives passes only for a browser the check on Play let in, a few per key", async () => {
     await addGame("arena");
     await addGame("other");

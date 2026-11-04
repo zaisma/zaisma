@@ -3,7 +3,7 @@ import { deleteDueGames } from "./game-deletion.ts";
 import { gameBySlug, sealStoredSecrets, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
-import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
+import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, deleteWaitingSignIns, publishDue } from "./cleanup.ts";
 import { checkStanding } from "./standing.ts";
 import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
@@ -270,7 +270,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), tellAnswerCuts(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env), deleteWaitingSignIns(env)]), tellGameServerErrors(env), tellAnswerCuts(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

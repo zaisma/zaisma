@@ -654,13 +654,20 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     // Who to tell is read first: deleting the account deletes the rows that say.
     const reach = await accountDeletionReach(env.DB, account.id);
     const ownedGameCount = (await gamesOwnedBy(env.DB, account.id)).length;
-    if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on Zaisma's side. Try again later.", 502));
-    await deleteSaveFiles(env, account.id);
-    await deleteForumFiles(env, account.id);
-    await refundForDeletion(env, account.id);
-    await forgetCardForDeletion(env, account.id);
-    await disconnectStripeForDeletion(env, account.id);
-    await deleteAccount(env.DB, account.id);
+    // The sign-in goes last: a deletion that stops before the account's rows go leaves its owner signed in, to try again, and every step here can run twice.
+    try {
+      await deleteSaveFiles(env, account.id);
+      await deleteForumFiles(env, account.id);
+      await refundForDeletion(env, account.id);
+      await forgetCardForDeletion(env, account.id);
+      await disconnectStripeForDeletion(env, account.id);
+      await deleteAccount(env.DB, account.id);
+    } catch (error) {
+      console.error("Deleting an account stopped part way:", account.id, error);
+      return done(message(env, "Couldn't delete your account", "Something went wrong on Zaisma's side. Try again later.", 502));
+    }
+    // The account is gone whatever Supabase says, so one that doesn't take the sign-in now is asked again (cleanup.ts, deleteWaitingSignIns).
+    if (!(await deleteAuthUser(env, session.userId).catch(() => false))) await env.DB.prepare("INSERT OR IGNORE INTO waiting_sign_in_deletions (account_id, created_at_ms) VALUES (?, ?)").bind(session.userId, Date.now()).run();
     await recordRestoreEvent(env, { event_kind: "account_deleted", at_ms: Date.now(), account_id: account.id });
     await tellAccountDeleted(env, reach, waitUntil);
     // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
