@@ -67,11 +67,27 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   var isListStale = true, isPlaceStale = true, candidates = [], watched = typeof WeakSet === "function" ? new WeakSet() : null;
   function markPlaceStale() { isPlaceStale = true; wake(); }
   /*
-   * Scrolling: the browser moves the glass at once, on its own. A shader drawn in the page reads the glass again in the frame the page
-   * scrolled in, so its bend moves with it. A game's background runs in a frame on the game's own site, a page away: it can't redraw its
-   * bend in the same frame, so it would trail every pane. It bends nothing under glass, ever (tellFrame), and has nothing to move on a scroll.
+   * Scrolling: the browser moves the glass at once, on its own, ahead of anything a page can draw, so a bend drawn in the canvas would trail
+   * every pane by a few frames and warp what's round it. So the bend eases away as the page starts to scroll and back once it rests, the glass
+   * read again before it does. A scroll inside something (a track, a list) moves no glass with it unless it holds glass, so it only reads
+   * the glass again. A game's background runs in a frame on the game's own site, a page away: it bends nothing under glass, ever (tellFrame).
    */
-  function scrolling() { if (layers.some(function (layer) { return !layer.isOuter && layer.isInView; })) markPlaceStale(); }
+  var BEND_LEAVES_MS = 80, BEND_RETURNS_MS = 250, BEND_RESTS_AFTER_MS = 140, bendShare = 1, lastPageScrollMs = -Infinity, bendStepMs = 0;
+  function isInViewDrawn() { return layers.some(function (layer) { return !layer.isOuter && layer.isInView; }); }
+  function scrolling() { if (bendShare > 0 && isInViewDrawn()) markPlaceStale(); }
+  function pageScrolling() { lastPageScrollMs = performance.now(); if (isInViewDrawn()) wake(); }
+  window.addEventListener("scroll", pageScrolling, { passive: true });
+  // Whether frames are still needed for the bend: the page hasn't rested yet, or the bend hasn't come back. It moves toward none while the page scrolls and toward all once it has rested.
+  function isBendMoving(nowMs) { return nowMs - lastPageScrollMs < BEND_RESTS_AFTER_MS || bendShare < 1; }
+  function stepBend(nowMs) {
+    var stepMs = Math.max(0, nowMs - bendStepMs), isScrolling = nowMs - lastPageScrollMs < BEND_RESTS_AFTER_MS, wasShare = bendShare; bendStepMs = nowMs;
+    if (still.matches) bendShare = isScrolling ? 0 : 1;
+    else bendShare = isScrolling ? Math.max(0, bendShare - stepMs / BEND_LEAVES_MS) : Math.min(1, bendShare + stepMs / BEND_RETURNS_MS);
+    if (bendShare === wasShare) return;
+    // Back from none, the glass is wherever the scroll left it.
+    if (wasShare === 0) isPlaceStale = true;
+    layers.forEach(function (layer) { layer.isDrawn = false; });
+  }
   function hostOf(el) { return el.closest(":has(> .backdrop)"); }
   function readList() {
     isListStale = false; isPlaceStale = true;
@@ -249,7 +265,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function programFor(context, source) {
     if (context.programs[source]) return context.programs[source];
     var body = HEAD + "uniform float iDark;\\n" + HELPERS + source + "\\n";
-    var built = { status: "compiling", hasPass: true, names: ["iResolution", "iTime", "iDark", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaViewOffset"],
+    var built = { status: "compiling", hasPass: true, names: ["iResolution", "iTime", "iDark", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaViewOffset", "zaismaBendShare"],
       plainSource: body + "uniform vec2 zaismaViewOffset;\\nout vec4 zaismaFragColor;\\nvoid main() { vec4 color = vec4(0.0); mainImage(color, gl_FragCoord.xy + zaismaViewOffset); zaismaFragColor = vec4(color.rgb, 1.0); }" };
     startBuild(built, body + GLASS_LIGHT);
     context.programs[source] = built;
@@ -264,7 +280,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function zaismaPrograms(context) {
     if (context.zaisma) return context.zaisma;
     var defined = HEAD + "uniform float iDark;\\n" + HELPERS, fine = defined + "#define RIDGE_OCTAVES 6\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live;
-    var sharp = { status: "compiling", hasPass: true, names: ZAISMA_NAMES.concat(["iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaSoftA", "zaismaSoftB", "zaismaSoftC", "zaismaStrip", "zaismaShadeA", "zaismaShadeB", "zaismaUv"]) };
+    var sharp = { status: "compiling", hasPass: true, names: ZAISMA_NAMES.concat(["zaismaBendShare", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaSoftA", "zaismaSoftB", "zaismaSoftC", "zaismaStrip", "zaismaShadeA", "zaismaShadeB", "zaismaUv"]) };
     startBuild(sharp, defined + "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.stored + ZAISMA_PARTS.draw + "\\n" + GLASS_LIGHT);
     function pass(source) { var built = { status: "compiling", names: ZAISMA_NAMES }; startBuild(built, fine + source); return built; }
     context.zaisma = { sharp: sharp, soft: pass(ZAISMA_PARTS.soft), strip: pass(ZAISMA_PARTS.strip), shade: pass(ZAISMA_PARTS.shade) };
@@ -376,7 +392,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var isFirstWithGlass = false;
       if (built.hasPass) {
         var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
-        gl.uniform4fv(at.iGlassPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1i(at.iGlassPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
+        gl.uniform4fv(at.iGlassPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1i(at.iGlassPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale); gl.uniform1f(at.zaismaBendShare, bendShare);
         isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0;
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -454,7 +470,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (document.hidden) return;
     // At most 30 frames a second (15 when idle), but at once when the glass over it has moved, so what's under a pane never trails it.
     var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
-    if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
+    stepBend(nowMs);
+    var isBendEasing = bendShare > 0 && bendShare < 1;
+    if (nowMs - lastMs < gapGoalMs && !isPlaceStale && !isBendEasing) { running = true; requestAnimationFrame(frame); return; }
     // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
     var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isBuildWaited = isFirstPaintDue; isFirstPaintDue = false;
     tickClock(nowMs);
@@ -479,7 +497,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       draw(layer, nowMs);
     });
     isBuildWaited = false;
-    if (isPlaceStale || isListStale || layers.some(isMoving)) { running = true; requestAnimationFrame(frame); }
+    if (isPlaceStale || isListStale || layers.some(isMoving) || isBendMoving(nowMs)) { running = true; requestAnimationFrame(frame); }
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {

@@ -187,7 +187,7 @@ The glass is a real material, not a picture of one: things are carved into it, r
 - **A carving never moves or fades.** When what's in a well scrolls, only what's in it moves and fades at the well's ends; the well stays put, whole.
 - **Glass sits on glass, not in it.** A pane over another is its own piece of glass with its own edge and shadow, never a soft patch of the pane under it; what it covers is hidden, not seen through it.
 - **Motion has weight.** What rises or sinks moves on the spring, as a material settling.
-- **The glass stays calm over the game.** It bends the backdrop's light as thick glass does, but nothing in it moves or shimmers on its own: the game is what's lively.
+- **The glass stays calm over the game.** It bends the backdrop's light as thick glass does, at rest: the bend eases away while the page scrolls, since a canvas can't follow glass the browser moves ahead of it. Nothing in it moves or shimmers on its own: the game is what's lively.
 
 **The test** for any look, sketch or state: what is the glass physically doing here, and where is the light? An answer of "it's colored" fails.
 
