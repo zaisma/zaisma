@@ -1350,6 +1350,8 @@ describe("layout", () => {
     expect(styles).not.toContain(".field > .cut-btn {");
     expect(styles).not.toContain(".well > .well-end {");
     expect(styles).not.toContain(".find > .tertiary-btn {");
+    // An icon in a field or a search is centered by its own place, wherever the field stands.
+    for (const holder of [".field", ".find"]) expect(styles).toMatch(new RegExp(`\\${holder} > \\.ico \\{[^}]*top: 50%; transform: translateY\\(-50%\\);`));
     expect(layoutComponents.carvingEnd(actions.secondaryButton("Copy")).html).toMatch(/^<span class="carving-end">/);
     expect(COMPONENTS().some((each) => each.slug === "carving-end" && each.group === "layout")).toBe(true);
     expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain('<span class="carving-end"><button');

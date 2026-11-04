@@ -958,7 +958,8 @@ const FIELD_STYLES = `
 /* A hidden password's dots: the display face's are too small to count, so they're Verdana's, larger and a little apart. */
 .field input[type="password"]:not(:placeholder-shown) { font-family: Verdana, var(--body); font-size: 1.375rem; letter-spacing: 0.12em; }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
+/* Centered by its own place, never by what its holder happens to do for what's out of its flow. */
+.field > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; transform: translateY(-50%); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
@@ -1100,7 +1101,7 @@ component({
 .find > .cut-line { z-index: 4; }
 .find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
-.find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
+.find > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; transform: translateY(-50%); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 /* Clear: a small tertiary button, only once something's typed, in the carving's one place for a control (.carving-end). A search is a regular
    control's height, so a small one fills it less the frame gap; what's typed stops short of it, so its room is the search's height. */
 .find:has(input:placeholder-shown) > .carving-end { display: none; }
