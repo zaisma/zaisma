@@ -2,6 +2,7 @@ import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 import {
+  readReviewReason,
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
   PRO_PRICE_CENTS_PER_MONTH,
@@ -199,7 +200,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isFullGameOwner = tester ? true : await fullGameOwner(env.DB, game, viewer.account);
   const isHidden = game.visibility === "draft" || game.visibility === "private";
   if (!tester && isHidden && !(game.full_game_item_name !== null && isFullGameOwner && game.live_version_id)) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
-  if (game.review_status === "removed") return glassMessage(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
+  if (game.review_status === "removed") return readReviewReason(game.review_reason)?.code === "developer_deleted_game" ? glassMessage(env, "This game was deleted", "Its developer deleted it.", 410) : glassMessage(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.review_status === "held") return glassMessage(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
   // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
   const countryCode = requestCountryCode(request);
@@ -943,7 +944,7 @@ function privacyBody(): Raw {
         html`<h2>Downloading your data</h2>
 <p>On your account page, choose ${textLink("Download your data", "/account#your-data")} to receive a copy of everything Zaisma keeps about your account, including your game saves.</p>
 <h2>Deleting your account</h2>
-<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
+<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. A game its developer deletes on its own stays off for a week, so they can bring it back, then it is erased the same way, and its copies in the backup are gone within 30 days of that. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Questions about this policy may be sent to ${textLink("privacy@zaisma.com", "mailto:privacy@zaisma.com")}.</p>`,
       ),

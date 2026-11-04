@@ -30,6 +30,8 @@ import {
   sha256Hex,
   shaderKey,
   type KeyScope,
+  gameBySlug,
+  startGameDeletionWait,
 } from "@zaisma/core";
 import type { ApiRoute } from "../../apps/site/src/developer.ts";
 import { letPublish } from "../helpers.ts";
@@ -120,6 +122,9 @@ export const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /storage": () => ({}),
   "PATCH /storage": () => ({ body: { monthly_storage_budget_cents: null } }),
   "DELETE /games/:slug": (world) => ({ body: { confirm_slug: world.values.slug } }),
+  "POST /games/:slug/bring-back": () => ({}),
+  "POST /games/:slug/erase-now": (world) => ({ body: { confirm_slug: world.values.slug } }),
+  "GET /games/:slug/deletion-requests/:game_deletion_request_id": () => ({}),
   "DELETE /games/:slug/versions/:version_id": () => ({}),
   "DELETE /games/:slug/versions/:version_id/publish": () => ({}),
   "DELETE /games/:slug/versions/:version_id/preview-links": () => ({}),
@@ -354,6 +359,8 @@ export async function makeWorld(routeName = ""): Promise<World> {
   await env.GAMES.put(forumMediaKey(mediaId), png(400, 300));
   // A running monthly credit plan, so changing and stopping it have one to reach; starting one needs none yet.
   if (routeName !== "POST /credit/plan/checkout") await env.DB.prepare("UPDATE owners SET credit_plan_subscription_id = ?, credit_plan_refill_level_cents = 4000, credit_plan_status = 'running', credit_plan_started_at_ms = ?, credit_plan_event_at_ms = ? WHERE id = ?").bind(`sub_plan_${n}`, nowMs, nowMs, victimOwner.id).run();
+  const gameDeletionRequestId = newId("game_deletion_request");
+  await env.DB.prepare("INSERT INTO game_deletion_requests (id, account_id, game_id, request_kind, created_at_ms, expires_at_ms) VALUES (?, ?, ?, 'delete_game', ?, ?)").bind(gameDeletionRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
   const spendingRequestId = newId("spending_request");
   await env.DB.prepare("INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) VALUES (?, ?, 'game_budget', ?, 4000, ?, ?)").bind(spendingRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
 
@@ -365,6 +372,7 @@ export async function makeWorld(routeName = ""): Promise<World> {
     values: {
       top_up_id: topUpId,
       spending_request_id: spendingRequestId,
+      game_deletion_request_id: gameDeletionRequestId,
       slug: game.slug,
       image_id: image.id,
       shader_id: shader.id,
@@ -473,7 +481,7 @@ export async function everything(world: World): Promise<string> {
 /** The stand-in Stripe account a developer has connected, with the owner's ID after it (each is on one owner only). */
 export const CONNECTED_ACCOUNT_ID = "acct_test_access";
 /** Calls a key can't make alone: connecting Stripe decides where players' money goes, so it needs the owner's passkey on a page first. */
-export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links"]);
+export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links", "POST /games/:slug/erase-now"]);
 
 export const keyFor = async (accountId: string, scope?: KeyScope) => (await createApiKey(env.DB, accountId, `key ${Math.random()}`, scope)).token;
 
@@ -493,6 +501,12 @@ export const useRealServers = (): void => {
 
 /** What a call needs in place first, for the developer's own: Zaisma Pro paid (and cancelled, to resume), a Stripe account connected. */
 export async function setUpOwnersCall(routeName: string, world: World): Promise<void> {
+  // Deleting a game nobody else played starts its week with a key; what comes after needs it waiting (test/site/game-deletion.test.ts has the rest).
+  if (routeName === "DELETE /games/:slug" || routeName === "POST /games/:slug/bring-back" || routeName === "POST /games/:slug/erase-now") {
+    const deletedGame = (await gameBySlug(env.DB, world.values.slug!))!;
+    for (const table of ["purchases", "saves", "games_ever_played", "kept_rooms", "play_days"]) await env.DB.prepare(`DELETE FROM ${table} WHERE game_id = ?`).bind(deletedGame.id).run();
+    if (routeName !== "DELETE /games/:slug") await startGameDeletionWait(env.DB, deletedGame.id);
+  }
   // Cancelling, resuming and refunding need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
   if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume" || routeName === "POST /pro/refund") {
     await env.DB.prepare("UPDATE owners SET pro_until_ms = ?, stripe_subscription_id = 'sub_test', stripe_customer_id = 'cus_test', is_pro_cancelled = ? WHERE id = ?").bind(Date.now() + 30 * 86_400_000, routeName === "POST /pro/resume" ? 1 : 0, world.victimOwnerId).run();

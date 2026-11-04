@@ -129,6 +129,10 @@ export const ERROR_CODES = {
   version_in_use: { httpStatus: 409, meaning: "The version can't be deleted: it's live, set to publish, or a tester link picked it.", messageForPeople: "This version is in use: it's live, set to publish, or a tester link opens it." },
   kept_for_review: { httpStatus: 403, meaning: "The version or game is kept for a person at Zaisma, so it can't be deleted.", messageForPeople: "A person at Zaisma needs this kept, so it can't be deleted." },
   bad_confirm_slug: { httpStatus: 400, meaning: "confirm_slug isn't the game's link name.", messageForPeople: "Type the game's link name to delete it." },
+  not_waiting_to_erase: { httpStatus: 409, meaning: "The game isn't deleted and waiting to be erased, so there's nothing to bring back or erase now.", messageForPeople: "This game isn't waiting to be erased." },
+  already_erasing: { httpStatus: 409, meaning: "The game's week is over and its erasing has started, so it can't be brought back.", messageForPeople: "This game's week is over, so it can't be brought back." },
+  played_by_others: { httpStatus: 409, meaning: "Other people played this game, so it waits out its week before it's erased; only a game nobody but its developer played can be erased at once.", messageForPeople: "Other people played this game, so it waits out its week." },
+  no_game_deletion_request: { httpStatus: 404, meaning: "This game has no deletion request with that ID.", messageForPeople: "This game has no such deletion request." },
   bad_monthly_storage_budget_cents: { httpStatus: 400, meaning: "monthly_storage_budget_cents isn't null or a whole number from 100 to 1,000,000.", messageForPeople: "A storage budget is a whole amount up to $10,000 a month." },
   no_content_length: { httpStatus: 411, meaning: "A file was sent without a Content-Length header.", messageForPeople: "A file came without its size. Upload it again." },
   file_needs_parts: { httpStatus: 413, meaning: "A file over 95 MB was sent in one go.", messageForPeople: "Files over 95 MB go up in parts. The upload command does that." },
@@ -203,7 +207,7 @@ export const ERROR_CODES = {
 
   // Hosting and credit
   hosting_paused: { httpStatus: 429, meaning: "The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used, or Zaisma's free hosting ran out and it has no budget with credit, or it has no real players and games with none used their share. It starts again when the month resets, the budget is raised or credit is added.", messageForPeople: "The game's hosting is paused this month: its free hosting, its budget or your credit is used. Raise its budget or add credit to start it again now." },
-  confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, or connecting a Stripe account): confirm_url is where they do it.", messageForPeople: "This needs your passkey on zaisma.com. Open the link to confirm it." },
+  confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, connecting a Stripe account, deleting a game other people played, or erasing a waiting game at once): confirm_url is where they do it.", messageForPeople: "This needs your passkey on zaisma.com. Open the link to confirm it." },
   bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting.", messageForPeople: "A budget is at least $1 a month, or none for free hosting only." },
   bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000).", messageForPeople: "A top-up is from $10 to $1,000." },
   account_not_protected: { httpStatus: 403, meaning: "The account has no passkey and no email yet, and a top-up keeps a card, so it needs one of them first: add a passkey or an email on zaisma.com/account.", messageForPeople: "A top-up keeps your card, so your account needs a passkey or an email first. Add one in your account." },
@@ -400,11 +404,13 @@ export interface ErrorDetails {
   confirmUrl?: string;
   /** The request the developer approves at confirmUrl, for confirmation_needed when a spending request was made. */
   spendingRequestId?: string;
+  /** The request the developer approves at confirmUrl, for confirmation_needed when a game deletion request was made. */
+  gameDeletionRequestId?: string;
 }
 
 /** An error answer: { "error": { code, message, field, fix, message_for_people, retry_after_sec } }, the same in the API and the MCP; confirmation_needed adds confirm_url. */
 export interface ErrorAnswer {
-  error: { code: ErrorCode; message: string; field: string | null; fix: string; message_for_people: string; retry_after_sec: number | null; confirm_url?: string; spending_request_id?: string };
+  error: { code: ErrorCode; message: string; field: string | null; fix: string; message_for_people: string; retry_after_sec: number | null; confirm_url?: string; spending_request_id?: string; game_deletion_request_id?: string };
 }
 
 /** A refusal the developer API and MCP answer with, as docs/NAMING.md describes. */
@@ -417,6 +423,7 @@ export class ApiError extends Error {
   readonly retryAfterSec: number | null;
   readonly confirmUrl: string | null;
   readonly spendingRequestId: string | null;
+  readonly gameDeletionRequestId: string | null;
 
   constructor(
     readonly code: ErrorCode,
@@ -430,10 +437,11 @@ export class ApiError extends Error {
     this.retryAfterSec = details.retryAfterSec ?? null;
     this.confirmUrl = details.confirmUrl ?? null;
     this.spendingRequestId = details.spendingRequestId ?? null;
+    this.gameDeletionRequestId = details.gameDeletionRequestId ?? null;
   }
 
   toAnswer(): ErrorAnswer {
-    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, message_for_people: this.messageForPeople, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}), ...(this.spendingRequestId ? { spending_request_id: this.spendingRequestId } : {}) } };
+    return { error: { code: this.code, message: this.message, field: this.field, fix: this.fix, message_for_people: this.messageForPeople, retry_after_sec: this.retryAfterSec, ...(this.confirmUrl ? { confirm_url: this.confirmUrl } : {}), ...(this.spendingRequestId ? { spending_request_id: this.spendingRequestId } : {}), ...(this.gameDeletionRequestId ? { game_deletion_request_id: this.gameDeletionRequestId } : {}) } };
   }
 }
 

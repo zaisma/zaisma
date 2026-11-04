@@ -136,6 +136,7 @@ export const PAGE_SAMPLES: Readonly<Record<string, (world: PageWorld) => PageSam
   "POST /dashboard/settings/storage/budget-off": () => ({}),
   "POST /dashboard/settings/games/:slug/:budget_action": () => ({ form: { monthly_budget_dollars: "40" } }),
   "POST /dashboard/settings/spending/:spending_request_id": () => ({ form: { answer: "declined" } }),
+  "POST /dashboard/settings/game-deletion/:game_deletion_request_id": () => ({ form: { answer: "declined" } }),
   "POST /dashboard/settings/pro/checkout": () => ({}),
   "POST /dashboard/settings/pro/refund": () => ({}),
   "POST /dashboard/settings/pro/cancel": () => ({}),
@@ -166,6 +167,8 @@ export const PAGE_SAMPLES: Readonly<Record<string, (world: PageWorld) => PageSam
   "POST /dashboard/:slug/testers": () => ({ form: { name: "Streamers", version_choice: "newest_passed" } }),
   "POST /dashboard/:slug/testers/:id/:tester_action": (world) => ({ pathValues: { id: world.values.tester_id! } }),
   "POST /dashboard/:slug/delete": (world) => ({ form: { confirm_slug: world.values.slug! } }),
+  "POST /dashboard/:slug/bring-back": () => ({}),
+  "POST /dashboard/:slug/erase-now": () => ({}),
   "POST /dashboard/:slug/versions/:id/end-previews": (world) => ({ pathValues: { id: world.values.version_id! } }),
   "POST /dashboard/:slug/versions/:id/:version_action": (world) => ({ pathValues: { id: world.values.version_id! }, form: { patch_notes: "Faster jumps." } }),
 
@@ -250,6 +253,8 @@ export const MAY_TOUCH_OWNER: Readonly<Record<string, string>> = {
 
 /** What the owner's call needs in place first, by the API call the door makes (setUpOwnersCall). */
 export const OWNER_SETUP_ROUTES: Readonly<Record<string, string>> = {
+  "POST /dashboard/:slug/bring-back": "POST /games/:slug/bring-back",
+  "POST /dashboard/:slug/erase-now": "POST /games/:slug/erase-now",
   "POST /dashboard/settings/pro/refund": "POST /pro/refund",
   "POST /dashboard/settings/pro/cancel": "POST /pro/cancel",
   "POST /dashboard/settings/pro/resume": "POST /pro/resume",

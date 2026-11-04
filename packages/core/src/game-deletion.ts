@@ -19,7 +19,15 @@ export interface GameDeletion {
   next_attempt_at_ms: number;
   failure_message: string | null;
   created_at_ms: number;
+  /** When a game its developer deleted is erased; null for a deletion that doesn't wait. */
+  erases_at_ms: number | null;
+  review_status_before: string | null;
+  review_reason_before: string | null;
 }
+
+/** How long a game its developer deleted waits before it's erased, for them to bring it back. */
+export const GAME_DELETION_WAIT_DURATION_DAYS = 7;
+const DAY_MS = 86_400_000;
 
 /**
  * True for a game that has ever been under a child-safety hold no person cleared: a held, scanning or
@@ -57,6 +65,8 @@ export const KEPT_FOR_REVIEW_REASON = "Its developer deleted their account; kept
 export function ownerGameDeletions(database: D1Database, ownerId: string, nowMs = now()): D1PreparedStatement[] {
   const kept = childSafetyKeptCondition("games.id");
   return [
+    // A game already waiting out its week goes with the account now.
+    database.prepare("UPDATE game_deletions SET next_attempt_at_ms = ?, erases_at_ms = NULL WHERE game_id IN (SELECT id FROM games WHERE owner_id = ?)").bind(nowMs, ownerId),
     database.prepare("INSERT OR IGNORE INTO retired_game_slugs (slug, retired_at_ms) SELECT slug, ? FROM games WHERE owner_id = ?").bind(nowMs, ownerId),
     database.prepare(`INSERT INTO audit_log (game_id, action, reason, actor, happened_at_ms) SELECT id, 'kept-for-review', ?, 'system', ? FROM games WHERE owner_id = ? AND ${kept}`).bind(KEPT_FOR_REVIEW_REASON, nowMs, ownerId),
     database
@@ -68,7 +78,57 @@ export function ownerGameDeletions(database: D1Database, ownerId: string, nowMs 
   ];
 }
 
-/** One game deleted for good, by its developer or by Zaisma (one an account left behind): its link name is retired and its deletion queued. */
+/**
+ * A game its developer deleted: off for players at once and erased at erasesAtMs, a week on unless a tap erases it sooner.
+ * It keeps its owner, its link name and everything it holds until then, and what it was before, for a bring-back.
+ */
+export async function startGameDeletionWait(database: D1Database, gameId: string, nowMs = now(), erasesAtMs = nowMs + GAME_DELETION_WAIT_DURATION_DAYS * DAY_MS): Promise<number> {
+  await database.batch([
+    database
+      .prepare(
+        `INSERT INTO game_deletions (game_id, requested_by_kind, deletion_status, attempt_count, next_attempt_at_ms, created_at_ms, erases_at_ms, review_status_before, review_reason_before)
+         SELECT id, 'developer', 'pending', 0, ?1, ?2, ?1, review_status, review_reason FROM games WHERE id = ?3
+         ON CONFLICT (game_id) DO UPDATE SET next_attempt_at_ms = excluded.next_attempt_at_ms, erases_at_ms = excluded.erases_at_ms`,
+      )
+      .bind(erasesAtMs, nowMs, gameId),
+    database.prepare("UPDATE games SET review_status = 'removed', review_reason = ?, updated_at_ms = ? WHERE id = ?").bind(JSON.stringify(reviewReason("developer_deleted_game")), nowMs, gameId),
+  ]);
+  return erasesAtMs;
+}
+
+/** A bring-back: the game is what it was before its developer deleted it, a hold or a takedown included. Safe to repeat. */
+export async function cancelGameDeletionWait(database: D1Database, gameId: string, nowMs = now()): Promise<void> {
+  await database.batch([
+    database
+      .prepare(
+        `UPDATE games SET review_status = (SELECT review_status_before FROM game_deletions WHERE game_id = ?1), review_reason = (SELECT review_reason_before FROM game_deletions WHERE game_id = ?1), updated_at_ms = ?2
+         WHERE id = ?1 AND EXISTS (SELECT 1 FROM game_deletions WHERE game_id = ?1 AND erases_at_ms IS NOT NULL)`,
+      )
+      .bind(gameId, nowMs),
+    database.prepare("DELETE FROM game_deletions WHERE game_id = ? AND erases_at_ms IS NOT NULL").bind(gameId),
+  ]);
+}
+
+/**
+ * Whether anyone but the game's developer left a trace of playing it: an account that played or saved, a purchase, a kept
+ * room or a counted play. Any trace counts: this decides whether deleting the game takes the developer's passkey.
+ */
+export async function isPlayedByOthers(database: D1Database, gameId: string): Promise<boolean> {
+  const row = await database
+    .prepare(
+      `WITH developer AS (SELECT owners.account_id FROM games JOIN owners ON owners.id = games.owner_id WHERE games.id = ?1)
+       SELECT EXISTS (SELECT 1 FROM games_ever_played WHERE game_id = ?1 AND account_id IS NOT (SELECT account_id FROM developer))
+         OR EXISTS (SELECT 1 FROM saves WHERE game_id = ?1 AND account_id IS NOT (SELECT account_id FROM developer))
+         OR EXISTS (SELECT 1 FROM purchases WHERE game_id = ?1)
+         OR EXISTS (SELECT 1 FROM kept_rooms WHERE game_id = ?1)
+         OR EXISTS (SELECT 1 FROM play_days WHERE game_id = ?1 AND (play_count > 0 OR player_count > 0)) AS is_played`,
+    )
+    .bind(gameId)
+    .first<{ is_played: number }>();
+  return row?.is_played === 1;
+}
+
+/** One game deleted for good by Zaisma (one an account left behind): its link name is retired and its deletion queued. */
 export async function queueGameDeletion(database: D1Database, gameId: string, requestedByKind: GameDeletionRequestedByKind, nowMs = now()): Promise<void> {
   await database.batch([
     database.prepare("INSERT OR IGNORE INTO retired_game_slugs (slug, retired_at_ms) SELECT slug, ? FROM games WHERE id = ?").bind(nowMs, gameId),
@@ -150,7 +210,7 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     ...[
       "play_days", "play_returns", "game_returning_players", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "live_games", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
       "game_server_errors", "game_server_schedules", "relay_reads", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
-      "game_items", "audit_log", "reports", "versions",
+      "game_items", "game_deletion_requests", "audit_log", "reports", "versions",
     ].map(deleteFrom),
     database.prepare("DELETE FROM games WHERE id = ?").bind(gameId),
     deleteFrom("game_deletions"),

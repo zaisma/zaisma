@@ -3,7 +3,7 @@ import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
-import { withSpendingConfirmation } from "./credit-api.ts";
+import { withPasskeyConfirmation } from "./credit-api.ts";
 import type { storageAnswer } from "./storage-api.ts";
 import type { Env } from "./env.ts";
 import { html, layout, raw, scriptTags, type Raw } from "./html.ts";
@@ -12,6 +12,7 @@ import { PASSKEY_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie } from
 import { logAccountChange, seedKeyPlace } from "./security-log.ts";
 import { recordProof } from "./session-proofs.ts";
 import { answerSpendingRequest, spendingRequestAnswer } from "./spending-requests.ts";
+import { answerGameDeletionRequest, gameDeletionRequestAnswer } from "./game-deletion-requests.ts";
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
 import { stripeFormTargets } from "./stripe.ts";
 import { waitEndsText } from "./email-codes.ts";
@@ -121,6 +122,7 @@ interface PageState {
   shownOnce?: ShownOnce;
   /** A spending request to answer, opened over the Hosting pane. */
   spendingRequestId?: string;
+  gameDeletionRequestId?: string;
   /** A webhook whose deliveries are open, and where its next page starts. */
   deliveriesOf?: { webhookId: string; cursor: string | null };
 }
@@ -912,7 +914,7 @@ const SETTINGS_SCRIPT = pageScript(
   }
 
   // A spending request's link opens its sheet over the Hosting pane.
-  var asking = document.getElementById("spending-request");
+  var asking = document.getElementById("spending-request") || document.getElementById("game-deletion-request");
   if (asking && asking.showModal && !asking.open) asking.showModal();
   // A link to #add-credit or #payments-connect (the game dashboard's note on links to other sites) opens that sheet.
   var linked = ["#add-credit", "#payments-connect"].indexOf(location.hash) >= 0 && document.getElementById(location.hash.slice(1));
@@ -977,11 +979,12 @@ const SETTINGS_SCRIPT = pageScript(
 );
 
 async function settingsPage(env: Env, request: Request, session: SignedIn, caller: Caller, account: Account, state: PageState = {}, httpStatus = 200): Promise<Response> {
-  const [settings, keys, making, spending] = await Promise.all([
+  const [settings, keys, making, spending, gameDeletion] = await Promise.all([
     readSettings(env, caller),
     apiKeysFor(env.DB, account.id),
     keyMakingState(env, account.id),
     state.spendingRequestId ? spendingRequestAnswer(env, account.id, state.spendingRequestId) : Promise.resolve(null),
+    state.gameDeletionRequestId ? gameDeletionRequestAnswer(env, account.id, state.gameDeletionRequestId) : Promise.resolve(null),
   ]);
   const deliveries = state.deliveriesOf
     ? ((await apiCall(env, caller, "GET", `/webhooks/${state.deliveriesOf.webhookId}/deliveries${state.deliveriesOf.cursor ? `?cursor=${encodeURIComponent(state.deliveriesOf.cursor)}` : ""}`).catch(() => null)) as { deliveries?: DeliveryJson[]; next_cursor?: string | null } | null)
@@ -1015,6 +1018,21 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
         ? html`${notice({ text: "That request isn't waiting any more. It was answered, it expired after a day, or it isn't yours.", tone: "problem", isInPlace: false })}`
         : raw("");
 
+  const gameDeletionSheet: Raw =
+    state.gameDeletionRequestId && gameDeletion?.request_status === "waiting"
+      ? sheet({
+          id: "game-deletion-request",
+          title: gameDeletion.request_kind === "delete_game" ? `Delete ${gameDeletion.game_title}?` : `Erase ${gameDeletion.game_title} now?`,
+          closeLabel: "Close",
+          action: `${PAGE}/game-deletion/${gameDeletion.id}`,
+          isShown: false,
+          body: stackOfOne(html`<div data-tap="confirm" data-tap-always="yes">${stack({ items: [...gameDeletionWords(gameDeletion).map(words), ...(gameDeletion.request_kind === "delete_game" ? [block(keyDetails({ label: "What goes with it", details: [{ label: "Players with saves", detailValue: gameDeletion.player_with_save_count.toLocaleString("en-US") }, { label: "Purchases", detailValue: gameDeletion.purchase_count.toLocaleString("en-US") }] }))] : []), { kind: "words", markup: html`<p class="field-error" data-tap-error hidden role="alert"></p>` }] })}</div>`),
+          buttons: [secondaryButton("Decline", { type: "submit", name: "answer", buttonValue: "declined", dataAttributes: { "no-tap": "" } }), primaryButton(gameDeletion.request_kind === "delete_game" ? "Delete with passkey" : "Erase with passkey", { type: "submit", name: "answer", buttonValue: "approved" })],
+        })
+      : state.gameDeletionRequestId
+        ? html`${notice({ text: "That request isn't waiting any more. It was answered, it expired after a day, or it isn't yours.", tone: "problem", isInPlace: false })}`
+        : raw("");
+
   const paneItems = [
     hostingPane(settings),
     proPane(settings),
@@ -1024,7 +1042,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     keysPane(keys, settings.games.map((game) => ({ slug: game.slug, title: game.title })), making),
   ];
   const panes = stack({ items: [...topNotes, ...paneItems] });
-  const body = html`<h1 class="sr">Developer settings</h1>${sidebarLayout({ sidebar: sidebar({ id: "settings-places", label: "Settings", rememberKey: "developer-settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })) }), main: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
+  const body = html`<h1 class="sr">Developer settings</h1>${sidebarLayout({ sidebar: sidebar({ id: "settings-places", label: "Settings", rememberKey: "developer-settings", places: TAB_PANES.map((pane, index) => ({ label: pane.label, icon: pane.icon, href: `#${pane.id}`, isCurrent: index === 0 })) }), main: panes })}${paneItems.map((paneItem) => PANE_LAYERS.get(paneItem) ?? "")}${spendingSheet}${gameDeletionSheet}${confirmItsYouSheet({ id: "settings-confirm" })}${state.done && DONE_WORDS[state.done] ? notice({ text: DONE_WORDS[state.done]!, tone: "done" }) : ""}${state.problem ? notice({ text: state.problem, tone: "problem", link: state.problemLink }) : ""}${scriptTags(PASSKEY_SCRIPT, SETTINGS_SCRIPT)}`;
   const response = layout(env, { title: "Developer settings · Zaisma", body, checkedPage: "Developer settings", pageShape: "reading", formTargets: stripeFormTargets(env), nav: "developer", sidebarButton: sidebarButton({ controls: "settings-places", label: "Settings", isExpanded: true }), viewer: { account }, isPrivate: true });
   const answered = new Response(response.body, { status: httpStatus, headers: response.headers });
   for (const cookie of session.cookies) answered.headers.append("Set-Cookie", cookie);
@@ -1032,6 +1050,12 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
 }
 
 /** What a waiting request asks, said in a sentence and the change before → after. */
+function gameDeletionWords(request: NonNullable<Awaited<ReturnType<typeof gameDeletionRequestAnswer>>>): string[] {
+  const who = request.is_asked_from_dashboard ? [] : ["A key or an AI app asks for this. If it wasn't you, decline, then remove the key."];
+  if (request.request_kind === "erase_game_now") return [...who, "Nobody else ever played it. Its files and database go for good, at once."];
+  return [...who, "It goes off for every player at once, and is erased in 7 days unless you bring it back."];
+}
+
 function spendingChangeWords(request: NonNullable<Awaited<ReturnType<typeof spendingRequestAnswer>>>): { what: string; change: string } {
   if (request.request_kind === "credit_plan_refill_level") {
     const askedLevelCents = "refill_level_cents" in request.requested_change ? (request.requested_change.refill_level_cents ?? null) : null;
@@ -1070,6 +1094,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   if (!isPost) {
     if (!isPage) return redirect(PAGE, session.cookies);
     const spendingRequestId = url.searchParams.get("spending_request") ?? undefined;
+    const gameDeletionRequestId = url.searchParams.get("game_deletion_request") ?? undefined;
     const deliveriesOfId = url.searchParams.get("deliveries");
     return settingsPage(env, request, session, caller, account, {
       done: url.searchParams.get("done") ?? (url.searchParams.get("stripe") === "connected" ? "connected" : undefined),
@@ -1080,6 +1105,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
             ? "Stripe didn't connect. The link may have expired: try Connect Stripe again."
             : undefined,
       spendingRequestId,
+      gameDeletionRequestId,
       deliveriesOf: deliveriesOfId ? { webhookId: deliveriesOfId, cursor: url.searchParams.get("cursor") } : undefined,
     });
   }
@@ -1092,7 +1118,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     if (error instanceof ApiError) return settingsPage(env, request, session, caller, account, { problem: error.messageForPeople }, error.httpStatus);
     throw error;
   };
-  caller = await withSpendingConfirmation(env, caller, session);
+  caller = await withPasskeyConfirmation(env, caller, session);
   const call = (method: string, apiPath: string, payload?: unknown) => apiCall(env, caller, method, apiPath, payload);
   const sub = path.slice(PAGE.length + 1);
   let match: RegExpMatchArray | null;
@@ -1146,6 +1172,13 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
       const outcome = await answerSpendingRequest(env, caller, match[1]!, answer);
       if (outcome === "not_waiting") return redirect(`${PAGE}?spending_request=${match[1]}#hosting`, session.cookies);
       return back(answer, "hosting");
+    }
+    if ((match = sub.match(/^game-deletion\/(game_deletion_request_[a-z0-9]+)$/))) {
+      const answer = field("answer", 20) === "declined" ? "declined" : "approved";
+      const { outcome, gameSlug } = await answerGameDeletionRequest(env, caller, match[1]!, answer);
+      if (outcome === "not_waiting") return redirect(`${PAGE}?game_deletion_request=${match[1]}#hosting`, session.cookies);
+      if (answer === "declined") return back(answer, "hosting");
+      return redirect(`/dashboard/${gameSlug}?done=game-deleted`, session.cookies);
     }
     // Pro
     if (sub === "pro/checkout") {

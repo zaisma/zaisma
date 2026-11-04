@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGOR
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -901,11 +901,38 @@ export const TOOLS: Tool[] = [
     name: "delete_game",
     title: "Delete a game",
     description:
-      "Deletes a whole game for good: it stops at once for every player, its link is never used again, and its versions, database, saves and purchases all go. Frees its files at once. export_game keeps a copy first. Nothing brings it back, so ask the developer first, and send its slug again as confirm_slug. A game kept for a person at Zaisma answers kept_for_review.",
+      "Deletes a whole game: it stops at once for every player and is erased a week later, with its versions, database, saves and purchases, and its link is never used again. Until erases_at, bring_back_game brings it back. Ask the developer first, and send its slug again as confirm_slug. A game other people played answers confirmation_needed and changes nothing: give the developer confirm_url, where a sheet names the game and what goes with it and they approve with a passkey tap or decline, and check the answer with get_game_deletion_request. export_game keeps a copy first. A game kept for a person at Zaisma answers kept_for_review.",
     inputSchema: { ...object({ slug, confirm_slug: { type: "string", description: "The game's slug again: the check that this is the game meant." } }, ["slug", "confirm_slug"]), examples: [{ slug: "sky-hopper", confirm_slug: "sky-hopper" }] },
-    outputSchema: DELETED_WITH_STORAGE,
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    outputSchema: GAME_DELETED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}`, { confirm_slug: toolArguments.confirm_slug }),
+  },
+  {
+    name: "bring_back_game",
+    title: "Bring a deleted game back",
+    description: "Brings back a game its developer deleted, until its erases_at: it's what it was before, with everything it held. get_game says erases_at. A game whose week is over answers already_erasing; one Zaisma took down since answers game_removed.",
+    inputSchema: { ...object({ slug }, ["slug"]), examples: [{ slug: "sky-hopper" }] },
+    outputSchema: GAME_BROUGHT_BACK,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/bring-back`),
+  },
+  {
+    name: "erase_game_now",
+    title: "Erase a deleted game at once",
+    description: "Erases a waiting game nobody but its developer ever played, without waiting for erases_at (get_game's is_erase_now_allowed), so what it stores stops counting. It always answers confirmation_needed first: give the developer confirm_url, where they approve with a passkey tap. Nothing brings it back after that. A game other people played answers played_by_others.",
+    inputSchema: { ...object({ slug, confirm_slug: { type: "string", description: "The game's slug again: the check that this is the game meant." } }, ["slug", "confirm_slug"]), examples: [{ slug: "sky-hopper", confirm_slug: "sky-hopper" }] },
+    outputSchema: GAME_ERASING,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/erase-now`, { confirm_slug: toolArguments.confirm_slug }),
+  },
+  {
+    name: "get_game_deletion_request",
+    title: "A game deletion request's answer",
+    description: "Whether the developer has answered a deletion you asked for. When delete_game or erase_game_now answers confirmation_needed, it also answers game_deletion_request_id. This shows request_status (waiting, approved, declined or expired after a day), the game, and how many other players have saves and how many purchases go with it. Approved means it's done.",
+    inputSchema: object({ slug, game_deletion_request_id: { type: "string", pattern: "^game_deletion_request_[a-z0-9]+$", description: "From confirmation_needed's game_deletion_request_id, like game_deletion_request_k2m9x4…" } }, ["slug", "game_deletion_request_id"]),
+    outputSchema: GAME_DELETION_REQUEST,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/deletion-requests/${pathPart(toolArguments.game_deletion_request_id)}`),
   },
   {
     name: "get_pro",
