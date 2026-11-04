@@ -174,7 +174,8 @@ describe("What a comparison lets out", () => {
     // Tested as a yes or no, so a failure here prints no finding either.
     expect(/^Pattern rules: \d+ findings\.\n$/.test(stdout)).toBe(true);
     expect(Object.keys(JSON.parse(readFileSync(join(folder, "findings.json"), "utf8")))).toEqual(["recorded_at", "commit_sha", "finding_count", "findings"]);
-  });
+    // It reads all of Zaisma's code in a process of its own: seconds here, more on a runner busy with three other test files.
+  }, 60_000);
 });
 
 describe("What it reads", () => {
