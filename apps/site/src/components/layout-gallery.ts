@@ -214,15 +214,28 @@ component({
   ],
 });
 
+/** A gray box naming a place in a pane, for the drawings of Pane parts. */
+const partBox = (name: string, isBody = false): Raw => html`<span class="part-box${isBody ? " is-body" : ""}">${name}</span>`;
+const headParts = { start: secondaryButton("Start corner", { type: "button" }), words: html`<h3>${partBox("Heading")}</h3><p>${partBox("Other words, under the corners")}</p>`, end: secondaryButton("End corner", { type: "button" }) };
+const footParts = { start: words(partBox("Foot's start")), end: secondaryButton("End corner", { type: "button" }) };
+const bodyPart = stackOfOne(partBox("Body: whatever the pane holds", true));
+
 component({
   name: "Pane parts",
   slug: "pane-parts",
   group: "layout",
   subgroup: "inside",
-  summary: "A pane's places: its head (words, and one control in each top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut. Not for a pane with no control in a corner: its body is a Stack.",
-  styles: PANE_PARTS_STYLES,
+  summary: "A pane's three places, top to bottom, each as wide as the pane and each optional but the body. The head holds its heading between up to two corner controls, and its other words under them. The body holds whatever the pane is for. The foot holds something at its start and one control in its end corner. A corner control sits in the corner and takes its cut; the places run the whole width between them. Not for a pane with no control in a corner: its body is a Stack.",
+  styles: `${PANE_PARTS_STYLES}
+/* The drawings: a gray box in each place of a real Pane parts, so what they show is where things really go. */
+.part-box { display: block; background: var(--slab); box-shadow: var(--slab-shade); font: var(--type-note); color: var(--ink-2); text-align: center; }
+.part-box.is-body { display: grid; place-items: center; aspect-ratio: 4 / 1; }
+`,
   render: paneParts,
   examples: [
+    { label: "Every place: a head, a body and a foot", isWide: true, isStill: true, markup: glassPane({ paneWidth: "full", body: paneParts({ head: headParts, body: bodyPart, foot: footParts }) }) },
+    { label: "Only what's used: a head with one corner, and a body", isStill: true, markup: glassPane({ paneWidth: "full", body: paneParts({ head: { words: html`<h3>${partBox("Heading")}</h3>`, end: headParts.end }, body: bodyPart }) }) },
+    { label: "A body and a foot, with no head", isStill: true, markup: glassPane({ paneWidth: "full", body: paneParts({ body: bodyPart, foot: footParts }) }) },
     { label: "A head with Refresh in its corner, a table, a foot with a control in its corner", isWide: true, markup: roomsPane() },
     {
       label: "In a pane that fits what's in it",
