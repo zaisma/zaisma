@@ -4,12 +4,12 @@
 //   npm run grid                          Runs it here and prints every failure.
 //   npm run grid -- --compare <sha>       GitHub's check: prints and fails only on what this change adds to <sha>.
 //   npm run grid -- --record <file>       Writes every failure to <file>, for a private repository to keep. Prints only counts.
-//   npm run grid -- --results <file>      Writes every cell to <file> and prints nothing. What --compare runs on the base.
+//   npm run grid -- --results <file>      Writes every cell to <file> and prints nothing.
 //
 // A public check's log is read by anyone, so --compare never prints a cell that's broken on the base too, and the runs it makes
 // print nothing at all: only cells this change adds leave this script.
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -64,14 +64,19 @@ export function comparisonLines(comparison, baseSha) {
   }
 }
 
-/** Runs the grid in a checkout and answers its results, or null when the run itself failed. Its output goes nowhere: it can name cells. */
-function runGrid(checkout, resultsPath) {
+/**
+ * Runs the grid in a checkout and answers its results, or null when the run itself failed. Its output goes nowhere: it can name cells.
+ * workerCount shares a runner's cores when both sides run at once.
+ */
+async function runGrid(checkout, resultsPath, workerCount = process.env.TEST_WORKER_COUNT) {
   const part = process.env.ZAISMA_CONTRACT_GRID_PART;
   if (part && !GRID_FILES_BY_PART[part]) stop(`ZAISMA_CONTRACT_GRID_PART is "${part}": it takes ${Object.keys(GRID_FILES_BY_PART).join(", ")}.`);
-  spawnSync("npx", ["vitest", "run", "--silent", "--reporter=./test/grid/reporter.ts", "--passWithNoTests", ...(part ? GRID_FILES_BY_PART[part] : [])], {
-    cwd: checkout,
-    stdio: "ignore",
-    env: { ...process.env, ZAISMA_CONTRACT_GRID: "1", ZAISMA_CONTRACT_GRID_RESULTS: resultsPath },
+  await new Promise((done) => {
+    spawn("npx", ["vitest", "run", "--silent", "--reporter=./test/grid/reporter.ts", "--passWithNoTests", ...(part ? GRID_FILES_BY_PART[part] : [])], {
+      cwd: checkout,
+      stdio: "ignore",
+      env: { ...process.env, ZAISMA_CONTRACT_GRID: "1", ZAISMA_CONTRACT_GRID_RESULTS: resultsPath, ...(workerCount ? { TEST_WORKER_COUNT: String(workerCount) } : {}) },
+    }).once("close", done);
   });
   return existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, "utf8")) : null;
 }
@@ -83,7 +88,7 @@ const stop = (line) => {
 };
 
 /** The grid on the base, from a clean copy of it, or "no_grid" when the base has none yet. */
-function runBase(baseSha, temporary) {
+async function runBase(baseSha, temporary, workerCount) {
   if (git(["cat-file", "-e", `${baseSha}:scripts/contract-grid.mjs`]).status !== 0) return "no_grid";
   const copy = join(temporary, "base");
   if (git(["worktree", "add", "--detach", "--quiet", copy, baseSha]).status !== 0) return null;
@@ -91,21 +96,27 @@ function runBase(baseSha, temporary) {
     const isSameLock = git(["diff", "--quiet", baseSha, "HEAD", "--", "package-lock.json"]).status === 0;
     if (isSameLock) symlinkSync(join(ROOT, "node_modules"), join(copy, "node_modules"));
     else if (spawnSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: copy, stdio: "ignore" }).status !== 0) return null;
-    return runGrid(copy, join(temporary, "base.json"));
+    return await runGrid(copy, join(temporary, "base.json"), workerCount);
   } finally {
     git(["worktree", "remove", "--force", copy]);
   }
 }
 
-function compare(baseSha) {
+async function compare(baseSha) {
   const temporary = mkdtempSync(join(tmpdir(), "contract-grid-"));
   const crashed = `Contract grid: a run didn't finish. Run ${LOCAL_COMMAND}${baseSha} on your own machine.`;
   try {
-    let headResults = runGrid(ROOT, join(temporary, "head.json"));
+    // On GitHub's runners, both sides at once with half the cores each, so a comparison takes about one side's time. On a laptop, one Workers run at a
+    // time, and the base only when this change has something broken to subtract.
+    const sideWorkerCount = Math.max(1, Math.floor(Number(process.env.TEST_WORKER_COUNT ?? 2) / 2));
+    const baseRun = process.env.CI ? runBase(baseSha, temporary, sideWorkerCount) : null;
+    let headResults = await runGrid(ROOT, join(temporary, "head.json"), process.env.CI ? sideWorkerCount : undefined);
     if (!headResults) stop(crashed);
-    // None broken on this change means there's nothing to subtract, so the base needn't run at all.
-    if (!headResults.cells.some(isFailed) && headResults.doors_not_tried.length === 0) return console.log(comparisonLines({ outcome: "nothing_new" }, baseSha).join("\n"));
-    const baseResults = runBase(baseSha, temporary);
+    if (!headResults.cells.some(isFailed) && headResults.doors_not_tried.length === 0) {
+      await baseRun;
+      return console.log(comparisonLines({ outcome: "nothing_new" }, baseSha).join("\n"));
+    }
+    const baseResults = await (baseRun ?? runBase(baseSha, temporary));
     // Report-only at first: a base with no grid has nothing to compare with, and everything here would look new.
     if (baseResults === "no_grid") return console.log(comparisonLines({ outcome: "nothing_new" }, baseSha).join("\n"));
     if (!baseResults) stop(crashed);
@@ -113,7 +124,7 @@ function compare(baseSha) {
     let comparison = compareGridResults({ headResults, baseResults, isGridChanged });
     if (comparison.outcome === "new_failures") {
       // Once more, so a cell that failed by chance isn't new.
-      headResults = runGrid(ROOT, join(temporary, "head-again.json"));
+      headResults = await runGrid(ROOT, join(temporary, "head-again.json"));
       if (!headResults) stop(crashed);
       comparison = compareGridResults({ headResults, baseResults, isGridChanged });
     }
@@ -125,10 +136,10 @@ function compare(baseSha) {
   }
 }
 
-function local() {
+async function local() {
   const temporary = mkdtempSync(join(tmpdir(), "contract-grid-"));
   try {
-    const results = runGrid(ROOT, join(temporary, "results.json"));
+    const results = await runGrid(ROOT, join(temporary, "results.json"));
     if (!results) stop("Contract grid: the run didn't finish. Run it with ZAISMA_CONTRACT_GRID=1 npx vitest run to see why.");
     const failed = results.cells.filter(isFailed);
     for (const cell of failed) console.log(`- ${cell.door_id}, as ${cell.caller_kind}: ${cell.cell_verdict}. ${cell.problem_line}`);
@@ -140,10 +151,10 @@ function local() {
   }
 }
 
-function record(path) {
+async function record(path) {
   const temporary = mkdtempSync(join(tmpdir(), "contract-grid-"));
   try {
-    const results = runGrid(ROOT, join(temporary, "results.json"));
+    const results = await runGrid(ROOT, join(temporary, "results.json"));
     if (!results) stop("Contract grid: the run didn't finish.");
     const commitSha = git(["rev-parse", "HEAD"]).stdout.trim();
     const failures = results.cells.filter(isFailed).sort((first, second) => cellId(first).localeCompare(cellId(second)));
@@ -156,10 +167,10 @@ function record(path) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [flag, given] = process.argv.slice(2);
-  if (flag === "--compare" && given) compare(given);
-  else if (flag === "--record" && given) record(given);
+  if (flag === "--compare" && given) await compare(given);
+  else if (flag === "--record" && given) await record(given);
   else if (flag === "--results" && given) {
-    if (!runGrid(ROOT, resolve(given))) process.exit(1);
-  } else if (!flag) local();
+    if (!(await runGrid(ROOT, resolve(given)))) process.exit(1);
+  } else if (!flag) await local();
   else stop("Use: npm run grid [-- --compare <sha> | --record <file> | --results <file>]");
 }
