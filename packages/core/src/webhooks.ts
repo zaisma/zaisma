@@ -382,8 +382,8 @@ export async function recordPlayerEraseAttempt(database: D1Database, erase: Play
 export async function failedPlayerErases(database: D1Database, gameIds: string[]): Promise<PlayerErase[]> {
   if (!gameIds.length) return [];
   const { results } = await database
-    .prepare(`SELECT * FROM player_erases WHERE erase_status = 'failed' AND game_id IN (${gameIds.map(() => "?").join(", ")}) ORDER BY created_at_ms DESC`)
-    .bind(...gameIds)
+    .prepare("SELECT * FROM player_erases WHERE erase_status = 'failed' AND game_id IN (SELECT value FROM json_each(?)) ORDER BY created_at_ms DESC")
+    .bind(JSON.stringify(gameIds))
     .all<PlayerErase>();
   return results;
 }
