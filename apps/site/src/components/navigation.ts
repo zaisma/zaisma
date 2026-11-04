@@ -1545,7 +1545,7 @@ component({
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
-.sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
+.sidebar-layout.is-collapsed:not(.is-folding) > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
 html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: var(--size-sidebar) minmax(0, var(--size-page-reading)); justify-content: center; }
 html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }

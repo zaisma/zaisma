@@ -1349,6 +1349,7 @@ describe("layout", () => {
     expect(styles).toContain(".carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact);");
     expect(styles).not.toContain(".field > .cut-btn {");
     expect(styles).not.toContain(".well > .well-end {");
+    expect(styles).not.toContain(".find > .tertiary-btn {");
     expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain('<span class="carving-end"><button');
     expect(glassScriptSource).toContain('el.parentElement.classList.contains("toggle-btn") ? el.parentElement : el');
   });

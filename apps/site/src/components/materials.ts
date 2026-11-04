@@ -77,7 +77,7 @@ export const MATERIAL_STYLES = `
 .glass.pinned { clip-path: var(--glass-clip, none); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
-/* The one place for a control in a carving: at its end, the carving's frame gap from its edges, so the edge rule cuts its corner along the carving's. A field's height less that gap each side is a regular control's, so it never sets one by hand. */
+/* The one place for a control in a carving: at its end, the carving's frame gap from its edges, so the edge rule cuts its corner along the carving's. It's the size class that fills the carving less that gap each side: regular in a field or a well, small in a search. */
 .carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact); right: calc(var(--pad-frame-compact) + var(--slant-end, 0px)); display: flex; }
 .carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-regular) + var(--pad-frame-compact) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thin glass over the page, capped at the screen, with the page dimmed

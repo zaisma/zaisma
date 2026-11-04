@@ -42,6 +42,11 @@ describe("the components' script", () => {
     expect(fetches.filter(([, before = "", after = ""]) => !/zaismaWait\([^,]+, $/.test(before) && !after.includes('"search_text="')).map(([found]) => found)).toEqual([]);
   });
 
+  it("keeps a folding sidebar shown until it has left, and finds a search from its Clear", () => {
+    expect(COMPONENT_STYLES()).toContain(".sidebar-layout.is-collapsed:not(.is-folding) > .sidebar-layout-in > .sidebar { display: none; }");
+    expect(COMPONENT_SCRIPT_SOURCE).toContain(`clear.closest(".find").querySelector('input[type="search"]')`);
+  });
+
   it("ends a sidebar's last fold when it's pressed again, so the page never drops into its column", () => {
     expect(COMPONENT_SCRIPT_SOURCE).toContain("cancelAnimationFrame(nav.foldFrame); clearTimeout(nav.foldTimer); clearTimeout(nav.slideTimer);");
   });
