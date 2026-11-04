@@ -597,10 +597,8 @@ const COVER_STYLES = `
 /* Its art is its whole width: no words margin, since it has no words under it. */
 .cover.is-small { flex: none; width: 64px; padding-inline: 0; }
 /* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
-.cover-meta { container-type: inline-size; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
-/* A cover narrower than its least width (two across on a phone): its title takes its own line, the count under it, so the title isn't lost to the count. */
-@container (max-width: 179px) { .cover-meta .cover-name { flex-basis: 100%; } }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-picture::after, .cover-art > :where(.cover-picture, .cover-mark) { transition: none; } }

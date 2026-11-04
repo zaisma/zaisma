@@ -1317,10 +1317,8 @@ describe("layout", () => {
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });
 
-  it("keeps covers two across however narrow, while cards and figures fold to one", () => {
-    expect(GRID_STYLES).toContain(".layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--gap-block-block)) / 2), var(--size-cover)), 1fr)); }");
-    expect(GRID_STYLES).toContain(".layout-grid.item-card { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-card)), 1fr)); }");
-    expect(GRID_STYLES).toContain(".layout-grid.item-figure { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-figure)), 1fr)); }");
+  it("folds covers, cards and figures to one across where two can't have their least width", () => {
+    for (const itemSize of ["cover", "card", "figure"]) expect(GRID_STYLES).toContain(`.layout-grid.item-${itemSize} { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-${itemSize})), 1fr)); }`);
   });
 
   it("puts up to six covers on one line, going by what holds them, and refuses a seventh", () => {
@@ -1328,9 +1326,10 @@ describe("layout", () => {
     const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
     expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
     expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
-    // Six of a cover's least width and five gaps, then three and two: one line's room, as container queries can't read a token.
+    // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
     expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
     expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }");
     expect(tokensSource).toContain("--size-cover: 180px");
     expect(tokensSource).toContain("--gap-control-stack: 8px");
   });

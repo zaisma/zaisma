@@ -220,9 +220,9 @@ export type GridOptions = {
   id?: string;
 } & (
   /**
-   * What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit; covers keep
-   * two across however narrow. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first
-   * screen), going to three and then two across where they can't have a cover's least width.
+   * What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit, never under
+   * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
+   * three, two and then one across as they run out of a cover's least width.
    */
   | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
@@ -232,13 +232,13 @@ export type GridOptions = {
 
 /** The most covers one line takes before each is too small to read as a cover on a laptop. */
 export const MAXIMUM_ONE_LINE_COVER_COUNT = 6;
-/** --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two. */
+/** --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below two, one. */
 const COVER_LEAST_PX = 180;
 /** --gap-control-stack, the gap between covers on one line, for the same queries. */
 const CONTROL_STACK_GAP_PX = 8;
 
 /**
- * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit (covers stop at two). A grid of
+ * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of
  * covers or cards says what shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
  */
 export function grid(options: GridOptions): LayoutMarkup {
@@ -546,16 +546,17 @@ export const GRID_STYLES = `
 /* A grid: cells of one size, as many to a line as their least width allows (a named size, by what they hold), sharing the width; one
    column where two can't fit, by the grid's own width. */
 .layout-grid { display: grid; gap: var(--gap-block-block); min-width: 0; }
-.layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--gap-block-block)) / 2), var(--size-cover)), 1fr)); }
+.layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-cover)), 1fr)); }
 .layout-grid.item-card { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-card)), 1fr)); }
 .layout-grid.item-figure { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-figure)), 1fr)); }
 .grid-cell { display: flex; flex-direction: column; min-width: 0; }
 .grid-cell.is-words { padding-inline: var(--pad-words); }
-/* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three and then two across. */
+/* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three, two and one across. */
 .grid-one-line { container-type: inline-size; width: 100%; min-width: 0; }
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 @container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }
 `;
 
 export const TRACK_STYLES = `
@@ -680,7 +681,7 @@ html[data-page-shape] body > main > .glass-pane.fit:not(.is-at-start), html[data
 .shape-page { height: 62%; flex-direction: column; justify-content: space-between; }
 .shape-pane { height: 46%; background: var(--slab); box-shadow: var(--slab-shade); }
 /* A reading page beside its places: the sidebar's own column and the reading column, the pair centered. */
-.shape-drawing.has-sidebar > .shape-page { flex-direction: row; gap: 2%; }
+.shape-drawing.has-sidebar > .shape-page { flex-direction: row; gap: var(--gap-control-stack); }
 .shape-pane.is-side { flex: ${PAGE_SIDEBAR_PX} 0 0; height: 70%; }
 .shape-main { flex: ${PAGE_READING_PX} 0 0; display: flex; flex-direction: column; justify-content: space-between; }
 ${DRAWN_SCREENS.map((screen) => {
