@@ -39,7 +39,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server/internal";
-import { isPastDoorLimit, isPastGameLimit, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { RENTED_SHARE_TEXT, gameHosting, hasAutomationSigns, isPastDoorLimit, isPastGameLimit, readPlayShare, rentedShareOfRoomCents, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
@@ -53,14 +53,15 @@ import { passPublicKeys, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
 type Attachment =
-  | { stage: "hello"; connectedAtMs: number; tester?: string }
+  // isRentedNetwork: what the Worker found of this connection's network (x-rented-network), for where its play counts on the meter.
+  | { stage: "hello"; connectedAtMs: number; tester?: string; isRentedNetwork?: true }
   // tester: the tester link the player came through, which they can only play through while it's on.
   // seenAtMs: about when the player last sent a message (pings are answered without waking the room).
   // clientIdle: the idle check the player's game asked for, for game servers that leave it to the client.
   // kind: missing on players who joined before accounts got passes, all guests.
   // isSpectator: watching (maximumSpectatorCount), not playing: free, and never seated for friends' Join.
   // playCountedFromMs: where the player's time was last counted to (the hourly check-in), or joinedAtMs until then.
-  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle; isSpectator?: true; playCountedFromMs?: number }
+  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle; isSpectator?: true; playCountedFromMs?: number; isRentedNetwork?: true; isNewPlayer?: true; isOnShareByNetwork?: true; hasAutomationSigns?: true }
   | { stage: "gone" };
 
 interface Meta {
@@ -119,6 +120,12 @@ interface Usage {
   gameServerStartupCpuDurationMs?: number;
   /** Files of the game server's logs written. */
   logFileCount?: number;
+  /** Player time by who played it, and what the players on the rented share sent. */
+  newPlayerRoomPlayDurationSec?: number;
+  rentedNetworkRoomPlayDurationSec?: number;
+  rentedShareRoomPlayDurationSec?: number;
+  rentedShareMessageCount?: number;
+  rentedShareConnectionCount?: number;
 }
 
 /** Nothing used yet. */
@@ -396,7 +403,7 @@ export class Room extends DurableObject<Env> {
     const { 0: client, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
     const tester = request.headers.get("x-tester-link") || undefined;
-    socket.serializeAttachment({ stage: "hello", connectedAtMs: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
+    socket.serializeAttachment({ stage: "hello", connectedAtMs: Date.now(), ...(tester ? { tester } : {}), ...(request.headers.get("x-rented-network") === "1" ? { isRentedNetwork: true as const } : {}) } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -409,6 +416,14 @@ export class Room extends DurableObject<Env> {
     if (attachment.stage !== "in") return;
     // Spectators are free: their messages don't keep the room awake on the meter.
     if (!attachment.isSpectator) this.noteAwake();
+    if (attachment.isOnShareByNetwork || attachment.hasAutomationSigns) {
+      this.usage.rentedShareMessageCount = (this.usage.rentedShareMessageCount ?? 0) + 1;
+      // A player's first input ends what their automation signs said: the SDK says "here" as soon as it hears any.
+      if (attachment.hasAutomationSigns && typeof message === "string" && message.length < 40 && message.includes('"here"')) {
+        const { hasAutomationSigns: _, ...withoutSigns } = attachment;
+        socket.serializeAttachment(withoutSigns satisfies Attachment);
+      }
+    }
 
     // Pings never get here; any other message shows the player is still connected.
     const nowMs = Date.now();
@@ -794,10 +809,15 @@ export class Room extends DurableObject<Env> {
     let helloVersionId: string | null = null;
     // Come to watch, not to play (joinRoom({ isSpectator: true })).
     let isSpectator = false;
+    // What the player's SDK brought for where they play from on the meter (rented-share.ts).
+    let sentPlayShare: unknown;
+    let sentSigns: { hasGraphicsChip?: unknown; isInputSeen?: unknown } = {};
     try {
       const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown; versionId?: unknown; isSpectator?: unknown };
       if (hello.type !== "hello" || roomMessageProblem("hello", hello as Record<string, unknown>)) return this.refuse(socket, "no_hello");
       pass = hello.pass;
+      sentPlayShare = (hello as { playShare?: unknown }).playShare;
+      sentSigns = hello as typeof sentSigns;
       isSpectator = hello.isSpectator === true;
       // Spectators are free: their connection comes off the meter.
       if (isSpectator) this.usage.roomConnectionCount = Math.max(0, (this.usage.roomConnectionCount ?? 0) - 1);
@@ -859,6 +879,12 @@ export class Room extends DurableObject<Env> {
     if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (await isPastGameLimit(this.env, this.db, this.meta.gameId, player.id))) return this.refuse(socket, "busy");
     // Once its game's hosting pauses, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
     if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (await this.checkHosting(core))) return this.refuse(socket, "hosting_paused");
+    // Where this player plays from on the meter. Only a newcomer on a used-up share is stopped here: a player in the match gets its hour (checkRentedShare), and no one else ever reads this.
+    const isRentedNetwork = (socket.deserializeAttachment() as Attachment & { stage: "hello" }).isRentedNetwork === true;
+    const playShare = await readPlayShare(this.env.STORED_SECRETS_KEY, player.id, this.meta.slug, sentPlayShare);
+    const isOnShareByNetwork = isRentedNetwork && !playShare.isInRealShare;
+    const showsAutomationSigns = hasAutomationSigns(sentSigns);
+    if (!isSpectator && (isOnShareByNetwork || showsAutomationSigns) && !core.players.has(player.id) && !core.expects(player.id) && (await gameHosting(this.db, this.meta.gameId)).rentedShareStoppedAtMs !== null) return this.refuse(socket, "rented_share_used", RENTED_SHARE_TEXT);
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.
     // Spectators send nothing, so nothing of theirs reaches a player to block.
     if (player.kind === "account" && core.known.size > 0 && !isSpectator) {
@@ -890,10 +916,11 @@ export class Room extends DurableObject<Env> {
     }
     await this.keepOwnedItemNames(player);
     const nowMs = Date.now();
-    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {}, ...(isSpectator ? { isSpectator: true as const } : {}) } satisfies Attachment);
+    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {}, ...(isRentedNetwork ? { isRentedNetwork: true as const } : {}), ...(playShare.isReturningPlayer ? {} : { isNewPlayer: true as const }), ...(isOnShareByNetwork ? { isOnShareByNetwork: true as const } : {}), ...(showsAutomationSigns ? { hasAutomationSigns: true as const } : {}), ...(isSpectator ? { isSpectator: true as const } : {}) } satisfies Attachment);
     this.socketIndex = null;
     // Players who come on their own take a seat; those the game moved here (or reserved this room for), reconnects and spectators don't.
     const takesSeat = !isSpectator && !core.players.has(player.id) && !core.isArrivingByMove(player.id);
+    if (!isSpectator && (isOnShareByNetwork || showsAutomationSigns)) this.usage.rentedShareConnectionCount = (this.usage.rentedShareConnectionCount ?? 0) + 1;
     const joined = core.join(player, { ...made, isSpectator });
     if (!joined.isAllowed) return this.refuse(socket, joined.code, joined.message);
     if (takesSeat) this.ctx.waitUntil(this.takeSeat(player.id, core.maximumRoomCountPerPlayer));
@@ -961,10 +988,19 @@ export class Room extends DurableObject<Env> {
   /** Mark a socket as gone, counting the time its player spent in the room since the last check-in. Watching is free: a spectator's time isn't counted. */
   private retire(socket: WebSocket): Attachment {
     const attachment = socket.deserializeAttachment() as Attachment;
-    if (attachment.stage === "in" && !attachment.isSpectator) this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.playCountedFromMs ?? attachment.joinedAtMs ?? Date.now())) / 1000);
+    if (attachment.stage === "in" && !attachment.isSpectator) this.addPlayTime(attachment, Math.round((Date.now() - (attachment.playCountedFromMs ?? attachment.joinedAtMs ?? Date.now())) / 1000));
     socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
     this.socketIndex = null;
     return attachment;
+  }
+
+  /** A player's time into this.usage, with who played it: a new player or a returning one, on which kind of network, on which share. */
+  private addPlayTime(attachment: Attachment & { stage: "in" }, durationSec: number): void {
+    const { usage } = this;
+    usage.roomPlayDurationSec += durationSec;
+    if (attachment.isNewPlayer) usage.newPlayerRoomPlayDurationSec = (usage.newPlayerRoomPlayDurationSec ?? 0) + durationSec;
+    if (attachment.isRentedNetwork) usage.rentedNetworkRoomPlayDurationSec = (usage.rentedNetworkRoomPlayDurationSec ?? 0) + durationSec;
+    if (attachment.isOnShareByNetwork || attachment.hasAutomationSigns) usage.rentedShareRoomPlayDurationSec = (usage.rentedShareRoomPlayDurationSec ?? 0) + durationSec;
   }
 
   /** At the hourly check-in: each connected player's time so far into this.usage, counted from there on, so a long match reaches the meter hourly. */
@@ -972,7 +1008,7 @@ export class Room extends DurableObject<Env> {
     for (const socket of this.sockets()) {
       const attachment = socket.deserializeAttachment() as Attachment;
       if (attachment.stage !== "in" || attachment.isSpectator) continue;
-      this.usage.roomPlayDurationSec += Math.round((nowMs - (attachment.playCountedFromMs ?? attachment.joinedAtMs)) / 1000);
+      this.addPlayTime(attachment, Math.round((nowMs - (attachment.playCountedFromMs ?? attachment.joinedAtMs)) / 1000));
       socket.serializeAttachment({ ...attachment, playCountedFromMs: nowMs } satisfies Attachment);
     }
   }
@@ -1028,11 +1064,36 @@ export class Room extends DurableObject<Env> {
    * and players hear when (room.endsAt). Read again while the match is ending: once the pause is gone (credit
    * came in, a budget was raised, the month reset), the end is called off and the room takes players again.
    */
+  /**
+   * Once the rented share of a game is used, its players in a match get the same hour a paused game's match gets, then leave with the
+   * words that say why. The match goes on for everyone else. Without this the share would be no cap: a script could sit in a room forever.
+   */
+  private async checkRentedShare(core: RoomCore): Promise<void> {
+    const onShare = this.sockets().filter((socket) => {
+      const attachment = socket.deserializeAttachment() as Attachment;
+      return attachment.stage === "in" && !attachment.isSpectator && (attachment.isOnShareByNetwork || attachment.hasAutomationSigns);
+    });
+    if (!onShare.length) return;
+    const { rentedShareStoppedAtMs } = await gameHosting(this.db, this.meta!.gameId);
+    if (rentedShareStoppedAtMs === null || Date.now() < rentedShareStoppedAtMs + MATCH_FINISH_DURATION_SEC * 1000) return;
+    for (const socket of onShare) {
+      const attachment = this.retire(socket);
+      if (attachment.stage === "in") core.leave(attachment.id);
+      try {
+        socket.send(errorMessage("rented_share_used", RENTED_SHARE_TEXT));
+        socket.close(REMOVED_CLOSE_CODE, "rented_share_used");
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+
   private async checkHosting(core: RoomCore): Promise<boolean> {
     // Kept, since a sleeping room forgets: otherwise every wake would check.
     this.hostingCheckedAtMs = Date.now();
     await this.storage.put("hostingCheckedAtMs", this.hostingCheckedAtMs);
     const hosting = await roomHostingOf(this.db, this.meta!.gameId);
+    await this.checkRentedShare(core);
     if (!hosting.isPaused) {
       if (core.endsAt !== null && !core.ended) {
         core.cancelEnding();
@@ -1513,11 +1574,16 @@ export class Room extends DurableObject<Env> {
     );
     // This record's own rows are counted before it's written, a row a statement, so recording never needs another record.
     const writtenRowCount = (usage.bookkeepingWrittenRowCount ?? 0) + 1 + biggest.length + errors.length;
+    // This record's part for the players on the rented share (rented-share.ts): by their part of the play, or of who's here when no play was counted since.
+    const rentedShareRoomUseCents = rentedShareOfRoomCents(
+      { roomAwakeDurationSec: awakeDurationSec, objectRequestCount: usage.objectRequestCount ?? 0, bookkeepingWrittenRowCount: writtenRowCount, roomCpuDurationMs: cpuDurationMs, startupCpuDurationMs: Math.round(usage.gameServerStartupCpuDurationMs ?? 0), gameServerSessionCount: usage.gameServerSessionCount ?? 0, logFileCount: usage.logFileCount ?? 0 },
+      { playFraction: this.rentedPlayFraction(usage), messageCount: usage.rentedShareMessageCount ?? 0, connectionCount: usage.rentedShareConnectionCount ?? 0 },
+    );
     // Written past the counting wrapper (this.db), since its rows are counted above.
     await this.env.DB.batch([
       this.env.DB.prepare(
-        "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count, room_awake_duration_sec, room_connection_count, object_request_count, game_server_session_count, game_server_startup_cpu_duration_ms, log_file_count, bookkeeping_written_row_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET room_count = room_count + excluded.room_count, room_play_duration_sec = room_play_duration_sec + excluded.room_play_duration_sec, message_count = message_count + excluded.message_count, inbound_size_bytes = inbound_size_bytes + excluded.inbound_size_bytes, outbound_message_count = outbound_message_count + excluded.outbound_message_count, outbound_size_bytes = outbound_size_bytes + excluded.outbound_size_bytes, game_server_cpu_duration_ms = game_server_cpu_duration_ms + excluded.game_server_cpu_duration_ms, game_server_call_count = game_server_call_count + excluded.game_server_call_count, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count, game_server_ended_match_count = game_server_ended_match_count + excluded.game_server_ended_match_count, room_awake_duration_sec = room_awake_duration_sec + excluded.room_awake_duration_sec, room_connection_count = room_connection_count + excluded.room_connection_count, object_request_count = object_request_count + excluded.object_request_count, game_server_session_count = game_server_session_count + excluded.game_server_session_count, game_server_startup_cpu_duration_ms = game_server_startup_cpu_duration_ms + excluded.game_server_startup_cpu_duration_ms, log_file_count = log_file_count + excluded.log_file_count, bookkeeping_written_row_count = bookkeeping_written_row_count + excluded.bookkeeping_written_row_count",
-      ).bind(this.meta.gameId, date, ended ? 1 : 0, usage.roomPlayDurationSec, usage.messageCount, traffic.inboundSizeBytes, traffic.outboundMessageCount, traffic.outboundSizeBytes, cpuDurationMs, health.callCount, health.crashCount, health.stoppedCount, health.endedMatchCount, awakeDurationSec, ...meterCounts, writtenRowCount),
+        "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count, room_awake_duration_sec, room_connection_count, object_request_count, game_server_session_count, game_server_startup_cpu_duration_ms, log_file_count, bookkeeping_written_row_count, new_player_room_play_duration_sec, rented_network_room_play_duration_sec, rented_share_room_use_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET new_player_room_play_duration_sec = new_player_room_play_duration_sec + excluded.new_player_room_play_duration_sec, rented_network_room_play_duration_sec = rented_network_room_play_duration_sec + excluded.rented_network_room_play_duration_sec, rented_share_room_use_cents = rented_share_room_use_cents + excluded.rented_share_room_use_cents, room_count = room_count + excluded.room_count, room_play_duration_sec = room_play_duration_sec + excluded.room_play_duration_sec, message_count = message_count + excluded.message_count, inbound_size_bytes = inbound_size_bytes + excluded.inbound_size_bytes, outbound_message_count = outbound_message_count + excluded.outbound_message_count, outbound_size_bytes = outbound_size_bytes + excluded.outbound_size_bytes, game_server_cpu_duration_ms = game_server_cpu_duration_ms + excluded.game_server_cpu_duration_ms, game_server_call_count = game_server_call_count + excluded.game_server_call_count, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count, game_server_ended_match_count = game_server_ended_match_count + excluded.game_server_ended_match_count, room_awake_duration_sec = room_awake_duration_sec + excluded.room_awake_duration_sec, room_connection_count = room_connection_count + excluded.room_connection_count, object_request_count = object_request_count + excluded.object_request_count, game_server_session_count = game_server_session_count + excluded.game_server_session_count, game_server_startup_cpu_duration_ms = game_server_startup_cpu_duration_ms + excluded.game_server_startup_cpu_duration_ms, log_file_count = log_file_count + excluded.log_file_count, bookkeeping_written_row_count = bookkeeping_written_row_count + excluded.bookkeeping_written_row_count",
+      ).bind(this.meta.gameId, date, ended ? 1 : 0, usage.roomPlayDurationSec, usage.messageCount, traffic.inboundSizeBytes, traffic.outboundMessageCount, traffic.outboundSizeBytes, cpuDurationMs, health.callCount, health.crashCount, health.stoppedCount, health.endedMatchCount, awakeDurationSec, ...meterCounts, writtenRowCount, usage.newPlayerRoomPlayDurationSec ?? 0, usage.rentedNetworkRoomPlayDurationSec ?? 0, rentedShareRoomUseCents),
       ...biggest.map((type) =>
         this.env.DB.prepare(
           "INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes, backed_up_message_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date, message_type, direction) DO UPDATE SET message_count = message_count + excluded.message_count, size_bytes = size_bytes + excluded.size_bytes, largest_size_bytes = MAX(largest_size_bytes, excluded.largest_size_bytes), backed_up_message_count = backed_up_message_count + excluded.backed_up_message_count",
@@ -1530,6 +1596,12 @@ export class Room extends DurableObject<Env> {
       ),
     ]);
     this.usage = { ...noUsage(), roomAwakeDurationMs: (usage.roomAwakeDurationMs ?? 0) - awakeDurationSec * 1000 };
+  }
+
+  private rentedPlayFraction(usage: Usage): number {
+    if (usage.roomPlayDurationSec > 0) return Math.min(1, (usage.rentedShareRoomPlayDurationSec ?? 0) / usage.roomPlayDurationSec);
+    const here = this.sockets().map((socket) => socket.deserializeAttachment() as Attachment).filter((attachment): attachment is Attachment & { stage: "in" } => attachment.stage === "in" && !attachment.isSpectator);
+    return here.length ? here.filter((attachment) => attachment.isOnShareByNetwork || attachment.hasAutomationSigns).length / here.length : 0;
   }
 
   /**

@@ -221,7 +221,7 @@ const PLAY_TAKES = json(
     is_away: yesOrNo,
     performance: gameData(4096),
     play_mark: orNothing(text(400)),
-    is_counted_off_rented: yesOrNo,
+    has_play_mark: yesOrNo,
   },
   [],
   4096,

@@ -1,4 +1,4 @@
-import { checkDoor, isPastDoorLimit, isPastGameLimit, isPastLevel, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { HOSTING_NETWORKS, RENTED_SHARE_TEXT, accountHasHistory, checkDoor, gameHosting, isOnRentedShare, isPastDoorLimit, isPastGameLimit, isPastLevel, networkNumberOf, readPlayShare, sealPlayShare, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { guardRoomDoor, roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
@@ -37,6 +37,8 @@ export interface Env extends RelayEnv {
   GAME_LIMIT?: RateLimit;
   /** Game servers' calls to other servers, per game (outbound.ts). */
   OUTSIDE_CALL_LIMIT?: RateLimit;
+  /** The local preview's stand-in for a connection's network number: never set on Cloudflare. */
+  PREVIEW_NETWORK_NUMBER?: string;
   /** What a door's limit runs on, by its level (doors.ts). */
   LIMIT_GUESS?: RateLimit;
   LIMIT_RARE?: RateLimit;
@@ -203,7 +205,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request" | "no_purchase" | "already_handled" | "handled_by_server";
+type CallErrorCode = "rented_share_used" | "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request" | "no_purchase" | "already_handled" | "handled_by_server";
 
 /**
  * A room connection turned away before it reaches a room: accepted, told why ({type: "error", code}) and
@@ -252,6 +254,16 @@ async function readBody(request: Request): Promise<{ slug: string | null; body: 
 }
 
 const plainText = (given: unknown, maximumCharacterCount: number) => (typeof given === "string" ? given.slice(0, maximumCharacterCount).replace(/[\u0000-\u001f]/g, " ").trim() : "");
+
+/** Whether a request comes from a rented network. Only the local preview's stand-in can say so without Cloudflare. */
+const isRentedRequest = (request: Request, env: Env) => HOSTING_NETWORKS.has(networkNumberOf(request, env.PREVIEW_NETWORK_NUMBER));
+
+/** One more of the rented share's own use, on the game's meter with the row it writes. Only traffic on that share comes here. */
+const addRentedShareUse = (env: Env, gameId: string, column: "rented_share_request_count" | "rented_share_relay_credential_count") =>
+  env.DB.prepare(`INSERT INTO room_usage (game_id, date, ${column}, bookkeeping_written_row_count) VALUES (?, ?, 1, 1) ON CONFLICT(game_id, date) DO UPDATE SET ${column} = ${column} + 1, bookkeeping_written_row_count = bookkeeping_written_row_count + 1`)
+    .bind(gameId, new Date().toISOString().slice(0, 10))
+    .run()
+    .catch((error: unknown) => console.error("The rented share's use wasn't counted", gameId, error));
 
 /** The connection's address, for what comes before a player is known. Keyed by it, checked by Cloudflare and never stored. */
 const addressOf = (request: Request) => request.headers.get("cf-connecting-ip") ?? "local";
@@ -321,6 +333,12 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
     return requestFailure("bad_pass", cors);
   }
   if (await isPastLimitAt(env, "/v1/requests/:slug", "POST", player.id)) return requestFailure("slow_down", cors);
+  const sent = JSON.parse(text) as { playShare?: unknown; hasGraphicsChip?: unknown; isInputSeen?: unknown };
+  const isRequestOnRentedShare = isOnRentedShare(isRentedRequest(request, env), await readPlayShare(env.STORED_SECRETS_KEY, player.id, slug, sent.playShare), sent);
+  if (isRequestOnRentedShare) {
+    if ((await gameHosting(env.DB, game.id)).rentedShareStoppedAtMs !== null) return requestFailure("rented_share_used", cors);
+    await addRentedShareUse(env, game.id, "rented_share_request_count");
+  }
   // Passes aren't given to guests of games that need accounts; this catches one given before the game changed.
   if (player.kind === "guest" && game.account_requirement !== "none") return requestFailure("account_needed", cors);
   if (player.kind === "account" && (await isTooYoungFor(env.DB, game, { playerId: player.id }))) return requestFailure("game_not_open_to_player", cors);
@@ -610,7 +628,11 @@ export default {
         const ownedNames = account ? await ownedItemNames(env.DB, game.id, account.player_id) : [];
         const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, pass_version_number: PASS_VERSION_NUMBER, kind: player.kind, ...chat, owned_item_names: ownedNames, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
-        return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
+        // Where this player plays from on the meter, beside the pass and never in it: games see a player as a stranger would.
+        const hasHistory = account ? await accountHasHistory(env.DB, account) : false;
+        const hasPlayedHere = account ? Boolean(await env.DB.prepare("SELECT 1 FROM games_ever_played WHERE account_id = ? AND game_id = ?").bind(account.id, game.id).first()) : false;
+        const playShare = await sealPlayShare(env.STORED_SECRETS_KEY, player.id, slug, { isInRealShare: hasHistory || key.isReturningBrowser, isReturningPlayer: hasPlayedHere || key.isReturningBrowser }, nowSec + PASS_DURATION_SEC);
+        return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000), playShare }, 200, cors);
       }
 
       // Relay servers for this player's connections to other players (the relay script, packages/sdk/relay.js):
@@ -622,9 +644,14 @@ export default {
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't connect to other players. Reload the game to try again.", 403, cors);
         if (!key.accountId && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         if (key.accountId && (await isTooYoungFor(env.DB, game, { accountId: key.accountId }))) return failure("game_not_open_to_player", ERROR_TEXT.game_not_open_to_player, 403, cors);
-        if ((await roomHostingOf(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
+        const relayHosting = await gameHosting(env.DB, game.id);
+        if (relayHosting.pausedAtMs !== null || relayHosting.freeRoomsStoppedAtMs !== null) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
+        const relayAccount = key.accountId ? await accountById(env.DB, key.accountId) : null;
+        const isRelayOnRentedShare = isOnRentedShare(isRentedRequest(request, env), { isInRealShare: key.isReturningBrowser || (relayAccount ? await accountHasHistory(env.DB, relayAccount) : false) }, body);
+        if (isRelayOnRentedShare && relayHosting.rentedShareStoppedAtMs !== null) return failure("rented_share_used", RENTED_SHARE_TEXT, 403, cors);
         const relay = await relayCredentials(env, env.DB, game.id);
         if (!relay) return failure("busy", "Zaisma's relay isn't available right now, so players can't connect to each other. Try again in a minute.", 503, cors);
+        if (isRelayOnRentedShare) await addRentedShareUse(env, game.id, "rented_share_relay_credential_count");
         return json({ iceServers: relay.iceServers, expiresAt: iso(relay.expiresAtMs) }, 200, cors);
       }
 
@@ -728,6 +755,8 @@ export default {
       // Where the room's first player is (country and continent), so room lists can say where it runs.
       headers.set("x-room-country", String(request.cf?.country ?? ""));
       headers.set("x-room-continent", String(request.cf?.continent ?? ""));
+      // Whether this connection comes from a rented network, for where its play counts on the meter. Never taken from the player.
+      headers.set("x-rented-network", isRentedRequest(request, env) ? "1" : "0");
       try {
         const answer = await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
         if (answer.status === 101) return answer;

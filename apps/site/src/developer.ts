@@ -1,6 +1,8 @@
 import { withDeclaredAnswer } from "./answers.ts";
 import { ERROR } from "./schemas.ts";
 import {
+  rentedShareLimitCents,
+  rentedShareUsedCents,
   ANSWERS_BYTES,
   answersJson,
   anyOf,
@@ -2305,6 +2307,22 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
  * game is paused and why, and, for a game with a budget, what credit paid; the raw counts are facts for tuning,
  * never priced.
  */
+/** Where a game's hours went this month: new or returning players, which kind of network, and how much of the rented share is used. Totals only, never who. */
+function playHoursJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>) {
+  const hours = (durationSec: number) => Math.round(durationSec / 360) / 10;
+  const { playSplit, use, kinds } = hosting;
+  const usedCents = rentedShareUsedCents(kinds, use, { roomUseCents: playSplit.rented_share_room_use_cents, requestCount: playSplit.rented_share_request_count, relayCredentialCount: playSplit.rented_share_relay_credential_count, relayCredentialTotalCount: playSplit.relay_credential_count });
+  const limitCents = rentedShareLimitCents(freeAllowanceCents(hosting.secondFreeAllowanceMonthStartDate, monthStartDateOf(Date.now())), game.monthly_budget_cents);
+  return {
+    total_duration_hours: hours(use.roomPlayDurationSec),
+    new_player_duration_hours: hours(playSplit.new_player_room_play_duration_sec),
+    returning_player_duration_hours: hours(Math.max(0, use.roomPlayDurationSec - playSplit.new_player_room_play_duration_sec)),
+    rented_network_duration_hours: hours(playSplit.rented_network_room_play_duration_sec),
+    other_network_duration_hours: hours(Math.max(0, use.roomPlayDurationSec - playSplit.rented_network_room_play_duration_sec)),
+    rented_share_used_pct: Math.min(100, Math.floor((usedCents / limitCents) * 100)),
+  };
+}
+
 export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof hostingUseThisMonth>>, month: { charged_cents: number }, stops: GameHosting) {
   return {
     free_used_pct: hosting.freeUsedPct,
@@ -2318,6 +2336,7 @@ export function hostingUseJson(game: Game, hosting: Awaited<ReturnType<typeof ho
     monthly_budget_cents: game.monthly_budget_cents,
     spent_from_credit_cents: month.charged_cents,
     room_play_duration_hours: Math.round(hosting.use.roomPlayDurationSec / 360) / 10,
+    play_hours: playHoursJson(game, hosting),
     room_awake_duration_hours: Math.round(hosting.use.roomAwakeDurationSec / 360) / 10,
     room_connection_count: hosting.use.roomConnectionCount,
     inbound_message_count: hosting.use.inboundMessageCount,

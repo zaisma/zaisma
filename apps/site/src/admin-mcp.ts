@@ -1,4 +1,4 @@
-import { noteAnswerCut,
+import { monthStartDateOf, noteAnswerCut,
   FORUM_CATEGORIES,
   PRECEDENT_DECISIONS,
   REPORT_SEVERITIES,
@@ -68,7 +68,7 @@ import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts
 import { MAXIMUM_PAGE_SPEED_DAY_COUNT, pageSpeedAnswer } from "./speed-reports.ts";
 import { changesSince } from "./scan.ts";
 import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
-import {
+import { RENTED_NETWORK_SHARE,
   ANNOUNCEMENT_CHANGED,
   ANNOUNCEMENT_LIST,
   CHAT_REVIEW_DECIDED,
@@ -1201,6 +1201,31 @@ export const ADMIN_TOOLS: AdminTool[] = [
     outputSchema: SECURITY_SPIKE_LIST,
     annotations: read,
     run: async (_, { env }) => securitySpikesAnswer(env),
+  },
+  {
+    name: "get_rented_network_share",
+    reaches: "zaisma_settings",
+    title: "Rented network share",
+    description: "How much of Zaisma's player time in the last 30 days comes from rented-server networks, across all games, and how many games used up their rented share this month. The first month of Beta's number sets the share's size.",
+    inputSchema: object({}),
+    outputSchema: RENTED_NETWORK_SHARE,
+    annotations: read,
+    run: async (_, { env }) => {
+      const nowMs = Date.now();
+      const played = await env.DB.prepare("SELECT COALESCE(SUM(room_play_duration_sec), 0) AS total_sec, COALESCE(SUM(rented_network_room_play_duration_sec), 0) AS rented_sec FROM room_usage WHERE date >= ?")
+        .bind(new Date(nowMs - 30 * DAY_MS).toISOString().slice(0, 10))
+        .first<{ total_sec: number; rented_sec: number }>();
+      const stopped = await env.DB.prepare("SELECT COUNT(*) AS stopped_game_count FROM game_hosting_months WHERE month_start_date = ? AND rented_share_stopped_at_ms IS NOT NULL").bind(monthStartDateOf(nowMs)).first<{ stopped_game_count: number }>();
+      const totalSec = played?.total_sec ?? 0;
+      const rentedSec = played?.rented_sec ?? 0;
+      return {
+        period_duration_days: 30,
+        total_duration_hours: Math.round(totalSec / 360) / 10,
+        rented_network_duration_hours: Math.round(rentedSec / 360) / 10,
+        rented_network_share_pct: totalSec ? Math.round((rentedSec / totalSec) * 1000) / 10 : 0,
+        stopped_game_count: stopped?.stopped_game_count ?? 0,
+      };
+    },
   },
   {
     name: "list_blocked_scripts",

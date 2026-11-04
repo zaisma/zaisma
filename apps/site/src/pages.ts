@@ -1,7 +1,7 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
-import {
+import { RENTED_SHARE_TEXT,
   readReviewReason,
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -515,6 +515,7 @@ ${isClosed ? "" : buySheetParts({ joinHref: joinHere, signInHref: signinHere, co
 ${shareDialog({ gameTitle: game.title, hasQrCode: !tester })}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
+      rented_share_text: RENTED_SHARE_TEXT,
       slug: game.slug,
       tester_token: tester?.token ?? null,
       room_code: inRoom ? code : "",
@@ -1340,6 +1341,15 @@ share.onclick = () => shareFrom(share);
 const gameOrigin = new URL(gamePage.frame_url).origin;
 // Whenever a sheet or card of Zaisma's covers the game, or stops, the game hears it (Zaisma.page.coveredBy), so it can pause.
 addEventListener("zaisma:covered", (e) => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "zaisma:covered", coveredBy: e.detail.coveredBy }, gameOrigin); });
+let isRentedShareTold = false;
+function tellRentedShareUsed() {
+  if (isRentedShareTold) return;
+  isRentedShareTold = true;
+  if (window.askSignInFor) return window.askSignInFor(gamePage.rented_share_text);
+  zaismaLayers.say({ text: gamePage.rented_share_text, noticeUrgency: "ask" });
+}
+// The local preview shows the words by a link (?play&preview_bar=rented_share). Never on zaisma.com.
+if (/^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) && new URLSearchParams(location.search).get("preview_bar") === "rented_share") addEventListener("load", () => setTimeout(tellRentedShareUsed, 1000));
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -1382,6 +1392,8 @@ addEventListener("message", (e) => {
   }
   // The game asks a guest to sign in (Zaisma.player.signIn).
   if (d && d.type === "zaisma:sign-in" && window.askSignIn) askSignIn();
+  // This network's share of the game is used: only Zaisma can say why and offer signing in.
+  if (d && d.type === "zaisma:rented-share-used") tellRentedShareUsed();
   // The game asks to open one of its registered links (Zaisma.links.open).
   if (d && d.type === "zaisma:link" && typeof d.requestNumber === "number" && typeof d.linkName === "string") askLink(d);
   // The game asks to buy one of its items (Zaisma.items.buy): the buy sheet rises over it.
@@ -1507,6 +1519,14 @@ window.askSignIn = async () => {
   if (keep) zaismaLayers.leave(keep);
   zaismaLayers.show(signInAsk);
   if (!signInAsk.hidden) signInAsk.querySelector("[data-sign-in]").focus();
+};
+// A guest stopped on a rented network: the same card, with why. An account has nothing to sign in to, so it hears the words alone.
+window.askSignInFor = (words) => {
+  if (!wasGuest) return zaismaLayers.say({ text: words, noticeUrgency: "ask" });
+  signInText.textContent = words;
+  const keep = document.getElementById("keep");
+  if (keep) zaismaLayers.leave(keep);
+  zaismaLayers.show(signInAsk);
 };
 document.getElementById("sign-in-later").onclick = () => {
   zaismaLayers.leave(signInAsk);

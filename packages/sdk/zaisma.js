@@ -179,6 +179,7 @@
     return response.json().then(function (answer) {
       if (response.ok) return answer;
       var error = answer && answer.error;
+      if (error && error.code === "rented_share_used") tellRentedShareUsed();
       if (error && error.code) throw codedError(error.code, error.message);
       requestFailed();
     }, requestFailed);
@@ -218,10 +219,53 @@
     return keyPromise;
   }
 
+  /**
+   * What a Zaisma room or request hears about where this player plays from on the meter: the word /v1/pass gave beside the pass, which
+   * this SDK can't read, and two things an honest browser can say. Nothing that tells this person from anyone else. Only rooms read them.
+   */
+  var keptPlayShare = null;
+  var isInputSeen = false;
+  var graphicsChipAnswer = null;
+  function hasGraphicsChip() {
+    if (graphicsChipAnswer !== null) return graphicsChipAnswer;
+    graphicsChipAnswer = false;
+    try {
+      var context = document.createElement("canvas").getContext("webgl2") || document.createElement("canvas").getContext("webgl");
+      if (context) {
+        var info = context.getExtension("WEBGL_debug_renderer_info");
+        var renderer = info ? String(context.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
+        graphicsChipAnswer = !/swiftshader|llvmpipe|software|basic render/i.test(renderer);
+        var losing = context.getExtension("WEBGL_lose_context");
+        if (losing) losing.loseContext();
+      }
+    } catch (error) {
+      graphicsChipAnswer = true; // a browser that won't say counts as one that has one
+    }
+    return graphicsChipAnswer;
+  }
+  function playShareFacts() {
+    return { playShare: keptPlayShare || undefined, hasGraphicsChip: hasGraphicsChip(), isInputSeen: isInputSeen };
+  }
+  function firstInput() {
+    if (isInputSeen) return;
+    isInputSeen = true;
+    FIRST_INPUTS.forEach(function (type) { removeEventListener(type, firstInput, true); });
+    // A room that heard no input yet hears it now, without waiting for the game to send anything.
+    joined.forEach(function (room) { if (room._ws && room._ws.readyState === 1) room._say({ type: "here" }); });
+  }
+  var FIRST_INPUTS = ["keydown", "pointerdown", "wheel", "touchstart"];
+  FIRST_INPUTS.forEach(function (type) { addEventListener(type, firstInput, { capture: true, passive: true }); });
+  addEventListener("gamepadconnected", firstInput);
+  /** Zaisma's game page says why a player on a rented network is stopped, with Sign in: only Zaisma can do that step. */
+  function tellRentedShareUsed() {
+    if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:rented-share-used" }, config.site);
+  }
+
   /** The pass this tab kept, while it has 10 minutes or more left, else null. */
   function keptPass() {
     try {
       var kept = JSON.parse(sessionStorage.getItem(passKey) || "null");
+      if (kept && kept.playShare) keptPlayShare = kept.playShare;
       return kept && Date.parse(kept.expiresAt) - Date.now() > 10 * 60 * 1000 ? kept : null;
     } catch (error) {
       return null; // storage off: fetch a new pass
@@ -242,7 +286,8 @@
         var kept = keptPass();
         if (kept && kept.kind === "guest" && given.playerKind === "guest") return kept;
         return post("/v1/pass", { gameSlug: config.game, roomKey: given.key }).then(function (answer) {
-          var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt };
+          var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt, playShare: answer.playShare };
+          keptPlayShare = answer.playShare || null;
           try { sessionStorage.setItem(passKey, JSON.stringify(mine)); } catch (error) { /* fine */ }
           return mine;
         });
@@ -696,7 +741,7 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["room_full", "room_closed", "ended", "bad_pass", "bad_player_token", "too_big", "game_unavailable", "kept_out", "refused", "hosting_paused", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "spectators_full", "room_not_running", "already_playing", "bad_origin"];
+  var REFUSED = ["room_full", "room_closed", "ended", "bad_pass", "bad_player_token", "too_big", "game_unavailable", "kept_out", "refused", "hosting_paused", "rented_share_used", "account_needed", "game_not_open_to_player", "blocked_player_here", "other_version", "spectators_full", "room_not_running", "already_playing", "bad_origin"];
 
   /**
    * Whether a Zaisma room on another version (other_version) has the page reload the game at it: on the
@@ -730,7 +775,15 @@
       room._probeIntervalSec = null;
       var hello = { type: "hello", protocolVersionNumber: PROTOCOL_VERSION_NUMBER, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled };
       if (room._isOffZaisma) hello.playerToken = offZaisma.playerToken;
-      else hello.pass = room._pass;
+      else {
+        hello.pass = room._pass;
+        if (!room._serverUrl) {
+          var told = playShareFacts();
+          hello.playShare = told.playShare;
+          hello.hasGraphicsChip = told.hasGraphicsChip;
+          hello.isInputSeen = told.isInputSeen;
+        }
+      }
       // quickJoin's first try at a room: rather another room than one with someone this player blocked.
       if (room._avoidsBlockedPlayers) hello.avoidBlockedPlayers = true;
       // Any quickJoin: Zaisma learns the game joins players by itself, for its Rooms tab.
@@ -860,6 +913,7 @@
         window.parent.postMessage(room._spectating({ type: "zaisma:reload", code: room.roomCode, versionId: message.versionId }), config.site);
       } else if (message.type === "error") {
         room._emit("error", { code: message.code, message: message.message });
+        if (message.code === "rented_share_used") tellRentedShareUsed();
         if (room._ready && REFUSED.indexOf(message.code) !== -1) {
           room._done = true;
           room._ready.reject(codedError(message.code, message.message));
@@ -1840,7 +1894,11 @@
     var base = (serverUrl || config.rooms).replace(/^ws/, "http");
     var isOffZaisma = !config.rooms;
     // Off Zaisma there's no pass: the playerToken goes in its place.
-    var sender = isOffZaisma ? Promise.resolve({ playerToken: offZaisma.playerToken }) : getPass().then(function (mine) { return { pass: mine.pass }; });
+    var sender = isOffZaisma ? Promise.resolve({ playerToken: offZaisma.playerToken }) : getPass().then(function (mine) {
+      if (serverUrl) return { pass: mine.pass };
+      var told = playShareFacts();
+      return { pass: mine.pass, playShare: told.playShare, hasGraphicsChip: told.hasGraphicsChip, isInputSeen: told.isInputSeen };
+    });
     return sender.then(function (who) {
       who.request = JSON.parse(requestText);
       return fetch(base + "/v1/requests/" + (isOffZaisma ? offZaisma.gameSlug : config.game), { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(who) }).then(answered, requestFailed);
