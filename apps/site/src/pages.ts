@@ -944,7 +944,7 @@ function privacyBody(): Raw {
         html`<h2>Downloading your data</h2>
 <p>On your account page, choose ${textLink("Download your data", "/account#your-data")} to receive a copy of everything Zaisma keeps about your account, including your game saves.</p>
 <h2>Deleting your account</h2>
-<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. A game its developer deletes on its own stays off for a week, so they can bring it back, then it's erased the same way, and its copies in the backup are gone within 30 days of that. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
+<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. A game its developer deletes on its own stays off for a week, so they can bring it back, then it is erased the same way, and its copies in the backup are gone within 30 days of that. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Questions about this policy may be sent to ${textLink("privacy@zaisma.com", "mailto:privacy@zaisma.com")}.</p>`,
       ),

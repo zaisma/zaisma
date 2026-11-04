@@ -1092,10 +1092,10 @@ function exportPanel(slug: string): Raw {
 
 /** A game its developer deleted: the days left, and what they can do before they're up. */
 function erasingPanel(slug: string, game: GameJson): Raw {
-  const daysLeft = Math.max(1, Math.ceil((Date.parse(game.erases_at!) - Date.now()) / 86_400_000));
+  const remainingDayCount = Math.max(1, Math.ceil((Date.parse(game.erases_at!) - Date.now()) / 86_400_000));
   return html`<div class="note held-game" role="status">
 <div class="row">
-<div class="num plate"><strong>${daysLeft}</strong><span>${daysLeft === 1 ? "day left" : "days left"}</span></div>
+<div class="num plate"><strong>${remainingDayCount}</strong><span>${remainingDayCount === 1 ? "day left" : "days left"}</span></div>
 <div class="stack">
 <p><strong>${game.title} is being erased</strong></p>
 <p class="hint">It's off for every player. Its versions, database, saves and purchases go for good on ${when(game.erases_at!)}.</p>
