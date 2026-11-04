@@ -62,14 +62,14 @@ describe("the preview checks' shares", () => {
     expect(() => engineSampleShard(engines, "4/3")).toThrow(/like 2\/3/);
   });
 
-  it("measure every page once: the nightly sweep's in four shares, the merge queue's in six, a pull request's in four", () => {
+  it("measure every page once: the nightly sweep's in four shares, the merge queue's and a pull request's in six", () => {
     const sweepPages: { name: string }[] = LAYOUT_CHECK_RUNS.sweep.pages;
     const shares = Array.from({ length: 4 }, (_, i) => layoutCheckShard(sweepPages, `${i + 1}/4`) as { name: string }[]);
     expect(shares.flat().map((page) => page.name).sort()).toEqual(sweepPages.map((page) => page.name).sort());
     expect(shares.every((share) => share.length > 0)).toBe(true);
     expect(nightly).toContain("npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4");
     expect(workflow).toContain("--sweep --shard ${{ matrix.shard }}/6 --measured");
-    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/4");
+    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/6");
     const pullRequestPages: { name: string }[] = LAYOUT_CHECK_RUNS.pull_request.pages;
     const firstHasLess = Array.from({ length: 4 }, (_, i) => layoutCheckShard(pullRequestPages, `${i + 1}/4`, { firstShareHeadStartSec: 160 }) as { name: string }[]);
     expect(firstHasLess.flat().map((page) => page.name).sort()).toEqual(pullRequestPages.map((page) => page.name).sort());
