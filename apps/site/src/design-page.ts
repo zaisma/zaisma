@@ -157,7 +157,7 @@ ${checkedPageTag(options.checkedPage)}
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
-${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
+${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: themeButton(options.path, theme) }, { kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: "gallery" }),
     main: html`<main class="gallery-main">
@@ -191,7 +191,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-screens { margin-left: auto; }
 @media (min-width: 761px) { .gallery-screens + .gallery-buttons { margin-left: 0; } }
 @media (max-width: 760px) { .gallery-screens { display: none; } }
-/* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
+/* The sidebar's button is always at the bar's far edge: over the sidebar, at its start; on a phone, where the sidebar is a sheet, in its end corner, after light or dark. */
 @media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }
 .gallery-main { min-width: 0; }
@@ -247,7 +247,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
-/* Phones: the bar is one row (Zaisma, Design, the sidebar's button, light or dark), the sidebar a sheet the button slides over the page, and every example a column of its own. */
+/* Phones: the bar is one row (Zaisma, Design, light or dark, the sidebar's button), the sidebar a sheet the button slides over the page, and every example a column of its own. */
 @media (max-width: 760px) {
   .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
