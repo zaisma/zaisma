@@ -7,6 +7,7 @@
 // ../bench/). The seed's shader checks draw beside the scan queue instead of holding it (withSeedShaderChecks, below). Production keeps its limits and
 // its one queue and never has the overlay or the bench: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
+import { handlePerformanceBatch, runInChrome } from "../../../apps/site/src/performance-check.ts";
 import { runShaderCheck, shaderCheckDeps } from "../../../apps/site/src/shader-check.ts";
 import { environmentAt } from "./addresses.mjs";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
@@ -141,8 +142,22 @@ async function drawShaderCheck(request, environment) {
   return new Response(isNewDrawing ? drawingAsText(drawing) : null);
 }
 
+/**
+ * While the seed adds its test data, a game's run in Chrome is the one it kept from the last time, or a new one it keeps: preview_chrome_runs, by the game's
+ * address, which only the seed makes and drops (run.mjs, SEED_CHROME_RUNS). These runs take the processor from everything else the seed does. Outside it, and
+ * in the Engine exports, whose runs are what they check, there's no such table and every run is real.
+ */
+const keptChromeRun = async (environment, pageUrl, gameBaseUrl) => {
+  const kept = await environment.DB.prepare("SELECT observations_json FROM preview_chrome_runs WHERE game_base_url = ?").bind(gameBaseUrl).first().catch(() => undefined);
+  if (kept) return JSON.parse(kept.observations_json);
+  const observations = await runInChrome(environment, pageUrl, gameBaseUrl);
+  if (kept === null) await environment.DB.prepare("INSERT OR REPLACE INTO preview_chrome_runs (game_base_url, observations_json) VALUES (?, ?)").bind(gameBaseUrl, JSON.stringify(observations)).run();
+  return observations;
+};
+
 export default workerRetryingWhenLocked({
   ...site,
+  queue: (batch, environment, context) => (batch.queue.startsWith("zaisma-performance") ? handlePerformanceBatch(batch, environment, keptChromeRun) : site.queue(batch, environment, context)),
   fetch: (request, environment, context) => {
     const pathname = new URL(request.url).pathname;
     if (request.method === "POST" && pathname === DRAW_SHADER_CHECK_PATH) return drawShaderCheck(request, environmentAt(request, environment));

@@ -165,14 +165,14 @@ export function pagesNamed(pages, names) {
 
 /**
  * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
- * with the least so far, so the runners finish together. Every page is in exactly one share. firstShareHeadStartSec is other work the first
- * share does (the pages broken on purpose), so it takes fewer of these.
+ * with the least so far, so the runners finish together. Every page is in exactly one share. headStartSecByShare is other work a share
+ * does (the pages broken on purpose), so it takes fewer of these.
  */
-export function layoutCheckShard(pages, shard, { firstShareHeadStartSec = 0 } = {}) {
+export function layoutCheckShard(pages, shard, { headStartSecByShare = [] } = {}) {
   const [index, count] = shard.split("/").map(Number);
   if (!Number.isInteger(index) || !Number.isInteger(count) || index < 1 || index > count) throw new Error(`LAYOUT_CHECK_SHARD is "${shard}": it takes a share and a count, like 2/3.`);
   const costOf = (page) => PAGE_COSTS_SEC[page.name] ?? UNLISTED_PAGE_COST_SEC;
-  const shares = Array.from({ length: count }, (_, shareIndex) => ({ costSec: shareIndex === 0 ? firstShareHeadStartSec : 0, pages: [] }));
+  const shares = Array.from({ length: count }, (_, shareIndex) => ({ costSec: headStartSecByShare[shareIndex] ?? 0, pages: [] }));
   for (const page of [...pages].sort((a, b) => costOf(b) - costOf(a) || (a.name < b.name ? -1 : 1))) {
     const least = shares.reduce((lightest, share) => (share.costSec < lightest.costSec ? share : lightest));
     least.costSec += costOf(page);

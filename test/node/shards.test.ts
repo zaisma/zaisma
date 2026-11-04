@@ -71,7 +71,7 @@ describe("the preview checks' shares", () => {
     expect(workflow).toContain("--sweep --shard ${{ matrix.shard }}/6 --measured");
     expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/6");
     const pullRequestPages: { name: string }[] = LAYOUT_CHECK_RUNS.pull_request.pages;
-    const firstHasLess = Array.from({ length: 4 }, (_, i) => layoutCheckShard(pullRequestPages, `${i + 1}/4`, { firstShareHeadStartSec: 160 }) as { name: string }[]);
+    const firstHasLess = Array.from({ length: 4 }, (_, i) => layoutCheckShard(pullRequestPages, `${i + 1}/4`, { headStartSecByShare: [160] }) as { name: string }[]);
     expect(firstHasLess.flat().map((page) => page.name).sort()).toEqual(pullRequestPages.map((page) => page.name).sort());
     expect(firstHasLess[0]!.length).toBeLessThan(firstHasLess[1]!.length);
   });

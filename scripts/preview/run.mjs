@@ -30,6 +30,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
 const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
+// The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun).
+const SEED_CHROME_RUNS = join(ROOT, ".wrangler/preview-chrome-runs", `${createHash("sha256").update(["apps/site/src/performance-check.ts", "packages/core/src/performance.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join()).digest("hex").slice(0, 16)}.json`);
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
 // servers is the one wrangler's own port, behind the site, games and rooms ports (forward(), below).
@@ -524,7 +526,17 @@ await waitFor(GAMES);
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
+  if (!ENGINES_ONLY) {
+    const sqlText = (text) => `'${text.replaceAll("'", "''")}'`;
+    const keptRuns = existsSync(SEED_CHROME_RUNS) ? JSON.parse(readFileSync(SEED_CHROME_RUNS, "utf8")) : [];
+    runSql(`CREATE TABLE preview_chrome_runs (game_base_url TEXT PRIMARY KEY, observations_json TEXT NOT NULL); ${keptRuns.map((run) => `INSERT INTO preview_chrome_runs VALUES (${sqlText(run.game_base_url)}, ${sqlText(run.observations_json)});`).join("")}`);
+  }
   await seed();
+  if (!ENGINES_ONLY) {
+    mkdirSync(dirname(SEED_CHROME_RUNS), { recursive: true });
+    writeFileSync(SEED_CHROME_RUNS, JSON.stringify(querySql("SELECT game_base_url, observations_json FROM preview_chrome_runs")));
+    runSql("DROP TABLE preview_chrome_runs");
+  }
   await waitForBrotliCopies();
   stepDone("Brotli copies");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
