@@ -109,8 +109,6 @@ export interface CheckedPage {
   firstPaintSizeLimitBytes?: number;
 }
 
-/** A game's page holding its buy and play sheets, over Zaisma's own background drawn in parts: about 0.1 s more on Slow 3G than the limit for every other page. */
-const GAME_WITH_SHEETS_SIZE_LIMIT_BYTES = 80_000;
 /** Developer settings' own first-paint limit (CheckedPage.firstPaintSizeLimitBytes). */
 const DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES = 96_000;
 
@@ -186,10 +184,10 @@ const CHECKED_PAGE_LIST = [
   { name: "Home, full", area: "Playing", path: "/", account: "Many_Things", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
-  { name: "Game page, for sale", area: "Playing", path: "/g/ashfall", mainActionShows: "everywhere", firstPaintSizeLimitBytes: GAME_WITH_SHEETS_SIZE_LIMIT_BYTES },
+  { name: "Game page, for sale", area: "Playing", path: "/g/ashfall", mainActionShows: "everywhere" },
   // The longest title and description a game can have, and every name on its page at its longest.
-  { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere", firstPaintSizeLimitBytes: GAME_WITH_SHEETS_SIZE_LIMIT_BYTES },
-  { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere", firstPaintSizeLimitBytes: GAME_WITH_SHEETS_SIZE_LIMIT_BYTES },
+  { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere" },
+  { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, one press", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },

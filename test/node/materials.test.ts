@@ -257,6 +257,7 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".world-still | *", "the kingdom's picture, which covers the stage"],
   [":root:not([data-theme-choice=\"light\"]) .world-still | background-image", "the kingdom's picture by night"],
   ["[data-theme-choice=\"dark\"] .world-still | background-image", "the kingdom's picture by night"],
+  [".world-birds | height", "the birds' layer covers only the sky, so little is redrawn"],
   [".world-count | min-height", "the count is a link: a touch target's height"],
   [".icon-group-title | margin", "a group's name sits a line's gap over its icons"],
   [".cut-btn[data-tint=\"violet\"] > .face | --way", "Stripe's own purple on Stripe's buttons, as Google and Discord keep theirs"],

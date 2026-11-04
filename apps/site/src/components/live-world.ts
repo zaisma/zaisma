@@ -10,8 +10,8 @@ import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
 /*
  * The live world: a kingdom in the mountains, one picture by day and one by night (brand/world/), where signing in and making an account
  * happen (docs/DECISIONS.md, "The sign-in shows who's playing, over a kingdom in the mountains"). A small copy of each is in the page itself,
- * so it's there at the first paint, under the sharp one as it loads. By day birds cross the sky, and by night a shooting star falls now and
- * then, at most 25 times a second; under reduced motion the birds hold still and no star falls. Over it, one line: how many people are playing right now.
+ * so it's there at the first paint, under the sharp one as it loads. By day birds cross the sky, at most 25 times a second, resting after a minute with
+ * no input; by night a shooting star falls now and then and nothing is drawn between them. Under reduced motion the birds hold still and no star falls. Over it, one line: how many people are playing right now.
  */
 
 export interface LiveWorldStageOptions {
@@ -81,7 +81,7 @@ ${options.after ?? ""}</div>`;
 }
 
 export const LIVE_WORLD_SCRIPT: PageScript = pageScript("live-world", String.raw`(function () {
-  var NUMBER_FROM = 10, REFRESH_MS = 60000, FRAME_MS = 40;
+  var NUMBER_FROM = 10, REFRESH_MS = 60000, FRAME_MS = 40, SKY_SHARE = 0.62, REST_AFTER_MS = 60000;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   // Flocks, far to near: how many, how big (at a 900px tall stage), how high up the stage, how fast (screens a second) and which way.
   var FLOCKS = [{ count: 7, size: 3.2, high: 0.3, speed: 0.008, way: 1, start: 0.1, tone: "rgba(82,108,134,.72)" }, { count: 5, size: 4.4, high: 0.24, speed: 0.011, way: -1, start: 0.62, tone: "rgba(62,88,114,.8)" }, { count: 2, size: 6.2, high: 0.19, speed: 0.014, way: 1, start: 0.4, tone: "rgba(44,68,92,.86)" }, { count: 1, size: 9, high: 0.12, speed: 0.02, way: -1, start: 0.85, tone: "rgba(30,50,72,.92)" }];
@@ -97,6 +97,7 @@ export const LIVE_WORLD_SCRIPT: PageScript = pageScript("live-world", String.raw
   // A shooting star: a thin pale streak that grows from nothing, its tail catching up as it fades. Each kind of star comes round on its own time.
   var STREAKS = [{ everyS: 80, seed: 0 }, { everyS: 117, seed: 0.31 }];
   function hashOf(a, b) { var value = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return value - Math.floor(value); }
+  function isStreakFalling(time, item) { var cycle = time / item.everyS + item.seed, id = Math.floor(cycle) + item.seed * 100; return ((cycle - Math.floor(cycle)) * item.everyS) / (1 + 0.6 * hashOf(id, 1)) < 1; }
   function streak(c, width, height, time, item) {
     var cycle = time / item.everyS + item.seed, id = Math.floor(cycle) + item.seed * 100, life = 1 + 0.6 * hashOf(id, 1), done = ((cycle - Math.floor(cycle)) * item.everyS) / life; if (done >= 1) return false;
     var fromX = (0.12 + 0.76 * hashOf(id, 2)) * width, fromY = (0.04 + 0.2 * hashOf(id, 3)) * height, angle = 0.3 + 0.5 * hashOf(id, 4), way = hashOf(id, 5) > 0.5 ? 1 : -1, far = (0.16 + 0.2 * hashOf(id, 6)) * height, dx = way * Math.cos(angle), dy = Math.sin(angle);
@@ -106,22 +107,35 @@ export const LIVE_WORLD_SCRIPT: PageScript = pageScript("live-world", String.raw
     c.strokeStyle = line; c.lineWidth = 1.2; c.lineCap = "round"; c.beginPath(); c.moveTo(fromX + dx * tail, fromY + dy * tail); c.lineTo(fromX + dx * head, fromY + dy * head); c.stroke(); return true;
   }
   function birds(stage) {
-    var canvas = stage.querySelector(".world-birds"), c = canvas.getContext("2d"), width = 0, height = 0, pixelRatio = 1, last = -FRAME_MS, isInView = true;
+    // Only the sky's part of the stage has a layer, so little is redrawn. It rests like the backdrop: after a minute with no input the birds hold
+    // where they are, and at night nothing is drawn unless a star is falling.
+    var canvas = stage.querySelector(".world-birds"), c = canvas.getContext("2d"), width = 0, height = 0, pixelRatio = 1, last = -FRAME_MS, shownMs = 0, lastInput = 0, isInView = true, hadStar = false;
     function isNight() { return /dark/.test(getComputedStyle(stage).colorScheme || ""); }
-    function draw(ms) {
-      c.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); c.clearRect(0, 0, width, height); if (isNight()) { if (!reduced.matches) STREAKS.forEach(function (item) { streak(c, width, height, ms / 1000, item); }); return; }
-      var time = ms / 1000, grow = height / 900, id = 0;
+    function drawDay() {
+      c.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); c.clearRect(0, 0, width, height * SKY_SHARE);
+      var time = shownMs / 1000, grow = height / 900, id = 0;
       FLOCKS.forEach(function (flock) {
         var run = ((flock.start + time * flock.speed) % 1.3), lead = flock.way > 0 ? (run - 0.15) * width : (1.15 - run) * width;
         for (var i = 0; i < flock.count; i++) { id++; var row = Math.ceil(i / 2), side = i % 2 ? 1 : -1; bird(c, lead - flock.way * row * flock.size * 3.4 * grow, height * flock.high + side * row * flock.size * 1.7 * grow + Math.sin(time * 0.17 + id) * 3 * grow, flock.size * grow, flock.way, time, id, flock.tone); }
       });
     }
-    function size() { var box = stage.getBoundingClientRect(); if (!box.width) return; width = box.width; height = box.height; pixelRatio = Math.min(window.devicePixelRatio || 1, 2); canvas.width = width * pixelRatio; canvas.height = height * pixelRatio; draw(last); }
-    function tick(ms) { requestAnimationFrame(tick); if (document.hidden || !isInView || reduced.matches || ms - last < FRAME_MS) return; last = ms; draw(ms); }
+    function drawNight(ms) {
+      var isFalling = !reduced.matches && STREAKS.some(function (item) { return isStreakFalling(ms / 1000, item); }); if (!isFalling && !hadStar) return;
+      c.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); c.clearRect(0, 0, width, height * SKY_SHARE); hadStar = isFalling;
+      if (isFalling) STREAKS.forEach(function (item) { streak(c, width, height, ms / 1000, item); });
+    }
+    function draw(ms) { if (isNight()) drawNight(ms); else { hadStar = true; drawDay(); } }
+    function size() { var box = stage.getBoundingClientRect(); if (!box.width) return; width = box.width; height = box.height; pixelRatio = Math.min(window.devicePixelRatio || 1, 2); canvas.width = width * pixelRatio; canvas.height = height * SKY_SHARE * pixelRatio; hadStar = true; draw(last); }
+    function tick(ms) {
+      requestAnimationFrame(tick); if (document.hidden || !isInView || reduced.matches || ms - last < FRAME_MS) return;
+      var gap = Math.min(ms - last, 200); last = ms; if (isNight()) { drawNight(ms); return; }
+      if (ms - lastInput > REST_AFTER_MS) return; shownMs += gap; drawDay();
+    }
     size();
+    ["pointermove", "pointerdown", "keydown", "wheel", "scroll", "input"].forEach(function (name) { window.addEventListener(name, function (event) { lastInput = event.timeStamp; }, { passive: true, capture: true }); });
     if (window.ResizeObserver) new ResizeObserver(size).observe(stage);
-    new MutationObserver(function () { draw(last); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme-choice"] });
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { draw(last); });
+    new MutationObserver(function () { hadStar = true; draw(last); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme-choice"] });
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { hadStar = true; draw(last); });
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { isInView = entries[entries.length - 1].isIntersecting; }).observe(stage);
     requestAnimationFrame(tick);
   }
@@ -247,7 +261,7 @@ const LIVE_WORLD_STYLES = `
 :has(> .world-stage) { isolation: isolate; }
 .world-stage { position: fixed; inset: 0 0 auto 0; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; pointer-events: none; }
 .world-stage.is-framed { position: absolute; inset: 0; height: 100%; z-index: 0; }
-.world-birds { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.world-birds { position: absolute; inset: 0 0 auto 0; width: 100%; height: 62%; display: block; }
 /* The sharp picture over the small one in the page, which shows until it has loaded. Only the theme's own is loaded. */
 .world-stage { --still-day: url(/world/day.webp); --still-night: url(/world/night.webp); --still-small-day: url(data:image/webp;base64,UklGRm4DAABXRUJQVlA4WAoAAAAgAAAAPwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDgggAEAAPAKAJ0BKkAAJAA+0WCmTqgloyIquAkBABoJYwDDpF3T9lM45Qg4J7aVSuRE1UBSjM2or/w4WXFL4Bq7FYGnhYj0N7M/d+Zanq8u4r0c6YV5qdQ4bxz0mzvInTez3gfNwAD+sj5qoUCYmyFIZBQxVf8q4VH3uZv5Lbm/tAhw8UhwP1IeAdBvYPCrVMiC88R2NfzU6semtSQfzsI9UGbze79HnZbXVHvxucdnyFKrMFRMZS2JUO+FUNCFBx1hPtJ/ltMrIfcIe0Up0m5wIoOpaeFuw2xn+2KwnjhR9xmPJwX8dcp+/lCMOR2Dd6TsmGnzMjkyo2GMg+eSOhuTJgyMZl7xZcrWQWt3hchfeTFK4EfMs5BYad40rEIQEgVLiBkuw/eV3HfPLW+KHrnCvXmw2rj3kLrgAiHb03Cz1Ypel5ggIr/ymiymEsI0IN8ECK+cq3nb5wpLcG36dEAN0HuOADF/AO1NeLKwpFwWLMPuyUbNaeoEIyUx4iDNFNnZv5sAAA==); --still-small-night: url(data:image/webp;base64,UklGRrACAABXRUJQVlA4WAoAAAAgAAAAPwAAIwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggwgAAAJAHAJ0BKkAAJAA+0VqiTKglIyItVmyRABoJZQDFDD6BbAKLHB/+Z2Xmap9dlo9nJbBTp3YWAzrGgOrigc37HJP4j5HF9AD+8Ry/etqTaY5QTYYH4aEtF1+SJGKpAK2IPbG1XGuv6Hum3vM3bspYL1+p+qwbVkeFVvqa9jfwXuQXfy3Qe6wvXSWkeF1NWOUK+C3BNBbCCoKYDxkiTqdYd2UrSZm/48wPy42Qh9v7czUJGb8KXPx96BElozauT5AIWAAA); }
 .world-still { position: absolute; inset: 0; display: block; background-repeat: no-repeat; background-size: cover; background-position: 38% 40%; background-image: var(--still-day), var(--still-small-day); }

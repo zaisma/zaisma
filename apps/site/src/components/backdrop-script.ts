@@ -1,4 +1,5 @@
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE, SHADER_VERTEX_SOURCE } from "@zaisma/core";
+import { pageScript, pageScriptPath } from "../page-scripts.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADE_PASS, ZAISMA_SHAPES, ZAISMA_SHARP_DRAWING, ZAISMA_SOFT_PASS, ZAISMA_STORED_PARTS, ZAISMA_STRIP_PASS, ZAISMA_LIVE_PARTS } from "./shaders.ts";
 
 /**
@@ -14,15 +15,23 @@ import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADE_P
  * reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD and the glass pass round its mainImage,
  * with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
  * a phone), then sharpened as it's scaled up to its canvas (SHADER_UPSCALE_SOURCE); it gets fewer pixels, then a still frame, on a device that
- * can't keep up. Zaisma's own is drawn in parts instead, at the screen's own pixels (zaismaPrograms). Without WebGL2 a shader backdrop keeps its CSS gradient in the theme's colors.
+ * can't keep up. Zaisma's own is drawn in parts instead, at the screen's own pixels (zaismaPrograms). Its shader isn't sent with every page: it's a file (ZAISMA_SHADER_SCRIPT) kept in
+ * localStorage after the first visit, so from then on it draws in the first frame; until it's drawn its blurred placeholder shows (backdrop()), and it fades in over that. Without WebGL2 Zaisma's stays on its placeholder, and any other shader backdrop on its CSS gradient in the theme's colors.
  */
 /** A shader's words as the page carries them: no comments, no spare spaces, so what's sent on every page is only what draws. */
 function compactParts(parts: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(parts).map(([name, source]) => [name, source.replace(/\/\/[^\n]*/g, "").replace(/[ \t]+/g, " ").replace(/ ?([=*/<>,;(){}?:]) ?/g, "$1").replace(/\n\s*\n+/g, "\n").trim() + "\n"]));
 }
 
+/** Zaisma's own shader, as a file the page's first-paint script keeps after the first visit, rather than text on every page. */
+export const ZAISMA_SHADER_SCRIPT = pageScript("zaisma-shader", `window.zaismaShaderPartsArrived(${JSON.stringify(compactParts({ shapes: ZAISMA_SHAPES, live: ZAISMA_LIVE_PARTS, stored: ZAISMA_STORED_PARTS, draw: ZAISMA_SHARP_DRAWING, soft: ZAISMA_SOFT_PASS, strip: ZAISMA_STRIP_PASS, shade: ZAISMA_SHADE_PASS }))});`);
+
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
-  var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA_PARTS = ${JSON.stringify(compactParts({ shapes: ZAISMA_SHAPES, live: ZAISMA_LIVE_PARTS, stored: ZAISMA_STORED_PARTS, draw: ZAISMA_SHARP_DRAWING, soft: ZAISMA_SOFT_PASS, strip: ZAISMA_STRIP_PASS, shade: ZAISMA_SHADE_PASS }))}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
+  var HELPERS = ${JSON.stringify(compactParts({ helpers: SHADER_HELPERS }).helpers)}, GLASS_LIGHT = ${JSON.stringify(compactParts({ glass: GLASS_LIGHT_PASS }).glass)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
+  var PARTS_PATH = ${JSON.stringify(pageScriptPath(ZAISMA_SHADER_SCRIPT))}, PARTS_KEY = "zaisma-shader-parts", ZAISMA_PARTS = null, arePartsAsked = false;
+  try { var keptParts = JSON.parse(localStorage.getItem(PARTS_KEY)); if (keptParts && keptParts.path === PARTS_PATH) ZAISMA_PARTS = keptParts.parts; } catch (error) {}
+  function askForParts() { if (ZAISMA_PARTS || arePartsAsked) return; arePartsAsked = true; var script = document.createElement("script"); script.src = PARTS_PATH; document.head.appendChild(script); }
+  window.zaismaShaderPartsArrived = function (parts) { ZAISMA_PARTS = parts; try { localStorage.setItem(PARTS_KEY, JSON.stringify({ path: PARTS_PATH, parts: parts })); } catch (error) {} wake(); };
   var HEAD = ${JSON.stringify(SHADER_HEAD)}, VERTEX = ${JSON.stringify(SHADER_VERTEX_SOURCE)}, UPSCALE = ${JSON.stringify(SHADER_UPSCALE_SOURCE)};
   var DRAW_SHARE = ${SHADER_LIMITS.runtimeDrawShareNumber}, UPSCALE_NUMBER = ${SHADER_LIMITS.runtimeUpscaleNumber}, IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000};
   var FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeMaximumFps)}, IDLE_FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeIdleFramesPerSec)};
@@ -330,9 +339,11 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   // near the screen (prepare) or first drawn: a page of many backdrops (the gallery's stand-in games) compiles only the ones in reach,
   // since a phone can take a second or more to compile one and, where it can't compile in the background, holds the page while it does.
   function shaderDrawer(canvas) {
-    var isZaisma = !canvas.getAttribute("data-backdrop-shader"), source = canvas.getAttribute("data-backdrop-shader") || "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live + ZAISMA_PARTS.draw, context = sharedContext(), picture = null;
+    var isZaisma = !canvas.getAttribute("data-backdrop-shader"), source = canvas.getAttribute("data-backdrop-shader"), context = sharedContext(), picture = null;
     if (!context) return null;
+    function ownSource() { if (isZaisma && !source && ZAISMA_PARTS) source = "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live + ZAISMA_PARTS.draw; return source; }
     function drawShader(timeS, colors, layer) {
+      if (!ownSource()) { askForParts(); return false; }
       var context = sharedContext();
       // Zaisma's own, in parts; where they can't build, the whole scene in one pass, as any shader is drawn.
       if (context && isZaisma && !layer.isOnePass) {
@@ -384,7 +395,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       if (!canvas.classList.contains("is-drawn")) canvas.classList.add("is-drawn");
       return true;
     }
-    drawShader.prepare = function () { var context = sharedContext(); if (context) programFor(context, source); };
+    drawShader.prepare = function () { if (!ownSource()) { askForParts(); return; } var context = sharedContext(); if (context) programFor(context, source); };
     return drawShader;
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.

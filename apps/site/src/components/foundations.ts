@@ -536,7 +536,9 @@ export interface BackdropOptions {
 /** What's behind the glass on a page: the first thing in the page's body or stage, under everything else. */
 export function backdrop(options: BackdropOptions = {}): Raw {
   if (options.standInSlug && !STAND_IN_BACKGROUNDS.some((background) => background.slug === options.standInSlug)) throw new Error(`No stand-in background is called ${options.standInSlug}`);
-  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
+  // Zaisma's own shows as its blurred placeholder from the first paint, and fades in once it's drawn; nothing holds the page for it.
+  const isOwn = !options.isScene && !options.fragmentShader && !options.standInSlug, framed = options.isFramed ? " is-framed" : "";
+  return html`${isOwn ? html`<div class="backdrop backdrop-placeholder is-own${framed}" aria-hidden="true"></div>` : ""}<canvas class="backdrop${isOwn ? " is-own" : ""}${framed}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
 /**
@@ -597,6 +599,14 @@ component({
 .backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; border: 0; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
 @media (pointer: coarse), (max-width: 760px) { .backdrop { --backdrop-bleed: 100px; } }
 .backdrop.is-framed { --backdrop-bleed: 0px; position: absolute; inset: 0; height: 100%; }
+/* Zaisma's own: its placeholder under its canvas, which fades in once it has drawn. */
+.backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
+.backdrop.is-own.is-drawn { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .backdrop.is-own { transition: none; } }
+.backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
+[data-theme-choice="dark"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
+[data-theme-choice="light"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
