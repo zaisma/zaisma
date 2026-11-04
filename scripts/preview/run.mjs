@@ -28,6 +28,16 @@ import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
+// TEMPORARY: which of the seed's calls are slow on GitHub's runners.
+if (process.env.CI) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (address, init) => {
+    const startedMs = Date.now();
+    const answer = await realFetch(address, init);
+    if (Date.now() - startedMs > 1500) console.log(`  slow call: ${Date.now() - startedMs} ms ${init?.method ?? "GET"} ${String(address).replace(/\?.*/, "")}`);
+    return answer;
+  };
+}
 const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
 const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
 // The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun). An
@@ -369,7 +379,7 @@ async function startServers() {
   // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
   rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
-  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE, ...(process.env.CI && process.argv.includes("--reset") && !ENGINES_ONLY ? ["--var", "PREVIEW_BROTLI_QUALITY:4"] : [])]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
+  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
   // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
   const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
   feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
