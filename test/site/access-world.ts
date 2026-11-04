@@ -481,7 +481,7 @@ export async function everything(world: World): Promise<string> {
 /** The stand-in Stripe account a developer has connected, with the owner's ID after it (each is on one owner only). */
 export const CONNECTED_ACCOUNT_ID = "acct_test_access";
 /** Calls a key can't make alone: connecting Stripe decides where players' money goes, so it needs the owner's passkey on a page first. */
-export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links"]);
+export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links", "POST /games/:slug/erase-now"]);
 
 export const keyFor = async (accountId: string, scope?: KeyScope) => (await createApiKey(env.DB, accountId, `key ${Math.random()}`, scope)).token;
 
