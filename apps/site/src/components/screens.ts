@@ -126,6 +126,7 @@ component({
   name: "Screens",
   slug: "screens",
   group: "layout",
+  subgroup: "page",
   summary: "The bench: one page on a phone, the same phone turned and a laptop, side by side, as one live page, with a rail of everything that can be pressed. It's where a page is reviewed, never made: only on a local preview, which adds what copies a press across the screens. A press on a screen, anywhere but a control in its page, opens it large, the others dimmed behind it.",
   styles: `
 /* The bench fills the window and never scrolls: the rail holds what can grow, so nothing pushes the screens. */

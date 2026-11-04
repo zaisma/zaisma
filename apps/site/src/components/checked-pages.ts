@@ -161,8 +161,8 @@ const openBuySheet = (itemName: string, ...moments: string[]) => `(async () => {
   return true;
 })()`;
 const GALLERY = { area: "Gallery", mainActionShows: "nowhere", isGallery: true } as const;
-/** A gallery page's state: "Gallery: inputs fields", or "Gallery: layout" for a group that's one page. */
-export const galleryPageName = (place: GalleryPlace): `Gallery: ${ComponentGroup}` | `Gallery: ${ComponentGroup} ${string}` => (place.subgroup ? `Gallery: ${place.group} ${place.subgroup}` : `Gallery: ${place.group}`);
+/** A gallery page's state: "Gallery: inputs fields". */
+export const galleryPageName = (place: GalleryPlace): `Gallery: ${ComponentGroup} ${string}` => `Gallery: ${place.group} ${place.subgroup}`;
 /** A grown-up's birthday for the join steps, and one too young for an account. */
 const ADULT_BIRTHDAY = { birthday: "1990-04-12" } as const;
 const TOO_YOUNG_BIRTHDAY = { birthday: "2020-04-12" } as const;

@@ -6,6 +6,8 @@ import { COMPONENTS, COMPONENT_STYLES, hoverOnlyWherePointing } from "../../apps
 import { MATERIAL_STYLES } from "../../apps/site/src/components/materials.ts";
 import { COMPONENT_GROUPS, GALLERY_PLACES, component, galleryPagePath } from "../../apps/site/src/components/component.ts";
 import { TOKEN_STYLES } from "../../apps/site/src/components/tokens.ts";
+import { gameMedia } from "../../apps/site/src/components/game-media.ts";
+import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-placeholders.generated.ts";
 import { GALLERY_STYLES } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
@@ -213,8 +215,8 @@ describe("the gallery", () => {
     const slugs = COMPONENTS().map((each) => each.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
-    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
-    expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
+    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", subgroup: "buttons", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
+    expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", subgroup: "buttons", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
   it("never moves what you point at or press, only what's inside it, so the pointer can't slip off as it moves", () => {
@@ -497,8 +499,8 @@ describe("the gallery", () => {
     expect(fields.text).toContain('<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="false"><span>Actions</span>');
     expect(fields.text).toContain('href="/design/actions/words"');
     expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
-    expect((await page("/design/layout")).response.status).toBe(200);
-    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/materials?theme=dark"]] as const) {
+    expect((await page("/design/layout/inside")).response.status).toBe(200);
+    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/layout", "/design/layout/page"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/materials?theme=dark"]] as const) {
       const response = await SELF.fetch(`${SITE}${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(308);
       expect(response.headers.get("location"), path).toBe(location);
@@ -1313,6 +1315,30 @@ describe("layout", () => {
     // A tertiary button is a control like any other: in a corner it takes the corner's cut, its words on the pane's margin inside it.
     expect(markup).toContain('<div class="pane-foot" data-control-height="regular"><div class="pane-foot-end">');
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
+  });
+
+  it("keeps covers two across however narrow, while cards and figures fold to one", () => {
+    expect(GRID_STYLES).toContain(".layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--gap-block-block)) / 2), var(--size-cover)), 1fr)); }");
+    expect(GRID_STYLES).toContain(".layout-grid.item-card { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-card)), 1fr)); }");
+    expect(GRID_STYLES).toContain(".layout-grid.item-figure { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-figure)), 1fr)); }");
+  });
+
+  it("puts up to six covers on one line, going by what holds them, and refuses a seventh", () => {
+    const whenEmpty = data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." });
+    const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
+    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
+    expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
+    // Six of a cover's least width and five gaps, then three and two: one line's room, as container queries can't read a token.
+    expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(tokensSource).toContain("--size-cover: 180px");
+    expect(tokensSource).toContain("--gap-control-stack: 8px");
+  });
+
+  it("lays a track's pictures closer than its covers, by what it says it holds", () => {
+    expect(TRACK_STYLES).toContain(".layout-track.item-picture { gap: var(--gap-control-stack); }");
+    expect(TRACK_STYLES).not.toContain("media-well");
+    expect(gameMedia({ id: "media", gameTitle: "Ashen Crown", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["verdant"]! }, { mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["kestrel"]! }] }).html).toContain('class="layout-track item-picture"');
   });
 
   it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {

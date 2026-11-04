@@ -82,7 +82,7 @@ export function gameMediaViewer(options: GameMediaOptions): Raw {
 export function gameMedia(options: GameMediaOptions): Raw {
   // One alone isn't a row: its well takes the width, with no rail kept for scrolling that can't happen.
   if (options.items.length === 1) return html`<div class="game-media">${mediaWell(options, options.items[0]!, 0)}${gameMediaViewer(options)}</div>`;
-  return html`<div class="game-media">${track({ whenEmpty: options.whenEmpty, id: `${options.id}-track`, itemSize: "cover", label: "Screenshots and videos", items: options.items.map((mediaItem, itemIndex) => ({ kind: "block" as const, markup: mediaWell(options, mediaItem, itemIndex) })) })}${options.items.length ? gameMediaViewer(options) : ""}</div>`;
+  return html`<div class="game-media">${track({ whenEmpty: options.whenEmpty, id: `${options.id}-track`, itemSize: "picture", label: "Screenshots and videos", items: options.items.map((mediaItem, itemIndex) => ({ kind: "block" as const, markup: mediaWell(options, mediaItem, itemIndex) })) })}${options.items.length ? gameMediaViewer(options) : ""}</div>`;
 }
 
 /** The origin a page that shows a YouTube video lets frame it (securityHeaders' frames): YouTube's player that keeps no cookies. */

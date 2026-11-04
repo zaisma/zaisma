@@ -101,7 +101,8 @@ export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, av
 // (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
 // UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  "Gallery: layout": 28.6,
+  "Gallery: layout page": 14.3,
+  "Gallery: layout inside": 14.3,
   Screens: 43.8,
   Home: 16.7,
   "Buying, confirm with a PIN": 14.1,

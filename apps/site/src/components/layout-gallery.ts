@@ -1,16 +1,19 @@
-import { html, type Raw } from "../markup.ts";
+import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { cutField, selectField } from "./inputs.ts";
 import { shelf } from "./navigation.ts";
-import { STAND_IN_COVERS, banner } from "./panes.ts";
+import { STAND_IN_COVERS, banner, gameCard } from "./panes.ts";
 import { table, stateNote } from "./data.ts";
+import { gameMedia } from "./game-media.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
- * components from every group (which import layout.ts themselves). Each example is a real case from Zaisma's pages.
+ * components from every group (which import layout.ts themselves). Each example is a real case from Zaisma's pages, and each piece shows every state
+ * it has: long, empty and full.
  */
 
 const words = (markup: Raw): GridItem => ({ kind: "words", markup });
@@ -56,28 +59,39 @@ export const roomsPane = (): Raw =>
     }),
   });
 
+/** The About pane a game's sections show. */
+const aboutPane = (): Raw => glassPane({ paneWidth: "full", label: "About", body: stack({ items: [words(html`<h2>About</h2>`), words(html`<p>A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself.</p>`)] }) });
+
+/** What a grid or track of games shows with none. */
+const noGames = stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." });
+
 component({
   name: "Page shape",
   slug: "page-shape",
   group: "layout",
-  summary: "What a page is, which sets how wide it runs: every rebuilt page says one (layout's pageShape). Words, forms and settings are reading, one column under the header (--size-page-reading); covers, cards, tables and charts are wide, the whole frame (--size-page-wide); a page whose world is the page (the home, a game's page, the city) is full, its world to the screen's edges and its panes in the frame. The header and footer sit in the frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins.",
+  subgroup: "page",
+  summary: "What a page is, which sets how wide it runs: every rebuilt page says one (layout's pageShape). Words, forms and settings are reading, one column under the header (--size-page-reading); covers, cards, tables and charts are wide, the whole frame (--size-page-wide); a page whose world is the page (the home, a game's page) is full, its world to the screen's edges and its panes in the frame. The header and footer sit in the frame on every page, so moving between pages never moves them. On a phone every shape is the screen less its margins. Not for a piece inside a page: a pane is full or fit, and half the screen is Columns.",
   styles: PAGE_SHAPE_STYLES,
   render: pageShapeDrawing,
-  examples: PAGE_SHAPES.flatMap((pageShape) =>
-    (["2560 desktop", "Laptop"] as const).map((screenName) => ({ label: `${pageShape[0]!.toUpperCase()}${pageShape.slice(1)}, on a ${screenName}`, markup: pageShapeDrawing({ pageShape, screenName }), isStill: true })),
-  ),
+  examples: [
+    ...PAGE_SHAPES.flatMap((pageShape) =>
+      (["2560 desktop", "Laptop", "Phone"] as const).map((screenName) => ({ label: `${pageShape[0]!.toUpperCase()}${pageShape.slice(1)}, on a ${screenName}`, markup: pageShapeDrawing({ pageShape, screenName }), isStill: true })),
+    ),
+    ...(["2560 desktop", "Laptop"] as const).map((screenName) => ({ label: `Reading, beside its places (Sidebar layout), on a ${screenName}`, markup: pageShapeDrawing({ pageShape: "reading", screenName, hasSidebar: true }), isStill: true })),
+  ],
 });
 
 component({
   name: "Stack",
   slug: "stack",
   group: "layout",
-  summary: "Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it.",
+  subgroup: "inside",
+  summary: "Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it. A pane's body that holds one thing is stackOfOne. Not for things side by side (Row), or a long list of the same thing (Grid, or a list from Data).",
   styles: STACK_STYLES,
   render: stack,
   examples: [
     {
-      label: "Words, fields and a button: words are 8px apart, a labeled field is a block (24px either side), words under a button 8px",
+      label: "Words, fields and a button",
       markup: glassPane({
         paneWidth: "fit",
         body: stack({
@@ -94,8 +108,17 @@ component({
     },
     { label: "A game's pane: words, then Play and Details, then Share and Report", markup: gamePane() },
     {
-      label: "Controls stacked: 8px, square between, cut only at the stack's ends",
+      label: "Controls stacked: square between, cut only at the stack's ends",
       markup: glassPane({ paneWidth: "fit", body: stack({ items: ["Settings", "Account", "Sign out"].map((label) => ({ kind: "control" as const, markup: secondaryButton(label, { type: "button", isFullWidth: true }) })) }) }),
+    },
+    { label: "One thing alone: stackOfOne", markup: glassPane({ paneWidth: "fit", body: stackOfOne(html`<p>Nothing here is waiting for you.</p>`, "words") }) },
+    {
+      label: "A part that's hidden, or empty, takes no room and no gap",
+      markup: glassPane({ paneWidth: "fit", body: stack({ items: [words(html`<h2>Join a room</h2>`), { kind: "block", id: "stack-hidden-error", isHidden: true, markup: banner({ text: "That room is full.", icon: "warning" }) }, { kind: "words", id: "stack-empty-part", markup: raw("") }, { kind: "control", markup: secondaryButton(action("join"), { type: "button", isFullWidth: true }) }] }) }),
+    },
+    {
+      label: "Long words wrap, and a word with no spaces breaks",
+      markup: glassPane({ paneWidth: "fit", body: stack({ items: [words(html`<h2>The Long and Winding Chronicles of the Ashen Crown, Part Two</h2>`), words(html`<p>Made by SomeoneWithAVeryLongNameThatHasNoSpacesInItAtAllAndKeepsGoing, who answers within a day.</p>`), { kind: "control", markup: secondaryButton("Details", { type: "button", isFullWidth: true }) }] }) }),
     },
   ],
 });
@@ -104,7 +127,8 @@ component({
   name: "Row",
   slug: "row",
   group: "layout",
-  summary: "Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other.",
+  subgroup: "inside",
+  summary: "Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other; a row that can't fit on one line becomes a stack of them. Not for covers or cards (Grid or Track), or two panes (Columns).",
   styles: ROW_STYLES,
   render: row,
   examples: [
@@ -125,6 +149,10 @@ component({
       markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: secondaryButton(action("newVersion"), { type: "button" }) }] }) }),
     },
     {
+      label: "A long heading beside its control wraps, its first line on the control's center line",
+      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [words(html`<h2>Every version of this game you have uploaded so far</h2>`), { kind: "control", markup: secondaryButton(action("newVersion"), { type: "button" }) }] }) }),
+    },
+    {
       label: "A field and its button: the field fills, Join fits, on the field's box",
       markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "row-code", name: "room_code", label: "Room code", type: "text", icon: "people", placeholder: "ABCD" }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] }) }),
     },
@@ -143,7 +171,11 @@ component({
       }),
     },
     {
-      label: "Words in a row: links, a word's gap apart",
+      label: "Too long for one line: a stack, each control filling its line",
+      markup: glassPane({ paneWidth: "fit", body: row({ widths: "equal", items: ["Keep this version live for everyone", "Go back to the version before it", "Take this game down for now"].map((label) => ({ kind: "control" as const, markup: secondaryButton(label, { type: "button" }) })) }) }),
+    },
+    {
+      label: "Words in a row: links",
       markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", items: [words(textLink("Share", "#row")), words(textLink("Report", "#row")), words(html`<span>${tag("Updated", "new")}</span>`)] }) }),
     },
   ],
@@ -153,12 +185,18 @@ component({
   name: "Grid",
   slug: "grid",
   group: "layout",
-  summary: "Cells of one size, as many to a line as fit: covers, cards, figures. Say what a cell holds and the grid sizes it; it folds to fewer columns as it narrows, to one on a phone, by its own width.",
+  subgroup: "inside",
+  summary: "Cells of one size in lines down the page, as many to a line as fit: a full list of covers (Browse, a library), cards, figures. Say what a cell holds and the grid sizes it, by its own width: covers stop at two across, cards and figures fold to one. On one line, it's up to six covers to take in at a glance. Not for a row to browse sideways under a heading (Track, or a Shelf).",
   styles: GRID_STYLES,
   render: grid,
   examples: [
-    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
-    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button" }) }] }) }))) }) }) },
+    { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "Covers where there's little room: two across, each count under its title", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [...covers(["ashen-crown", "neon-drift"]), block(gameCard({ title: "The Long and Winding Chronicles of the Ashen Crown", picture: STAND_IN_COVER_PICTURES["hollow-tide"] ?? null, href: "#grid", facts: { playerCount: 1204 } })), ...covers(["verdant"])] }) }) },
+    { label: "Six covers on one line, then three, then two across, as the room runs out", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "One cover alone stays a cover's size", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: covers(["ashen-crown"]) }) }) },
+    { label: "With none: its Empty state in their place", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [] }) }) },
+    { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button", isFullWidth: true }) }] }) }))) }) }) },
+    { label: "Figures: numbers at a glance", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ itemSize: "figure", items: [["1,204", "Playing now"], ["78", "Rooms"], ["14", "Versions"], ["4.8 GB", "Stored"]].map(([figure, name]) => words(html`<h3>${figure}</h3><p>${name}</p>`)) }) }) },
   ],
 });
 
@@ -166,12 +204,16 @@ component({
   name: "Track",
   slug: "track",
   group: "layout",
-  summary: "A row of covers that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in, its sideways Rail under it while it runs past its room. Under a heading, it's a shelf.",
+  subgroup: "inside",
+  summary: "A row of covers or pictures that scrolls sideways, fading at an edge with more past it, a few showing with the next peeking in, its sideways Rail under it while it runs past its room. Under a heading, covers make a Shelf. Pictures with no words under them (a game's screenshots) lie closer than covers. Not for a full list someone reads through (Grid).",
   styles: TRACK_STYLES,
   render: track,
   examples: [
-    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
+    { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
     { label: "Under a heading: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
+    { label: "All in view: no rail, and nothing moves if one comes", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track-fits", itemSize: "cover", items: covers(["ashen-crown", "neon-drift"]) }) }) },
+    { label: "With none: its Empty state in their place", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track-empty", itemSize: "cover", items: [] }) }) },
+    { label: "Pictures: a game's screenshots", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(gameMedia({ id: "example-track-pictures", gameTitle: "Ashen Crown", whenEmpty: stateNote({ stateKind: "empty", title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), items: ["hollow-tide", "verdant", "neon-drift", "ashen-crown", "iron-vigil"].map((slug) => ({ mediaKind: "picture" as const, picture: STAND_IN_COVER_PICTURES[slug]! })) })) }) },
   ],
 });
 
@@ -179,7 +221,8 @@ component({
   name: "Columns",
   slug: "columns",
   group: "layout",
-  summary: "Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room.",
+  subgroup: "page",
+  summary: "Two halves of the width side by side, like a game's details beside its rooms and updates. A pane takes the whole width or fits what's in it, so one that should take half the screen goes in a column. One column can stay in view while the other scrolls; they go one over the other where both can't have room. Not for controls (Row), or more than two of the same thing (Grid).",
   styles: COLUMNS_STYLES,
   render: columns,
   examples: [
@@ -188,9 +231,11 @@ component({
       isWide: true,
       markup: columns({
         stickyColumn: "first",
-        columns: [gamePane(), html`${roomsPane()}${glassPane({ paneWidth: "full", label: "About", body: stack({ items: [words(html`<h2>About</h2>`), words(html`<p>A fallen knight climbs a burning kingdom to take its crown back. Hard, fair fights, and a world that folds back on itself.</p>`)] }) })}`],
+        columns: [gamePane(), html`${roomsPane()}${aboutPane()}`],
       }),
     },
+    { label: "Plain: two panes, each as tall as what's in it", isWide: true, markup: columns({ columns: [aboutPane(), roomsPane()] }) },
+    { label: "Where both can't have room: one over the other", markup: columns({ columns: [aboutPane(), gamePane()] }) },
   ],
 });
 
@@ -198,7 +243,8 @@ component({
   name: "Pane parts",
   slug: "pane-parts",
   group: "layout",
-  summary: "A pane's places: its head (words, and one control in its top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut.",
+  subgroup: "inside",
+  summary: "A pane's places: its head (words, and one control in each top corner), its body and its foot (something at the start, one control in its bottom corner). A corner control sits in the corner and takes its cut. Not for a pane with no control in a corner: its body is a Stack.",
   styles: PANE_PARTS_STYLES,
   render: paneParts,
   examples: [
@@ -206,6 +252,14 @@ component({
     {
       label: "In a pane that fits what's in it",
       markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { words: html`<h2>Friends</h2>`, end: secondaryButton(action("addFriend"), { type: "button", isSmall: true }) }, body: stack({ items: [words(html`<p>Liam, Sofia and Noah are online.</p>`)] }), foot: { end: tertiaryButton("See all", { type: "button" }) } }) }),
+    },
+    {
+      label: "Both top corners: Back and Close, as on a sheet's second step",
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ head: { start: secondaryButton(action("back"), { type: "button", isLabelHidden: true }), words: html`<h2>Report this game</h2>`, end: secondaryButton(action("close"), { type: "button", isLabelHidden: true }) }, body: stack({ items: [words(html`<p>Say what's wrong, and a person reads it within a day.</p>`)] }) }) }),
+    },
+    {
+      label: "A foot alone",
+      markup: glassPane({ paneWidth: "fit", body: paneParts({ body: stack({ items: [words(html`<p>Your save is kept on this device until you sign in.</p>`)] }), foot: { start: words(html`<p>Saved a minute ago</p>`), end: secondaryButton(action("signIn"), { type: "button" }) } }) }),
     },
     {
       label: "A long heading beside its corner control: it wraps, its first line on the control's center line",

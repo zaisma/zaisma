@@ -92,7 +92,7 @@ export function pagesForChangedFiles(changedPaths, pagePaths, sourceOf = () => "
   const names = changedPaths.filter((path) => /^apps\/site\/src\/.+\.ts$/.test(path)).map((path) => path.replace(/^.*\//, "").replace(/\.ts$/, ""));
   const named = pagePaths.filter((pagePath) => pagePath !== "/" && names.some((name) => pagePath.split("/").includes(name)));
   const galleryPaths = changedPaths.filter((path) => /^apps\/site\/src\/components\/.+\.ts$/.test(path)).flatMap((path) =>
-    [...sourceOf(path).matchAll(/component\(\{[^}]*?group:\s*"([a-z-]+)"(?:,\s*subgroup:\s*"([a-z-]+)")?/g)].map(([, group, subgroup]) => (subgroup ? `/design/${group}/${subgroup}` : `/design/${group}`)));
+    [...sourceOf(path).matchAll(/component\(\{[^}]*?group:\s*"([a-z-]+)",\s*subgroup:\s*"([a-z-]+)"/g)].map(([, group, subgroup]) => `/design/${group}/${subgroup}`));
   return [...new Set([...named, ...galleryPaths.filter((galleryPath) => pagePaths.includes(galleryPath))])];
 }
 

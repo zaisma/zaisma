@@ -1519,7 +1519,9 @@ component({
   name: "Sidebar layout",
   slug: "sidebar-layout",
   group: "layout",
-  summary: "A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page.",
+  subgroup: "page",
+  after: "page-shape",
+  summary: "A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page. Not for places that belong to the whole site: those are the header's.",
   styles: `
 /* A Sidebar beside the page: its own column, staying in view under the header while the page scrolls, never taller than the window. It
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */

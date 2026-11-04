@@ -39,18 +39,18 @@ function placeOfPath(pathname: string): { place: GalleryPlace } | { redirectPath
   if (place) return { place };
   const [, designPart, groupPart, subgroupPart, ...rest] = pathname.split("/");
   const group = COMPONENT_GROUPS.find((each) => each.group === groupPart)?.group;
-  if (designPart !== "design" || !group || rest.length || !subgroupsOf(group).length) return undefined;
+  if (designPart !== "design" || !group || rest.length) return undefined;
   if (subgroupPart === undefined) return { redirectPath: galleryPagePath(group) };
   // /design/foundations/look is /design.
   if (subgroupPart === subgroupsOf(group)[0]!.subgroup) return { redirectPath: galleryPagePath(group, subgroupPart) };
   return undefined;
 }
 
-/** A page's name in words: "Fields · Inputs", or a group's alone. */
+/** A page's name in words: "Fields · Inputs". */
 const placeName = (place: GalleryPlace) => {
   const groupName = COMPONENT_GROUPS.find((each) => each.group === place.group)!.name;
-  const subgroupName = COMPONENT_SUBGROUPS.find((each) => each.group === place.group && each.subgroup === place.subgroup)?.name;
-  return subgroupName ? `${subgroupName} · ${groupName}` : groupName;
+  const subgroupName = COMPONENT_SUBGROUPS.find((each) => each.group === place.group && each.subgroup === place.subgroup)!.name;
+  return `${subgroupName} · ${groupName}`;
 };
 
 /** Words that name a token (--spring) set as code: Jost draws two hyphens as one dash, and code never breaks a name across lines. */
@@ -132,7 +132,7 @@ export function designPage(env: Env, url: URL): Response | null {
 ${shown.map((each) => section(each, theme, url))}${place.group === "over-a-game" ? overGameStates(place.subgroup, theme) : ""}`;
   const checkedPage = galleryPageName(place);
   // The layout group's Screens example frames the example page; Data's pictures, Game media's YouTube video once it's pressed.
-  const frames = place.group === "layout" || place.group === "over-a-game" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
+  const frames = (place.group === "layout" && place.subgroup === "page") || place.group === "over-a-game" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
   return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames, ...(place.group === "over-a-game" ? { scripts: [OVER_GAME_SCRIPT] } : {}) });
 }
 

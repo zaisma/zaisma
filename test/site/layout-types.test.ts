@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { secondaryButton, primaryButton } from "../../apps/site/src/components/actions.ts";
 import { grid, paneParts, row, stack, type LayoutItem } from "../../apps/site/src/components/layout.ts";
-import { html } from "../../apps/site/src/markup.ts";
+import { NO_EMPTY_NOTE, html } from "../../apps/site/src/markup.ts";
 
 /**
  * Wrong layouts don't build (docs/DECISIONS.md, "A page is only gallery components, layout included."): each @ts-expect-error below is a
@@ -16,6 +16,10 @@ describe("layouts that don't build", () => {
     paneParts({ head: { words: html`<h2>Rooms</h2>`, end: html`${secondaryButton("Refresh")}${secondaryButton("Join")}` }, body: paragraph });
     // @ts-expect-error A row's widths are named, never a number.
     row({ widths: "200px", items: [] });
+    // @ts-expect-error Only a row of things that fit has room left to place them in.
+    row({ widths: "equal", alignment: "end", items: [] });
+    // @ts-expect-error One line is for covers, which have words under them and share it.
+    grid({ itemSize: "card", isAllOnOneLine: true, whenEmpty: NO_EMPTY_NOTE, items: [] });
     // @ts-expect-error A grid's cells are a named size.
     grid({ itemSize: 180, items: [] });
     // @ts-expect-error A control is given as a control, so it's spaced and sized as one.
