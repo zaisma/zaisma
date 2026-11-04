@@ -1056,6 +1056,8 @@ const STATE_STYLES = `
 .state-note > .ico { width: 24px; height: 24px; color: var(--marked); }
 .state-note.done > .ico { color: var(--tag-new-ink); }
 .state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; }
+/* The note keeps its own even room above and below: a pane's edge adds no margin to its words, which it would on one side only where a hidden list stands before it. */
+.state-note :is(.state-title, .state-text) { --pad-words: 0px; --edge-room: 0px; }
 .state-title { margin: 0; font: var(--type-name); color: var(--ink); }
 .state-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .state-action { justify-self: stretch; display: grid; margin-top: calc(var(--gap-block-block) - var(--gap-words-control)); }

@@ -1321,6 +1321,10 @@ describe("layout", () => {
     for (const itemSize of ["cover", "card"]) expect(GRID_STYLES).toContain(`.layout-grid.item-${itemSize} { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-${itemSize})), 1fr)); }`);
   });
 
+  it("centers a State note in what holds it: a pane's edge adds no margin to its words", () => {
+    expect(COMPONENTS().find((each) => each.slug === "state-note")!.styles).toContain(".state-note :is(.state-title, .state-text) { --pad-words: 0px; --edge-room: 0px; }");
+  });
+
   it("puts up to six covers on one line, going by what holds them, and refuses a seventh", () => {
     const whenEmpty = data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." });
     const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
