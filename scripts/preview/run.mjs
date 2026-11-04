@@ -30,7 +30,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
 const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
-// The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun).
+// The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun). An
+// engines-only start keeps none: its runs are what the Engine exports check.
 const SEED_CHROME_RUNS = join(ROOT, ".wrangler/preview-chrome-runs", `${createHash("sha256").update(["apps/site/src/performance-check.ts", "packages/core/src/performance.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join()).digest("hex").slice(0, 16)}.json`);
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
