@@ -364,7 +364,7 @@ async function startServers() {
   // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
   rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
-  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE, ...(process.env.CI ? ["--var", "IS_ON_GITHUB_RUNNER:1"] : [])]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
+  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
   // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
   const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
   feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
@@ -992,7 +992,7 @@ async function seed() {
   stepDone("account and key");
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
-    const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
+    const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "x-preview-seed": "1", ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
     const res = await send();
     const data = await res.json();
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
@@ -1082,7 +1082,7 @@ async function seed() {
   const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
   const { shader: neonDriftWide } = await sendShader("shard-dodge", "wide", standInShader("neon-drift"));
-  await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
+  const { shader: strobe } = await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
   // A test game's shader once its check has run. Without a local browser a person approves it, as on /admin (it then has no still or
   // frames); one the check refused on a slower or busier machine is approved the same way, saying why, so the test data is always whole.
   const settleTestShader = async (slug, shaderId) => {
@@ -1114,8 +1114,14 @@ async function seed() {
   const channelsOf = (passName) => wiring[passName].map(({ texture_file: textureFile, ...channel }) => (textureFile ? { ...channel, image_id: noise.id } : channel));
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
   sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
-  // The checks draw beside the rest of the test data (site.mjs, shaderChecksBesideScans), which needs none of them, and are waited for at the end.
+  // The checks draw beside the rest of the test data (site.mjs, withSeedShaderChecks), which needs none of them, and are waited for at the end:
+  // Chrome draws them on the processor, so a laptop draws one at a time and GitHub's four-core runners three.
   const settleSentShaders = async () => {
+    const shaderIds = [strobe, neonDrift, neonDriftWide, ...sentShaders.map(([, , shader]) => shader)].map((shader) => shader.id);
+    const drawNext = async () => {
+      while (shaderIds.length) await fetch(`${SITE}/__preview/draw-shader-check?shader_id=${encodeURIComponent(shaderIds.shift())}`, { method: "POST" });
+    };
+    await Promise.all(Array.from({ length: process.env.CI ? 3 : 1 }, drawNext));
     for (const [slug, screen, shader] of [["shard-dodge", "phone", neonDrift], ["shard-dodge", "wide", neonDriftWide], ...sentShaders]) {
       await settleTestShader(slug, shader.id);
       await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });

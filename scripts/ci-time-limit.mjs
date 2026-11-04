@@ -9,7 +9,6 @@
 // job's own time limit in .github/workflows/check.yml to the same line.
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { sendPushover } from "./watch-checks.mjs";
 
 export const CI_CEILING_SEC = 300;
 export const CI_WARNING_SEC = 240;
@@ -113,6 +112,8 @@ async function report() {
   const verdict = warningVerdict(durationsSec);
   console.log(verdict.line);
   if (verdict.is_over_warning && process.env.PUSHOVER_USER_KEY && process.env.PUSHOVER_APP_TOKEN) {
+    // Loaded only here, so the required check's --check depends on nothing beyond this file.
+    const { sendPushover } = await import("./watch-checks.mjs");
     await sendPushover({ userKey: process.env.PUSHOVER_USER_KEY, appToken: process.env.PUSHOVER_APP_TOKEN }, { title: "CI is growing", message: verdict.line });
   }
 }
