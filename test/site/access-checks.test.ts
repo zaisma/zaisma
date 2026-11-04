@@ -36,6 +36,8 @@ import {
   type AccessArea,
   type AreaAccess,
   type KeyScope,
+  gameBySlug,
+  startGameDeletionWait,
 } from "@zaisma/core";
 import { API_ROUTES, type ApiInput, type ApiRoute } from "../../apps/site/src/developer.ts";
 import { errorProblems } from "../schema-check.ts";
@@ -159,6 +161,9 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /storage": () => ({}),
   "PATCH /storage": () => ({ body: { monthly_storage_budget_cents: null } }),
   "DELETE /games/:slug": (world) => ({ body: { confirm_slug: world.values.slug } }),
+  "POST /games/:slug/bring-back": () => ({}),
+  "POST /games/:slug/erase-now": (world) => ({ body: { confirm_slug: world.values.slug } }),
+  "GET /games/:slug/deletion-requests/:game_deletion_request_id": () => ({}),
   "DELETE /games/:slug/versions/:version_id": () => ({}),
   "DELETE /games/:slug/versions/:version_id/publish": () => ({}),
   "DELETE /games/:slug/versions/:version_id/preview-links": () => ({}),
@@ -450,6 +455,8 @@ async function makeWorld(routeName = ""): Promise<World> {
   await env.GAMES.put(forumMediaKey(mediaId), png(400, 300));
   // A running monthly credit plan, so changing and stopping it have one to reach; starting one needs none yet.
   if (routeName !== "POST /credit/plan/checkout") await env.DB.prepare("UPDATE owners SET credit_plan_subscription_id = ?, credit_plan_refill_level_cents = 4000, credit_plan_status = 'running', credit_plan_started_at_ms = ?, credit_plan_event_at_ms = ? WHERE id = ?").bind(`sub_plan_${n}`, nowMs, nowMs, victimOwner.id).run();
+  const gameDeletionRequestId = newId("game_deletion_request");
+  await env.DB.prepare("INSERT INTO game_deletion_requests (id, account_id, game_id, request_kind, created_at_ms, expires_at_ms) VALUES (?, ?, ?, 'delete_game', ?, ?)").bind(gameDeletionRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
   const spendingRequestId = newId("spending_request");
   await env.DB.prepare("INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) VALUES (?, ?, 'game_budget', ?, 4000, ?, ?)").bind(spendingRequestId, accountIdOf("victim"), game.id, nowMs, nowMs + 86_400_000).run();
 
@@ -461,6 +468,7 @@ async function makeWorld(routeName = ""): Promise<World> {
     values: {
       top_up_id: topUpId,
       spending_request_id: spendingRequestId,
+      game_deletion_request_id: gameDeletionRequestId,
       slug: game.slug,
       image_id: image.id,
       shader_id: shader.id,
@@ -783,6 +791,18 @@ describe("every call", () => {
     // Changing or disconnecting a Stripe account needs one connected.
     if (routeName === "PATCH /stripe-account" || routeName === "DELETE /stripe-account") {
       await env.DB.prepare("UPDATE owners SET stripe_account_id = ?, can_take_stripe_payments = 1, stripe_connected_at_ms = ? WHERE id = ?").bind(`${CONNECTED_ACCOUNT_ID}_${world.victimOwnerId}`, Date.now(), world.victimOwnerId).run();
+    }
+    // Deleting a game nobody else played starts its week with a key; what comes after needs it waiting (test/site/game-deletion.test.ts has the rest).
+    if (routeName === "DELETE /games/:slug" || routeName === "POST /games/:slug/bring-back" || routeName === "POST /games/:slug/erase-now") {
+      const deletedGame = (await gameBySlug(env.DB, world.values.slug!))!;
+      for (const table of ["purchases", "saves", "games_ever_played", "kept_rooms", "play_days"]) await env.DB.prepare(`DELETE FROM ${table} WHERE game_id = ?`).bind(deletedGame.id).run();
+      if (routeName !== "DELETE /games/:slug") await startGameDeletionWait(env.DB, deletedGame.id);
+      // Erasing at once always asks for the passkey, and the asking is logged.
+      if (routeName === "POST /games/:slug/erase-now") {
+        expect((await call(apiRoute, developerKey, asDeveloper)).answer.error?.code).toBe("confirmation_needed");
+        expect((await eventCount()) - eventCountBefore).toBe(1);
+        return;
+      }
     }
     // A call that needs the owner's passkey on a page first refuses even the developer's full key, with nothing changed.
     if (CONFIRMED_ON_A_PAGE.has(routeName)) {

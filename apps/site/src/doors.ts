@@ -69,6 +69,7 @@ export const PATH_PARTS: Readonly<Record<string, string>> = {
   webhook_action: "delete|test|secret",
   top_up_id: "top_up_[a-z0-9]+",
   spending_request_id: "spending_request_[a-z0-9]+",
+  game_deletion_request_id: "game_deletion_request_[a-z0-9]+",
   budget_action: "budget|budget-off",
   passkey_id: "[A-Za-z0-9_-]{1,400}",
   legal_page: "[a-z-]+",
@@ -328,7 +329,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   // Developer settings, before the dashboard's /dashboard/<game>: settings is no game's slug.
   settings(["GET"], SETTINGS),
   settings(["GET"], `${SETTINGS}/*`),
-  ...["credit/top-up", "credit/plan/start", "credit/plan/level", "credit/plan/stop", "credit/refund/:top_up_id", "storage/budget", "storage/budget-off", "games/:slug/:budget_action", "spending/:spending_request_id", "pro/checkout", "pro/refund", "pro/cancel", "pro/resume", "payments/connect", "payments/tax", "payments/disconnect", "webhooks", "webhooks/:webhook_id", "webhooks/:webhook_id/:webhook_action", "sign-in-apps", "sign-in-apps/:sign_in_app_id", "sign-in-apps/:sign_in_app_id/:sign_in_app_action", "keys", "keys/:key_id/remove"].map(settingsForm),
+  ...["credit/top-up", "credit/plan/start", "credit/plan/level", "credit/plan/stop", "credit/refund/:top_up_id", "storage/budget", "storage/budget-off", "games/:slug/:budget_action", "spending/:spending_request_id", "game-deletion/:game_deletion_request_id", "pro/checkout", "pro/refund", "pro/cancel", "pro/resume", "payments/connect", "payments/tax", "payments/disconnect", "webhooks", "webhooks/:webhook_id", "webhooks/:webhook_id/:webhook_action", "sign-in-apps", "sign-in-apps/:sign_in_app_id", "sign-in-apps/:sign_in_app_id/:sign_in_app_action", "keys", "keys/:key_id/remove"].map(settingsForm),
 
   // The dashboard.
   dashboard(["GET"], "/dashboard", true),
@@ -338,7 +339,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   dashboard(["GET"], "/dashboard/:slug/export.zip", true),
   dashboard(["GET"], "/dashboard/:slug"),
   dashboard(["GET"], "/dashboard/:slug/*"),
-  ...["details", "links", "own-servers", "visibility", "images", "images/:id/remove", "backgrounds", "backgrounds/:screen", "shaders/:id/remove", "glass-tint", "testers", "testers/:id/:tester_action", "delete", "versions/:id/end-previews", "versions/:id/:version_action"].map(gameForm),
+  ...["details", "links", "own-servers", "visibility", "images", "images/:id/remove", "backgrounds", "backgrounds/:screen", "shaders/:id/remove", "glass-tint", "testers", "testers/:id/:tester_action", "delete", "bring-back", "erase-now", "versions/:id/end-previews", "versions/:id/:version_action"].map(gameForm),
 
   // Zaisma's own people.
   admin("any", "/admin/mcp", "zaisma_settings", "anywhere"),

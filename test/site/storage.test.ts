@@ -174,20 +174,6 @@ describe("deleting", () => {
     expect((await storage()).deletable_versions).toEqual([]);
   });
 
-  it("deletes a whole game with its slug typed again, and retires its link", async () => {
-    const version = await push({ "index.html": "<p>gone</p>" });
-    await scanVersion(testEnv, version, pass);
-    expect((await api("/games/hop", { method: "DELETE", body: { confirm_slug: "nope" } })).answer.error.code).toBe("bad_confirm_slug");
-    const deleted = await api("/games/hop", { method: "DELETE", body: { confirm_slug: "hop" } });
-    expect(deleted.status).toBe(200);
-    expect(deleted.answer).toMatchObject({ is_deleted: true, storage: { stored_size_bytes: 0 } });
-    const game = (await gameBySlug(env.DB, "hop"))!;
-    expect(game).toMatchObject({ review_status: "removed", owner_id: null });
-    expect(await env.DB.prepare("SELECT requested_by_kind FROM game_deletions WHERE game_id = ?").bind(game.id).first()).toEqual({ requested_by_kind: "developer" });
-    expect(await env.DB.prepare("SELECT slug FROM retired_game_slugs WHERE slug = 'hop'").first()).toEqual({ slug: "hop" });
-    expect((await api("/games")).answer.games).toEqual([]);
-  });
-
   it("refuses a game kept for child safety, and one being scanned", async () => {
     const version = await push({ "index.html": "<p>flag</p>" });
     expect((await api("/games/hop", { method: "DELETE", body: { confirm_slug: "hop" } })).answer.error.code).toBe("still_scanning");

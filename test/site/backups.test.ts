@@ -452,6 +452,14 @@ describe("takedowns and deletions kept for a restore", () => {
     expect(await env.DB.prepare("SELECT requested_by_kind FROM game_deletions WHERE game_id = 'game_2'").first("requested_by_kind")).toBe("zaisma");
     expect(await env.DB.prepare("SELECT replayed_event_count, failure_message FROM restore_runs").first()).toEqual({ replayed_event_count: 3, failure_message: null });
 
+    // A game waiting out its week waits for the same date after a restore, and a bring-back stays brought back.
+    await env.DB.prepare("UPDATE games SET review_status = 'live' WHERE id = 'game_3'").run();
+    await replayRestoreEvent(env as Env, { event_kind: "game_deletion_queued", at_ms: NIGHT_MS, game_id: "game_3", requested_by_kind: "developer", erases_at_ms: NIGHT_MS + 7 * DAY_MS });
+    expect(await env.DB.prepare("SELECT erases_at_ms, review_status_before FROM game_deletions WHERE game_id = 'game_3'").first()).toEqual({ erases_at_ms: NIGHT_MS + 7 * DAY_MS, review_status_before: "live" });
+    await replayRestoreEvent(env as Env, { event_kind: "game_deletion_cancelled", at_ms: NIGHT_MS + 1, game_id: "game_3" });
+    expect(await env.DB.prepare("SELECT review_status FROM games WHERE id = 'game_3'").first("review_status")).toBe("live");
+    expect(await env.DB.prepare("SELECT 1 FROM game_deletions WHERE game_id = 'game_3'").first()).toBeNull();
+
     // Doing them again changes nothing.
     const before = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM game_deletions) AS deletion_count, (SELECT COUNT(*) FROM accounts) AS account_count, (SELECT review_status FROM games WHERE id = 'game_1') AS review_status").first();
     for (const event of events.slice(1)) await replayRestoreEvent(env as Env, event);

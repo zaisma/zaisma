@@ -434,7 +434,7 @@ export const REVIEW_CODES = {
     meaning: "The game's developer deleted it.",
     messageForPeople: "The developer deleted this game.",
     contentRule: null,
-    fix: "Nothing to change: the game is deleted.",
+    fix: "bring_back_game brings it back within its week (erases_at on the game says when it's erased); after that it's gone.",
   },
   image_rejected: {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",

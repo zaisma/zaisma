@@ -16,6 +16,7 @@ import {
   unversionedSaveKey,
   type GameDeletion,
 } from "@zaisma/core";
+import { filesOfVersions, filesVersionIdsWhere, releaseFiles } from "./storage-api.ts";
 import type { Env } from "./env.ts";
 
 /** Games taken a step further each run (every 5 minutes, and straight after an account is deleted). */
@@ -50,8 +51,21 @@ export async function deleteDueGames(env: Env): Promise<void> {
   }
 }
 
+/** A game's week is over: its link name is retired, it leaves its developer's games and stops counting toward what they store. Safe to repeat. */
+async function endGameDeletionWait(env: Env, gameId: string, nowMs = Date.now()): Promise<void> {
+  const game = await env.DB.prepare("SELECT owner_id FROM games WHERE id = ?").bind(gameId).first<{ owner_id: string | null }>();
+  if (!game?.owner_id) return;
+  const dropped = await filesOfVersions(env, await filesVersionIdsWhere(env, "versions.game_id = ?", gameId));
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO retired_game_slugs (slug, retired_at_ms) SELECT slug, ? FROM games WHERE id = ?").bind(nowMs, gameId),
+    env.DB.prepare("UPDATE games SET owner_id = NULL, updated_at_ms = ? WHERE id = ?").bind(nowMs, gameId),
+  ]);
+  if (dropped) await releaseFiles(env, game.owner_id, dropped, nowMs);
+}
+
 async function deleteGame(env: Env, deletion: GameDeletion): Promise<void> {
   const gameId = deletion.game_id;
+  if (deletion.erases_at_ms !== null) await endGameDeletionWait(env, gameId);
   // The backstop for a scan or report that came after the account went: a game under a child-safety hold is kept.
   if (deletion.requested_by_kind !== "zaisma" && (await isKeptForChildSafety(env.DB, gameId))) {
     await cancelGameDeletion(env.DB, gameId);

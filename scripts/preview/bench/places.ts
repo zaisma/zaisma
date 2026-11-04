@@ -147,6 +147,7 @@ export const BENCH_PLACES: BenchPlace[] = [
     states: [
       { ...ACCOUNT_MENU, stateValue: "settings-account-menu" },
       { stateValue: "spending-request", label: "Spending request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a spending request" },
+      { stateValue: "game-deletion-request", label: "Game deletion request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a game deletion request" },
       { stateValue: "settings-places", label: "Settings' places", stateKind: "opened", seenBy: "signed_in", opens: "settings-places-sheet" },
       { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", opens: "plan-start" },
       { stateValue: "storage-budget", label: "Storage budget", stateKind: "opened", seenBy: "signed_in", opens: "storage-budget" },
@@ -183,6 +184,7 @@ export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
   { idPattern: "^conn-dialog$", reason: "the connection's dropdown: Weak connection, Reconnecting and Connection lost each show the bar's button that opens it" },
     { idPattern: "^players$", reason: "Playing's Players button opens it, with its list filled" },
   { idPattern: "^spending-request$", reason: "Spending request's button opens it from its address" },
+  { idPattern: "^game-deletion-request$", reason: "Game deletion request's button opens it from its address" },
   { idPattern: "^budget-[a-z0-9-]+-off$", reason: "a game's budget turned off, a step of A game's budget" },
 ];
 
