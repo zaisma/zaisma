@@ -28,6 +28,8 @@ import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
+const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
+const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
 // servers is the one wrangler's own port, behind the site, games and rooms ports (forward(), below).
@@ -941,8 +943,6 @@ function givePasswords() {
 // A shader's drawing is the same every time for the same shader and the same check, and it's most of a fresh start's time on GitHub's runners, so
 // it's kept (by what makes it, in SHADER_DRAWINGS) and sent back at the next: the rest of the check runs on it as ever (site.mjs, drawShaderCheck).
 // GitHub's check keeps the folder between its runs (.github/workflows/check.yml).
-const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
-const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
 async function drawOrReuseShader(address, screen, source) {
   const path = join(SHADER_DRAWINGS, `${createHash("sha256").update(screen).update(source).update(shaderCheckCode).digest("hex").slice(0, 16)}.json`);
   const kept = existsSync(path) ? readFileSync(path, "utf8") : undefined;
