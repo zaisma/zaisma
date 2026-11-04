@@ -1317,8 +1317,8 @@ describe("layout", () => {
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });
 
-  it("folds covers, cards and figures to one across where two can't have their least width", () => {
-    for (const itemSize of ["cover", "card", "figure"]) expect(GRID_STYLES).toContain(`.layout-grid.item-${itemSize} { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-${itemSize})), 1fr)); }`);
+  it("folds covers and cards to one across where two can't have their least width", () => {
+    for (const itemSize of ["cover", "card"]) expect(GRID_STYLES).toContain(`.layout-grid.item-${itemSize} { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-${itemSize})), 1fr)); }`);
   });
 
   it("puts up to six covers on one line, going by what holds them, and refuses a seventh", () => {
@@ -1413,7 +1413,7 @@ describe("layout", () => {
     expect(markup).toContain('id="filled-later"');
     expect(STACK_STYLES).toContain(".stack-cell:is(:empty, :has(> [hidden]:only-child)) { display: none; }");
     // @ts-expect-error: a grid's cell is a block or words, never a bare control.
-    grid({ itemSize: "figure", items: [{ kind: "control", markup: actions.secondaryButton("Keep", { type: "button" }) }] });
+    grid({ itemSize: "card", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ kind: "control", markup: actions.secondaryButton("Keep", { type: "button" }) }] });
     // @ts-expect-error: a column holds a pane or a stack, never a bare control.
     columns({ columns: [actions.secondaryButton("Keep", { type: "button" }), html`<p>Beside</p>`] });
   });

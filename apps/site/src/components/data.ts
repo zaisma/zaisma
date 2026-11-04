@@ -1493,7 +1493,7 @@ export function details(options: DetailsOptions): Raw {
 }
 
 /** A game's own pane on its page, as the game page lays it out: its name and maker, its Key details, Play, then its Details. */
-function gamePaneExample(facts: GameKeyDetails = { playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }], playedAtMs: Date.now() - 3 * 24 * HOUR_MS, updatedAtMs: Date.now() - 26 * HOUR_MS, updatesHref: "#details" }): Raw {
+export function gamePaneExample(facts: GameKeyDetails = { playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }], playedAtMs: Date.now() - 3 * 24 * HOUR_MS, updatedAtMs: Date.now() - 26 * HOUR_MS, updatesHref: "#details" }): Raw {
   return glassPane({
     paneWidth: "fit",
     label: "Ashen Crown",

@@ -220,14 +220,12 @@ export type GridOptions = {
   id?: string;
 } & (
   /**
-   * What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit, never under
+   * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
    * three, two and then one across as they run out of a cover's least width.
    */
   | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
-  /** Pictures or fields that are always there: no empty state. */
-  | { itemSize: "figure"; whenEmpty?: never }
 );
 
 /** The most covers one line takes before each is too small to read as a cover on a laptop. */
@@ -548,7 +546,6 @@ export const GRID_STYLES = `
 .layout-grid { display: grid; gap: var(--gap-block-block); min-width: 0; }
 .layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-cover)), 1fr)); }
 .layout-grid.item-card { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-card)), 1fr)); }
-.layout-grid.item-figure { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-figure)), 1fr)); }
 .grid-cell { display: flex; flex-direction: column; min-width: 0; }
 .grid-cell.is-words { padding-inline: var(--pad-words); }
 /* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three, two and one across. */
