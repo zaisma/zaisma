@@ -58,6 +58,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `gone` | 410 | The call was removed, like the first feedback calls. |
 | `bad_json` | 400 | The body isn't a JSON object. |
 | `json_too_big` | 413 | The JSON body is over the call's size limit. |
+| `wrong_shape` | 400 | A field that isn't the type or size its call takes, refused before any of the call's own code runs. |
 | `unknown_field` | 400 | A field, argument or query parameter the call doesn't take. |
 | `missing_field` | 400 | A field the call needs wasn't sent. |
 | `wrong_id_kind` | 400 | An ID of another kind was sent, like an image ID as version_id. |
@@ -762,6 +763,8 @@ Everything a game runs on Zaisma's servers is on one meter per game, shown as a 
 - `is_paused`, `paused_reason` (`free_used`, `budget_used`, `credit_used`, `no_real_players`, `free_hosting_ended` or `null`) and `paused_at`.
 - `free_rooms_stopped_at`: when Zaisma's free room time for the month ran out across all games, for a game with no budget with credit; `null` otherwise. See the stop below.
 - `monthly_budget_cents` and `spent_from_credit_cents`: the game's budget and what credit paid for it this month.
+- **Where the hours went:** `play_hours`, this month's totals, never who: `total_duration_hours`, of it `new_player_duration_hours` and `returning_player_duration_hours`, and of it again `rented_network_duration_hours` and `other_network_duration_hours`, with `rented_share_used_pct`.
+- **Real players go last:** traffic from rented-server networks has its own share of 10% of the game's free hosting and of its budget, counting only its own use, and everyone else plays from the rest, with no extra free time and no gap in the meter. On that share: anyone on a rented-server network without history, and anyone at all whose browser shows no input and no graphics chip. An account a week old, or that played before or bought something, and a browser that played this game before, play from the rest on any network. Past it those players get `rented_share_used` from rooms, requests and the relay, and in a match they get an hour; everyone else plays on. A game on its own server isn't on the meter, and never hears any of it.
 - The counts behind it: `room_awake_duration_hours`, `room_connection_count`, `inbound_message_count`, `relayed_size_bytes`, `game_server_cpu_duration_sec` (of it `startup_cpu_duration_sec`), `game_server_session_count`, `loaded_version_count`, `outside_call_count`, `log_file_count`, `request_count`, `awake_duration_hours`, `database_call_count`, `written_row_count`, `read_row_count`, `bookkeeping_written_row_count` and `database_size_bytes`; and `room_play_duration_hours`, player time in rooms, a fact for tuning that isn't priced.
 
 **A second free allowance, once.** The first time a game with real players fills its free hosting, it gets a second allowance free that month, so it doesn't stop before you can react: `second_free_allowance_started` tells you. A game with no real players doesn't get it yet, and doesn't lose it. A game with a budget isn't charged for it. From the next month it has one allowance again.
@@ -1039,6 +1042,7 @@ A room answers a refusal with `{ type: "error", code, message }`, then closes th
 | `kept_out` | The player was removed for the rest of the match. |
 | `refused` | The game server's `canJoin` turned the player away. |
 | `room_not_running` | The room isn't running, like one with nobody playing to watch. |
+| `rented_share_used` | This player is on a rented-server network, and the share of the game's hosting such traffic gets is used; everyone else plays on. Zaisma's page tells them to turn off their VPN or sign in. |
 | `hosting_paused` | The game's hosting is paused this month, or Zaisma's free room time ran out; new rooms open again when it resets or its developer adds credit and a budget. |
 | `account_needed` | The game needs a Zaisma account for multiplayer, and the player is a guest. |
 | `game_not_open_to_player` | The account is younger than the game's minimum age. |

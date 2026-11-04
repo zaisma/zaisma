@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   ACCESS_AREAS,
   ACCESS_LEVELS,
   AREA_ACCESS_CHOICES,
@@ -148,7 +148,7 @@ const redirectUrlsOf = (client: McpClient) => JSON.parse(client.redirect_urls) a
 async function register(request: Request, env: Env): Promise<Response> {
   const refuse = (error: "invalid_client_metadata" | "invalid_redirect_uri", description: string, httpStatus = 400) => Response.json({ error, error_description: description }, { status: httpStatus, headers: notCached() });
   if (request.method !== "POST") return refuse("invalid_client_metadata", "Register with a POST of JSON.", 405);
-  if (env.REGISTER_LIMIT && !(await env.REGISTER_LIMIT.limit({ key: connectionAddressOf(request) ?? "unknown" })).success) {
+  if (await isPastLevel(env, "rare", "register", connectionAddressOf(request) ?? "unknown")) {
     return Response.json({ error: "slow_down", error_description: "Too many registrations from this address in the last minute. Wait a minute." }, { status: 429, headers: { ...notCached(), "Retry-After": "60" } });
   }
   let given: Record<string, unknown>;

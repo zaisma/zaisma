@@ -1,5 +1,5 @@
 import { shaderManifestOf } from "./shader-check.ts";
-import { ApiError, gameSaves, imagesForGame, iso, shaderKey, shadersForGame, versionsForGame, type Game, type GameImage, type GameShader, type Version } from "@zaisma/core";
+import { isPastLevel, ApiError, gameSaves, imagesForGame, iso, shaderKey, shadersForGame, versionsForGame, type Game, type GameImage, type GameShader, type Version } from "@zaisma/core";
 import type { Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { databaseDumpPart } from "./game-database.ts";
@@ -62,7 +62,7 @@ export async function exportSummary(env: Env, game: Game) {
 
 /** The .zip itself, streamed. Each export is a line in the game's history, and an account starts at most a couple a minute. */
 export async function exportDownload(env: Env, game: Game, caller: Caller, read: ApiRead): Promise<Response> {
-  if (env.EXPORT_LIMIT && !(await env.EXPORT_LIMIT.limit({ key: caller.accountId })).success) {
+  if (await isPastLevel(env, "very_rare", "export", caller.accountId)) {
     throw new ApiError("slow_down", { message: "This account started two exports in the last minute.", fix: "Wait a minute, then download it again. The export is always of the game as it is right then." });
   }
   await logCallerEvent(env, caller, "game_exported", { gameId: game.id });

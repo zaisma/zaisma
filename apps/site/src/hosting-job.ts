@@ -1,4 +1,6 @@
 import {
+  rentedShareLimitCents,
+  rentedShareUsedCents,
   CREDIT_LIMITS,
   FREE_HOSTING_CENTS_PER_MONTH,
   MAXIMUM_GAME_STORAGE_SIZE_BYTES,
@@ -193,11 +195,14 @@ async function judgeGame(env: Env, game: Omit<JudgedGame, "slug">, owners: Map<s
 
   // A pause keeps its first moment, so every room of the game ends an hour after it, together.
   const pausedAtMs = reason ? (month.paused_at_ms ?? nowMs) : null;
+  // The rented share counts only its own use: its players stop at its end, however full or empty the game is, and everyone else plays on. A raised budget lifts it.
+  const rentedUsedCents = rentedShareUsedCents(use.kinds, use.use, { roomUseCents: use.playSplit.rented_share_room_use_cents, requestCount: use.playSplit.rented_share_request_count, relayCredentialCount: use.playSplit.rented_share_relay_credential_count, relayCredentialTotalCount: use.playSplit.relay_credential_count });
+  const rentedStoppedAtMs = rentedUsedCents >= rentedShareLimitCents(allowanceCents, budgetCents) ? (month.rented_share_stopped_at_ms ?? nowMs) : null;
   await env.DB.prepare(
-    `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason, has_real_players) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (game_id, month_start_date) DO UPDATE SET has_real_players = excluded.has_real_players, used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, written_off_cents = excluded.written_off_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`,
+    `INSERT INTO game_hosting_months (game_id, month_start_date, used_cents, charged_cents, written_off_cents, paused_at_ms, paused_reason, has_real_players, rented_share_used_cents, rented_share_stopped_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (game_id, month_start_date) DO UPDATE SET rented_share_used_cents = excluded.rented_share_used_cents, rented_share_stopped_at_ms = excluded.rented_share_stopped_at_ms, has_real_players = excluded.has_real_players, used_cents = excluded.used_cents, charged_cents = excluded.charged_cents, written_off_cents = excluded.written_off_cents, paused_at_ms = excluded.paused_at_ms, paused_reason = excluded.paused_reason`,
   )
-    .bind(game.id, month.month_start_date, use.totalCents, chargedCents, writtenOffCents, pausedAtMs, reason, isPlayed ? 1 : 0)
+    .bind(game.id, month.month_start_date, use.totalCents, chargedCents, writtenOffCents, pausedAtMs, reason, isPlayed ? 1 : 0, rentedUsedCents, rentedStoppedAtMs)
     .run();
   if (options.isClosedMonth) return;
   // Told again every run while paused: a restore of the database rolls back what it was told.

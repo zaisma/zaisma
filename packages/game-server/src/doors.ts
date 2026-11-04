@@ -70,13 +70,288 @@ export interface DoorProof {
   symbol_name: string;
 }
 
+/**
+ * What a door takes, as the small part of JSON Schema Zaisma's schemas use. Only the helpers below make one, and each
+ * takes its bound, so "accepts anything" can't be stated. Only a game's own data goes by size alone, at the caps it has.
+ */
+export type DoorShape = Readonly<Record<string, unknown>> & { readonly [SHAPE_MARK]: true };
+declare const SHAPE_MARK: unique symbol;
+const shapeOf = (schema: Record<string, unknown>) => schema as DoorShape;
+
+
+export const text = (maximumCharacterCount: number, pattern?: string): DoorShape => shapeOf({ type: "string", maxLength: maximumCharacterCount, ...(pattern ? { pattern } : {}) });
+export const oneOfWords = (...words: readonly string[]): DoorShape => shapeOf({ type: "string", maxLength: Math.max(...words.map((word) => word.length)), enum: words });
+export const integer = (minimumNumber = 0, maximumNumber = Number.MAX_SAFE_INTEGER): DoorShape => shapeOf({ type: "integer", minimum: minimumNumber, maximum: maximumNumber });
+export const realNumber = (minimumNumber: number, maximumNumber: number): DoorShape => shapeOf({ type: "number", minimum: minimumNumber, maximum: maximumNumber });
+export const yesOrNo: DoorShape = shapeOf({ type: "boolean" });
+export const anyOf = (...shapes: readonly DoorShape[]): DoorShape => shapeOf({ anyOf: shapes });
+export const orNothing = (shape: DoorShape): DoorShape => anyOf(shape, shapeOf({ type: "null" }));
+export const listOf = (items: DoorShape, maximumItemCount: number, minimumItemCount = 0): DoorShape => shapeOf({ type: "array", items, maxItems: maximumItemCount, ...(minimumItemCount ? { minItems: minimumItemCount } : {}) });
+/** A closed object: these fields and no others, the required ones named. */
+export const fieldsOf = (properties: Readonly<Record<string, DoorShape>>, required: readonly string[] = []): DoorShape => shapeOf({ type: "object", properties, required, additionalProperties: false });
+/** A game's own data, of any shape: its size only, in characters of its JSON. */
+export const gameData = (maximumSizeBytes: number): DoorShape => shapeOf({ isGameData: true, maximumSizeBytes });
+
+/** A door's body, when it takes one. maximumSizeBytes is checked before any of it is read; raw bytes go by size alone, and the door reads them itself. */
+export type DoorBody =
+  | { kind: "json"; fields: Readonly<Record<string, DoorShape>>; required?: readonly string[]; maximumSizeBytes: number; isOptional?: true }
+  | { kind: "form"; fields: Readonly<Record<string, DoorShape>>; fileNames?: readonly string[]; maximumSizeBytes: number }
+  | { kind: "bytes"; maximumSizeBytes: number };
+
+/** What a door takes: its query's names and its body. A query's values arrive as text: integer and boolean shapes read theirs. */
+export interface DoorTakes {
+  query: Readonly<Record<string, DoorShape>>;
+  body: DoorBody | null;
+}
+
+/** Nothing: a door with no query it reads and no body. */
+export const TAKES_NOTHING: DoorTakes = { query: {}, body: null };
+
+/** What a door answers: a JSON schema, checked on live requests and cut to what it declares, or a kind with nothing to cut. */
+export type DoorAnswer = { kind: "json"; schema: Readonly<Record<string, unknown>> } | { kind: "page" | "empty" | "redirect" | "file" | "bytes" };
+
+export const ANSWERS_PAGE: DoorAnswer = { kind: "page" };
+export const ANSWERS_EMPTY: DoorAnswer = { kind: "empty" };
+export const ANSWERS_REDIRECT: DoorAnswer = { kind: "redirect" };
+export const ANSWERS_FILE: DoorAnswer = { kind: "file" };
+export const ANSWERS_BYTES: DoorAnswer = { kind: "bytes" };
+export const answersJson = (schema: Readonly<Record<string, unknown>>): DoorAnswer => ({ kind: "json", schema });
+
+/** A door's limit in calls a minute, from this short list. Each is a rate limit binding in the Workers that use it: LIMIT_<LEVEL>. */
+export const DOOR_LIMIT_LEVELS = { very_rare: 2, guess: 5, rare: 10, steady: 30, busy: 120, building: 1000 } as const;
+export type DoorLimitLevel = keyof typeof DOOR_LIMIT_LEVELS;
+
+/** Why a door has no limit of its own: from this list only, and the daily review reads every door that gives one. */
+export const DOOR_NO_LIMIT_REASONS = {
+  answers_from_memory: "It answers fixed bytes from memory and reads nothing.",
+  cached_file: "It serves a file Cloudflare caches, with no database behind it and no egress fee.",
+  admin_only: "Cloudflare Access stands in front of it, and only Zaisma's own people get through.",
+  signed_by_sender: "It reads nothing until the sender's signature on the body checks out.",
+  counted_by_its_call: "All it does is make calls that have their own limit.",
+  room_token_bucket: "A room's message bucket takes a token for each message, per player, before any door runs.",
+} as const;
+export type DoorNoLimitReason = keyof typeof DOOR_NO_LIMIT_REASONS;
+
+/**
+ * How much a door can be used. A limit counts the player, the account or the game wherever Zaisma knows it, and an
+ * address only before it knows, at the level a whole building clears, so 25 players on one school's wifi play like
+ * anyone. group shares one counter between doors; with none, each door counts on its own.
+ */
+export type DoorLimit =
+  | { level: DoorLimitLevel; counts: "player" | "account" | "game"; group?: string }
+  | { level: "building"; counts: "address"; group?: string }
+  | { whyNoLimit: DoorNoLimitReason };
+
 export interface DoorContractFields {
   reaches: DoorReach;
   trusts: readonly DoorTrust[];
+  takes: DoorTakes;
+  answers: DoorAnswer;
+  limit: DoorLimit;
 }
 
 /** A caller a function proves can't be stated without naming the function, so it doesn't build. */
 export type DoorContract = DoorContractFields & ({ whoMayCall: DoorCallerProvenByGuard } | { whoMayCall: DoorCallerProvenByFunction; provenBy: DoorProof });
+
+/** A Worker's rate limit bindings, by level. A self-hosted room has none, and a missing one lets the call through. */
+/** A rate limit binding, as Workers gives one. */
+export interface DoorLimitBinding {
+  limit(options: { key: string }): Promise<object>;
+}
+
+export type DoorLimitBindings = { [Level in DoorLimitLevel as `LIMIT_${Uppercase<Level>}`]?: DoorLimitBinding };
+
+/** Whether a call goes past a level's limit: door's own counter, for one subject. Keys never leave Cloudflare's counter. */
+export async function isPastLevel(env: DoorLimitBindings, level: DoorLimitLevel, counterName: string, subject: string): Promise<boolean> {
+  const binding = env[`LIMIT_${level.toUpperCase()}` as keyof DoorLimitBindings];
+  if (!binding) return false;
+  const answer = await binding.limit({ key: `${counterName}:${subject}` });
+  return !("success" in answer && answer.success === true);
+}
+
+/** Whether a call goes past a door's limit. doorName names its counter unless its limit shares a group. */
+export async function isPastDoorLimit(env: DoorLimitBindings, limit: DoorLimit, doorName: string, subject: string): Promise<boolean> {
+  return "whyNoLimit" in limit ? false : isPastLevel(env, limit.level, limit.group ?? doorName, subject);
+}
+
+/** A pattern once compiled: shapes check on every call. */
+const compiledPatterns = new Map<string, RegExp>();
+function compiled(pattern: string): RegExp {
+  let found = compiledPatterns.get(pattern);
+  if (!found) compiledPatterns.set(pattern, (found = new RegExp(pattern)));
+  return found;
+}
+
+type Schema = Readonly<Record<string, unknown>>;
+
+const typesOf = (schema: Schema): readonly string[] => {
+  const { type } = schema;
+  if (Array.isArray(type)) return type as string[];
+  if (typeof type === "string") return [type];
+  if (Array.isArray(schema.enum)) return [...new Set((schema.enum as unknown[]).map((allowed) => (allowed === null ? "null" : typeof allowed)))];
+  return [];
+};
+
+/** Where a value doesn't match its shape or schema, as "path: problem" lines; [] when it fits. Answers and inputs both come here. */
+export function schemaProblems(schema: Schema, given: unknown, path = "answer"): string[] {
+  // anyOf: it fits when one of them fits; otherwise say how it misses the nearest.
+  if (Array.isArray(schema.anyOf)) {
+    const misses = (schema.anyOf as Schema[]).map((option) => schemaProblems(option, given, path));
+    return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
+  }
+  if (schema.isGameData === true) {
+    const sizeBytes = JSON.stringify(given)?.length ?? 0;
+    return sizeBytes > (schema.maximumSizeBytes as number) ? [`${path}: over ${schema.maximumSizeBytes as number} bytes`] : [];
+  }
+  const out: string[] = [];
+  const types = typesOf(schema);
+  const actual = given === null ? "null" : Array.isArray(given) ? "array" : Number.isInteger(given) ? "integer" : typeof given;
+  const fits = types.length === 0 || types.includes(actual) || (actual === "integer" && types.includes("number"));
+  if (!fits) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
+  if (Array.isArray(schema.enum) && !(schema.enum as unknown[]).includes(given)) out.push(`${path}: ${JSON.stringify(given)} isn't one of ${JSON.stringify(schema.enum)}`);
+  if (typeof given === "string") {
+    if (typeof schema.maxLength === "number" && given.length > schema.maxLength) out.push(`${path}: over ${schema.maxLength} characters`);
+    if (schema.format === "date-time" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(given)) out.push(`${path}: ${given} isn't an ISO time in UTC`);
+    if (schema.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(given)) out.push(`${path}: ${given} isn't YYYY-MM-DD`);
+    if (schema.format === "uri" && !/^https?:\/\//.test(given)) out.push(`${path}: ${given} isn't a link`);
+    if (typeof schema.pattern === "string" && !compiled(schema.pattern).test(given)) out.push(`${path}: ${given} doesn't match ${schema.pattern}`);
+  }
+  if (typeof given === "number") {
+    if (typeof schema.minimum === "number" && given < schema.minimum) out.push(`${path}: below ${schema.minimum}`);
+    if (typeof schema.maximum === "number" && given > schema.maximum) out.push(`${path}: above ${schema.maximum}`);
+  }
+  if (Array.isArray(given)) {
+    if (typeof schema.maxItems === "number" && given.length > schema.maxItems) return [...out, `${path}: over ${schema.maxItems} items`];
+    if (typeof schema.minItems === "number" && given.length < schema.minItems) out.push(`${path}: under ${schema.minItems} items`);
+    if (schema.items) given.forEach((entry, index) => out.push(...schemaProblems(schema.items as Schema, entry, `${path}[${index}]`)));
+  }
+  if (actual === "object" && schema.properties) {
+    const properties = schema.properties as Record<string, Schema>;
+    const fields = given as Record<string, unknown>;
+    for (const name of (schema.required as string[] | undefined) ?? []) if (!(name in fields)) out.push(`${path}.${name}: missing`);
+    if (schema.additionalProperties === false) for (const name of Object.keys(fields)) if (!(name in properties)) out.push(`${path}.${name}: not in the schema`);
+    for (const [name, property] of Object.entries(properties)) if (name in fields) out.push(...schemaProblems(property, fields[name], `${path}.${name}`));
+  }
+  return out;
+}
+
+/** Where a value's types don't match a schema; null reads as left out, and what a call behind it allows, names included, stays the call's to say, with its own fix. */
+export function typeProblems(schema: Schema, given: unknown, path = "answer"): string[] {
+  if (given === null) return [];
+  if (Array.isArray(schema.anyOf)) {
+    const misses = (schema.anyOf as Schema[]).map((option) => typeProblems(option, given, path));
+    return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
+  }
+  const types = typesOf(schema);
+  const actual = Array.isArray(given) ? "array" : Number.isInteger(given) ? "integer" : typeof given;
+  if (types.length && !types.includes(actual) && !(actual === "integer" && types.includes("number"))) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
+  if (actual !== "object" || !schema.properties) return [];
+  const properties = schema.properties as Record<string, Schema>;
+  return Object.entries(given as Record<string, unknown>).flatMap(([name, fieldValue]) => (properties[name] ? typeProblems(properties[name]!, fieldValue, `${path}.${name}`) : []));
+}
+
+/**
+ * An answer with every field its schema didn't declare taken out, and the paths it took (a list's index as []): the
+ * caller still gets the answer. Nothing else changes, and an answer with nothing to cut comes back as the same value.
+ * Only closed objects cut, so a game's own rows and arguments pass as they are.
+ */
+export function cutUndeclared(schema: Schema, given: unknown, path = "answer"): { kept: unknown; cutPaths: string[] } {
+  if (Array.isArray(schema.anyOf)) {
+    const options = schema.anyOf as Schema[];
+    // The option that fits as it is. Or else: an option of the answer's type, one that fits once cut, then the one that takes least,
+    // so an answer short of one field isn't emptied to look like a shorter option.
+    if (options.some((option) => schemaProblems(option, given, path).length === 0)) return { kept: given, cutPaths: [] };
+    const tried = options.map((option) => {
+      const cut = cutUndeclared(option, given, path);
+      return { cut, isOtherType: schemaProblems({ type: typesOf(option) }, given, path).length > 0, problemCount: schemaProblems(option, cut.kept, path).length };
+    });
+    tried.sort((first, second) => Number(first.isOtherType) - Number(second.isOtherType) || Number(first.problemCount > 0) - Number(second.problemCount > 0) || first.cut.cutPaths.length - second.cut.cutPaths.length || first.problemCount - second.problemCount);
+    return tried[0]?.cut ?? { kept: given, cutPaths: [] };
+  }
+  if (Array.isArray(given)) {
+    if (!schema.items) return { kept: given, cutPaths: [] };
+    const cutPaths: string[] = [];
+    let changed: unknown[] | null = null;
+    given.forEach((entry, index) => {
+      const cut = cutUndeclared(schema.items as Schema, entry, `${path}[]`);
+      if (!cut.cutPaths.length) return;
+      cutPaths.push(...cut.cutPaths);
+      (changed ??= [...given])[index] = cut.kept;
+    });
+    return { kept: changed ?? given, cutPaths: [...new Set(cutPaths)] };
+  }
+  if (given === null || typeof given !== "object" || !schema.properties) return { kept: given, cutPaths: [] };
+  const properties = schema.properties as Record<string, Schema>;
+  const kept: Record<string, unknown> = {};
+  const cutPaths: string[] = [];
+  for (const [name, fieldValue] of Object.entries(given as Record<string, unknown>)) {
+    const property = properties[name];
+    if (!property) {
+      if (schema.additionalProperties === false) cutPaths.push(`${path}.${name}`);
+      else kept[name] = fieldValue;
+      continue;
+    }
+    const cut = cutUndeclared(property, fieldValue, `${path}.${name}`);
+    kept[name] = cut.kept;
+    cutPaths.push(...cut.cutPaths);
+  }
+  return cutPaths.length ? { kept, cutPaths } : { kept: given, cutPaths: [] };
+}
+
+/** A query value read as its shape says: a number or a yes or no comes as text. Text that can't be one stays text, so the shape refuses it. */
+function queryValueOf(shape: Schema, given: string): unknown {
+  if (Array.isArray(shape.anyOf)) {
+    for (const option of shape.anyOf as Schema[]) {
+      const read = queryValueOf(option, given);
+      if (schemaProblems(option, read).length === 0) return read;
+    }
+    return given;
+  }
+  if ((shape.type === "integer" || shape.type === "number") && given.trim() !== "" && Number.isFinite(Number(given))) return Number(given);
+  if (shape.type === "boolean" && (given === "true" || given === "false")) return given === "true";
+  return given;
+}
+
+/** The first problem with a query, as [name, what's wrong], or null. isOpenToOtherNames: a page ignores names it doesn't read, since share links pick some up. */
+export function queryProblem(fields: Readonly<Record<string, DoorShape>>, query: URLSearchParams, isOpenToOtherNames = false): { field: string; problem: string } | null {
+  for (const [name, given] of query) {
+    const shape = fields[name];
+    if (!shape) {
+      if (isOpenToOtherNames) continue;
+      return { field: name, problem: `${name} isn't one of the query's names` };
+    }
+    const [problem] = schemaProblems(shape as Schema, queryValueOf(shape as Schema, given), name);
+    if (problem) return { field: name, problem };
+  }
+  return null;
+}
+
+/** The first problem with a JSON body's fields: closed, each field its shape, the required ones there. */
+export function bodyProblem(fields: Readonly<Record<string, DoorShape>>, required: readonly string[], body: Readonly<Record<string, unknown>>): { field: string; problem: string } | null {
+  for (const name of required) if (!(name in body)) return { field: name, problem: `${name} is missing` };
+  for (const [name, given] of Object.entries(body)) {
+    const shape = fields[name];
+    if (!shape) return { field: name, problem: `${name} isn't one of this door's fields` };
+    const [problem] = schemaProblems(shape as Schema, given, name);
+    if (problem) return { field: name, problem };
+  }
+  return null;
+}
+
+/** The first problem with a form's fields: its names closed, each value text, or a list where it may repeat. A form's text boxes send what they send, so its numbers are the door's to read. */
+export function formProblem(fields: Readonly<Record<string, DoorShape>>, fileNames: readonly string[], form: { keys(): IterableIterator<string>; getAll(name: string): unknown[] }): { field: string; problem: string } | null {
+  for (const name of new Set(form.keys())) {
+    if (fileNames.includes(name)) continue;
+    const shape = fields[name] as Schema | undefined;
+    if (!shape) return { field: name, problem: `${name} isn't one of this form's fields` };
+    const sent = form.getAll(name);
+    if (sent.some((fieldValue) => typeof fieldValue !== "string")) return { field: name, problem: `${name} is a file, not text` };
+    const read = shape.type === "array" || sent.length !== 1 ? sent : sent[0];
+    const [problem] = schemaProblems(shape, typeof read === "string" ? queryValueOf(shape, read) : read, name);
+    if (problem) return { field: name, problem };
+  }
+  return null;
+}
 
 /**
  * The one check every door goes through. `proven` is who the door's guard found the caller to be; a caller a

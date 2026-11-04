@@ -1,3 +1,4 @@
+import type { DoorLimitBinding } from "./doors.ts";
 /**
  * Hosting on one meter (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and prepaid above
  * it", and "Hosting is priced by value"): every charge Cloudflare bills Zaisma for a game, with no gaps, and the chat
@@ -62,6 +63,50 @@ export const REAL_PLAYER_COST_CENTS = 15;
 
 /** Whether a game's browsers this month (counted plays off cloud networks, and tester links') clear its bar, which rises with its use. */
 export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / REAL_PLAYER_COST_CENTS));
+
+/** A game's share of the shared database: new joins, passes, plays and saves a minute, per shard of GAME_LIMIT. */
+export const GAME_LIMIT_PLAYER_COUNT_PER_SHARD = 25;
+/** So one game tops out at about 400 calls a second, and the shared database keeps room for every other game. */
+export const MAXIMUM_GAME_LIMIT_SHARD_COUNT = 40;
+
+/** A game's shards, which grow with its real players by themselves: nobody asks. */
+export const gameLimitShardCount = (realPlayerCount: number) => Math.min(MAXIMUM_GAME_LIMIT_SHARD_COUNT, 1 + Math.floor(realPlayerCount / GAME_LIMIT_PLAYER_COUNT_PER_SHARD));
+
+/** Games' real player counts this isolate read, for a minute: passes and joins are the busiest thing the shared database does, so this adds only one read a minute. */
+const gameRealPlayerCounts = new Map<string, { realPlayerCount: number; readAtMs: number }>();
+const GAME_LIMIT_READ_INTERVAL_MS = 60_000;
+
+/**
+ * Whether a new join, pass, play or save goes past its game's share of the shared database. A player lands on one shard by
+ * subject, so a game with more real players has more room, by itself. Running matches never come here. A database that
+ * can't answer lets the call through: this protects the database, and the call will find out for itself.
+ */
+export async function isPastGameLimit(env: { GAME_LIMIT?: DoorLimitBinding }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
+  if (!env.GAME_LIMIT) return false;
+  let known = gameRealPlayerCounts.get(gameId);
+  if (!known || nowMs - known.readAtMs > GAME_LIMIT_READ_INTERVAL_MS) {
+    if (gameRealPlayerCounts.size > 10_000) gameRealPlayerCounts.clear();
+    const row = await database.prepare("SELECT real_player_count FROM game_hosting_months WHERE game_id = ? AND month_start_date = ?").bind(gameId, monthStartDateOf(nowMs)).first<{ real_player_count: number }>().catch(() => null);
+    known = { realPlayerCount: row?.real_player_count ?? 0, readAtMs: nowMs };
+    gameRealPlayerCounts.set(gameId, known);
+  }
+  let subjectHashNumber = 2166136261;
+  for (let index = 0; index < subject.length; index++) subjectHashNumber = Math.imul(subjectHashNumber ^ subject.charCodeAt(index), 16777619);
+  const shardIndex = (subjectHashNumber >>> 0) % gameLimitShardCount(known.realPlayerCount);
+  const answer = await env.GAME_LIMIT.limit({ key: `${gameId}:${shardIndex}` });
+  return !("success" in answer && answer.success === true);
+}
+
+/**
+ * An answer's fields no door declared, by door and day (docs/DOORS.md): the first of a day raises one alert, from the site's
+ * job. Only the field's path is kept, never its value. A cut happens only when an answer and its schema disagree: a bug.
+ */
+export async function noteAnswerCut(database: D1Database, doorId: string, cutPaths: readonly string[], nowMs = Date.now()): Promise<void> {
+  await database
+    .prepare("INSERT INTO door_answer_cuts (door_id, date, field_paths, occurrence_count, first_cut_at_ms) VALUES (?, ?, ?, 1, ?) ON CONFLICT (door_id, date) DO UPDATE SET occurrence_count = occurrence_count + 1")
+    .bind(doorId, new Date(nowMs).toISOString().slice(0, 10), cutPaths.slice(0, 20).join(", ").slice(0, 2000), nowMs)
+    .run();
+}
 
 /** What a game's use is shared out as, on the meter. */
 export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
@@ -230,20 +275,22 @@ const USAGE_FIELDS = {
   adult_chat_check_count: "adultChatCheckCount",
 } as const satisfies Record<string, keyof HostingUse>;
 const USAGE_COLUMNS = Object.keys(USAGE_FIELDS) as (keyof typeof USAGE_FIELDS)[];
+/** room_usage's split of a game's play and use: facts about who used it, never priced on their own. */
+const PLAY_SPLIT_COLUMNS = ["new_player_room_play_duration_sec", "rented_network_room_play_duration_sec", "rented_share_room_use_cents", "rented_share_request_count", "rented_share_relay_credential_count", "relay_credential_count"] as const;
 
 /**
  * A game's use this month (UTC) from room_usage, in cents per kind and in total, with the share of the free
  * allowance it is. Storage counts each day at the size last recorded on or before it (the database records it
  * while it's used), today for the part of it that's gone.
  */
-export async function hostingUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ use: HostingUse; kinds: Record<HostingKind, number>; totalCents: number; freeUsedPct: number; secondFreeAllowanceMonthStartDate: string | null }> {
+export async function hostingUseThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<{ use: HostingUse; playSplit: Record<(typeof PLAY_SPLIT_COLUMNS)[number], number>; kinds: Record<HostingKind, number>; totalCents: number; freeUsedPct: number; secondFreeAllowanceMonthStartDate: string | null }> {
   const monthStart = monthStartDateOf(nowMs);
   const nextMonthStart = monthStartDateOf(Date.parse(`${monthStart}T00:00:00Z`) + 32 * DAY_MS);
   const [{ results: days }, before, loaded, game] = await Promise.all([
     database
-      .prepare(`SELECT date, ${USAGE_COLUMNS.join(", ")}, database_size_bytes FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date`)
+      .prepare(`SELECT date, ${USAGE_COLUMNS.join(", ")}, database_size_bytes, ${PLAY_SPLIT_COLUMNS.join(", ")} FROM room_usage WHERE game_id = ? AND date >= ? AND date < ? ORDER BY date`)
       .bind(gameId, monthStart, nextMonthStart)
-      .all<Record<(typeof USAGE_COLUMNS)[number] | "database_size_bytes", number> & { date: string }>(),
+      .all<Record<(typeof USAGE_COLUMNS)[number] | "database_size_bytes" | (typeof PLAY_SPLIT_COLUMNS)[number], number> & { date: string }>(),
     database.prepare("SELECT database_size_bytes FROM room_usage WHERE game_id = ? AND date < ? AND database_size_bytes > 0 ORDER BY date DESC LIMIT 1").bind(gameId, monthStart).first<{ database_size_bytes: number }>(),
     database.prepare("SELECT COUNT(*) AS loaded_version_count FROM loaded_versions WHERE game_id = ? AND date >= ? AND date < ?").bind(gameId, monthStart, nextMonthStart).first<{ loaded_version_count: number }>(),
     database.prepare("SELECT second_free_allowance_month_start_date FROM games WHERE id = ?").bind(gameId).first<{ second_free_allowance_month_start_date: string | null }>(),
@@ -263,7 +310,8 @@ export async function hostingUseThisMonth(database: D1Database, gameId: string, 
   use.databaseSizeBytes = sizeBytes;
   const { kinds, totalCents } = hostingCostCents(use);
   const secondFreeAllowanceMonthStartDate = game?.second_free_allowance_month_start_date ?? null;
-  return { use, kinds, totalCents, freeUsedPct: freeUsedPct(totalCents, freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStart)), secondFreeAllowanceMonthStartDate };
+  const playSplit = Object.fromEntries(PLAY_SPLIT_COLUMNS.map((column) => [column, days.reduce((sum, day) => sum + (day[column] ?? 0), 0)])) as Record<(typeof PLAY_SPLIT_COLUMNS)[number], number>;
+  return { use, playSplit, kinds, totalCents, freeUsedPct: freeUsedPct(totalCents, freeAllowanceCents(secondFreeAllowanceMonthStartDate, monthStart)), secondFreeAllowanceMonthStartDate };
 }
 
 /** A game's month on the meter, as the site's hosting job last wrote it. */
@@ -277,6 +325,9 @@ export interface GameHostingMonth {
   paused_reason: PausedReason | null;
   /** Browsers with a counted play this month, off cloud networks, and tester links'. */
   real_player_count: number;
+  /** What the rented share used, as the job last added it up, and when it ran out. */
+  rented_share_used_cents: number;
+  rented_share_stopped_at_ms: number | null;
   /** Whether they clear the game's bar, as the job last judged it (hasRealPlayers). */
   has_real_players: number;
 }
@@ -285,7 +336,7 @@ export interface GameHostingMonth {
 export async function gameHostingMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<GameHostingMonth> {
   const monthStart = monthStartDateOf(nowMs);
   const row = await database.prepare("SELECT * FROM game_hosting_months WHERE game_id = ? AND month_start_date = ?").bind(gameId, monthStart).first<GameHostingMonth>();
-  return row ?? { game_id: gameId, month_start_date: monthStart, used_cents: 0, charged_cents: 0, written_off_cents: 0, paused_at_ms: null, paused_reason: null, real_player_count: 0, has_real_players: 0 };
+  return row ?? { game_id: gameId, month_start_date: monthStart, used_cents: 0, charged_cents: 0, written_off_cents: 0, paused_at_ms: null, paused_reason: null, real_player_count: 0, rented_share_used_cents: 0, rented_share_stopped_at_ms: null, has_real_players: 0 };
 }
 
 /** What stops a game this month, as its doors read it. */
@@ -295,6 +346,8 @@ export interface GameHosting {
   pausedReason: PausedReason | null;
   /** When the month's limit stopped new rooms and relayed connections, for a free game; null otherwise. */
   freeRoomsStoppedAtMs: number | null;
+  /** When the traffic on rented networks used its share of the game (rented-share.ts): those players stop, and everyone else plays on. */
+  rentedShareStoppedAtMs: number | null;
 }
 
 /**
@@ -306,19 +359,20 @@ export interface GameHosting {
 export async function gameHosting(database: D1Database, gameId: string, nowMs = Date.now()): Promise<GameHosting> {
   const row = await database
     .prepare(
-      `SELECT games.owner_id, games.monthly_budget_cents, owners.credit_balance_cents, month.paused_at_ms, month.paused_reason, month.has_real_players, spending.free_rooms_stopped_at_ms, spending.unplayed_games_stopped_at_ms, spending.free_hosting_ended_at_ms
+      `SELECT games.owner_id, games.monthly_budget_cents, owners.credit_balance_cents, month.paused_at_ms, month.paused_reason, month.has_real_players, month.rented_share_stopped_at_ms, spending.free_rooms_stopped_at_ms, spending.unplayed_games_stopped_at_ms, spending.free_hosting_ended_at_ms
        FROM (SELECT ?2 AS id) AS asked LEFT JOIN games ON games.id = asked.id LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN game_hosting_months AS month ON month.game_id = asked.id AND month.month_start_date = ?1
        LEFT JOIN spending_months AS spending ON spending.month_start_date = ?1`,
     )
     .bind(monthStartDateOf(nowMs), gameId)
-    .first<{ owner_id: string | null; monthly_budget_cents: number | null; credit_balance_cents: number | null; paused_at_ms: number | null; paused_reason: PausedReason | null; has_real_players: number | null; free_rooms_stopped_at_ms: number | null; unplayed_games_stopped_at_ms: number | null; free_hosting_ended_at_ms: number | null }>();
-  if (row?.paused_at_ms != null) return { pausedAtMs: row.paused_at_ms, pausedReason: row.paused_reason, freeRoomsStoppedAtMs: null };
+    .first<{ owner_id: string | null; monthly_budget_cents: number | null; credit_balance_cents: number | null; paused_at_ms: number | null; paused_reason: PausedReason | null; has_real_players: number | null; rented_share_stopped_at_ms: number | null; free_rooms_stopped_at_ms: number | null; unplayed_games_stopped_at_ms: number | null; free_hosting_ended_at_ms: number | null }>();
+  const rentedShareStoppedAtMs = row?.rented_share_stopped_at_ms ?? null;
+  if (row?.paused_at_ms != null) return { pausedAtMs: row.paused_at_ms, pausedReason: row.paused_reason, freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs };
   const isFree = row?.owner_id != null && (row.monthly_budget_cents === null || (row.credit_balance_cents ?? 0) <= 0);
-  if (!row || !isFree) return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: null };
-  if (row.free_hosting_ended_at_ms !== null) return { pausedAtMs: row.free_hosting_ended_at_ms, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null };
-  if (row.unplayed_games_stopped_at_ms !== null && !row.has_real_players) return { pausedAtMs: row.unplayed_games_stopped_at_ms, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null };
-  return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: row.free_rooms_stopped_at_ms };
+  if (!row || !isFree) return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs };
+  if (row.free_hosting_ended_at_ms !== null) return { pausedAtMs: row.free_hosting_ended_at_ms, pausedReason: "free_hosting_ended", freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs };
+  if (row.unplayed_games_stopped_at_ms !== null && !row.has_real_players) return { pausedAtMs: row.unplayed_games_stopped_at_ms, pausedReason: "no_real_players", freeRoomsStoppedAtMs: null, rentedShareStoppedAtMs };
+  return { pausedAtMs: null, pausedReason: null, freeRoomsStoppedAtMs: row.free_rooms_stopped_at_ms, rentedShareStoppedAtMs };
 }
 
 /** Whether a game's hosting is paused this month: requests, schedules and everything else it runs. */

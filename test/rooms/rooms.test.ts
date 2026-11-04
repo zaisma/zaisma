@@ -584,12 +584,12 @@ describe("rooms", () => {
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
-    expect(configuredRateLimit(roomsWranglerText, "CONNECT_LIMIT")).toEqual({ limit: 60, period: 60 });
+    expect(configuredRateLimit(roomsWranglerText, "LIMIT_BUILDING")).toEqual({ limit: 1000, period: 60 });
     // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 61 calls can straddle.
     const connectLimit = countingRateLimiter(60);
     // A game that isn't there answers quickly, and still counts toward the limit.
     const open = (address: string) =>
-      roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, CONNECT_LIMIT: connectLimit });
+      roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, LIMIT_BUILDING: connectLimit });
     /** What a turned-away socket says and how it closes: refusals come on a socket, never as an HTTP status. */
     const refusal = async (res: Response) => {
       expect(res.status).toBe(101);
@@ -602,7 +602,7 @@ describe("rooms", () => {
     for (let i = 0; i < 60; i++) expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "game_unavailable" }, closeCode: 4001 });
     // Past the limit it says busy, and its close code (1013) has the SDK try again later.
     expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "busy" }, closeCode: 1013 });
-    expect(new Set(connectLimit.keys)).toEqual(new Set(["203.0.113.9"]));
+    expect(new Set(connectLimit.keys)).toEqual(new Set(["rooms:203.0.113.9", "/v1/rooms/:slug/:room_code:203.0.113.9"]));
     // Another address has its own count.
     expect(await refusal(await open("203.0.113.10"))).toMatchObject({ said: { code: "game_unavailable" }, closeCode: 4001 });
   });
@@ -907,10 +907,11 @@ describe("rooms", () => {
     expect(row.room_connection_count).toBe(1);
     expect(row.bookkeeping_written_row_count).toBeGreaterThan(0);
     expect(Object.keys(row).sort()).toEqual([
+      "new_player_room_play_duration_sec", "rented_network_room_play_duration_sec", "rented_share_relay_credential_count", "rented_share_request_count", "rented_share_room_use_cents",
       "adult_chat_check_count", "bookkeeping_written_row_count", "database_awake_duration_sec", "database_call_count", "database_read_row_count", "database_size_bytes", "database_written_row_count", "date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count",
       "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_session_count", "game_server_startup_cpu_duration_ms", "game_server_stopped_count", "inbound_size_bytes", "log_file_count", "message_count", "object_awake_duration_sec",
       "object_request_count", "outbound_message_count", "outbound_size_bytes", "outside_call_count", "outside_room_cpu_duration_ms", "relay_credential_count", "relayed_size_bytes", "room_awake_duration_sec", "room_connection_count", "room_count", "room_play_duration_sec",
-    ]);
+    ].sort());
     const { results: types } = await e.DB.prepare("SELECT message_type, direction, message_count FROM room_message_types WHERE game_id = ? ORDER BY direction, message_type").bind(id).all();
     expect(types).toEqual([
       { message_type: "(none)", direction: "inbound", message_count: 1 },

@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   isStrangerChatWaiting,
   ACCESS_AREAS,
   ACCOUNT_AREAS,
@@ -481,7 +481,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   // Download your data: everything about the account as one .zip, built while it downloads. A stolen session alone can't take it.
   if (path === "/account/data.zip" && !post) {
     if (!confirmation.isConfirmed) return done(redirect("/account?confirm-first#signing-in"));
-    if (env.EXPORT_LIMIT && !(await env.EXPORT_LIMIT.limit({ key: account.id })).success) return done(message(env, "Wait a minute", "You started two downloads in the last minute. Wait a minute, then download your data again.", 429));
+    if (await isPastLevel(env, "very_rare", "export", account.id)) return done(message(env, "Wait a minute", "You started two downloads in the last minute. Wait a minute, then download your data again.", 429));
     await logAccountChange(request, env, account, "account_data_downloaded");
     const nowMs = Date.now();
     const download = new Response(accountDataZip(env, account, nowMs), {
@@ -703,7 +703,7 @@ export async function tryPassword(request: Request, env: Env, account: Account |
     if (options.turnstileToken !== null && env.TURNSTILE_SECRET && !(await isRealBrowser(env, options.turnstileToken, "sign_in"))) return "bot-check-failed";
   }
   if (!account || !password) return "wrong";
-  if (env.PASSWORD_LIMIT && !(await env.PASSWORD_LIMIT.limit({ key: account.id })).success) return "too-many";
+  if (await isPastLevel(env, "guess", "password", account.id)) return "too-many";
   if (account.password_changed_at_ms === null) return "no-password";
   const email = options.knownEmail ?? (await authUserEmail(env, account.id));
   if (!email) return "failed";
@@ -786,7 +786,7 @@ async function confirmItsYou(request: Request, env: Env): Promise<Response> {
 
 async function limited(env: Env, request: Request): Promise<boolean> {
   // Keyed by connection address, checked by Cloudflare and never stored.
-  return env.SIGNIN_LIMIT ? !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
+  return isPastLevel(env, "rare", "sign_in", request.headers.get("cf-connecting-ip") ?? "local");
 }
 
 /** The age band from the join steps' cookie, once the age question is answered. */

@@ -646,6 +646,17 @@ export const HOSTING_USE = object(
     monthly_budget_cents: nullable(countOf("What it may draw from credit this month; null: no paid hosting.")),
     spent_from_credit_cents: countOf("What credit paid for it this month, past its free allowance."),
     room_play_duration_hours: number("Player time in Zaisma rooms this month: a fact for tuning, never priced."),
+    play_hours: object(
+      {
+        total_duration_hours: number("Player time in Zaisma rooms this month."),
+        new_player_duration_hours: number("Of it, players whose browser or account hadn't played this game before."),
+        returning_player_duration_hours: number("Of it, players who had."),
+        rented_network_duration_hours: number("Of it, players on rented-server networks: cloud and hosting networks, where scripts run and some VPNs and privacy tools land."),
+        other_network_duration_hours: number("Of it, players on any other network."),
+        rented_share_used_pct: countOf("How much of the rented share is used, 0 to 100: traffic on rented networks without history, and anyone showing no input and no graphics chip, has its own 10% of the game's free hosting and budget. Past 100 those players stop, and everyone else plays on."),
+      },
+      "Where the game's hours went this month, as totals, never who.",
+    ),
     room_awake_duration_hours: number("The time its rooms were awake this month: a ticking room all the while, a turn-based one up to 10 seconds after each move."),
     room_connection_count: countOf("Times players connected to its rooms this month (spectators aren't counted)."),
     inbound_message_count: countOf("Messages players sent to its rooms this month."),
@@ -2074,6 +2085,24 @@ export const SECURITY_SPIKE_LIST = object({
     }),
     "Every hour that reached its threshold in the last 30 days, newest first, up to 100; [] when none did.",
   ),
+  answer_cuts: list(
+    object({
+      door_name: text("The door whose answer had a field it didn't declare, as the security map names it."),
+      date: date("The day (UTC)."),
+      field_paths: text("The first day's fields that were cut, as paths into the answer; never their values."),
+      occurrence_count: countOf("How many answers were cut that day."),
+    }),
+    "Answers cut to what their doors declare in the last 30 days, newest first, up to 100; [] when none were. A cut is a bug: the caller still got the answer.",
+  ),
+});
+
+/** How much of Zaisma's play comes from rented networks (get_rented_network_share). */
+export const RENTED_NETWORK_SHARE = object({
+  period_duration_days: countOf("The days this covers."),
+  total_duration_hours: number("Player time in Zaisma rooms, across all games."),
+  rented_network_duration_hours: number("Of it, players on rented-server networks."),
+  rented_network_share_pct: number("That share, in percent: what sets the rented share's size after the first month of Beta."),
+  stopped_game_count: countOf("Games whose rented share ran out this month."),
 });
 
 /** zaisma.com's script policy violation reports (security-alerts.ts). */

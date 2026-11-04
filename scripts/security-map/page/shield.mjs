@@ -58,6 +58,7 @@ const EMBLEM_DRAWINGS = {
   "games-and-files": `<path d="M38 39 H62 C69 39 73 52 73 60 C73 66 66 67 62 62 L58 57 H42 L38 62 C34 67 27 66 27 60 C27 52 31 39 38 39 Z M39 45 V52 M35.5 48.5 H42.5"/><circle cx="58" cy="45.5" r="1.2"/><circle cx="62.5" cy="50.5" r="1.2"/>`,
   rooms: `<path d="M38 68 V36 C38 34 39 33 41 33 H59 C61 33 62 34 62 36 V68 M31 68 H69"/><circle cx="56" cy="51" r="1.4"/>`,
   "zaisma-keys-and-admin": `<path d="M32 60 L29 39 L41 49 L50 33 L59 49 L71 39 L68 60 Z M32 67 H68"/>`,
+  "staying-up": `<path d="M28 58 L38 48 L47 54 L60 38 L72 44 M60 38 V50 M72 44 H60 M30 68 H70"/>`,
 };
 
 /** Zaisma's shield carries the logo's own Z, read from its one-color file so it's never redrawn. */

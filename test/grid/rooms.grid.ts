@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import { createAccount, issueRoomKey } from "@zaisma/core";
 import { ROOM_ADDRESS_DOORS } from "../../apps/rooms/src/doors.ts";
 import type { Env } from "../../apps/rooms/src/index.ts";
-import { cellOf, problemWithAnswer, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { cellOf, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
  * Every address on rooms.zaisma.com and the `hello` that joins a room, by every kind of caller (test/grid/cells.ts). A game's
@@ -117,6 +117,27 @@ describe("every address on rooms.zaisma.com", () => {
       return;
     }
 
+    // A wrong shape and a door past its limit are refused before any of its own code runs.
+    const { takes, limit } = door.contract;
+    if (takes.body?.kind === "json") {
+      const answers = [await hit(method, pathOf(game.slug), ORIGIN, { gameSlug: game.slug, zzz_no_such_field: "x" })];
+      const fieldToBreak = Object.entries(takes.body.fields).find(([name, shape]) => name !== "gameSlug" && wrongValueOf(shape) !== undefined);
+      if (fieldToBreak) answers.push(await hit(method, pathOf(game.slug), ORIGIN, { gameSlug: game.slug, [fieldToBreak[0]]: wrongValueOf(fieldToBreak[1]) }));
+      const passed = answers.find((answer) => answer.status < 400 || answer.status >= 500);
+      cells.push(cellOf(doorId, "wrong_shape", passed ? `Answered ${passed.status} to a request of the wrong shape.` : null));
+    } else {
+      const queryField = Object.entries(takes.query).find(([, shape]) => tooLongFor(shape));
+      if (queryField) {
+        const answer = await hit(method, `${pathOf(game.slug)}?${queryField[0]}=${tooLongFor(queryField[1])}`, ORIGIN);
+        cells.push(cellOf(doorId, "wrong_shape", answer.status >= 400 && answer.status < 500 ? null : `Answered ${answer.status} to a request of the wrong shape.`));
+      }
+    }
+    if ("level" in limit) {
+      const roomsWorker = (await import("../../apps/rooms/src/index.ts")).default as unknown as { fetch: (request: Request, env: Env) => Promise<Response> };
+      const refusing = { ...e, LIMIT_BUILDING: { limit: async () => ({ success: false }) } } as unknown as Env;
+      const past = await roomsWorker.fetch(new Request(`${R}${pathOf(game.slug)}`, { method: door.method === "ANY" ? "GET" : door.method, headers: { Origin: ORIGIN, ...(/\/:room_code$/.test(door.path) ? { Upgrade: "websocket" } : {}) }, ...(door.method === "POST" ? { body: JSON.stringify({ gameSlug: game.slug }) } : {}) }), refusing);
+      cells.push(cellOf(doorId, "past_limit", past.status === 429 || past.webSocket ? null : `Answered ${past.status} past its limit.`));
+    }
     if (!(door.path in OWNER_NOT_PROVEN)) push("owner", problemWithAnswer("goes_through", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, ownersProof)))));
     // Another site's page, and no page at all: the same body, from where a game's page isn't. A door a game's page proves says so
     // itself, so a body it wouldn't take anyway can't pass for its refusal.

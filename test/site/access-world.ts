@@ -1,4 +1,4 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { expect } from "vitest";
 import {
   accountById,
@@ -431,22 +431,25 @@ export function withNothingThere(world: World, sample: Required<Pick<Sample, "pa
   };
 }
 
-export const makeCall = (worker: SiteWorker) => async function call(apiRoute: ApiRoute, key: string | null, sample: Sample & { pathValues: Record<string, string> }, moreHeaders: Record<string, string> = {}) {
+export const makeCall = (worker: SiteWorker, workerEnv = env) => async function call(apiRoute: ApiRoute, key: string | null, sample: Sample & { pathValues: Record<string, string> }, moreHeaders: Record<string, string> = {}) {
   const path = apiRoute.path.replace(/:([a-z0-9_]+)/g, (_, name: string) => encodeURIComponent(sample.pathValues[name]!));
   const query = sample.query ? `?${new URLSearchParams(sample.query)}` : "";
   const isJson = sample.body !== undefined;
   // The site's own fetch, not SELF's, so it runs with this file's stand-in shader renderer.
+  const context = createExecutionContext();
   const response = await worker.fetch(
     new Request(`${SITE}/api/dev${path}${query}`, {
       method: apiRoute.method,
-      headers: { ...moreHeaders, ...(key ? { authorization: `Bearer ${key}` } : {}), ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
+      // Each call its own address, since rate limits are live and one file makes thousands.
+      headers: { "cf-connecting-ip": `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`, ...moreHeaders, ...(key ? { authorization: `Bearer ${key}` } : {}), ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
       body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
     }),
-    env,
-    createExecutionContext(),
+    workerEnv,
+    context,
   );
   // Bytes, then text: a served image is an answer too.
   const answerText = new TextDecoder().decode(await response.arrayBuffer());
+  await waitOnExecutionContext(context);
   let answer: { error?: { code: string; field: string | null } } = {};
   try {
     answer = JSON.parse(answerText);

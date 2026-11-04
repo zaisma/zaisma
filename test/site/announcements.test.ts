@@ -94,7 +94,7 @@ describe("announcements", () => {
     expect(await refusal("post_announcement", { text: "New things.", ends_at: inDays(61) })).toMatchObject({ code: "bad_time", field: "ends_at" });
     expect(await refusal("post_announcement", { text: "New things.", ends_at: inDays(-1) })).toMatchObject({ code: "bad_time", field: "ends_at" });
     expect(await refusal("post_announcement", { text: "New things.", ends_at: "tomorrow" })).toMatchObject({ code: "bad_time", field: "ends_at" });
-    expect(await refusal("post_announcement", { text: "New things.", ends_at: 1792012345678 })).toMatchObject({ code: "bad_time", field: "ends_at" });
+    expect(await refusal("post_announcement", { text: "New things.", ends_at: 1792012345678 })).toMatchObject({ code: "wrong_shape", field: "ends_at" });
     expect(await refusal("post_announcement", { text: "New things.", starts_at: inDays(-2), ends_at })).toMatchObject({ code: "bad_time", field: "starts_at" });
     expect((await refusal("post_announcement", { text: "New things." })).code).toBe("missing_field");
     expect((await refusal("post_announcement", { text: "New things.", ends_at, link: "/forum" })).code).toBe("unknown_field");

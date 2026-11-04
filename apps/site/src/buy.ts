@@ -1,5 +1,5 @@
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
-import {
+import { isPastLevel,
   ApiError,
   ITEM_LIMITS,
   PURCHASE_PIN_LIMITS,
@@ -188,7 +188,7 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
 
 /** Refuses with slow_down when this key has used its 20 calls a minute (PURCHASE_LIMIT): every call that reaches Stripe counts, each kind apart, so a loop of any one can't use up the platform key's Stripe rate limit. */
 async function checkPurchaseLimit(env: Env, key: string): Promise<void> {
-  if (env.PURCHASE_LIMIT && !(await env.PURCHASE_LIMIT.limit({ key })).success) refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
+  if (await isPastLevel(env, "steady", "purchase", key)) refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
 }
 
 /** The player's country, from Cloudflare; in the local preview only, preview_country_code stands in for it. */
@@ -287,7 +287,7 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
   if (!signed) return refuse(403, "account_needed", "Make a free account (or sign in) to buy.");
   const { session, account } = signed;
   if (gameItem.item_kind === "permanent" && (await owningPurchaseOf(env.DB, game.id, account.player_id, gameItem.item_name))) return refuse(409, "already_owned", `You already own ${gameItem.title}.`);
-  if (env.PURCHASE_LIMIT && !(await env.PURCHASE_LIMIT.limit({ key: account.id })).success) return refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
+  if (await isPastLevel(env, "steady", "purchase", account.id)) return refuse(429, "slow_down", "That's a lot of buying in a minute. Try again in a minute.");
 
   const itemCount = requestedItemCount as number;
   const totalMinorUnits = price.priceMinorUnits * itemCount;

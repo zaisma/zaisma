@@ -93,32 +93,15 @@
   // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files, and start the night's backup.
   "triggers": { "crons": ["*/5 * * * *", "17 3 * * *"] },
   "ratelimits": [
-    { "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
-    { "name": "SIGNIN_LIMIT", "namespace_id": "1005", "simple": { "limit": 10, "period": 60 } },
-    // Password tries on one username, from anywhere: guessing a password spread over many addresses still stops.
-    { "name": "PASSWORD_LIMIT", "namespace_id": "1014", "simple": { "limit": 5, "period": 60 } },
-    { "name": "SAVE_LIMIT", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } },
-    { "name": "DEV_LIMIT", "namespace_id": "1007", "simple": { "limit": 120, "period": 60 } },
-    { "name": "FILE_LIMIT", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } },
-    { "name": "PLAY_LIMIT", "namespace_id": "1009", "simple": { "limit": 30, "period": 60 } },
-    // AI apps registering to sign in to the MCP, per connection address (mcp-sign-in.ts).
-    { "name": "REGISTER_LIMIT", "namespace_id": "1036", "simple": { "limit": 10, "period": 60 } },
-    // Restores and undos of one game's database (game-database.ts): each restarts the database.
-    { "name": "DATABASE_RESTORE_LIMIT", "namespace_id": "1040", "simple": { "limit": 5, "period": 60 } },
-    // zaisma.com's script policy violation reports, per connection address (security-alerts.ts).
-    { "name": "CSP_REPORT_LIMIT", "namespace_id": "1041", "simple": { "limit": 30, "period": 60 } },
-    // Exports of a whole game an account starts (game-export.ts): each reads every file, save and row.
-    { "name": "EXPORT_LIMIT", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } },
-    // Credit top-ups and refunds an owner starts (credit-api.ts): each reaches Stripe.
-    { "name": "CREDIT_LIMIT", "namespace_id": "1086", "simple": { "limit": 10, "period": 60 } },
-    // Friend requests sent and answered, per account (friend-requests.ts): bursts only; the daily cap is in the database.
-    { "name": "FRIEND_REQUEST_LIMIT", "namespace_id": "1129", "simple": { "limit": 30, "period": 60 } },
-    // Zaisma Pro checkouts, cancels and resumes an owner starts (pro-api.ts): each reaches Stripe.
-    { "name": "PRO_LIMIT", "namespace_id": "1094", "simple": { "limit": 10, "period": 60 } },
-    // Purchases a player starts with the buy sheet (buy.ts): each makes a purchase and reaches Stripe.
-    { "name": "PURCHASE_LIMIT", "namespace_id": "1101", "simple": { "limit": 20, "period": 60 } },
-    // Pages' speed reports, per connection address (speed-reports.ts): one a page a visit, so a burst is a script.
-    { "name": "SPEED_REPORT_LIMIT", "namespace_id": "1155", "simple": { "limit": 30, "period": 60 } }
+    // One binding per level of a door's limit (DOOR_LIMIT_LEVELS, packages/game-server/src/doors.ts): a door's own counter runs on the level it states.
+    { "name": "LIMIT_VERY_RARE", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } },
+    { "name": "LIMIT_GUESS", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "LIMIT_RARE", "namespace_id": "1005", "simple": { "limit": 10, "period": 60 } },
+    { "name": "LIMIT_STEADY", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } },
+    { "name": "LIMIT_BUSY", "namespace_id": "1007", "simple": { "limit": 120, "period": 60 } },
+    { "name": "LIMIT_BUILDING", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } },
+    // A game's share of the shared database, per shard: the rooms Worker counts on the same one (gameLimitShardCount, packages/core/src/hosting.ts).
+    { "name": "GAME_LIMIT", "namespace_id": "1187", "simple": { "limit": 600, "period": 60 } }
   ],
   // Real visits' speed reports (speed-reports.ts): no address kept, 3 months.
   "analytics_engine_datasets": [{ "binding": "PAGE_SPEED", "dataset": "zaisma_page_speed" }],

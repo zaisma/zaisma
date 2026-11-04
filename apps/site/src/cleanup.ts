@@ -128,6 +128,7 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await env.DB.prepare("DELETE FROM play_tickets WHERE issued_at_ms < ?").bind(nowMs - DAY_MS).run();
   // So is its key to multiplayer passes.
   await env.DB.prepare("DELETE FROM room_keys WHERE issued_at_ms < ?").bind(nowMs - DAY_MS).run();
+  await env.DB.prepare("DELETE FROM door_answer_cuts WHERE first_cut_at_ms < ?").bind(nowMs - 90 * DAY_MS).run();
   // Sign in with Zaisma codes nobody swapped: each only works for 2 minutes.
   await deleteExpiredSignInCodes(env.DB, nowMs);
   // Connected apps (mcp-sign-in.ts): codes nobody swapped, access tokens past their hour, refresh tokens swapped a day

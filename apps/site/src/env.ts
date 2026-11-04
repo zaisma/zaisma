@@ -11,6 +11,15 @@ import type { ReceiptSigningService } from "../../rooms/src/receipts.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
+  /** What a door's limit runs on, by its level (doors.ts): LIMIT_<LEVEL>, a door's own counter on each. */
+  LIMIT_VERY_RARE?: RateLimit;
+  LIMIT_GUESS?: RateLimit;
+  LIMIT_RARE?: RateLimit;
+  LIMIT_STEADY?: RateLimit;
+  LIMIT_BUSY?: RateLimit;
+  LIMIT_BUILDING?: RateLimit;
+  /** A game's share of the shared database, per shard, with the rooms Worker (isPastGameLimit). */
+  GAME_LIMIT?: RateLimit;
   DB: D1Database;
   GAMES: R2Bucket;
   /** Players' cloud saves, kept apart from game files. */
@@ -48,42 +57,13 @@ export interface Env {
   GAME_ROOMS?: Service<GameRoomsService>;
   /** Signs purchases' receipts with the receipt key (RECEIPT_SIGNING_KEY), as issuer <ISSUER>/receipts, in the rooms Worker (items-api.ts). */
   RECEIPTS?: Service<ReceiptSigningService>;
-  REPORT_LIMIT?: RateLimit;
-  /** Friend requests sent and answered on zaisma.com, per account (friend-requests.ts). */
-  FRIEND_REQUEST_LIMIT?: RateLimit;
-  SIGNIN_LIMIT?: RateLimit;
-  /** Password tries on one username, from any address. */
-  PASSWORD_LIMIT?: RateLimit;
-  SAVE_LIMIT?: RateLimit;
-  /** Play counts from game pages, per connection address. */
-  PLAY_LIMIT?: RateLimit;
   /** Cloudflare's invisible check on Play and on making an account (Turnstile): the widget's site key and secret. Without them no play is counted, and sign-ups go unchecked. */
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET?: string;
   /** Only to point the Turnstile check's server side at a stand-in (the local preview). */
   TURNSTILE_SITEVERIFY_URL?: string;
-  /** Developer API requests, per account. */
-  DEV_LIMIT?: RateLimit;
-  /** Sending game files to the developer API, per account. */
-  FILE_LIMIT?: RateLimit;
-  /** AI apps registering to sign in to the MCP (POST /oauth/register), per connection address. */
-  REGISTER_LIMIT?: RateLimit;
-  /** Restores and undos of a game's database, per game. */
-  DATABASE_RESTORE_LIMIT?: RateLimit;
-  /** Exports a game (game-export.ts) an account starts in a minute: each reads the whole game. */
-  EXPORT_LIMIT?: RateLimit;
-  /** Script policy violation reports per connection address (security-alerts.ts). */
-  CSP_REPORT_LIMIT?: RateLimit;
-  /** Pages' speed reports per connection address, only counted (speed-reports.ts). */
-  SPEED_REPORT_LIMIT?: RateLimit;
   /** Real visits' speed reports (speed-reports.ts): Workers Analytics Engine's zaisma_page_speed. */
   PAGE_SPEED?: AnalyticsEngineDataset;
-  /** Credit top-ups and refunds an owner starts in a minute (credit-api.ts): each reaches Stripe. */
-  CREDIT_LIMIT?: RateLimit;
-  /** Zaisma Pro checkouts, cancels and resumes an owner starts in a minute (pro-api.ts): each reaches Stripe. */
-  PRO_LIMIT?: RateLimit;
-  /** Purchases a player starts with the buy sheet in a minute (buy.ts): each makes a purchase and reaches Stripe. */
-  PURCHASE_LIMIT?: RateLimit;
   /** Zaisma's own Stripe account's secret key, for hosting credit (stripe.ts) and as the platform of the buy sheet's Connect. Without it, top-ups and buys answer stripe_unavailable. */
   STRIPE_SECRET_KEY?: string;
   /** The signing secret of Stripe's endpoint at /stripe/events (stripe-events.ts). */

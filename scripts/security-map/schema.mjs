@@ -16,6 +16,8 @@ export const SECTORS = [
   { sector_id: "player-data", sector_name: "Player data", attacker_goal: "Read or change a player's saves or a game's database across accounts." },
   { sector_id: "rooms", sector_name: "Rooms", attacker_goal: "Join, forge or read a multiplayer room a player shouldn't." },
   { sector_id: "zaisma-keys-and-admin", sector_name: "Zaisma's keys and admin", attacker_goal: "Reach Zaisma's admin, keys or own secrets." },
+  // It has no doors of its own: it crosses the seven above.
+  { sector_id: "staying-up", sector_name: "Staying up", attacker_goal: "Take Zaisma down, slow other games or run up its bill.", has_no_doors: true },
 ];
 
 export const SECTOR_IDS = SECTORS.map((sector) => sector.sector_id);
