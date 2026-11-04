@@ -190,3 +190,24 @@ jobs:
           echo "Preview test data: $SEED_RESULT. Sweep: $SWEEP_RESULT."
           if [ "$SEED_RESULT" = success ] && [ "$SWEEP_RESULT" = success ]; then exit 0; fi
           exit 1
+
+  # CI's warning line, 4:00 on the slowest tenth of the last runs (scripts/ci-time-limit.mjs): nothing fails for it, and it pushes Julius while there's
+  # room to optimize before the ceiling.
+  ci-time:
+    name: CI time
+    if: ${{ !inputs.pages }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: scripts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+        run: node scripts/ci-time-limit.mjs --report

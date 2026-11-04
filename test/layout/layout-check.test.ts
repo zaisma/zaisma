@@ -42,7 +42,9 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-const pages = (shard ? layoutCheckShard(layoutRun.pages, shard) : layoutRun.pages) as unknown[];
+/** The first share's other tests, in a tab's seconds (about 54s on three tabs, Nov 4, 2026): it takes that much fewer pages. */
+const BROKEN_ON_PURPOSE_COST_SEC = 160;
+const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { firstShareHeadStartSec: BROKEN_ON_PURPOSE_COST_SEC }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 /**
  * The pages a pull request's run passed before, by fingerprint (layout-check.mjs, pageFingerprint: the page's HTML, whose CSS and script

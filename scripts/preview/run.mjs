@@ -364,7 +364,7 @@ async function startServers() {
   // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
   rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
-  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
+  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE, ...(process.env.CI ? ["--var", "IS_ON_GITHUB_RUNNER:1"] : [])]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
   // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
   const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
   feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
@@ -1093,10 +1093,6 @@ async function seed() {
     if (settled?.review_status === "rejected") console.log(`  ${slug}'s shader was refused by the check here (${JSON.stringify(settled.review_reason ?? null)}); approving it as test data.`);
     await go(`/admin/shaders/${shaderId}/approve`, form({ reason: "Preview test data" }));
   };
-  await settleTestShader("shard-dodge", neonDrift.id);
-  await settleTestShader("shard-dodge", neonDriftWide.id);
-  await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
-  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "shader", shader_id: neonDriftWide.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
   // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
   // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own on wide screens.
@@ -1118,14 +1114,19 @@ async function seed() {
   const channelsOf = (passName) => wiring[passName].map(({ texture_file: textureFile, ...channel }) => (textureFile ? { ...channel, image_id: noise.id } : channel));
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
   sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
-  for (const [slug, screen, shader] of sentShaders) {
-    await settleTestShader(slug, shader.id);
-    await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
-  }
+  // The checks draw beside the rest of the test data (site.mjs, shaderChecksBesideScans), which needs none of them, and are waited for at the end.
+  const settleSentShaders = async () => {
+    for (const [slug, screen, shader] of [["shard-dodge", "phone", neonDrift], ["shard-dodge", "wide", neonDriftWide], ...sentShaders]) {
+      await settleTestShader(slug, shader.id);
+      await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
+    }
+  };
+  const finishSentShaders = settleSentShaders();
+  // Held for the wait below, so a failure here stops the seed there rather than as an unhandled rejection.
+  finishSentShaders.catch(() => {});
   stepDone("backgrounds and shaders");
   fillPlaceholders(await Promise.all([
     ...querySql("SELECT id FROM game_images WHERE placeholder_data_url IS NULL AND review_status = 'approved' AND kind IN ('cover', 'square', 'share', 'screenshot', 'background', 'phone_background')").map(async ({ id }) => ({ table: "game_images", id, bytes: await fetchBytes(`${LOCAL_SITE}/img/${id}`) })),
-    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
   ]));
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
@@ -1313,6 +1314,11 @@ async function seed() {
   await finishEngineSamples();
   await finishStartedInChrome();
   stepDone("runs in Chrome still going");
+  await finishSentShaders;
+  fillPlaceholders(await Promise.all([
+    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
+  ]));
+  stepDone("shader checks still going");
   // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
   // Last, since they count toward its developer's 50 games.
   runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);

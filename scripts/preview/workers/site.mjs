@@ -4,8 +4,10 @@
 // (LIMIT_BUSY, LIMIT_BUILDING) have no rate limit, so seeding the test data never waits on a 429, nor does a password's
 // (LIMIT_GUESS), since the layout check signs in as a closed account on every screen to measure its page, the Brotli
 // jobs it queues are noted (notingCompressJobs, below), every page gets the feedback overlay (withFeedback), and the Screens bench lives here (withBench,
-// ../bench/). Production keeps its limits and never has the overlay or the bench: this file is only the preview's entry.
+// ../bench/). A shader check draws beside the scan queue instead of holding it (shaderChecksBesideScans, below). Production keeps its limits and
+// its one queue and never has the overlay or the bench: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
+import { checkShaderFromQueue } from "../../../apps/site/src/shader-check.ts";
 import { environmentAt } from "./addresses.mjs";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
 import { PASSWORD } from "../sign-ins.mjs";
@@ -97,8 +99,46 @@ async function withBench(request, environment, answerPage, answer) {
   return mark ? answerAsScreen({ request, mark, password: PASSWORD, answer, nowMs: Date.now() }) : answerPage();
 }
 
+/** Shader checks drawing at once: Chrome draws them on the processor, so a laptop keeps to one and GitHub's four-core runners take three. */
+const SHADER_CHECKS_AT_ONCE_ON_RUNNER = 3;
+const SHADER_CHECK_WAIT_SEC = 3;
+let shaderChecksDrawingCount = 0;
+/** One shader's check, tried again as the queue would, at once: nothing else waits on it. */
+async function drawShaderCheck(environment, body) {
+  try {
+    for (let attempts = 1, isToTryAgain = true; isToTryAgain && attempts <= 3; attempts++) {
+      isToTryAgain = false;
+      await checkShaderFromQueue(environment, { body, attempts, ack: () => {}, retry: () => { isToTryAgain = true; } });
+    }
+  } finally {
+    shaderChecksDrawingCount--;
+  }
+}
+/**
+ * The seed sends its shaders and goes on, but the scan queue takes one message at a time and a check takes about 20 seconds, so every upload
+ * after them would wait behind them. Here a shader check leaves the queue at once and draws beside it: past the most at once, it goes back on
+ * the queue for a moment. The site's own handling takes every other message.
+ */
+function shaderChecksBesideScans(batch, environment, context) {
+  const isShaderCheck = (message) => "shaderCheckId" in Object(message.body);
+  if (!batch.messages.some(isShaderCheck)) return site.queue(batch, environment, context);
+  const atOnce = environment.IS_ON_GITHUB_RUNNER === "1" ? SHADER_CHECKS_AT_ONCE_ON_RUNNER : 1;
+  const waiting = [];
+  for (const message of batch.messages.filter(isShaderCheck)) {
+    if (shaderChecksDrawingCount < atOnce) {
+      shaderChecksDrawingCount++;
+      context.waitUntil(drawShaderCheck(environment, message.body));
+    } else {
+      waiting.push(environment.SCAN_QUEUE.send(message.body, { delaySeconds: SHADER_CHECK_WAIT_SEC }));
+    }
+    message.ack();
+  }
+  return Promise.all(waiting).then(() => {});
+}
+
 export default workerRetryingWhenLocked({
   ...site,
+  queue: shaderChecksBesideScans,
   fetch: (request, environment, context) => {
     const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environmentAt(asked, environment)), context);
     return withFeedback(request, environment, () => withBench(request, environment, () => answer(request), answer), answer);
