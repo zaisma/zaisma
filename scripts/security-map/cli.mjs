@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { writePage } from "./build-page.mjs";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
-import { demoExport } from "./page/demo-export.mjs";
+import { publicPromisesStateOf, publishedPromisesInFile, PUBLISHED_PROMISES_PATH, writePublicPromises } from "./public-promises.mjs";
+import { readPageInputs } from "./page-data.mjs";
 import { promiseProblems, promiseSummaries, readPromises, refreshPromises, writePromises } from "./promises.mjs";
 import { finishReview, reviewStepCountOf, startReview } from "./review.mjs";
 import { seedMapDir } from "./seed-robust.mjs";
@@ -15,8 +16,9 @@ import { seedMapDir } from "./seed-robust.mjs";
  *   node scripts/security-map/cli.mjs generate   refresh doors from the code; changed code makes verdicts stale
  *   node scripts/security-map/cli.mjs seed       set robust what the repo's tests and ship checks prove
  *   node scripts/security-map/cli.mjs export     write exports/map-public.json (--check re-checks it)
- *   node scripts/security-map/cli.mjs page       build the Security map page from the export (--out <path>, --export <path> or --demo <doors per sector>)
+ *   node scripts/security-map/cli.mjs page       build the Security map page from the private repo (--out <path>, --demo for made-up data)
  *   node scripts/security-map/cli.mjs verify     generate, then stale any case whose cited test is gone
+ *   node scripts/security-map/cli.mjs public-promises    write the promises the security page prints, once they may go up (--check says where they stand, changes nothing)
  *   node scripts/security-map/cli.mjs promises   check the sectors' promises, and mark stale the scores whose code changed (--check changes nothing)
  *   node scripts/security-map/cli.mjs review-start    the daily review's whole catch-up, as JSON
  *   node scripts/security-map/cli.mjs review-finish --from <night.json> [--again]    check the night whole, apply it, commit and push
@@ -27,11 +29,11 @@ import { seedMapDir } from "./seed-robust.mjs";
  */
 
 const REPO_ROOT = join(import.meta.dirname, "../..");
-const COMMANDS = ["generate", "seed", "export", "verify", "page", "promises", "review-start", "review-finish", "review-steps"];
+const COMMANDS = ["generate", "seed", "export", "verify", "page", "promises", "public-promises", "review-start", "review-finish", "review-steps"];
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { mapDir: defaultMapDir(), fromText: null, toText: null, isAgain: false, date: new Date().toISOString().slice(0, 10), isCheck: false, outPath: null, exportPath: null, demoDoorCountPerSector: null };
+  const options = { mapDir: defaultMapDir(), fromText: null, toText: null, isAgain: false, date: new Date().toISOString().slice(0, 10), isCheck: false, outPath: null, isDemo: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === "--check") options.isCheck = true;
@@ -41,9 +43,8 @@ function readArguments(argv) {
     else if (flag === "--again") options.isAgain = true;
     else if (flag === "--date") options.date = rest[++index];
     else if (flag === "--out") options.outPath = rest[++index];
-    else if (flag === "--export") options.exportPath = rest[++index];
-    else if (flag === "--demo") options.demoDoorCountPerSector = Number(rest[++index]);
-    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --from <path or day>, --to <day>, --again, --date <YYYY-MM-DD>, --check (export, promises), --out <path>, --export <path>, --demo <doors per sector> (page).`);
+    else if (flag === "--demo") options.isDemo = true;
+    else throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --from <path or day>, --to <day>, --again, --date <YYYY-MM-DD>, --check (export, promises, public-promises), --out <path>, --demo (page).`);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
   if (command === "review-finish" && !options.fromText) throw new Error("review-finish needs --from <night.json>: the night's record, as the daily-review skill says.");
@@ -51,8 +52,6 @@ function readArguments(argv) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) throw new Error("--date is a day like 2026-10-18.");
   if (command === "page") {
     if (!options.outPath) throw new Error("page needs --out <path>: the HTML file to write, in your session's scratchpad.");
-    if (options.exportPath && options.demoDoorCountPerSector !== null) throw new Error("Use --export or --demo, not both.");
-    if (options.demoDoorCountPerSector !== null && (!Number.isInteger(options.demoDoorCountPerSector) || options.demoDoorCountPerSector < 1)) throw new Error("--demo is a whole number of doors per sector, like 60.");
   }
   return { command, options };
 }
@@ -74,8 +73,10 @@ async function main() {
       list("Stale, evidence gone", stale_case_refs);
     }
   } else if (command === "page") {
-    if (options.demoDoorCountPerSector !== null) await writePage({ exportObject: demoExport({ doorCountPerSector: options.demoDoorCountPerSector }), outPath: options.outPath, mapDir });
-    else await writePage({ exportPath: options.exportPath ?? join(mapDir, "exports", "map-public.json"), outPath: options.outPath, mapDir });
+    writePage({ outPath: options.outPath, mapDir, isDemo: options.isDemo });
+  } else if (command === "public-promises") {
+    if (options.isCheck) console.log(JSON.stringify(publicPromisesStateOf(readPageInputs(mapDir), publishedPromisesInFile(readFileSync(PUBLISHED_PROMISES_PATH, "utf8"))), null, 2));
+    else console.log(JSON.stringify(writePublicPromises({ mapDir }), null, 2));
   } else if (command === "promises") {
     const stored = readPromises(mapDir);
     const problems = promiseProblems(stored);

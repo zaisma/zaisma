@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
 import { isOpenItem, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
+import { lastReviewDateOf, pageDataHashOf, pageDataOfMapDir } from "./page-data.mjs";
+import { publicPromisesNextStepOf } from "./public-promises.mjs";
 import { caseRefOf, withVerdict } from "./schema.mjs";
 
 /**
@@ -18,7 +20,7 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *        the finding fixed: its map cases fixed with that test as evidence, verify, export, the finding's
  *        status line, the item it came from done, its queue lines gone, then commit and push
  *   node scripts/security-map/private-repo.mjs remove-queue-line <text>    queue.md lines holding <text> gone, then commit and push
- *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the export's generated_at, then commit and push
+ *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the hash of what the page shows now, then commit and push
  *   node scripts/security-map/private-repo.mjs commit --message <text> [--path <path>]    commit and push what's changed in the clone (after cli.mjs or a verdict), or only under each --path
  *   node scripts/security-map/private-repo.mjs items             pull, then where every item stands, as JSON
  *   node scripts/security-map/private-repo.mjs item <item_id>    pull, then one item whole, as JSON
@@ -57,19 +59,19 @@ export function withoutQueueLines(queueText, matchText) {
   return { text: kept.join("\n"), removed_lines: removedLines };
 }
 
-/** The README's map page lines: the page's address and the export's generated_at it last showed (null when missing). */
+/** The README's map page lines: the page's address and the hash of the data it last showed (null when missing). */
 export function pageLinesOf(readmeText) {
   return {
     map_page_url: readmeText.match(/^Map page: (\S+)/m)?.[1] ?? null,
-    map_page_shows_generated_at: readmeText.match(/^Map page shows: (\S+)/m)?.[1] ?? null,
+    map_page_shows_data_hash: readmeText.match(/^Map page shows: (\S+)/m)?.[1] ?? null,
   };
 }
 
 /** The README with its "Map page shows:" line set (added under "Map page:" when missing). */
-export function withPageShows(readmeText, generatedAt) {
-  if (/^Map page shows: .*$/m.test(readmeText)) return readmeText.replace(/^Map page shows: .*$/m, `Map page shows: ${generatedAt}`);
+export function withPageShows(readmeText, dataHash) {
+  if (/^Map page shows: .*$/m.test(readmeText)) return readmeText.replace(/^Map page shows: .*$/m, `Map page shows: ${dataHash}`);
   if (!/^Map page: .*$/m.test(readmeText)) throw new Error("The README has no Map page: line, so the map page isn't published yet. Skip with the line `map page not published yet`.");
-  return readmeText.replace(/^(Map page: .*)$/m, `$1\nMap page shows: ${generatedAt}`);
+  return readmeText.replace(/^(Map page: .*)$/m, `$1\nMap page shows: ${dataHash}`);
 }
 
 /** A finding file with its status line (Status: …, bold or in a list) set, or one added at the end. */
@@ -183,25 +185,19 @@ export function commitAndPush(mapDir, { message, paths = [] }) {
   return { committed_paths: staged, pushed: true };
 }
 
-/** The newest reviews/<date>.json's day, or null before the first review. */
-function lastReviewDateOf(mapDir) {
-  const reviewsPath = join(mapDir, "reviews");
-  if (!existsSync(reviewsPath)) return null;
-  return readdirSync(reviewsPath).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, 10)).sort().at(-1) ?? null;
-}
-
-/** What the coordinator reads at the top of every run: the queue's work lines, whether the map page is behind the export and the last daily review's day. */
+/** What the coordinator reads at the top of every run: the queue's work lines, whether the map page is behind the records, the last daily review's day and what the printed promises need. */
 export function readState(mapDir) {
-  const exportText = readClonedText(mapDir, "exports/map-public.json");
-  const exportGeneratedAt = exportText ? JSON.parse(exportText).generated_at ?? null : null;
+  const pageData = pageDataOfMapDir(mapDir);
+  const pageDataHash = pageData ? pageDataHashOf(pageData) : null;
   const pageLines = pageLinesOf(readClonedText(mapDir, "README.md"));
   return {
     queue_items: queueItemsOf(readClonedText(mapDir, "queue.md")),
     ...pageLines,
-    export_generated_at: exportGeneratedAt,
+    page_data_hash: pageDataHash,
     last_review_date: lastReviewDateOf(mapDir),
     open_item_count: readItems(mapDir).filter(isOpenItem).length,
-    is_map_page_behind: Boolean(pageLines.map_page_url && exportGeneratedAt && exportGeneratedAt !== pageLines.map_page_shows_generated_at),
+    is_map_page_behind: Boolean(pageLines.map_page_url && pageDataHash && pageDataHash !== pageLines.map_page_shows_data_hash),
+    public_promises_next_step: publicPromisesNextStepOf(mapDir),
   };
 }
 
@@ -264,13 +260,13 @@ function removeQueueLine(mapDir, { matchText, isDry }) {
 }
 
 function pageShown(mapDir, { isDry }) {
-  const { export_generated_at: generatedAt } = readState(mapDir);
-  if (!generatedAt) throw new Error("There's no exports/map-public.json yet: run node scripts/security-map/cli.mjs export first.");
+  const { page_data_hash: dataHash } = readState(mapDir);
+  if (!dataHash) throw new Error("The private repo has no promises yet, so the page has nothing to show.");
   const readmePath = join(mapDir, "README.md");
-  const next = withPageShows(readFileSync(readmePath, "utf8"), generatedAt);
-  if (isDry) return { map_page_shows_generated_at: generatedAt, is_dry: true };
+  const next = withPageShows(readFileSync(readmePath, "utf8"), dataHash);
+  if (isDry) return { map_page_shows_data_hash: dataHash, is_dry: true };
   writeFileSync(readmePath, next);
-  return { map_page_shows_generated_at: generatedAt, ...commitAndPush(mapDir, { message: `Map page shows ${generatedAt}`, paths: ["README.md"] }) };
+  return { map_page_shows_data_hash: dataHash, ...commitAndPush(mapDir, { message: `Map page shows ${dataHash.slice(0, 12)}`, paths: ["README.md"] }) };
 }
 
 /** One item from the clone, whole. */
@@ -350,7 +346,10 @@ function printRead(state, pullResult) {
   console.log(`Open items: ${state.open_item_count} (\`items\` says where each stands)`);
   console.log(`Last daily review: ${state.last_review_date ?? "none yet"}`);
   if (!state.map_page_url) console.log("Map page: not published yet");
-  else console.log(`Map page: ${state.map_page_url}\nMap page shows: ${state.map_page_shows_generated_at ?? "nothing yet"}\nExport generated_at: ${state.export_generated_at ?? "no export yet"}\nMap page behind: ${state.is_map_page_behind ? "yes, republish it (security-map skill, Page)" : "no"}`);
+  else console.log(`Map page: ${state.map_page_url}
+Map page shows: ${state.map_page_shows_data_hash ?? "nothing yet"}
+Map page behind: ${state.is_map_page_behind ? "yes" : "no"}`);
+  console.log(`Public promises: ${state.public_promises_next_step ?? "nothing to do"}`);
 }
 
 async function main() {

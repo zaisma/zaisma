@@ -22,7 +22,7 @@ Findings waiting for a fix, most serious first. The daily review and the coordin
 URGENT: Accounts, findings/2026-10-18-some-slug.md
 Security fix: findings/2026-10-18-some-slug.md; tier urgent; branch zaisma/security fix/fnd_2026-10-18_some-slug
 `;
-const README = "# Zaisma security\n\nMap page: https://claude.ai/artifact/abc\nMap page shows: 2026-10-18T03:00:00.000Z\n";
+const README = "# Zaisma security\n\nMap page: https://claude.ai/artifact/abc\nMap page shows: abc123\n";
 const GIT_IDENTITY = { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" };
 
 let workDir = "";
@@ -66,18 +66,19 @@ describe("reading the private repo", () => {
     expect(queueItemsOf("# Queue\n\nFindings waiting for a fix.\n")).toEqual([]);
   });
 
-  it("says the map page is behind when the export is newer than the page", () => {
+  it("leaves the map page alone while the repo has no promises to draw", () => {
     const { cloneDir } = remoteAndClone();
     expect(readState(cloneDir)).toEqual({
       queue_items: queueItemsOf(QUEUE),
       map_page_url: "https://claude.ai/artifact/abc",
-      map_page_shows_generated_at: "2026-10-18T03:00:00.000Z",
-      export_generated_at: "2026-10-19T03:00:00.000Z",
+      map_page_shows_data_hash: "abc123",
+      page_data_hash: null,
       open_item_count: 0,
       last_review_date: null,
-      is_map_page_behind: true,
+      is_map_page_behind: false,
+      public_promises_next_step: null,
     });
-    expect(pageLinesOf("# Zaisma security\n")).toEqual({ map_page_url: null, map_page_shows_generated_at: null });
+    expect(pageLinesOf("# Zaisma security\n")).toEqual({ map_page_url: null, map_page_shows_data_hash: null });
   });
 });
 
@@ -91,7 +92,7 @@ describe("changing the private repo's files", () => {
   });
 
   it("sets the README's Map page shows line, adding it under Map page when missing", () => {
-    expect(pageLinesOf(withPageShows(README, NOW)).map_page_shows_generated_at).toBe(NOW);
+    expect(pageLinesOf(withPageShows(README, NOW)).map_page_shows_data_hash).toBe(NOW);
     expect(withPageShows("Map page: https://claude.ai/artifact/abc\n", NOW)).toBe(`Map page: https://claude.ai/artifact/abc\nMap page shows: ${NOW}\n`);
     expect(() => withPageShows("# Zaisma security\n", NOW)).toThrow(/not published yet/);
   });

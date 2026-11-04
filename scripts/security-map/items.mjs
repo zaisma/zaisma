@@ -39,7 +39,7 @@ const OPEN_STATES = ["next", "doing"];
 /** The priorities a session takes in turn, in the order they're picked: fix now goes first by the queue, and watch takes none. */
 const TURN_PRIORITIES = ["harden", "fix_soon"];
 /** The states that end what waits on an item. */
-const FINISHED_STATES = ["done", "closed_unproven"];
+export const FINISHED_STATES = ["done", "closed_unproven"];
 const MS_PER_DAY = 86400000;
 
 const isTextList = (value) => Array.isArray(value) && value.every(isFilledText);

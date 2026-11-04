@@ -4,7 +4,7 @@ import { readMap } from "./generate.mjs";
 import { coveragePctOf, DONE_STATUSES, hasOpenFinding, SEVERITY_TIERS, STATUSES_WITH_EVIDENCE } from "./schema.mjs";
 
 /**
- * exports/map-public.json: the only thing the Security map page reads, sanitized so it can carry nothing
+ * exports/map-public.json: the map of doors and cases, sanitized so it can carry nothing
  * private. A hole's door id would point at the hole, so a door with an open finding (a hole, or a stale
  * case that was one) is left out of its sector's doors entirely and counted only in hole_count_by_tier;
  * it comes back once its case is fixed. A door covered by a hidden one (an MCP tool over that API call)
