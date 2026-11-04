@@ -483,7 +483,7 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
 }
 
 /** What a banned developer can still call: get_access, list_games and export_game, so their work stays theirs. */
-const BANNED_DEVELOPER_ROUTES = new Set(["GET /access", "GET /games", "GET /games/:slug/export", "GET /games/:slug/export/download"]);
+export const BANNED_DEVELOPER_ROUTES = new Set(["GET /access", "GET /games", "GET /games/:slug/export", "GET /games/:slug/export/download"]);
 
 /** The account_banned refusal: why, unless it's child safety; a whole-account ban says the account is closed. */
 export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDeveloper">): ApiError {

@@ -9,7 +9,7 @@ import { readState } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { readPromises, writePromises } from "../../scripts/security-map/promises.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { applyNight, challengeOf, finishReview, mergesSince, readReviews, reviewOutlineOf, reviewStepCountOf, SECOND_GUESS_WAY_COUNT, secondGuessSampleOf } from "../../scripts/security-map/review.mjs";
+import { applyNight, challengeOf, finishReview, mergesSince, readGridFailures, readReviews, reviewOutlineOf, reviewStepCountOf, SECOND_GUESS_WAY_COUNT, secondGuessSampleOf } from "../../scripts/security-map/review.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SECTOR_IDS, SECTORS } from "../../scripts/security-map/schema.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
@@ -332,6 +332,14 @@ describe("what a run reads", () => {
     expect(dates.some((date) => JSON.stringify(secondGuessSampleOf(promises, date)) !== JSON.stringify(sample))).toBe(true);
     promises[0]!.ways_to_break[0]!.score_stale_reason = "changed";
     for (const date of dates) expect(secondGuessSampleOf(promises, date).map((entry: { way_id: string }) => entry.way_id)).not.toContain(`${firstSector}-first`);
+  });
+
+  it("reads the contract grid's last run from the private repo, and none before its first", () => {
+    const mapDir = temporaryFolder("grid-failures-");
+    expect(readGridFailures(mapDir)).toBeNull();
+    mkdirSync(join(mapDir, "grid"));
+    writeFileSync(join(mapDir, "grid", "failures.json"), JSON.stringify({ commit_sha: "abc", failures: [{ door_id: "page:GET /x", caller_kind: "stranger" }] }));
+    expect(readGridFailures(mapDir).failures).toHaveLength(1);
   });
 
   it("outlines stale records, open items and tonight's challenge", () => {
