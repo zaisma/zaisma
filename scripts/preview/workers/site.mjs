@@ -110,7 +110,7 @@ function withSeedShaderChecks(request, environment) {
   return { ...environment, SCAN_QUEUE: { send: async (body, options) => ("shaderCheckId" in Object(body) ? undefined : queue.send(body, options)) } };
 }
 /** A drawing as text, for the seed to keep: its pictures are bytes. */
-const drawingAsText = (drawing) => JSON.stringify(drawing, (_, value) => (value instanceof Uint8Array ? { bytes_base64: btoa(String.fromCharCode(...value)) } : value));
+const drawingAsText = (drawing) => JSON.stringify(drawing, (_, value) => (value instanceof Uint8Array ? { bytes_base64: btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join("")) } : value));
 const drawingFromText = (text) => JSON.parse(text, (_, value) => (typeof value?.bytes_base64 === "string" ? Uint8Array.from(atob(value.bytes_base64), (letter) => letter.charCodeAt(0)) : value));
 /**
  * One shader's check, tried again as the queue would, at once: nothing else waits on it. The seed sends a drawing it kept from the same shader and the

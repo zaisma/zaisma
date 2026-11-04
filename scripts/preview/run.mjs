@@ -946,8 +946,9 @@ const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-
 async function drawOrReuseShader(address, screen, source) {
   const path = join(SHADER_DRAWINGS, `${createHash("sha256").update(screen).update(source).update(shaderCheckCode).digest("hex").slice(0, 16)}.json`);
   const kept = existsSync(path) ? readFileSync(path, "utf8") : undefined;
-  const drawing = await (await globalThis.fetch(address, { method: "POST", body: kept })).text();
-  if (drawing) {
+  const response = await globalThis.fetch(address, { method: "POST", body: kept });
+  const drawing = await response.text();
+  if (response.ok && drawing) {
     mkdirSync(SHADER_DRAWINGS, { recursive: true });
     writeFileSync(path, drawing);
   }
