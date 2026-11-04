@@ -142,6 +142,15 @@ export class GameRoomsService extends WorkerEntrypoint {
     keptRoomDeletes.push(keptRoom);
     return { isDeleted: isKeptRoomDeleted };
   }
+  // A kept world's week starting, and a world brought back: recorded, and answered as the test asks.
+  async holdKeptRoom(keptRoom: Record<string, unknown>) {
+    roomReachCalls.push({ call: "holdKeptRoom", asked: keptRoom });
+    return roomReachAnswers.holdKeptRoom ?? { holdOutcome: "held" };
+  }
+  async bringBackKeptRoom(keptRoom: Record<string, unknown>) {
+    roomReachCalls.push({ call: "bringBackKeptRoom", asked: keptRoom });
+    return roomReachAnswers.bringBackKeptRoom ?? { bringBackOutcome: "brought_back" };
+  }
   /** For tests: the kept rooms the site deleted since the last call, and how the next deletes are answered. */
   takeKeptRoomDeletes(nextIsDeleted: boolean) {
     const taken = keptRoomDeletes;

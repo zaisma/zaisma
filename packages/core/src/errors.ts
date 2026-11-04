@@ -191,6 +191,8 @@ export const ERROR_CODES = {
   too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have.", messageForPeople: "The game has 50 secrets, the most it can have. Delete one to add another." },
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer.", messageForPeople: "The game's secrets didn't answer. Try again in a minute." },
   no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code.", messageForPeople: "The game has no kept room with that code." },
+  kept_room_not_waiting: { httpStatus: 409, meaning: "The kept room isn't deleted and waiting to be erased, so there's nothing to bring back or erase now.", messageForPeople: "This world isn't waiting to be erased." },
+  kept_room_erasing: { httpStatus: 409, meaning: "The kept room's week is over and its erasing has started, so it can't be brought back.", messageForPeople: "This world's week is over, so it can't be brought back." },
 
   // Reaching live rooms
   no_room: { httpStatus: 404, meaning: "The game has no live room with that code on Zaisma.", messageForPeople: "No room with that code is running now." },
@@ -207,7 +209,7 @@ export const ERROR_CODES = {
 
   // Hosting and credit
   hosting_paused: { httpStatus: 429, meaning: "The game's hosting is paused this month: its free allowance, its budget or its developer's credit is used, or Zaisma's free hosting ran out and it has no budget with credit, or it has no real players and games with none used their share. It starts again when the month resets, the budget is raised or credit is added.", messageForPeople: "The game's hosting is paused this month: its free hosting, its budget or your credit is used. Raise its budget or add credit to start it again now." },
-  confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, connecting a Stripe account, deleting a game other people played, or erasing a waiting game at once): confirm_url is where they do it.", messageForPeople: "This needs your passkey on zaisma.com. Open the link to confirm it." },
+  confirmation_needed: { httpStatus: 403, meaning: "This needs the developer's passkey on zaisma.com (turning spending on or up, connecting a Stripe account, deleting a game other people played, or erasing a waiting game or kept room's world at once): confirm_url is where they do it.", messageForPeople: "This needs your passkey on zaisma.com. Open the link to confirm it." },
   bad_monthly_budget_cents: { httpStatus: 400, meaning: "monthly_budget_cents isn't a whole number of cents of at least 100 ($1), or null for no paid hosting.", messageForPeople: "A budget is at least $1 a month, or none for free hosting only." },
   bad_top_up_amount: { httpStatus: 400, meaning: "amount_cents isn't a whole number of cents from 1,000 ($10) to 100,000 ($1,000).", messageForPeople: "A top-up is from $10 to $1,000." },
   account_not_protected: { httpStatus: 403, meaning: "The account has no passkey and no email yet, and a top-up keeps a card, so it needs one of them first: add a passkey or an email on zaisma.com/account.", messageForPeople: "A top-up keeps your card, so your account needs a passkey or an email first. Add one in your account." },

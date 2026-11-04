@@ -64,5 +64,6 @@ export const REVIEWED_SITES = [
   { rule_id: "body_read_without_cap", source_path: "apps/rooms/src/room.ts", symbol_name: "kick", site_count: 1, safe_because: "The room's own calls from the rooms Worker, which is the only way to reach it." },
   { rule_id: "body_read_without_cap", source_path: "apps/rooms/src/room.ts", symbol_name: "ending", site_count: 1, safe_because: "The room's own calls from the rooms Worker, which is the only way to reach it." },
   { rule_id: "body_read_without_cap", source_path: "apps/rooms/src/room.ts", symbol_name: "asked", site_count: 1, safe_because: "The room's own calls from the rooms Worker, which is the only way to reach it." },
+  { rule_id: "body_read_without_cap", source_path: "apps/rooms/src/room.ts", symbol_name: "waiting", site_count: 1, safe_because: "The room's own calls from the rooms Worker, which is the only way to reach it." },
   { rule_id: "body_read_without_cap", source_path: "apps/rooms/src/room.ts", symbol_name: "update", site_count: 1, safe_because: "The room's own calls from the rooms Worker, which is the only way to reach it." },
 ];

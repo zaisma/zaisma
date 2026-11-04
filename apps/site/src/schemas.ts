@@ -776,7 +776,8 @@ export const GAME_ERASING = object({ erases_at: isoTime("When its erasing starts
 export const GAME_DELETION_REQUEST = object({
   game_deletion_request: object({
     id: idOf("game_deletion_request"),
-    request_kind: choice({ delete_game: "deleting the game", erase_game_now: "erasing the waiting game at once" }),
+    request_kind: choice({ delete_game: "deleting the game", erase_game_now: "erasing the waiting game at once", erase_kept_room_now: "erasing a waiting kept room's world at once" }),
+    room_code: nullable(text("erase_kept_room_now only: the kept room.")),
     game_slug: nullable(text("The game; null once it's erased.")),
     game_title: nullable(text()),
     player_with_save_count: countOf("Other players with a save in the game now."),
@@ -1212,17 +1213,32 @@ export const KEPT_ROOMS = object({
       saved_at: nullable(isoTime("When its world was last saved; null before its first save.")),
       last_played_at: nullable(isoTime("When players were last in it.")),
       created_at: isoTime("When its game server first kept it."),
+      erases_at: nullable(isoTime("When its world is erased, if it was deleted and waits its week: bring_back_kept_room brings it back until then. Null for a world that isn't waiting.")),
     }),
     "Most recently played first.",
   ),
-  kept_rooms_size_bytes: countOf("All the kept rooms' saved worlds together."),
+  kept_rooms_size_bytes: countOf("The saved worlds of all the kept rooms not waiting to be erased, together."),
+  waiting_kept_rooms_size_bytes: countOf("The saved worlds waiting to be erased, together: on the game's hosting meter, but outside its storage and its limit."),
   storage_size_bytes: countOf("The game's storage: its database and its kept rooms."),
   maximum_storage_size_bytes: countOf("The most a game can keep: 10 GB. At it the database can't grow and no more rooms can be kept, though kept rooms keep saving. Below it, storage counts on the game's hosting meter."),
 });
 
 /** A kept room deleted. */
 export const KEPT_ROOM_DELETED = object({
-  is_deleted: yes("Always true: the room's world is gone, and players who were in it were sent out."),
+  is_deleted: yes("Always true: players who were in it were sent out, and nobody can reach its world."),
+  erases_at: nullable(isoTime("When its world is erased: until then bring_back_kept_room brings it back as it was. Null when it's gone already, in a game nobody but its developer ever played.")),
+  next_steps: NEXT,
+});
+
+/** A waiting kept room's world back. */
+export const KEPT_ROOM_BROUGHT_BACK = object({
+  is_brought_back: yes("Always true: the world is as it was, with the same code, and players can join it again."),
+  next_steps: NEXT,
+});
+
+/** A waiting kept room's world erased before its week was over. */
+export const KEPT_ROOM_ERASED = object({
+  is_erased: yes("Always true: the world is gone for good."),
   next_steps: NEXT,
 });
 
@@ -1324,7 +1340,8 @@ export const ROOM_PLAYER_KICKED = object({
 
 /** A live room ended. */
 export const ROOM_ENDED = object({
-  is_ended: yes("Always true: everyone in it heard message and was sent out; a kept room's world is over for good."),
+  is_ended: yes("Always true: everyone in it heard message and was sent out."),
+  erases_at: nullable(isoTime("A kept room's world waits a week to be erased: until this, bring_back_kept_room brings it back as it was. Null for any other room, and in a game nobody but its developer ever played.")),
   next_steps: NEXT,
 });
 

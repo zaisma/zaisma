@@ -148,6 +148,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { ...ACCOUNT_MENU, stateValue: "settings-account-menu" },
       { stateValue: "spending-request", label: "Spending request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a spending request" },
       { stateValue: "game-deletion-request", label: "Deletion request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a game deletion request" },
+      { stateValue: "kept-world-erase-request", label: "Erase a world", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a request to erase a kept world" },
       { stateValue: "settings-places", label: "Settings' places", stateKind: "opened", seenBy: "signed_in", opens: "settings-places-sheet" },
       { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", opens: "plan-start" },
       { stateValue: "storage-budget", label: "Storage budget", stateKind: "opened", seenBy: "signed_in", opens: "storage-budget" },

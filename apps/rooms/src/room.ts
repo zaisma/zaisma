@@ -284,6 +284,8 @@ export class Room extends DurableObject<Env> {
   private hostingCheckedAtMs = 0;
   /** Kept (room.setKept), as this room accepted it and kept_rooms has it: it sleeps with its state when everyone leaves. */
   private isKept = false;
+  /** When this deleted world is erased (/wait-to-erase): until then it keeps everything, and nothing but its developer reaches it. */
+  private erasesAtMs: number | null = null;
   /** The room's saved state was saved as it emptied (Saved.isSavedEmpty). */
   private isSavedEmpty = false;
   /** About how many bytes the room's saved state takes, for kept_rooms. */
@@ -302,17 +304,18 @@ export class Room extends DurableObject<Env> {
 
   /** Reads what the room keeps into memory: when it wakes, and again after a restore puts its world back. */
   private async readStored(): Promise<void> {
-    const got = await this.ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+    const got = await this.ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "erasesAtMs", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
     this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
     this.meta = (got.get("meta") as Meta | undefined) ?? null;
     const saved = (got.get("saved") as Saved | undefined) ?? {};
     this.saved = saved.state;
     this.savedRoom = got.get("room") as SavedRoom | undefined;
     this.hasEnded = saved.hasEnded ?? false;
+    this.erasesAtMs = (got.get("erasesAtMs") as number | undefined) ?? null;
     this.usage = { ...noUsage(), ...saved.usage };
     this.savedVersionId = saved.versionId;
     this.isSavedEmpty = saved.isSavedEmpty === true;
-    this.isKept = this.savedRoom?.isKept === true && !this.hasEnded;
+    this.isKept = this.savedRoom?.isKept === true && !this.hasEnded && this.erasesAtMs === null;
     // A turn-based room saved for a version switch keeps its state in "saved", with when and who.
     if (!saved.stateChunkCount && saved.savedAtMs !== undefined) {
       this.savedAtMs = saved.savedAtMs;
@@ -348,12 +351,16 @@ export class Room extends DurableObject<Env> {
     else this.usage.roomConnectionCount = (this.usage.roomConnectionCount ?? 0) + 1;
     // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
-    if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/unseat") return this.unseating(request);
-    if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/restore") return this.restoring(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/wait-to-erase") return this.waitingToErase(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/bring-back") return this.bringingBack(request);
+    // A world waiting to be erased wakes for nothing else: no player, message or new version reaches it.
+    if (this.erasesAtMs !== null) return request.method === "POST" ? new Response("No such room", { status: 404 }) : new Response(KEPT_ROOM_DELETED_MESSAGE, { status: 410 });
+    if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     // The game reaching this room from outside it (room-reach.ts): a room message, who's here, a kick, an end.
     if (request.method === "POST" && new URL(request.url).pathname === "/room-message") return this.roomMessaging(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/players") return this.answeringPlayers(request);
@@ -483,6 +490,11 @@ export class Room extends DurableObject<Env> {
     this.noteAwake();
     this.usage.objectRequestCount = (this.usage.objectRequestCount ?? 0) + 1;
     this.alarmAtMs = null;
+    if (this.erasesAtMs !== null) {
+      if (Date.now() >= this.erasesAtMs) await this.eraseWorld();
+      else await this.setAlarm(this.erasesAtMs);
+      return;
+    }
     if (this.pendingVersionUpdate && this.pendingVersionUpdate.appliesAtMs <= Date.now()) await this.applyVersionUpdate();
     // The sockets are read afresh at each check, in case any went without the room hearing.
     this.socketIndex = null;
@@ -1216,7 +1228,7 @@ export class Room extends DurableObject<Env> {
    * server's log says why. Rooms already kept keep saving, so no world is ever lost to the limit.
    */
   private async checkKept(core: RoomCore): Promise<void> {
-    if (core.isKept === this.isKept || this.hasEnded) return;
+    if (core.isKept === this.isKept || this.hasEnded || this.erasesAtMs !== null) return;
     if (!core.isKept) {
       this.isKept = false;
       await this.unkeepRow();
@@ -1330,8 +1342,9 @@ export class Room extends DurableObject<Env> {
         const page = await storage.list({ startAfter, limit: BACKUP_PAGE_KEY_COUNT });
         let lines = "";
         for (const [key, storedValue] of page) {
-          lines += `${JSON.stringify({ key, stored_value: storedValueJson(storedValue) })}\n`;
           startAfter = key;
+          // The world's wait is in kept_rooms, which a restore brings back first (GameStorageService.restoreKeptRoom).
+          if (key !== "erasesAtMs") lines += `${JSON.stringify({ key, stored_value: storedValueJson(storedValue) })}\n`;
         }
         isDone = page.size < BACKUP_PAGE_KEY_COUNT;
         if (lines) controller.enqueue(encoder.encode(lines));
@@ -1395,6 +1408,12 @@ export class Room extends DurableObject<Env> {
         await core.settled();
       }
     }
+    await this.eraseWorld();
+    return new Response(null, { status: 204 });
+  }
+
+  /** Everything the room keeps goes now, not after a day, with anyone still in it sent out. */
+  private async eraseWorld(): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) {
       if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
       this.retire(socket);
@@ -1410,9 +1429,46 @@ export class Room extends DurableObject<Env> {
     await this.storage.deleteAlarm();
     this.alarmAtMs = null;
     // Nothing comes back: the room stays ended while this object lives, and starts empty after.
+    this.erasesAtMs = null;
     this.saved = undefined;
     this.savedRoom = undefined;
     this.stateChunkCount = 0;
+  }
+
+  /**
+   * A kept world's week starts (through the rooms Worker, DEVELOPER-API.md, Kept rooms): everyone hears it ended and goes, its
+   * world is saved and stays as it was, and it leaves room lists. Its one alarm is the erasing. Safe to repeat: the first time stands.
+   */
+  private async waitingToErase(request: Request): Promise<Response> {
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const waiting = (await request.json().catch(() => null)) as { erasesAtMs?: unknown; message?: unknown } | null;
+    if (typeof waiting?.erasesAtMs !== "number") return new Response("Bad request", { status: 400 });
+    if (this.erasesAtMs !== null) return new Response(null, { status: 204 });
+    const message = typeof waiting.message === "string" && waiting.message ? waiting.message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount) : KEPT_ROOM_DELETED_MESSAGE;
+    await this.sendAway(JSON.stringify({ type: "ended", message, endReason: "kept_room_deleted" } satisfies ServerMessage), "Deleted");
+    this.forgetCore();
+    this.isKept = false;
+    this.erasesAtMs = waiting.erasesAtMs;
+    await this.storage.put("erasesAtMs", this.erasesAtMs);
+    await this.storage.delete("emptiedAtMs");
+    await this.setAlarm(this.erasesAtMs);
+    return new Response(null, { status: 204 });
+  }
+
+  /** The developer brings a waiting world back: it sleeps kept as it was, back on room lists when it's listed, which takes it awake a moment. */
+  private async bringingBack(request: Request): Promise<Response> {
+    if (!this.meta?.roomCode || this.hasEnded || this.erasesAtMs === null || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    this.erasesAtMs = null;
+    await this.storage.delete("erasesAtMs");
+    await this.storage.deleteAlarm();
+    this.alarmAtMs = null;
+    this.isKept = true;
+    if (this.savedRoom?.isListed) {
+      await this.wakeKeptOnLiveVersion();
+      const core = (await this.load()) && (await this.gameStillLive()) ? this.room() : null;
+      if (core) await this.settle(core);
+    }
+    await this.sleepKept();
     return new Response(null, { status: 204 });
   }
 
@@ -1776,7 +1832,7 @@ export class Room extends DurableObject<Env> {
     }
     // A kept world outlives its game being unavailable (a takedown, or made private): its players go, and it sleeps kept.
     if (this.isKept && !this.hasEnded) {
-      await this.sendAway();
+      await this.sendAway(errorMessage("game_unavailable"), "Game unavailable");
       return false;
     }
     this.room()?.end("This game isn't available right now.", "game_unavailable");
@@ -1788,14 +1844,14 @@ export class Room extends DurableObject<Env> {
     return false;
   }
 
-  /** A kept room whose game isn't available: everyone is told and goes, its world is saved, and it leaves room lists. */
-  private async sendAway(): Promise<void> {
+  /** A kept room whose game isn't available, or whose world was deleted: everyone is told and goes, its world is saved, and it leaves room lists. */
+  private async sendAway(farewell: string, closeReason: string): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) {
       if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
       this.retire(socket);
       try {
-        socket.send(errorMessage("game_unavailable"));
-        socket.close(REMOVED_CLOSE_CODE, "Game unavailable");
+        socket.send(farewell);
+        socket.close(REMOVED_CLOSE_CODE, closeReason);
       } catch {
         // Already closed.
       }

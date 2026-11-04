@@ -31,9 +31,9 @@ function roomObject(env: Env, game: ReachedGame, roomCode: string): DurableObjec
   return env.ROOMS.get(env.ROOMS.idFromName(`${game.slug}:${roomCode}`));
 }
 
-/** Whether the game has a room by that code to ask: a live one, or a kept one asleep. */
+/** Whether the game has a room by that code to ask: a live one, or a kept one asleep. A world waiting to be erased isn't. */
 async function hasRoom(env: Env, game: ReachedGame, roomCode: string): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT 1 AS found_count FROM live_rooms WHERE game_id = ?1 AND room_code = ?2 UNION ALL SELECT 1 FROM kept_rooms WHERE game_id = ?1 AND room_code = ?2 LIMIT 1").bind(game.gameId, roomCode).first<{ found_count: number }>();
+  const row = await env.DB.prepare("SELECT 1 AS found_count FROM live_rooms WHERE game_id = ?1 AND room_code = ?2 UNION ALL SELECT 1 FROM kept_rooms WHERE game_id = ?1 AND room_code = ?2 AND erases_at_ms IS NULL LIMIT 1").bind(game.gameId, roomCode).first<{ found_count: number }>();
   return row !== null;
 }
 
