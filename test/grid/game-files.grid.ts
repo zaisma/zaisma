@@ -31,7 +31,7 @@ async function accessCookie(slug: string, addressKind: "preview" | "tester", gra
   return (entered.headers.get("set-cookie") ?? "").split(";")[0]!;
 }
 
-const answerOf = async (path: string, headers: Record<string, string> = {}, redirect: RequestRedirect = "manual"): Promise<CallAnswer> => {
+const answerOf = async (path: string, headers: Record<string, string> = {}, redirect: "manual" | "follow" = "manual"): Promise<CallAnswer> => {
   const response = await SELF.fetch(`${G}${path}`, { headers, redirect });
   const text = await response.text();
   return { http_status: response.status, location: response.headers.get("location"), is_owners_changed: false, is_private_value_shown: text.includes("private page") };
