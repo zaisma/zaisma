@@ -131,7 +131,9 @@ component({
   styles: `
 /* The bench fills the window and never scrolls: the rail holds what can grow, so nothing pushes the screens. */
 html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
-.bench { --bench-bezel: 6px; position: fixed; inset: 0; display: grid; grid-template-columns: 16.25rem minmax(0, 1fr); gap: var(--pad-frame-compact); padding: var(--pad-frame-compact); box-sizing: border-box; background: var(--page); color: var(--ink); }
+/* A screen's bezel, on the screen itself: it's also shown on its own, in the gallery, with no bench round it. */
+.bench-screen { --bench-bezel: 6px; }
+.bench { position: fixed; inset: 0; display: grid; grid-template-columns: 16.25rem minmax(0, 1fr); gap: var(--pad-frame-compact); padding: var(--pad-frame-compact); box-sizing: border-box; background: var(--page); color: var(--ink); }
 .bench-rail > * { flex: none; }
 .bench-rail > .find { flex: none; --control-height: var(--control-height-small); }
 .bench-rail { --control-height: var(--control-height-small); display: flex; flex-direction: column; gap: var(--gap-words-words); min-height: 0; overflow-y: auto; padding: var(--pad-frame); scrollbar-width: none; }

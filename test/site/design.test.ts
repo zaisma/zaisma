@@ -1338,6 +1338,10 @@ describe("layout", () => {
     expect(tokensSource).toContain("--gap-control-stack: 8px");
   });
 
+  it("gives a bench screen its own bezel, so it draws with no bench round it", () => {
+    expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
+  });
+
   it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {
     expect(track({ whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), id: "covers", itemSize: "cover", items: [block("a")] }).html).toMatch(/^<div class="track-holder"><div class="layout-track item-cover"/);
     expect(TRACK_STYLES).toContain(".track-holder { display: flex; flex-direction: column; min-width: 0; }");
