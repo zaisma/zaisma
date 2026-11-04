@@ -14,3 +14,4 @@ export * from "./pass.ts";
 export * from "./names.ts";
 export * from "./chat.ts";
 export * from "./relay.ts";
+export * from "./doors.ts";

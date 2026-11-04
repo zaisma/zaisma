@@ -58,16 +58,6 @@ import type { Env } from "./env.ts";
  */
 export async function handleSaves(request: Request, env: Env, slug: string, copies: { saveCopyId: string | null; isRestore: boolean } | null = null): Promise<Response> {
   const json = (body: unknown, httpStatus = 200) => Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
-  // The save changes with PUT, and a restore with POST; everything else only reads.
-  const changeMethod = copies ? (copies.isRestore ? "POST" : null) : "PUT";
-  if (request.method === changeMethod) {
-    // Only our own game page writes saves.
-    const origin = request.headers.get("origin");
-    if (!origin || origin !== new URL(request.url).origin) return json({ error: "Not allowed from here." }, 403);
-  } else if (request.method !== "GET" || changeMethod === "POST") {
-    return json({ error: "Method not allowed" }, 405);
-  }
-
   const session = await currentSession(request, env);
   const account = session ? await accountById(env.DB, session.userId) : null;
   if (!session || !account) return json({ error: "Sign in to save to your account." }, 401);

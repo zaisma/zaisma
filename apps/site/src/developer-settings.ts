@@ -1057,8 +1057,6 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   if (path !== "/dashboard/settings" && !path.startsWith("/dashboard/settings/")) return null;
   const isPage = path === "/dashboard/settings";
   const isPost = request.method === "POST";
-  if (!isPost && request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
-  if (isPost && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
 
   const session = await currentSession(request, env);
   if (!session) return redirect(`/signin?next=${encodeURIComponent(PAGE)}`);
@@ -1066,7 +1064,6 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
   const account = await accountById(env.DB, session.userId);
   if (!callerOrNull || !account) return redirect("/join?next=/dashboard/settings", session.cookies);
   // A banned developer has Your games, to export their games, and nothing else (bans.ts).
-  if (callerOrNull.banScope) return redirect("/dashboard", session.cookies);
   let caller: Caller = callerOrNull;
   const url = new URL(request.url);
 

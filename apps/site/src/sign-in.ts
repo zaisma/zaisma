@@ -302,12 +302,6 @@ export function redirect(to: string, cookies: string[] = []): Response {
 
 async function authorize(request: Request, env: Env): Promise<Response> {
   const isPost = request.method === "POST";
-  if (!isPost && request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
-  if (isPost) {
-    // Continue only from our own consent page.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
   const form = isPost ? await request.formData() : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));

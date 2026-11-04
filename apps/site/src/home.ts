@@ -394,7 +394,6 @@ export async function handlePlayed(request: Request, env: Env, path: string): Pr
     for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
     return response;
   };
-  if (request.method === "POST" && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Bad origin" }, 403);
   const session = await currentSession(request, env);
   if (!session) return json({ error: "Signed out" }, 401);
   const account = await env.DB.prepare("SELECT id, age_band FROM accounts WHERE id = ?").bind(session.userId).first<Pick<Account, "id" | "age_band">>();

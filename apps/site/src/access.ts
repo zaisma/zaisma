@@ -5,7 +5,19 @@ import type { Env } from "./env.ts";
  * as well as at Cloudflare means a missing or broken Access rule fails closed.
  * Returns the signed-in email, or null.
  */
-export async function adminIdentity(request: Request, env: Env): Promise<string | null> {
+export function adminIdentity(request: Request, env: Env): Promise<string | null> {
+  // Checked once per request: the guard (guard.ts) and handleAdmin ask for the same one.
+  let identity = identityByRequest.get(request);
+  if (!identity) {
+    identity = readAdminIdentity(request, env);
+    identityByRequest.set(request, identity);
+  }
+  return identity;
+}
+
+const identityByRequest = new WeakMap<Request, Promise<string | null>>();
+
+async function readAdminIdentity(request: Request, env: Env): Promise<string | null> {
   const url = new URL(request.url);
   // The local preview only: on this machine, or opened from a phone on its tailnet (a .ts.net name only its own devices reach).
   if (env.DEV_ADMIN === "1" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname.endsWith(".ts.net"))) return "dev@localhost";

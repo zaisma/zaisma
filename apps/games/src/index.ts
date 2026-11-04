@@ -38,7 +38,9 @@ import {
   type TesterLink,
   upgradeToHttps,
   withTransportSecurity,
+  checkDoor,
 } from "@zaisma/core";
+import { gameFileDoorAt } from "./doors.ts";
 import savesScript from "../../../packages/sdk/saves.js";
 import pictureScript from "../../../packages/sdk/picture.js";
 import relayScript from "../../../packages/sdk/relay.js";
@@ -491,6 +493,8 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
   // A game's tester links and previews open at its fixed addresses, <slug>--tester and <slug>--preview.
   const address = "slug" in target.by ? readGameAddress(target.by.slug) : null;
   const by = address ? { slug: address.slug } : target.by;
+  // The guard in front of every address (doors.ts); a link's own function proves its holder, in openThroughLink below.
+  if (!checkDoor(gameFileDoorAt(target.path, address?.addressKind ?? null), [])) return page(404, "Game not found", "Check the link and try again.", env);
 
   // Read status on every request so a takedown applies straight away.
   const game = await servableGame(env.DB, by);

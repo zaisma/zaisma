@@ -54,9 +54,6 @@ const refused = (): Response =>
 /** POST /api/speed-reports: one page's report. Answered 204, also when the limit is reached, so a page never retries. */
 export async function handleSpeedReports(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path !== SPEED_REPORT_PATH) return null;
-  if (request.method !== "POST") return new Response(null, { status: 405 });
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(env.SITE_ORIGIN).origin) return new Response(null, { status: 403 });
   const done = new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
   // Counted by connection, never kept.
   if (env.SPEED_REPORT_LIMIT && !(await env.SPEED_REPORT_LIMIT.limit({ key: connectionAddressOf(request) ?? "unknown" })).success) return done;

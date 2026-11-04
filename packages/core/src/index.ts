@@ -68,3 +68,4 @@ export * from "./player-performance.ts";
 export * from "./shown-text.ts";
 export * from "./search-words.ts";
 export * from "./room-messages.ts";
+export * from "./doors.ts";

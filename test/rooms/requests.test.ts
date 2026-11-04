@@ -315,13 +315,14 @@ describe("game server CPU on the hosting meter", () => {
 
   it("still count the CPU a request used before it waited", async () => {
     const { gameId } = await addGame("burn-shop", BUSY);
-    await send("burn-shop", { type: "burn" });
-    const burned = await cpuOf(gameId);
-    expect(burned).toBeGreaterThan(100);
+    const burnedBefore = await cpuOf(gameId);
+    const startedAtMs = Date.now();
     await send("burn-shop", { type: "burn-then-wait" });
-    const afterWait = (await cpuOf(gameId)) - burned;
-    expect(afterWait).toBeGreaterThan(burned * 0.5);
-    expect(afterWait).toBeLessThan(burned * 2);
+    const elapsedMs = Date.now() - startedAtMs;
+    const counted = (await cpuOf(gameId)) - burnedBefore;
+    // Compared with how long this call took, not with another call: a busy machine slows each burn differently, and the wait is what must not count.
+    expect(counted).toBeGreaterThan(50);
+    expect(counted).toBeLessThan(elapsedMs - 900);
   });
 
   it("count a request's CPU though its code replaces the clock", async () => {

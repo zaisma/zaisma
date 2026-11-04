@@ -111,8 +111,6 @@ export async function handleBuy(request: Request, env: Env, path: string, nowMs 
   const method = request.method;
   let cookies: string[] = [];
   try {
-    // Only zaisma.com's own pages ask: another site can't buy, or learn what a player owns, with their cookie.
-    if (method !== "GET" && request.headers.get("origin") !== new URL(env.SITE_ORIGIN).origin) return new Response(null, { status: 403 });
     const body = method === "GET" || method === "DELETE" ? {} : await readBody(request);
     const session = await currentSession(request, env).catch(() => null);
     const account = session ? await accountById(env.DB, session.userId) : null;

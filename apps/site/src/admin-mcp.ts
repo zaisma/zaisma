@@ -50,6 +50,7 @@ import {
   audit,
   personOwner,
   STANDING_LIMITS,
+  type DoorReach,
 } from "@zaisma/core";
 import { QUEUE_SELECT, adminForm, groupReports, isPlayerGroup, playerGroupChoices, type QueueRow, type ReportGroup } from "./admin.ts";
 import { INTERNAL_ERROR } from "./developer.ts";
@@ -150,6 +151,8 @@ interface AdminCaller {
 }
 
 interface AdminTool extends Omit<McpTool, "run" | "outputSchema"> {
+  /** What it may touch (docs/DOORS.md); who may call it is the /admin/mcp door's: Zaisma's own people. A tool without it doesn't build. */
+  reaches: DoorReach;
   outputSchema: Schema;
   run: (toolArguments: Record<string, unknown>, caller: AdminCaller) => Promise<unknown>;
 }
@@ -386,6 +389,7 @@ const publishingAccountRows = (accounts: Awaited<ReturnType<typeof publishingAcc
 export const ADMIN_TOOLS: AdminTool[] = [
   {
     name: "list_report_groups",
+    reaches: "any_game",
     title: "Open reports",
     description:
       "Open reports grouped by problem, most serious first, then the longest waiting: what triage found, its recommendation, the precedent it fits and what it did by itself. Child-safety groups come first and are never sorted by AI. Also the month's AI use, which triage shares with scans and the forum.",
@@ -406,6 +410,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_handled_reports",
+    reaches: "any_game",
     title: "Reports triage handled alone",
     description: "Reports triage closed without a person in the last 7 days (bugs passed to developers, dismissals under a precedent), newest first, to look over. Child-safety reports are never among them.",
     inputSchema: object({}),
@@ -428,6 +433,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "get_report_group",
+    reaches: "any_game",
     title: "One report group in full",
     description:
       "Everything about one group of reports, open or closed: what each player sent (and up to 3 pictures of the game, as images), the game, the reported versions and their scans, any re-check of its files, triage's view, the precedent it fits or challenges (or the one it drafts), the game's recent history, and possible_decisions for decide_report_group.",
@@ -508,6 +514,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_report_group",
+    reaches: "any_game",
     title: "Decide a report group",
     description:
       "Decide a group's open reports, exactly like its button in the queue. get_report_group's possible_decisions says what's possible now. With precedent, also set a precedent so future cases like it are decided the same way: dismiss, restore and put_update_back set a dismissal, bug a bug, take_down and keep_update_off a takedown, pass_to_developer and stop_social their own, and hide_name and clear_profile none. A group about a player is decided with pass_to_developer (bullying, trash talk, cheating: the game's call), stop_social (a real-life threat, personal details, following after a block or something sexual, upheld: it needs social_stopped_reason, and at child safety it sends the NCMEC alert) or clear_profile; never take_down. take_down needs the content_rule it broke (keep_update_off can name one), and for both the developer reads why (never for child safety). Ask the admin first.\n\n" +
@@ -630,6 +637,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_precedents",
+    reaches: "zaisma_settings",
     title: "Precedents",
     description: "The rulings report triage follows, with how often each was followed. Proposed ones wait for the admin's approval (approve_precedent).",
     inputSchema: object({ precedent_status: { enum: ["active", "proposed", "retired", "all"], description: "Which ones; active and proposed by default." } }),
@@ -645,6 +653,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "set_precedent",
+    reaches: "zaisma_settings",
     title: "Set or change a precedent",
     description:
       "A new precedent in force, or (with replaces_precedent_id) a change to one: future cases like it are decided the same way. Past cases keep the wording they followed. Ask the admin first.\n\n" +
@@ -672,6 +681,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "approve_precedent",
+    reaches: "zaisma_settings",
     title: "Approve a precedent",
     description: "Put a proposed precedent in force as written. To change one first, approve it and set the change with set_precedent, or retire it and set a new one. Ask the admin first.",
     inputSchema: object(
@@ -702,6 +712,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "retire_precedent",
+    reaches: "zaisma_settings",
     title: "Retire a precedent",
     description: "Stop following a precedent, or drop a proposed one. Past cases keep pointing at it. Ask the admin first.",
     inputSchema: object({ precedent_id: precedentId("A precedent's ID from list_precedents.") }, ["precedent_id"]),
@@ -715,6 +726,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_topics",
+    reaches: "forum_topic",
     title: "The forum queue",
     description:
       "Forum topics from developers and their AI about Zaisma itself, most serious first: topics on their own and known issues, with how many developers each affects, whether it's public, the latest post and what AI sorting found. topic_status new (the default) is what's waiting. Always with topics_in_known_issues (messages added to or reopened inside a known issue), waiting_posts (public posts the check held, couldn't check yet, or developers reported) and zaisma_mentions (public posts asking for @Zaisma with no reply since).",
@@ -728,6 +740,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "get_topic",
+    reaches: "forum_topic",
     title: "One forum topic in full",
     description: "Every post in a topic (by the developer, their AI or Zaisma, with what the AI attached in debug_context, and the latest 3 images as images), the developer's name, the game, the known issue it's in and the topics merged into it.",
     inputSchema: object({ topic_id: topicId }, ["topic_id"]),
@@ -741,6 +754,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_topic",
+    reaches: "forum_topic",
     title: "Answer or sort a forum topic",
     description:
       "Any of: reply_text_markdown (from Zaisma; public on a public topic, else to the developer); topic_status (new, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, watching that it holds), fixed (resolved), wont (won't fix); answered for a question; on a known issue it changes every topic merged into it, and each developer hears, with the reply as the note); merge_into_topic_id (a duplicate goes under a known issue); known_issue (make this topic one: a title, a workaround and the roadmap item, seen by every developer; null stops it being one); severity; category; answer_post_id (a post in this topic as the question's answer; null clears it). Leave out what stays the same. Ask the admin first.\n\n" +
@@ -806,6 +820,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_post",
+    reaches: "forum_topic",
     title: "Show or remove a forum post",
     description:
       "For a post in list_topics' waiting_posts (the check held it or couldn't check it, or developers reported it): show it to everyone (which clears its reports), or remove it. Removing a topic's first post makes the topic private to its developer again. Ask the admin first.",
@@ -823,6 +838,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_review_precedents",
+    reaches: "zaisma_settings",
     title: "Review precedents",
     description:
       "The rulings the AI game review follows when it was wrong, with each one's stand-in test game and test result. Save the answer as { \"review_precedents\": [...] } to run the review test set with them in force: npm run review-set -- --precedents <file>. Approving a version the review held or rejected drafts a pass ruling; upholding a hold, or rejecting or taking down a game the review passed, drafts a reject ruling; the admin saves it in the same click, on the admin page.",
@@ -839,6 +855,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "approve_review_precedent",
+    reaches: "zaisma_settings",
     title: "Test a review precedent",
     description: "Send a drafted or failed review precedent to the test set as written: it goes live once every bad game is still stopped and every honest one still passes, with it in force. To change the wording first, use the admin page. Ask the admin first.",
     inputSchema: object({ review_precedent_id: idInput("review_precedent", "A drafted or failed review precedent's ID from list_review_precedents.") }, ["review_precedent_id"]),
@@ -868,6 +885,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "retire_review_precedent",
+    reaches: "zaisma_settings",
     title: "Retire a review precedent",
     description: "Stop the judge following a review precedent, or drop a drafted one. Games already judged keep their verdicts. Ask the admin first.",
     inputSchema: object({ review_precedent_id: idInput("review_precedent", "A review precedent's ID from list_review_precedents.") }, ["review_precedent_id"]),
@@ -881,6 +899,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "get_review_counts",
+    reaches: "zaisma_settings",
     title: "How reviews came out",
     description:
       "How the game review's scans came out over the last days: versions passed by themselves, rejected by themselves (with the rule and the fix, no person), held for a person, and held only to wait for a daily review. The goal is honest games passing first time and clear breaks rejected, so held_for_person_count falls toward zero; each hold a person decides teaches the review (a pass or a reject ruling).",
@@ -891,6 +910,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_chat_reviews",
+    reaches: "any_account",
     title: "Chat the filter kept for review",
     description:
       "Sexual messages from adults to teens the chat filter stopped and kept. An AI reviews each within minutes: a false alarm is deleted, a confirmed one from Zaisma's rooms removes the sender's chat. chat_review_status waiting (the default) is what needs the admin: ones the AI was unsure of, ones from a developer's own server (which could be made up, so only a person decides), ones the AI couldn't review, and confirmed ones not yet marked reported to NCMEC.",
@@ -903,6 +923,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_chat_review",
+    reaches: "any_account",
     title: "Decide a kept chat message",
     description:
       "false_alarm deletes the message and lifts the sender's pause. remove_chat confirms it: the sender's chat is removed for good and the message kept a year for the report. reported does the same and records that the admin reported it to NCMEC's CyberTipline. Ask the admin first.",
@@ -921,6 +942,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_notice",
+    reaches: "any_game",
     title: "Act on a copyright or defamation notice",
     description:
       "A copyright (DMCA) or defamation notice that reached dmca@ or safety@zaisma.com: hold hides the game from players without judging the notice, and the developer reads why (what the notice names) with how to fix it; show_again puts a held game back. Show it again once the live version no longer has what the notice names (publishing one emails the admin), or 10 working days after a counter-notice reached the sender, unless they say they've gone to court. The same as the Notice form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
@@ -972,6 +994,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_country_block",
+    reaches: "any_game",
     title: "Block a game in one country, or lift it",
     description:
       "A notice from a court, regulator or police in one country, under a law US law doesn't share (the UK's hatred offences, say), that reached safety@zaisma.com: block stops players in that country opening the game, on their word without judging it, and everyone else still can; its page, files, rooms and Zaisma's lists leave it out there. The developer reads why (which law and what it names) in get_game's country_blocks, an alert and a country_blocks_changed webhook. lift ends it, once the live version no longer has what the notice names (publishing one emails the admin). Blocking a country again replaces its why. Only a notice from that country's authorities blocks a game: a player's complaint goes through the Report button and the content rules. The same as the Country blocks form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
@@ -1018,6 +1041,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_publishing_accounts",
+    reaches: "any_account",
     title: "Who can publish",
     description: "The accounts that can make, upload and publish games before the beta, each with its username, player ID and how many games it has. Everyone else gets publishing_not_open until the beta opens.",
     inputSchema: object({}),
@@ -1027,6 +1051,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "set_can_publish",
+    reaches: "any_account",
     title: "Let an account publish",
     description:
       "Let an account make, upload and publish games before the beta (can_publish true), or stop it (false), by its username. Stopping it stops new games, uploads and publishes; its live games stay up. The same as the buttons on zaisma.com/admin/publishing. Ask the admin first.",
@@ -1050,6 +1075,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "set_zaisma_account",
+    reaches: "any_account",
     title: "Mark one of Zaisma's own accounts",
     description:
       "Mark an account as one of Zaisma's own (is_zaisma_account true), like the seed games' developers, by its username, or unmark it (false). Zaisma's own accounts are established from the start, so their games' links to other sites and search engines open before any players come back; a ruling or a ban still closes them. Unmarking it leaves it to the daily count. Ask the admin first.",
@@ -1077,6 +1103,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "ban_account",
+    reaches: "any_account",
     title: "Ban an account",
     description:
       "Ban an account by its username. ban_scope developer takes down every game of theirs still up (each with why and content_rule, as a takedown) and stops it making, uploading and publishing: only get_access, list_games and export_game still work for it, and it can still play. whole_account (child safety, illegal content) also ends its sign-in, its sessions and its API keys, and turns its social side off. Either way the cards that paid Zaisma, its connected Stripe account and its email carry over: another account can't connect that Stripe account or add that email, and a banned card on another account waits in list_ban_matches, since families share cards. Never a device, network or address. A developer ban widens to whole_account; anything else answers already_banned. Ask the admin first.\n\n" +
@@ -1108,6 +1135,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "unban_account",
+    reaches: "any_account",
     title: "Lift a ban",
     description: "Lift an account's ban by its username, and the marks it carried to new accounts. Its games stay down: each comes back with its own restore and reason, from get_game. Ask the admin first.",
     inputSchema: object({ username: usernameInput, why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log." } }, ["username", "why"]),
@@ -1125,6 +1153,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_ban_matches",
+    reaches: "any_account",
     title: "Banned cards on other accounts",
     description: "Accounts that paid with a card banned with another account, for a person to decide: the same person (decide_ban_match banned) or someone else with the card, like family (not_the_same_person). The ones waiting first, then the decided ones.",
     inputSchema: object({}),
@@ -1140,6 +1169,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "decide_ban_match",
+    reaches: "any_account",
     title: "Decide a ban match",
     description: "Decide a match from list_ban_matches: banned (the same person) bans the account's developer side, as ban_account does, with the first account's content rule; not_the_same_person only closes it. Ask the admin first.",
     inputSchema: object(
@@ -1163,6 +1193,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_security_spikes",
+    reaches: "zaisma_settings",
     title: "Security spikes",
     description:
       "Hours in the last 30 days when something across Zaisma reached its threshold, newest first: wrong passwords (100) or sign-ins on new devices (50) from one network, API keys made (100), databases exported (500) or scripts blocked on zaisma.com (500), each emailed to the admin as it happened. Each with the network (its autonomous_system, like AS64500, and name) or null across Zaisma, the hour and its count so far.",
@@ -1173,6 +1204,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_blocked_scripts",
+    reaches: "zaisma_settings",
     title: "Blocked scripts",
     description:
       "What zaisma.com's script policy blocked in the last 7 days, from the reports browsers send, most reported first: the directive, what was blocked (inline, eval, or a script's origin) and the page. Browser extensions' reports are dropped. A script from an origin Zaisma doesn't use, on many pages, may be an injection to look into; a few inline ones are usually a browser add-on that wasn't recognized.",
@@ -1183,6 +1215,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "get_page_speed",
+    reaches: "zaisma_settings",
     title: "Page speed on real visits",
     description:
       "How fast Zaisma's pages showed on real visits: for each page and whether it was opened or switched to, how many visits reported and the time to the page's first paint at the median, 75th and 95th percentile, over the last days. Visits report nothing that names a player or device (speed-reports.ts).",
@@ -1196,6 +1229,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "get_game",
+    reaches: "any_game",
     title: "A game, as admin sees it",
     description: "A game's review status, visibility and multiplayer, every version with its scan, its open report groups and its recent history.",
     inputSchema: object({ slug: { type: "string", maxLength: 60, description: "The game's link name, as in zaisma.com/g/<slug>, from a report group's game." } }, ["slug"]),
@@ -1216,6 +1250,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "list_announcements",
+    reaches: "zaisma_settings",
     title: "Announcements",
     description:
       "Short news Zaisma posts for players, shown at the top of zaisma.com's home: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. One shows at a time, the newest current one (is_shown).",
@@ -1229,6 +1264,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "post_announcement",
+    reaches: "zaisma_settings",
     title: "Post an announcement",
     description:
       "Post short news for players. It shows at the top of zaisma.com's home for every player, signed in or not, from starts_at until ends_at or until the player closes it. One shows at a time: the newest current one (the latest starts_at), so a new one replaces what's showing. Ask the admin first, with the exact words.\n\n" +
@@ -1262,6 +1298,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
   {
     name: "end_announcement",
+    reaches: "zaisma_settings",
     title: "End an announcement",
     description: "End an announcement now: it leaves zaisma.com's home at once, and one that hadn't started never shows. Ask the admin first.",
     inputSchema: object({ announcement_id: idInput("announcement", "An announcement's ID from list_announcements.") }, ["announcement_id"]),
@@ -1438,7 +1475,11 @@ export function handleAdminMcp(request: Request, env: Env, actor: string): Promi
     request,
     { name: "zaisma-admin", title: "Zaisma admin", instructions: INSTRUCTIONS },
     ADMIN_TOOLS.map((tool) => ({
-      ...tool,
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      annotations: tool.annotations,
       outputSchema: answerOrError(tool.outputSchema),
       run: (toolArguments: Record<string, unknown>) => {
         checkArguments(tool, toolArguments);

@@ -9,6 +9,7 @@ import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
+import { guardSiteDoor } from "./guard.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { heldUntilOpened, isPreparedRequest, speculationRulesResponse } from "./prepared-pages.ts";
@@ -81,6 +82,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method;
 
+  // The guard in front of every door (guard.ts): nothing below runs for a path with no row in doors.ts.
+  const refused = await guardSiteDoor(request, env, path);
+  if (refused) return refused;
+
   // Pages' script files (page-scripts.ts): every module that makes one is imported above, so all are known.
   if (path.startsWith("/js/")) return method === "GET" || method === "HEAD" ? pageScriptResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path.startsWith("/css/")) return method === "GET" || method === "HEAD" ? pageStyleResponse(path) : new Response("Method not allowed", { status: 405 });
@@ -106,7 +111,6 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/buy/stripe-frame" && (method === "GET" || method === "HEAD")) return stripeFramePage(env);
   const buyWindow = path.match(/^\/buy\/([a-z0-9-]+)\/([a-z0-9][a-z0-9_-]{0,39})$/);
   if (buyWindow && method === "GET") return buyWindowPage(env, request, buyWindow[1]!, buyWindow[2]!);
-  if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
   if (path === "/" && method !== "POST") return home(env, request);
   if (path === "/games" && (method === "GET" || method === "HEAD")) return browsePage(env, request);
