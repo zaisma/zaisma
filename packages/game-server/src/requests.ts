@@ -85,7 +85,7 @@ export const REQUEST_ERROR_TEXT: Record<RequestErrorCode, string> = {
   no_request_handler: "This game's server doesn't take requests.",
   game_server_error: "The game's server couldn't answer this request.",
   hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
-  rented_share_used: "This network looks like a server. Turn off your VPN or sign in to keep playing.",
+  rented_share_used: "This network looks like a server. Turn off your VPN or sign in with an account that has played before.",
   slow_down: "Too many requests. Try again in a minute.",
   bad_origin: "Not allowed from here.",
   busy: "Zaisma is busy. Try again soon.",

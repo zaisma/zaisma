@@ -138,8 +138,8 @@ export const rentedShareCard = (signInHref: string, isShown = false): Raw =>
     isShown,
     strip: { words: RENTED_SHARE_TEXT, action: primaryButton(action("signIn"), { href: signInHref, isSmall: true }), closePresses: "rented-share-later" },
     body: stack({ items: [
-      { kind: "words", markup: html`<p>Turn off your VPN or sign in to keep playing.</p>` },
-      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton(action("signIn"), { href: signInHref }) }, { kind: "control", markup: secondaryButton("Not now", { id: "rented-share-later", type: "button", dataAttributes: { "layer-close": "" } }) }] }) },
+      { kind: "words", markup: html`<p>Turn off your VPN or sign in with an account that has played before.</p>` },
+      { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton(action("signIn"), { href: signInHref }) }, { kind: "control", markup: secondaryButton("Not now", { id: "rented-share-later", type: "button" }) }] }) },
     ] }),
   });
 

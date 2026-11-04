@@ -1252,7 +1252,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   refused: "The game didn't let you into this room.",
   room_not_running: "That room isn't running.",
   hosting_paused: "This game's hosting is paused. It starts again when the month resets or its developer adds credit.",
-  rented_share_used: "This network looks like a server. Turn off your VPN or sign in to keep playing.",
+  rented_share_used: "This network looks like a server. Turn off your VPN or sign in with an account that has played before.",
   account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
   game_not_open_to_player: "This game isn't open to this account.",
   blocked_player_here: "Someone you blocked is in this room.",

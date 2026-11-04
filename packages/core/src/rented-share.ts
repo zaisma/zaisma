@@ -42,7 +42,9 @@ export const RENTED_SHARE_PCT = 10;
 export const rentedShareLimitCents = (allowanceCents: number, budgetCents: number | null) => ((allowanceCents + (budgetCents ?? 0)) * RENTED_SHARE_PCT) / 100;
 
 /** The words a player stopped here reads, wherever a game shows an error, and on its Zaisma page. */
-export const RENTED_SHARE_TEXT = "This network looks like a server. Turn off your VPN or sign in to keep playing.";
+export const RENTED_SHARE_TEXT = "This network looks like a server. Turn off your VPN or sign in with an account that has played before.";
+/** The same, for a player already signed in, or where there is no signing in. */
+export const RENTED_SHARE_VPN_TEXT = "This network looks like a server. Turn off your VPN to keep playing.";
 
 /** How long an account has to be to count on its age alone, and how long ago its first counted play or a browser's first play on a rented network has to be. */
 export const HISTORY_ACCOUNT_AGE_DAYS = 7;

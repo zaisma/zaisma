@@ -1,7 +1,7 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
-import { RENTED_SHARE_TEXT,
+import { RENTED_SHARE_VPN_TEXT,
   readReviewReason,
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
@@ -516,7 +516,7 @@ ${isClosed ? "" : buySheetParts({ joinHref: joinHere, signInHref: signinHere, co
 ${shareDialog({ gameTitle: game.title, hasQrCode: !tester })}
 ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
-      rented_share_text: RENTED_SHARE_TEXT,
+      rented_share_text: RENTED_SHARE_VPN_TEXT,
       slug: game.slug,
       tester_token: tester?.token ?? null,
       room_code: inRoom ? code : "",
@@ -1344,11 +1344,13 @@ const gameOrigin = new URL(gamePage.frame_url).origin;
 // Whenever a sheet or card of Zaisma's covers the game, or stops, the game hears it (Zaisma.page.coveredBy), so it can pause.
 addEventListener("zaisma:covered", (e) => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "zaisma:covered", coveredBy: e.detail.coveredBy }, gameOrigin); });
 let isRentedShareTold = false;
+const rentedShareLater = document.getElementById("rented-share-later");
+if (rentedShareLater) rentedShareLater.onclick = () => zaismaLayers.leave(document.getElementById("rented-share"));
 function tellRentedShareUsed() {
   if (isRentedShareTold) return;
   isRentedShareTold = true;
   const card = document.getElementById("rented-share");
-  if (card) zaismaLayers.show(card);
+  if (card && !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) zaismaLayers.show(card);
   else zaismaLayers.say({ text: gamePage.rented_share_text, noticeUrgency: "ask" });
 }
 // The local preview shows the words by a link (?play&preview_bar=rented_share). Never on zaisma.com.
