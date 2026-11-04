@@ -125,7 +125,8 @@ describe("every door on the site", () => {
     const sentBy = (path: string) => `${path} ${JSON.stringify(sample)}`;
 
     // Everyone but the owner first, then the owner on a world of their own: another account's call may rightly take what the owner's needs.
-    for (const callerKind of CALLER_KINDS.filter((kind) => kind !== "owner")) {
+    // A banned developer keeps their account's own doors, so theirs may end the session or the account, and comes after everyone else's.
+    for (const callerKind of [...CALLER_KINDS.filter((kind) => kind !== "owner" && kind !== "banned_developer"), "banned_developer" as const]) {
       const isWeaker = callerKind === "weaker_key" || callerKind === "another_games_key" || callerKind === "banned_account";
       const callerKnows = isWeaker ? [world.victimAccountId, world.victimOwnerId] : [];
       const contractExpects = expectedAtSiteDoor(door, callerKind, isOwnedInPath(door));
@@ -153,26 +154,11 @@ describe("every door on the site", () => {
     const ownersWorld = await makePageWorld(worldRoute);
     const ownersSample = sampleOf(ownersWorld);
     if (OWNER_SETUP_ROUTES[rowName]) await setUpOwnersCall(OWNER_SETUP_ROUTES[rowName]!, ownersWorld);
-    const before = await everything(ownersWorld);
-    const made = await callDoor(method, pathWith(door, ownersWorld, { ...ownersSample.pathValues, ...ownersSample.ownerPathValues }), ownersSample, await credentialOf(door, "owner", ownersWorld, scopeKey));
-    let problem: string | null;
-    if (door.contract.whoMayCall === "admin") {
-      // Past the guard is all an admin's cell shows: the door's own code may say there's no such thing.
-      problem = made.http_status === 401 || made.http_status === 403 ? `Answered ${made.http_status} to Zaisma's own people.` : null;
-    } else {
-      problem = problemWithAnswer("goes_through", null, { http_status: made.http_status, location: made.location, is_owners_changed: false, is_private_value_shown: false });
-      const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
-      if (!problem && isWrite && door.contract.whoMayCall !== "anyone" && !(rowName in CHANGES_NOTHING) && (await everything(ownersWorld)) === before) problem = `Changed nothing (${made.http_status} to ${made.location}), so the sample proves nothing.`;
-    }
-    cells.push(cellOf(doorId, "owner", problem));
-    // What the owner got is what the contract says: anything else was cut and noted (apps/site/src/answers.ts).
-    const cutAnswer = await env.DB.prepare("SELECT field_paths FROM door_answer_cuts WHERE door_id = ?").bind(`page:${method} ${door.path}`).first<{ field_paths: string }>();
-    cells.push(cellOf(doorId, "answer_shape", cutAnswer ? `Answered with ${cutAnswer.field_paths}, which it doesn't declare.` : null));
-
-    // What the door's contract says it takes and how much it can be used: a wrong shape and a door past its limit are refused before any of its own code runs.
-    const { takes, limit } = door.contract;
     const ownerCredential = await credentialOf(door, "owner", ownersWorld, scopeKey);
     const ownersPath = pathWith(door, ownersWorld, { ...ownersSample.pathValues, ...ownersSample.ownerPathValues });
+
+    // What the door's contract says it takes and how much it can be used, before the owner's call, which may end the session or the account they'd need: a wrong shape and a door past its limit are refused before any of its own code runs.
+    const { takes, limit } = door.contract;
     const wrongSamples: PageSample[] = [];
     for (const [name, shape] of Object.entries(takes.query)) {
       const tooLong = tooLongFor(shape);
@@ -202,5 +188,21 @@ describe("every door on the site", () => {
       const past = await callDoor(method, ownersPath, ownersSample, ownerCredential, refusing as typeof env);
       cells.push(cellOf(doorId, "past_limit", past.http_status === 429 ? null : `Answered ${past.http_status} past its limit.`));
     }
+
+    const before = await everything(ownersWorld);
+    const made = await callDoor(method, ownersPath, ownersSample, ownerCredential);
+    let problem: string | null;
+    if (door.contract.whoMayCall === "admin") {
+      // Past the guard is all an admin's cell shows: the door's own code may say there's no such thing.
+      problem = made.http_status === 401 || made.http_status === 403 ? `Answered ${made.http_status} to Zaisma's own people.` : null;
+    } else {
+      problem = problemWithAnswer("goes_through", null, { http_status: made.http_status, location: made.location, is_owners_changed: false, is_private_value_shown: false });
+      const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
+      if (!problem && isWrite && door.contract.whoMayCall !== "anyone" && !(rowName in CHANGES_NOTHING) && (await everything(ownersWorld)) === before) problem = `Changed nothing (${made.http_status} to ${made.location}), so the sample proves nothing.`;
+    }
+    cells.push(cellOf(doorId, "owner", problem));
+    // What the owner got is what the contract says: anything else was cut and noted (apps/site/src/answers.ts).
+    const cutAnswer = await env.DB.prepare("SELECT field_paths FROM door_answer_cuts WHERE door_id = ?").bind(`page:${method} ${door.path}`).first<{ field_paths: string }>();
+    cells.push(cellOf(doorId, "answer_shape", cutAnswer ? `Answered with ${cutAnswer.field_paths}, which it doesn't declare.` : null));
   });
 });

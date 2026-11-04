@@ -309,6 +309,9 @@ describe("credit that's low or left behind", () => {
     isStripeDown = true;
     await refundForDeletion(env, "dev-1", deletedAtMs);
     const firstKey = stripeCalls.find((call) => call.path === "/v1/refunds")!.idempotencyKey;
+    // A deletion that stopped and ran again asks with the same key and leaves one refund waiting.
+    await refundForDeletion(env, "dev-1", deletedAtMs);
+    expect(new Set(stripeCalls.filter((call) => call.path === "/v1/refunds").map((call) => call.idempotencyKey))).toEqual(new Set([firstKey]));
     await deleteAccount(env.DB, "dev-1");
     const pending = async () => (await env.DB.prepare("SELECT * FROM pending_refunds").all<Record<string, unknown>>()).results;
     // Only the payment and the amount: nothing about the account that's gone.

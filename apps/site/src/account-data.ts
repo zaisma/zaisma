@@ -68,6 +68,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   email_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   passkey_challenges: { file_path: null, reason: "One-time passkey challenges, kept as fingerprints for minutes." },
   connected_app_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
+  waiting_sign_in_deletions: { file_path: null, reason: "A deleted account's sign-in, by its ID alone, until Supabase takes it." },
   session_proofs: { file_path: null, reason: "How each signed-in session last proved it's the owner, kept a day." },
   purchase_confirmations: { file_path: null, reason: "When each signed-in session last confirmed a buy, kept a day." },
   stripe_connect_states: { file_path: null, reason: "One-time links to connect a Stripe account, kept for minutes." },
