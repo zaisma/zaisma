@@ -1,6 +1,6 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, quoteName, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, integerTooLarge, plainRow, scanStatements, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
-import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
+import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth, waitingKeptRoomsSizeBytes } from "@zaisma/core";
 import type { Env } from "./index.ts";
 import { AwakeTime } from "./usage-counts.ts";
 
@@ -154,9 +154,9 @@ export class GameDatabaseObject extends DurableObject<Env> {
     if (gameId && !this.isReadingKeptRooms && Date.now() - this.keptRooms.readAtMs >= KEPT_ROOMS_READ_MS) {
       this.isReadingKeptRooms = true;
       this.ctx.waitUntil(
-        keptRoomsSizes(this.env.DB, gameId)
-          .then(({ keptSizeBytes, waitingSizeBytes }) => {
-            this.keptRooms = { sizeBytes: keptSizeBytes, waitingSizeBytes, readAtMs: Date.now() };
+        Promise.all([keptRoomsSizeBytes(this.env.DB, gameId), waitingKeptRoomsSizeBytes(this.env.DB, gameId)])
+          .then(([sizeBytes, waitingSizeBytes]) => {
+            this.keptRooms = { sizeBytes, waitingSizeBytes, readAtMs: Date.now() };
           })
           .catch((error) => console.error("Couldn't read the game's kept rooms' size:", error))
           .finally(() => (this.isReadingKeptRooms = false)),

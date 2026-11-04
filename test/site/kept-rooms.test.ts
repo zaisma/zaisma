@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { AREA_ACCESS_BY_LEVEL, createAccount, createApiKey, gameBySlug, gameStorageSizeBytes, keptRoomsSizes } from "@zaisma/core";
+import { AREA_ACCESS_BY_LEVEL, createAccount, createApiKey, gameBySlug, gameStorageSizeBytes, keptRoomsSizeBytes, waitingKeptRoomsSizeBytes } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { apiCall, callerFor } from "../../apps/site/src/developer.ts";
 import { answerGameDeletionRequest } from "../../apps/site/src/game-deletion-requests.ts";
@@ -245,7 +245,8 @@ describe("a kept world in a game other people played", () => {
     expect(listed.answer.kept_rooms.find((row: { room_code: string }) => row.room_code === "H4RB9T").erases_at).toBeNull();
     expect(listed.answer.kept_rooms_size_bytes).toBe(500);
     expect(listed.answer.waiting_kept_rooms_size_bytes).toBe(3_000);
-    expect(await keptRoomsSizes(env.DB, gameId)).toEqual({ keptSizeBytes: 500, waitingSizeBytes: 3_000 });
+    expect(await keptRoomsSizeBytes(env.DB, gameId)).toBe(500);
+    expect(await waitingKeptRoomsSizeBytes(env.DB, gameId)).toBe(3_000);
     expect(await gameStorageSizeBytes(env.DB, 100, gameId)).toBe(600);
   });
 
