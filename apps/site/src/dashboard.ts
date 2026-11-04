@@ -36,6 +36,8 @@ interface GameJson {
   description: string;
   visibility: "draft" | "listed" | "unlisted" | "private";
   review_status: "pending" | "live" | "held" | "removed";
+  erases_at: string | null;
+  is_erase_now_allowed: boolean;
   review_reason: ReviewReasonJson | null;
   visibility_after_ai_review: "listed" | "unlisted" | null;
   devices: string[];
@@ -175,6 +177,8 @@ const ACCOUNT_REQUIREMENT_LABELS: Record<AccountRequirement, { label: string; hi
   whole_game: { label: "Accounts only", hint: "Your game page says \"Needs a Zaisma account\", and Play asks guests to sign in first." },
 };
 const DONE: Record<string, string> = {
+  "game-deleted": "Deleted. It's off for every player.",
+  "game-brought-back": "It's back, as it was.",
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
   details: "Details saved.",
@@ -362,9 +366,19 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("PATCH", `/games/${slug}/testers/${tester[1]}`, { name: field("name"), ...testerChoicesFrom(field), ends_at: field("at") || null });
       return back("versions", "tester-changed", "#testers");
     }
-    if (action === "/delete") {
-      await call("DELETE", `/games/${slug}`, { confirm_slug: field("confirm_slug") });
-      return done(redirect("/dashboard?done=game-deleted"));
+    if (action === "/delete" || action === "/erase-now") {
+      try {
+        if (action === "/delete") await call("DELETE", `/games/${slug}`, { confirm_slug: field("confirm_slug") });
+        else await call("POST", `/games/${slug}/erase-now`, { confirm_slug: slug });
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "confirmation_needed" && error.confirmUrl) return done(redirect(error.confirmUrl));
+        throw error;
+      }
+      return back("overview", "game-deleted");
+    }
+    if (action === "/bring-back") {
+      await call("POST", `/games/${slug}/bring-back`);
+      return back("overview", "game-brought-back");
     }
     const previewsPath = action.match(/^\/versions\/([a-z0-9_]+)\/end-previews$/);
     if (previewsPath) {
@@ -628,7 +642,7 @@ async function managerPage(
 <div class="cover pic bevel">${cover ? html`<img src="${cover.image_url}" alt="">` : ""}</div>
 <div class="who">
 <h1>${game.title}</h1>
-<p class="muted"><span class="pill ${game.review_status}">${REVIEW[game.review_status]}</span> ${game.visibility === "listed" || game.visibility === "unlisted" ? html`<a href="${game.page_url}">${game.page_url.replace(/^https?:\/\//, "")}</a>` : html`zaisma.com/g/${game.slug}`}</p>
+<p class="muted"><span class="pill ${game.review_status}">${game.erases_at ? "Deleted" : REVIEW[game.review_status]}</span> ${game.visibility === "listed" || game.visibility === "unlisted" ? html`<a href="${game.page_url}">${game.page_url.replace(/^https?:\/\//, "")}</a>` : html`zaisma.com/g/${game.slug}`}</p>
 </div>
 <form class="vis" method="post" action="/dashboard/${slug}/visibility" aria-label="Who can play">${sectionField(section)}
 <div class="seg">${(["listed", "unlisted", "private", "draft"] as const).map(
@@ -646,7 +660,7 @@ ${options.confirmHide
 <button class="btn danger" type="submit">Hide it from players</button><a class="btn ghost" href="${sectionPath(slug, section)}">Keep it</a></form></div>`
       : ""}
 ${game.visibility_after_ai_review ? html`<p class="note small">Goes ${game.visibility_after_ai_review} once the AI review passes.</p>` : ""}
-${game.review_reason ? html`<div class="note held-game" role="status">${reasonPanel(slug, game.review_reason, removed ? "Zaisma took this game down." : "Players can't open this game right now.")}</div>` : ""}
+${game.erases_at ? erasingPanel(slug, game) : ""}${game.review_reason && !game.erases_at ? html`<div class="note held-game" role="status">${reasonPanel(slug, game.review_reason, removed ? "Zaisma took this game down." : "Players can't open this game right now.")}</div>` : ""}
 ${notice(options)}
 ${body}
 </div>
@@ -678,7 +692,7 @@ const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: stri
  * A held or taken-down game already has its own panel on every section, and the latest upload its card.
  */
 function alertsPanel(slug: string, alerts: GameAlertJson[], shownVersionId: string | null): Raw | "" {
-  const shown = alerts.filter((alert) => alert.kind !== "game_removed" && alert.kind !== "game_held" && !(alert.version_id && alert.version_id === shownVersionId));
+  const shown = alerts.filter((alert) => alert.kind !== "game_removed" && alert.kind !== "game_waiting_to_erase" && alert.kind !== "game_held" && !(alert.version_id && alert.version_id === shownVersionId));
   if (!shown.length) return "";
   return html`<ul class="game-alerts" aria-label="Needs attention">${shown.map((alert) => {
     const place = ALERT_PLACES[alert.kind as GameAlertKind];
@@ -742,7 +756,7 @@ function detailsSection(slug: string, { game, images, backgrounds, shaders }: Lo
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game, access)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
 <h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}
-<h2 class="rule-h" id="delete">Delete</h2>${deleteGamePanel(slug)}</section>
+${game.erases_at ? "" : html`<h2 class="rule-h" id="delete">Delete</h2>${deleteGamePanel(slug)}`}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images.filter((image) => !BACKGROUND_KINDS.includes(image.kind)))}
 <h2 class="rule-h" id="background">Background</h2>${backgroundPanel(slug, game, images, backgrounds, shaders, gameAddress)}
 <h2 class="rule-h" id="qr-code">QR code</h2>${qrCodePanel(slug, qrCode)}</aside>
@@ -1076,10 +1090,29 @@ function exportPanel(slug: string): Raw {
 </div>`;
 }
 
-/** Delete this game: its link name typed in, since nothing brings it back. */
+/** A game its developer deleted: the days left, and what they can do before they're up. */
+function erasingPanel(slug: string, game: GameJson): Raw {
+  const remainingDayCount = Math.max(1, Math.ceil((Date.parse(game.erases_at!) - Date.now()) / 86_400_000));
+  return html`<div class="note held-game" role="status">
+<div class="row">
+<div class="num plate"><strong>${remainingDayCount}</strong><span>${remainingDayCount === 1 ? "day left" : "days left"}</span></div>
+<div class="stack">
+<p><strong>${game.title} is being erased</strong></p>
+<p class="hint">It's off for every player. Its versions, database, saves and purchases go for good on ${when(game.erases_at!)}.</p>
+</div>
+</div>
+<div class="row">
+<form method="post" action="/dashboard/${slug}/bring-back"><button class="btn" type="submit">Bring it back</button></form>
+<a class="btn ghost" href="/dashboard/${slug}/export.zip" data-download>Export</a>
+${game.is_erase_now_allowed ? html`<form method="post" action="/dashboard/${slug}/erase-now"><button class="btn danger" type="submit">Erase it now</button></form>` : ""}
+</div>
+</div>`;
+}
+
+/** Delete this game: its link name typed in, since a week later nothing brings it back. */
 function deleteGamePanel(slug: string): Raw {
   return html`<form class="stack" method="post" action="/dashboard/${slug}/delete">${sectionField("details")}
-<p class="hint">The game stops for every player, its link is never used again, and its versions, database, saves and purchases go for good. Export it first to keep a copy.</p>
+<p class="hint">The game stops for every player. A week later its link is retired and its versions, database, saves and purchases go for good, unless you bring it back first. A game other people played also takes your passkey. Export it first to keep a copy.</p>
 <label>Type <strong>${slug}</strong> to delete it <input name="confirm_slug" required autocomplete="off" spellcheck="false"></label>
 <div class="row"><button class="btn danger" type="submit">Delete this game</button></div>
 </form>`;

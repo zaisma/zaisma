@@ -211,6 +211,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
 export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|_(id|ids|sha256|hash|key|token|code|status|kind|level|mode|band|choice|via|access|date)$|^who_/;
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
+  // A game's own review status and reason, kept only to put back on the game (a bring-back).
+  "game_deletions.review_status_before", "game_deletions.review_reason_before",
   // Choices from fixed lists.
   "games.visibility_after_ai_review", "versions.ai_review_speed", "versions.ai_review_waiting_reason",
   // What the AI review's readers found: only Zaisma's code writes it, and it's only read back into the judge's brief.

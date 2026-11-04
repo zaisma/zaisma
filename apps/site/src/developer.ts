@@ -1,4 +1,6 @@
 import {
+  gameDeletionOf,
+  isPlayedByOthers,
   countryBlocksAnswer,
   IMAGE_LIMITS,
   IMAGE_KINDS,
@@ -192,7 +194,8 @@ import {
   type DoorContract,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
-import { checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, reserveOrRefuse, storageRoute } from "./storage-api.ts";
+import { bringBackGame, checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, eraseGameNow, reserveOrRefuse, storageRoute } from "./storage-api.ts";
+import { gameDeletionRequestAnswer } from "./game-deletion-requests.ts";
 import { toneOfPicture } from "./background-tone.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
@@ -340,8 +343,8 @@ export interface Caller {
   banScope: BanScope | null;
   bannedAtMs: number | null;
   banReasonForDeveloper: string | null;
-  /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts) and connect a Stripe account for sales (stripe-account-api.ts). */
-  isSpendingConfirmed?: boolean;
+  /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts), connect a Stripe account for sales (stripe-account-api.ts) and delete a game other people played (storage-api.ts). */
+  isPasskeyConfirmed?: boolean;
 }
 
 /** A call that usually follows a change, ready to make (docs/NAMING.md, Next steps). */
@@ -642,6 +645,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/games", reaches: "account", access: needs("game_access", "write"), isAccountWide: true, isPublishing: true, body: { inputs: plainInputs("slug", ...GAME_DETAIL_INPUTS) } }),
   call({ method: "GET", path: "/games/:slug", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "DELETE", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
+  call({ method: "POST", path: "/games/:slug/bring-back", reaches: "game", access: needs("game_access", "write"), pathParts: atGame }),
+  call({ method: "POST", path: "/games/:slug/erase-now", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("confirm_slug") } }),
+  call({ method: "GET", path: "/games/:slug/deletion-requests/:game_deletion_request_id", reaches: "game", access: needs("game_access", "read"), pathParts: { ...atGame, game_deletion_request_id: "plain" } }),
   call({ method: "PATCH", path: "/games/:slug", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: { ...plainInputs("visibility", "demo_game_slug", ...GAME_DETAIL_INPUTS), monthly_budget_cents: needsToo("credit_access", "write", "the game's budget stays as it is"), full_game_item_name: needsToo("purchase_access", "write", "the game's price to play stays as it is") } } }),
   call({ method: "POST", path: "/games/:slug/images", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, query: plainInputs("kind"), body: "bytes" }),
   call({ method: "DELETE", path: "/games/:slug/images/:image_id", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", image_id: "in_game" } }),
@@ -1096,6 +1102,15 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const isImages = apiRoute.path.startsWith("/games/:slug/images");
 
   if (apiRoute.path === "/games/:slug" && method === "DELETE") return answer(...(await deleteOwnGame(env, game, checked.body, caller)));
+  if (apiRoute.path === "/games/:slug/bring-back") return answer(...(await bringBackGame(env, game, caller)));
+  if (apiRoute.path === "/games/:slug/erase-now") return answer(...(await eraseGameNow(env, game, checked.body, caller)));
+  if (apiRoute.path === "/games/:slug/deletion-requests/:game_deletion_request_id") {
+    const requestId = pathValues.game_deletion_request_id!;
+    checkIdKind("game_deletion_request", requestId, "game_deletion_request_id", "A game deletion request's ID comes with confirmation_needed (game_deletion_request_id).");
+    const request = await gameDeletionRequestAnswer(env, caller.accountId, requestId, game.id);
+    if (!request) throw new ApiError("no_game_deletion_request", { message: `This game has no deletion request ${JSON.stringify(requestId.slice(0, 60))}.`, field: "game_deletion_request_id", fix: "The ID comes with confirmation_needed (game_deletion_request_id) when a deletion needs the developer's passkey." });
+    return answer({ game_deletion_request: request });
+  }
 
   if (!isImages && method === "GET") {
     const [images, shaders, backgrounds, versions, testers, alertsByGameId, playingNow, rooms] = await Promise.all([
@@ -1867,7 +1882,7 @@ function gameRemoved(game: Game, what: string, field: string | null = null): Api
   const reason = readReviewReason(game.review_reason);
   const why = reason ? reviewReasonAnswer(reason) : null;
   return new ApiError("game_removed", {
-    message: `Zaisma took this game down, so ${what}${why ? ` (${why.code}): ${why.message}` : "."}`,
+    message: reason?.code === "developer_deleted_game" ? `This game is deleted and waiting to be erased, so ${what}.` : `Zaisma took this game down, so ${what}${why ? ` (${why.code}): ${why.message}` : "."}`,
     field,
     fix: why?.fix ?? "message_zaisma with the game_slug to ask about it.",
   });
@@ -2870,6 +2885,7 @@ const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
 export async function gameJson(env: Env, game: Game) {
   const { outsideLinksEnabled } = await standingOf(env.DB, game.owner_id, Date.now());
+  const erasesAtMs = game.review_status === "removed" ? ((await gameDeletionOf(env.DB, game.id))?.erases_at_ms ?? null) : null;
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,
@@ -2881,6 +2897,8 @@ export async function gameJson(env: Env, game: Game) {
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed, and why.
     review_status: game.review_status,
     review_reason: reasonAnswer(game.review_reason),
+    erases_at: erasesAtMs === null ? null : iso(erasesAtMs),
+    is_erase_now_allowed: erasesAtMs !== null && !(await isPlayedByOthers(env.DB, game.id)),
     // Countries whose players can't open it, on a notice under that country's law; [] for none.
     country_blocks: countryBlocksAnswer(game),
     devices: splitLabels(game.devices),
@@ -2955,7 +2973,7 @@ function linkJson(link: GameLink, outsideLinksEnabled: boolean) {
 const dollarsText = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_waiting_to_erase", "game_held", "game_blocked_in_country", "version_rejected", "version_held", "link_flagged", "game_off_lists", "hosting_paused", "free_rooms_stopped", "second_free_allowance_started", "database_full", "hosting_nearly_paused", "hosting_budget_nearly_used", "credit_low", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -3023,7 +3041,8 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     const alerts = alertsByGameId.get(game.id)!;
     const add = (kind: GameAlertKind, message: string, fix: string, messageForPeople: string, versionId: string | null = null) => alerts.push({ kind, message, fix, message_for_people: messageForPeople, version_id: versionId });
     const reason = reasonAnswer(game.review_reason);
-    if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.", "Zaisma took this game down. Its page here says why and what to do.");
+    if (game.review_status === "removed" && reason?.code === "developer_deleted_game") add("game_waiting_to_erase", "You deleted this game. It's off for every player and waits a week before it's erased.", "bring_back_game brings it back until erases_at.", "You deleted this game. Its page here says when it's erased.");
+    else if (game.review_status === "removed") add("game_removed", `Zaisma took this game down${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "message_zaisma with the game_slug to ask why.", "Zaisma took this game down. Its page here says why and what to do.");
     if (game.review_status === "held") add("game_held", `Players can't open this game right now${reason ? `: ${reason.message}` : "."}`, reason?.fix ?? "Nothing to do: a person at Zaisma looks, usually within a day.", "Players can't open this game right now. Its page here says why.");
     for (const block of countryBlocksAnswer(game)) {
       add("game_blocked_in_country", `Players in ${block.country_code} (${block.country_name}) can't open this game: ${block.review_reason.message}`, block.review_reason.fix, `Players in ${block.country_name} can't open this game, on a notice about that country's law. Take out what it names and publish a fixed version, and a person at Zaisma lifts the block, usually within a day.`);

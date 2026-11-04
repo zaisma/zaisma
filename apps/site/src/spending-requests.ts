@@ -80,13 +80,13 @@ export async function spendingRequestAnswer(env: Env, accountId: string, id: str
 
 /**
  * The developer's answer, from Developer settings: approving makes the change through the same API call that a confirmed
- * raise makes, so it checks everything that call checks. It needs a caller whose passkey tap is fresh (isSpendingConfirmed).
+ * raise makes, so it checks everything that call checks. It needs a caller whose passkey tap is fresh (isPasskeyConfirmed).
  */
 export async function answerSpendingRequest(env: Env, caller: Caller, id: string, answer: "approved" | "declined", nowMs = Date.now()): Promise<"answered" | "not_waiting"> {
   const row = await rowOf(env, caller.accountId, id);
   if (!row || statusOf(row, nowMs) !== "waiting") return "not_waiting";
   if (answer === "approved") {
-    if (!caller.isSpendingConfirmed) {
+    if (!caller.isPasskeyConfirmed) {
       throw new ApiError("confirmation_needed", { message: "Approving spending needs the developer's passkey tap.", fix: "Tap the passkey, then approve.", confirmUrl: spendingRequestUrl(env, id) });
     }
     if (row.request_kind === "credit_plan_refill_level") await apiCall(env, caller, "PATCH", "/credit/plan", { refill_level_cents: row.refill_level_cents });

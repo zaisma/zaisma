@@ -36,7 +36,7 @@ describe.skipIf(!chromePath)("a Screens bench link opens the bench with its scre
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     chrome = await openChrome(chromePath!, "zaisma-bench-links-test-");
-  });
+  }, 60_000);
   afterAll(async () => { await chrome?.close(); server?.close(); });
 
   async function opened(search: string, expectKey = ""): Promise<boolean> {

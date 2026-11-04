@@ -137,6 +137,8 @@ export const GAME = object({
   visibility_after_ai_review: nullable(choice({ listed: "listed", unlisted: "unlisted" }, "The visibility the game takes once its live version's AI review passes; null when it's waiting for none.")),
   review_status: REVIEW_STATUS,
   review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
+  erases_at: nullable(isoTime("When a game its developer deleted is erased for good; null for any other game. Until then bring_back_game brings it back.")),
+  is_erase_now_allowed: yes("Whether erase_game_now can erase this waiting game at once: nobody but its developer ever played it."),
   country_blocks: list(COUNTRY_BLOCK, "Countries whose players can't open the game, on a notice from a court, regulator or police there under a law US law doesn't share; everyone else still can. [] for none."),
   devices: list(choice(DEVICES)),
   genres: list(choice(GENRES)),
@@ -173,6 +175,7 @@ export const GAME = object({
 export const GAME_ALERT = object({
   kind: choice({
     game_removed: "Zaisma took the game down",
+    game_waiting_to_erase: "you deleted the game: it's off for every player and erased at erases_at, unless bring_back_game brings it back first",
     game_held: "players can't open the game while Zaisma checks it",
     game_blocked_in_country: "players in one country can't open the game, on a notice under that country's law (country_blocks says which and why); everyone else still can",
     version_rejected: "the newest version was rejected",
@@ -513,7 +516,7 @@ const ERROR_FIELDS = object({
 });
 /** Every error, in the API and the MCP (docs/NAMING.md, Errors). confirm_url comes with confirmation_needed alone. */
 export const ERROR = object({
-  error: { ...ERROR_FIELDS, properties: { ...(ERROR_FIELDS.properties as Record<string, Schema>), confirm_url: url("confirmation_needed only: where the developer confirms with their passkey on zaisma.com."), spending_request_id: idOf("spending_request", "confirmation_needed only, for a raise in spending: the request the developer approves at confirm_url; get_spending_request checks it.") } },
+  error: { ...ERROR_FIELDS, properties: { ...(ERROR_FIELDS.properties as Record<string, Schema>), confirm_url: url("confirmation_needed only: where the developer confirms with their passkey on zaisma.com."), spending_request_id: idOf("spending_request", "confirmation_needed only, for a raise in spending: the request the developer approves at confirm_url; get_spending_request checks it."), game_deletion_request_id: idOf("game_deletion_request", "confirmation_needed only, for deleting a game: the request the developer approves at confirm_url; get_game_deletion_request checks it.") } },
 });
 
 /**
@@ -765,6 +768,26 @@ const STORAGE_FIELDS = object({
 export const STORAGE = object({ storage: STORAGE_FIELDS });
 export const STORAGE_CHANGED = object({ storage: STORAGE_FIELDS, next_steps: NEXT });
 export const DELETED_WITH_STORAGE = object({ is_deleted: yes("Always true."), storage: STORAGE_FIELDS, next_steps: NEXT });
+/** A game its developer deleted (delete_game): off for players, and erased at erases_at unless it's brought back. */
+export const GAME_DELETED = object({ is_deleted: yes("Always true: the game is off for every player."), erases_at: isoTime("When it's erased for good, unless bring_back_game brings it back first."), storage: STORAGE_FIELDS, next_steps: NEXT });
+export const GAME_BROUGHT_BACK = object({ is_brought_back: yes("Always true: the game is what it was before it was deleted."), next_steps: NEXT });
+export const GAME_ERASING = object({ erases_at: isoTime("When its erasing starts: now."), next_steps: NEXT });
+/** A deletion the developer approves or declines on zaisma.com (get_game_deletion_request). */
+export const GAME_DELETION_REQUEST = object({
+  game_deletion_request: object({
+    id: idOf("game_deletion_request"),
+    request_kind: choice({ delete_game: "deleting the game", erase_game_now: "erasing the waiting game at once" }),
+    game_slug: nullable(text("The game; null once it's erased.")),
+    game_title: nullable(text()),
+    player_with_save_count: countOf("Other players with a save in the game now."),
+    purchase_count: countOf("Purchases in the game."),
+    is_asked_from_dashboard: yes("Whether the developer asked on the dashboard, rather than a key or an AI app."),
+    request_status: choice({ waiting: "the developer hasn't answered", approved: "approved: it's done", declined: "the developer declined", expired: "a day passed without an answer" }),
+    created_at: isoTime(),
+    expires_at: isoTime("A day after it was asked."),
+    answered_at: nullable(isoTime()),
+  }),
+});
 /** The plan after cancel_pro or resume_pro. */
 export const PRO_CHANGED = object({ ...(PRO.properties as Record<string, Schema>), next_steps: NEXT });
 /** A refund of Zaisma Pro's first payment (refund_pro). */

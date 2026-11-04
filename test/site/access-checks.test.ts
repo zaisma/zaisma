@@ -331,6 +331,12 @@ describe("every call", () => {
     const eventCount = async () => (await env.DB.prepare(`SELECT COUNT(*) AS event_count FROM security_events WHERE account_id = ? AND kind NOT IN (${KEY_USE_EVENT_KINDS.map((kind) => `'${kind}'`).join(", ")})`).bind(world.victimAccountId).first<{ event_count: number }>())!.event_count;
     const eventCountBefore = await eventCount();
     await setUpOwnersCall(routeName, world);
+    // Erasing at once always asks for the passkey, and the asking is logged.
+    if (routeName === "POST /games/:slug/erase-now") {
+      expect((await call(apiRoute, developerKey, asDeveloper)).answer.error?.code).toBe("confirmation_needed");
+      expect((await eventCount()) - eventCountBefore).toBe(1);
+      return;
+    }
     // A call that needs the owner's passkey on a page first refuses even the developer's full key, with nothing changed.
     if (CONFIRMED_ON_A_PAGE.has(routeName)) {
       await refused("the developer's full key, before a passkey on a page", await call(apiRoute, developerKey, asDeveloper), "confirmation_needed");
