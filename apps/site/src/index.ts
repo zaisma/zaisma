@@ -82,7 +82,7 @@ const DAILY = "17 3 * * *";
 /** Every door's answer goes out cut to what it declares (answers.ts). The API's and MCP's own rows answer bytes here, since each call is checked by its own. */
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const response = await routeToDoor(request, env, ctx);
-  const door = siteDoorAt(pathOfRequest(request), request.method);
+  const door = siteDoorAt(new URL(request.url).pathname.replace(/\/+$/, "") || "/", request.method);
   return typeof door === "string" || door.contract.answers.kind !== "json" ? response : withDeclaredAnswer(env, response, door.contract.answers, `page:${request.method} ${door.path}`, (promise) => ctx.waitUntil(promise));
 }
 
