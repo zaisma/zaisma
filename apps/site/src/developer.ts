@@ -931,7 +931,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/saves/:player_id/copies", answers: fromTool("list_save_copies"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", answers: fromTool("get_save_copy"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" }, query: plainInputs("keys") }),
   call({ method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", answers: fromTool("restore_save_copy"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" } }),
-  call({ method: "GET", path: "/forum", answers: fieldsAnswer("topics", "pinned_topics", "next_cursor", "total_topic_count", "tag_counts", "section_counts", "category_counts", "unread_topic_count", "person_count", "people"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
+  call({ method: "GET", path: "/forum", answers: fieldsAnswer("topics", "pinned_topics", "tab", "next_cursor", "remaining_post_count"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
   call({
     method: "POST",
     path: "/forum",

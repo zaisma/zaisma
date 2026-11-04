@@ -387,8 +387,14 @@ describe("the meter keeps its promises", () => {
 describe("the rented share", () => {
   const setRentedUseCents = (cents: number) =>
     env.DB.prepare("INSERT INTO room_usage (game_id, date, rented_share_room_use_cents) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET rented_share_room_use_cents = excluded.rented_share_room_use_cents")
-      .bind(game.id, new Date().toISOString().slice(0, 10), cents)
+      .bind(game.id, "2031-03-10", cents)
       .run();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2031-03-10T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("runs out at a tenth of the free time, however little the game has used of the rest, and pauses nothing", async () => {
     await setUseCents(120);

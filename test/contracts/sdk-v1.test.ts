@@ -36,6 +36,8 @@ const ROOM_TYPES = new Set(["Room", "Rooms"]);
  * come", so games written for v1 already treat it as something to expect.
  */
 const ALLOWED_OUTPUT_ADDITIONS: { union: string; value: string }[] = [
+  // A player on a rented network once a game's rented share is used.
+  { union: "ErrorCode", value: "rented_share_used" },
   // Zaisma.items.buy, the buy sheet.
   { union: "ErrorCode", value: "no_item" },
   { union: "ErrorCode", value: "no_game" },

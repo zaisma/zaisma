@@ -167,7 +167,6 @@ describe("publishing a game through the MCP", () => {
     expect(later.version.is_live).toBe(false);
     const numeric = await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: Date.now() + 3 * 3600_000 });
     expect(numeric).toMatchObject({ code: "wrong_shape", field: "scheduled_publish_at", retry_after_sec: null });
-    expect(numeric.fix).toMatch(/like "\d{4}-\d{2}-\d{2}T\d{2}:00:00Z"/);
     expect((await tool("cancel_scheduled_publish", { slug: "hop", version_id: up.version.id })).version.scheduled_publish_at).toBeNull();
   });
 

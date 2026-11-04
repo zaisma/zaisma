@@ -188,7 +188,7 @@ const typesOf = (schema: Schema): readonly string[] => {
   const { type } = schema;
   if (Array.isArray(type)) return type as string[];
   if (typeof type === "string") return [type];
-  if (Array.isArray(schema.enum)) return [...new Set((schema.enum as unknown[]).map((value) => (value === null ? "null" : typeof value)))];
+  if (Array.isArray(schema.enum)) return [...new Set((schema.enum as unknown[]).map((allowed) => (allowed === null ? "null" : typeof allowed)))];
   return [];
 };
 
@@ -258,10 +258,14 @@ export function typeProblems(schema: Schema, given: unknown, path = "answer"): s
 export function cutUndeclared(schema: Schema, given: unknown, path = "answer"): { kept: unknown; cutPaths: string[] } {
   if (Array.isArray(schema.anyOf)) {
     const options = schema.anyOf as Schema[];
-    // The option that fits as it is, or else the one that needs least cut and then fits.
+    // The option that fits as it is. Or else: an option of the answer's type, one that fits once cut, then the one that takes least,
+    // so an answer short of one field isn't emptied to look like a shorter option.
     if (options.some((option) => schemaProblems(option, given, path).length === 0)) return { kept: given, cutPaths: [] };
-    const tried = options.map((option) => cutUndeclared(option, given, path)).map((cut, index) => ({ cut, problemCount: schemaProblems(options[index]!, cut.kept, path).length }));
-    tried.sort((first, second) => first.problemCount - second.problemCount || first.cut.cutPaths.length - second.cut.cutPaths.length);
+    const tried = options.map((option) => {
+      const cut = cutUndeclared(option, given, path);
+      return { cut, isOtherType: schemaProblems({ type: typesOf(option) }, given, path).length > 0, problemCount: schemaProblems(option, cut.kept, path).length };
+    });
+    tried.sort((first, second) => Number(first.isOtherType) - Number(second.isOtherType) || Number(first.problemCount > 0) - Number(second.problemCount > 0) || first.cut.cutPaths.length - second.cut.cutPaths.length || first.problemCount - second.problemCount);
     return tried[0]?.cut ?? { kept: given, cutPaths: [] };
   }
   if (Array.isArray(given)) {

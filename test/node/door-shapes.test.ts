@@ -98,7 +98,7 @@ describe("a shape", () => {
     const schema = { type: "object", properties: { kind: { enum: ["a", "b"] }, size: { type: "integer", maximum: 3 } }, additionalProperties: false };
     expect(typeProblems(schema, { kind: "c", size: 9 })).toEqual([]);
     expect(typeProblems(schema, { size: "many" })[0]).toContain("is string");
-    expect(typeProblems(schema, { other: 1 })[0]).toContain("not in the schema");
+    expect(typeProblems(schema, { other: 1 })).toEqual([]);
   });
 });
 
@@ -120,6 +120,15 @@ describe("an answer", () => {
 
   it("leaves what a game owns alone: only closed objects cut", () => {
     expect(cutUndeclared(schema, { rows: { any_column: 1 } }).cutPaths).toEqual([]);
+  });
+
+  it("doesn't empty an answer short of a field to make it look like an error", () => {
+    const schema = { anyOf: [
+      { type: "object", properties: { topics: {}, tab: {} }, required: ["topics", "tab"], additionalProperties: false },
+      { type: "object", properties: { error: {} }, required: ["error"], additionalProperties: false },
+      { type: "null" },
+    ] };
+    expect(cutUndeclared(schema, { topics: [], secret_key: "x" })).toEqual({ kept: { topics: [] }, cutPaths: ["answer.secret_key"] });
   });
 });
 

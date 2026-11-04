@@ -149,7 +149,7 @@ describe("posting", () => {
     const oldName = await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text: "y" } });
     expect([oldName.status, oldName.data.error.code]).toEqual([400, "unknown_field"]);
     expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: { tool: "upload_files" } } })).data.error.code).toBe("wrong_shape");
-    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: "too_big" } })).data.error.code).toBe("bad_debug_context");
+    expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y", debug_context: "too_big" } })).data.error.code).toBe("wrong_shape");
     expect((await api("/forum?q=too_big")).data.error.code).toBe("unknown_field");
   });
 

@@ -120,7 +120,7 @@ describe("publishing", () => {
     expect(await refusedWith(await publish(noNotes, { is_big_update: "yes" }))).toBe("wrong_shape");
     expect(await refusedWith(await publish(live, { is_big_update: true }))).toBe("big_update_already_live");
     expect(await refusedWith(await publish(live, { patch_notes: "Rewritten." }))).toBe("bad_patch_notes");
-    expect(await refusedWith(await publish(noNotes, { patch_notes: 7 }))).toBe("bad_patch_notes");
+    expect(await refusedWith(await publish(noNotes, { patch_notes: 7 }))).toBe("wrong_shape");
     expect(await refusedWith(await publish(noNotes, { is_big: true }))).toBe("unknown_field");
     expect((await versionById(env.DB, noNotes))!.published_at_ms).toBeNull();
   });

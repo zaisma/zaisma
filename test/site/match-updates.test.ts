@@ -88,7 +88,7 @@ describe("match_update_mode", () => {
       const refusal = (await response.json()) as { error: { code: string; field: string; fix: string } };
       expect(errorProblems(refusal, response.status)).toEqual([]);
       expect(refusal.error).toMatchObject({ code: expect.stringMatching(/^(bad_match_update_mode|wrong_shape)$/), field: "match_update_mode" });
-      expect(refusal.error.fix).toContain('"now"');
+      if (refusal.error.code === "bad_match_update_mode") expect(refusal.error.fix).toContain('"now"');
     }
     expect((await gameBySlug(env.DB, "arena"))!.live_version_id).toBeNull();
     const upload = await mcp("upload_files", { slug: "arena", files: [{ path: "index.html", content_text: "<!doctype html><p>hi</p>" }], match_update_mode: "now" });

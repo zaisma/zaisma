@@ -79,12 +79,14 @@ function purposeKey(secret: string, purpose: string): Promise<CryptoKey> {
   return key;
 }
 
-let sealingKeyOfSecret: { secret: string; key: Promise<CryptoKey> } | null = null;
+const sealingKeys = new Map<string, Promise<CryptoKey>>();
 function sealingKey(secret: string): Promise<CryptoKey> {
-  if (sealingKeyOfSecret?.secret !== secret) {
-    sealingKeyOfSecret = { secret, key: crypto.subtle.digest("SHA-256", encoder.encode(`zaisma:play_share:${secret}`)).then((keyBytes) => crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt", "decrypt"])) };
+  let key = sealingKeys.get(secret);
+  if (!key) {
+    key = crypto.subtle.digest("SHA-256", encoder.encode(`zaisma:play_share:${secret}`)).then((keyBytes) => crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt", "decrypt"]));
+    sealingKeys.set(secret, key);
   }
-  return sealingKeyOfSecret.key;
+  return key;
 }
 
 const toBase64Url = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

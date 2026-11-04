@@ -84,7 +84,7 @@ describe("the rented share", () => {
     const bothSigns = { hasGraphicsChip: false, isInputSeen: false };
     expect((await join("AAAAAG", await passFor(), HOME, bothSigns)).answer).toMatchObject({ code: "rented_share_used" });
     expect((await join("AAAAAH", await passFor(), HOME, { ...bothSigns, isInputSeen: true })).answer.type).toBe("welcome");
-    expect((await join("AAAAAI", await passFor(), HOME, { ...bothSigns, hasGraphicsChip: true })).answer.type).toBe("welcome");
+    expect((await join("AAAAAM", await passFor(), HOME, { ...bothSigns, hasGraphicsChip: true })).answer.type).toBe("welcome");
   });
 
   it("doesn't take a forged word for history", async () => {

@@ -249,7 +249,6 @@
   function firstInput() {
     if (isInputSeen) return;
     isInputSeen = true;
-    FIRST_INPUTS.forEach(function (type) { removeEventListener(type, firstInput, true); });
     // A room told of no graphics chip and no input hears of the input now, without waiting for the game to send anything.
     if (graphicsChipAnswer === false) joined.forEach(function (room) { if (room._ws && room._ws.readyState === 1) room._say({ type: "here" }); });
   }
