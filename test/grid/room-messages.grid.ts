@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import { ROOM_MESSAGE_DOORS, RoomCore, relay, type Transport } from "../../packages/game-server/src/internal.ts";
-import { cellOf, type CallerKind, type GridCell } from "./cells.ts";
+import { cellOf, wrongValueOf, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
  * Every message a room takes, by every kind of caller in a room (test/grid/cells.ts): its host, a player, a spectator, someone
@@ -66,5 +66,16 @@ describe("every room message", () => {
     // A ban takes someone out of the room: what they send after that does nothing.
     refused("removed", "banned_account");
     refused("removed", "banned_developer");
+
+    // A wrong shape is refused before any of the door's code: what a door takes by size alone is tried by test/game-server/room.test.ts.
+    const body = contract.takes.body;
+    if (body?.kind === "json") {
+      const fieldToBreak = Object.entries(body.fields).find(([name, shape]) => name !== "type" && wrongValueOf(shape) !== undefined);
+      if (fieldToBreak) {
+        const { room } = roomWithEveryone();
+        const answer = room.receive("host", JSON.stringify({ type, ...SAMPLE_MESSAGES[type], [fieldToBreak[0]]: wrongValueOf(fieldToBreak[1]) }));
+        cells.push(cellOf(doorId, "wrong_shape", answer === "bad_message" ? null : `Answered ${String(answer)} to a message of the wrong shape.`));
+      }
+    }
   });
 });

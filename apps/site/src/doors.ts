@@ -1,5 +1,6 @@
 import {
   ACCOUNT_AREAS,
+  SOCIAL_SETTINGS,
   ANSWERS_EMPTY,
   ANSWERS_FILE,
   ANSWERS_BYTES,
@@ -9,6 +10,7 @@ import {
   SAVE_LIMIT_BYTES,
   TAKES_NOTHING,
   answersJson,
+  anyOf,
   doorPathPattern,
   fieldsOf,
   gameData,
@@ -145,7 +147,7 @@ const FILE_FORM_SIZE_BYTES = 100 * 1024 * 1024;
 const FORM_TEXT = text(FORM_SIZE_BYTES);
 const namesOf = (names: readonly string[], shape: DoorShape = FORM_TEXT): Record<string, DoorShape> => Object.fromEntries(names.map((name) => [name, anyTextOrList(shape)]));
 /** A form's checkboxes repeat a name, so any name may come more than once, up to this. */
-const anyTextOrList = (shape: DoorShape): DoorShape => ({ anyOf: [shape, listOf(shape, 100)] });
+const anyTextOrList = (shape: DoorShape): DoorShape => anyOf(shape, listOf(shape, 100));
 const form = (names: readonly string[], fileNames: readonly string[] = []): DoorTakes => ({
   query: {},
   body: { kind: "form", fields: namesOf(names), ...(fileNames.length ? { fileNames } : {}), maximumSizeBytes: fileNames.length ? FILE_FORM_SIZE_BYTES : FORM_SIZE_BYTES },
@@ -230,7 +232,7 @@ const PLAY_TAKES = json(
 // What each family of forms takes: one handler reads them, so they share a closed list of names.
 const WEBAUTHN_NAMES = ["passkey_id", "client_data_json", "authenticator_data", "signature", "user_handle"];
 const KEY_CHOICE_NAMES = ["access_level", "game_scope", "game_slugs", "ends_after_days", ...ACCOUNT_AREAS];
-const ACCOUNT_FORM = form(["next", "turnstile_token", "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
+const ACCOUNT_FORM = form([...SOCIAL_SETTINGS, "next", "turnstile_token", "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
 const JOINING_TAKES: DoorTakes = { ...ACCOUNT_FORM, query: query("next", "username", "with", "game", "code", "error", "welcome").query };
 const FRIEND_FORM = form(["invite_code", "is_appearing_offline", "next", "game_slug"]);
 const FORUM_FORM = form(["title", "text_markdown", "category", "kind", "tags", "game_slug", "known_issue_topic_id", "reply_to_post_id", "post_id", "answer_post_id", "rating", "reason", "details", "reopen", "undo", "t", "u"], ["images", "file"]);
@@ -270,7 +272,7 @@ const BUY_FIELDS: Readonly<Record<string, DoorShape>> = {
   payment_method_id: text(200),
   sale_id: text(100),
 };
-const PASSKEY_FIELDS: Readonly<Record<string, DoorShape>> = { id: text(2000), clientDataJSON: text(16 * 1024), authenticatorData: text(16 * 1024), signature: text(16 * 1024), userHandle: orNothing(text(2000)), publicKey: text(16 * 1024), algorithmNumber: integer(-100000, 100000), name: text(200), next: orNothing(text(2000)), passkey_tap: gameData(16 * 1024), password: text(4096) };
+const PASSKEY_FIELDS: Readonly<Record<string, DoorShape>> = { id: text(2000), clientDataJSON: text(16 * 1024), authenticatorData: text(16 * 1024), signature: text(16 * 1024), userHandle: orNothing(text(2000)), publicKey: text(16 * 1024), alg: integer(-100000, 100000), name: text(200), next: orNothing(text(2000)), purpose: text(40), transports: gameData(1024), passkey_tap: gameData(16 * 1024), password: text(4096) };
 const OAUTH_NAMES = ["grant_type", "code", "code_verifier", "redirect_uri", "client_id", "client_secret", "refresh_token", "resource", "decision", "connect_step", "state", "scope", "code_challenge", "code_challenge_method", "response_type", "nonce", "next", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES];
 
 // The account page's forms.
@@ -281,7 +283,7 @@ const accountForm = (path: string) => signedIn(["POST"], path, ACCOUNT_SIGN_IN, 
 const joining = (path: string, trusts: readonly DoorTrust[] = ["session"]) => open(["GET", "POST"], path, { reaches: "account", trusts, origin: "own_pages_if_sent", takes: JOINING_TAKES });
 
 const PASSKEY_SIGN_IN = statusOf(401, { error: "Sign in first." });
-const passkey = (path: string) => signedIn(["POST"], path, PASSKEY_SIGN_IN, { trusts: ["session", "passkey"], takes: json(PASSKEY_FIELDS), ...ownPagesJson("challenge", "rpId", "allow", "ok", "is_waiting", "user", "excludeCredentials") });
+const passkey = (path: string) => signedIn(["POST"], path, PASSKEY_SIGN_IN, { trusts: ["session", "passkey"], takes: json(PASSKEY_FIELDS), ...ownPagesJson("challenge", "rpId", "allow", "ok", "is_waiting", "rp", "user", "algs", "exclude", "next") });
 
 const NEEDS_ACCOUNT_TO_BUY = statusOf(403, { error: { code: "account_needed", message: "Make a free account (or sign in) to buy." } });
 const buying = (methods: DoorRowFields["methods"], path: string, origin: DoorOrigin = "own_pages") =>
@@ -368,7 +370,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
     reaches: "account",
     trusts: ["oauth_code"],
     provenBy: proof("apps/site/src/sign-in.ts", "token"),
-    takes: form(OAUTH_NAMES),
+    takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: 64 * 1024 } },
     answers: fieldsAnswer("access_token", "token_type", "expires_in", "refresh_token", "scope", "id_token", "error", "error_description"),
     limit: BY_ADDRESS,
   }),
@@ -381,7 +383,8 @@ export const SITE_DOORS: readonly SiteDoor[] = [
     answers: USERINFO_ANSWER,
     limit: BY_ADDRESS,
   }),
-  open(["GET", "POST", "OPTIONS"], "/oauth/register", { takes: json({ redirect_uris: listOf(text(2000), 20), client_name: text(2000), token_endpoint_auth_method: text(100), grant_types: listOf(text(100), 20), response_types: listOf(text(100), 20), scope: text(2000), client_uri: text(2000), logo_uri: text(2000), software_id: text(2000), software_version: text(200) }), answersAs: "json", answers: fieldsAnswer("client_id", "client_secret", "client_id_issued_at", "client_secret_expires_at", "client_name", "redirect_uris", "grant_types", "response_types", "token_endpoint_auth_method", "scope", "error", "error_description") }),
+  // OAuth's own doors drop fields they don't know, as RFC 7591 and RFC 6749 say: this isn't the developer API.
+  open(["GET", "POST", "OPTIONS"], "/oauth/register", { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: 64 * 1024 } }, answersAs: "json", answers: fieldsAnswer("client_id", "client_secret", "client_id_issued_at", "client_secret_expires_at", "client_name", "redirect_uris", "grant_types", "response_types", "token_endpoint_auth_method", "scope", "error", "error_description") }),
 
   // Signing in and joining.
   joining("/signin"),
@@ -394,7 +397,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   joining("/join/account"),
   joining("/join/username"),
   joining("/join/play"),
-  open(["GET"], "/api/username-check", { trusts: ["session"], takes: query("username"), ...jsonAnswer("is_free", "is_available", "reason", "message") }),
+  open(["GET"], "/api/username-check", { trusts: ["session"], takes: query("username"), ...jsonAnswer("is_available", "message", "suggested_usernames") }),
   open(["POST"], "/api/passkeys/signin/options", { takes: json(PASSKEY_FIELDS), ...ownPagesJson("challenge", "rpId") }),
   open(["POST"], "/api/passkeys/signin", { reaches: "account", trusts: ["passkey"], takes: json(PASSKEY_FIELDS), ...ownPagesJson("next") }),
 
@@ -422,7 +425,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   open(["GET"], "/g/:slug/qr-code.svg", { takes: query("room"), answers: ANSWERS_FILE }),
   open(["GET", "POST"], "/g/:slug/report", { trusts: ["session"], takes: REPORT_FORM }),
   signedIn(["GET"], "/g/:slug/friends", statusOf(401), { answersAs: "empty" }),
-  signedIn(["GET"], "/g/:slug/players/friends", statusOf(401, { error: { code: "not_signed_in", message: "Sign in to see your friends." } }), { origin: "anywhere", ...jsonAnswer("friends", "players"), takes: query("player_ids", "room") }),
+  signedIn(["GET"], "/g/:slug/players/friends", statusOf(401, { error: { code: "not_signed_in", message: "Sign in to see your friends." } }), { origin: "anywhere", answersAs: "json", answers: answersJson({ type: "object" }), takes: query("player_ids", "room") }),
   proven(["GET"], "/t/:tester_token", { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: proof("apps/site/src/pages.ts", "testerPage"), takes: query("room"), answers: ANSWERS_PAGE, limit: BY_ADDRESS }),
   proven(["POST"], "/t/:tester_token/enter", { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: proof("apps/site/src/pages.ts", "testerEnter"), takes: json({ room_code: text(40) }), answers: fieldsAnswer("frame_url"), limit: BY_ADDRESS }),
   proven(["GET"], "/p/:preview_token", { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: proof("apps/site/src/pages.ts", "previewPage"), takes: query("room"), answers: ANSWERS_PAGE, limit: BY_ADDRESS }),
@@ -433,7 +436,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   signedIn(["GET"], "/api/me/played", statusOf(401, { error: "Signed out" }), { origin: "anywhere", ...jsonAnswer("played") }),
   signedIn(["POST"], "/api/me/played", statusOf(401, { error: "Signed out" }), { takes: json({ played: listOf(fieldsOf({ slug: text(40), played_at_ms: realNumber(0, Number.MAX_SAFE_INTEGER) }), 1000) }, [], 256 * 1024), ...ownPagesJson("ok") }),
   signedIn(["POST"], "/api/me/played/:slug", statusOf(401, { error: "Signed out" }), { takes: json({}), ...ownPagesJson("ok") }),
-  signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("friend_request_count", "has_friend_request", "has_news") }),
+  signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("waiting_friend_request_count", "accepted_friend_request_count") }),
   open(["GET"], "/api/announcements", { ...jsonAnswer("announcements", "announcement") }),
 
   // A player's saves: the game page writes them, on its own site.

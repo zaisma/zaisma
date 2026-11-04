@@ -9,7 +9,7 @@
 
 import { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS } from "./chat.ts";
 import { DatabaseError, type GameDatabase } from "./database.ts";
-import { answersJson, checkDoor, fieldsOf, gameData, listOf, realNumber, schemaProblems, text as textUpTo, yesOrNo, type DoorBody, type DoorCaller, type DoorContract, type DoorShape } from "./doors.ts";
+import { answersJson, checkDoor, fieldsOf, gameData, listOf, orNothing, realNumber, schemaProblems, text as textUpTo, yesOrNo, type DoorBody, type DoorCaller, type DoorContract, type DoorShape } from "./doors.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PassClaims, PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
@@ -1659,7 +1659,7 @@ export const ROOM_MESSAGE_DOORS = {
           type: textUpTo(40),
           protocolVersionNumber: realNumber(0, Number.MAX_SAFE_INTEGER),
           pass: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT),
-          playerToken: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT),
+          playerToken: orNothing(textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT)),
           joinData: gameData(ROOM_LIMITS.maximumJoinDataSizeBytes * 2),
           room: ASKED_ROOM,
           isSpectator: yesOrNo,
@@ -1700,7 +1700,7 @@ export const ROOM_MESSAGE_DOORS = {
   unblock: roomMessage("room_player", { playerId: PLAYER_ID_SHAPE }, ["playerId"]),
   friend_request: roomMessage("room_player", { playerId: PLAYER_ID_SHAPE }, ["playerId"]),
   "zaisma:purchase": {
-    ...roomMessage("room_player", { purchaseId: textUpTo(1000), receipt: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT) }, ["purchaseId"]),
+    ...roomMessage("room_player", { purchaseId: gameData(4096), receipt: gameData(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT) }),
     reaches: "purchase",
     trusts: ["player_pass", "purchase_receipt"],
   },

@@ -71,34 +71,27 @@ export interface DoorProof {
 }
 
 /**
- * What a door takes or answers, as the small part of JSON Schema Zaisma's schemas use. Written with the helpers below,
- * and every value a door takes has its bound in its type, so "accepts anything" can't be stated. Only a game's own
- * data goes by size alone, at the caps it has.
+ * What a door takes, as the small part of JSON Schema Zaisma's schemas use. Only the helpers below make one, and each
+ * takes its bound, so "accepts anything" can't be stated. Only a game's own data goes by size alone, at the caps it has.
  */
-export type DoorShape =
-  | { type: "string"; maxLength: number; pattern?: string; enum?: readonly string[] }
-  | { type: "integer" | "number"; minimum: number; maximum: number; enum?: readonly number[] }
-  | { type: "boolean" }
-  | { type: "null" }
-  | { type: "array"; items: DoorShape; maxItems: number; minItems?: number }
-  | { type: "object"; properties: Readonly<Record<string, DoorShape>>; required: readonly string[]; additionalProperties: false }
-  | { anyOf: readonly DoorShape[] }
-  /** A game's own data, of any shape: its size only, in characters of its JSON. */
-  | { isGameData: true; maximumSizeBytes: number };
+export type DoorShape = Readonly<Record<string, unknown>> & { readonly [SHAPE_MARK]: true };
+declare const SHAPE_MARK: unique symbol;
+const shapeOf = (schema: Record<string, unknown>) => schema as DoorShape;
 
 const LARGEST_INTEGER = Number.MAX_SAFE_INTEGER;
 
-export const text = (maximumCharacterCount: number, pattern?: string): DoorShape => ({ type: "string", maxLength: maximumCharacterCount, ...(pattern ? { pattern } : {}) });
-export const oneOfWords = (...words: readonly string[]): DoorShape => ({ type: "string", maxLength: Math.max(...words.map((word) => word.length)), enum: words });
-export const integer = (minimum = 0, maximum = LARGEST_INTEGER): DoorShape => ({ type: "integer", minimum, maximum });
-export const realNumber = (minimum: number, maximum: number): DoorShape => ({ type: "number", minimum, maximum });
-export const yesOrNo: DoorShape = { type: "boolean" };
-export const orNothing = (shape: DoorShape): DoorShape => ({ anyOf: [shape, { type: "null" }] });
-export const anyOf = (...shapes: readonly DoorShape[]): DoorShape => ({ anyOf: shapes });
-export const listOf = (items: DoorShape, maximumItemCount: number, minimumItemCount = 0): DoorShape => ({ type: "array", items, maxItems: maximumItemCount, ...(minimumItemCount ? { minItems: minimumItemCount } : {}) });
+export const text = (maximumCharacterCount: number, pattern?: string): DoorShape => shapeOf({ type: "string", maxLength: maximumCharacterCount, ...(pattern ? { pattern } : {}) });
+export const oneOfWords = (...words: readonly string[]): DoorShape => shapeOf({ type: "string", maxLength: Math.max(...words.map((word) => word.length)), enum: words });
+export const integer = (minimum = 0, maximum = LARGEST_INTEGER): DoorShape => shapeOf({ type: "integer", minimum, maximum });
+export const realNumber = (minimum: number, maximum: number): DoorShape => shapeOf({ type: "number", minimum, maximum });
+export const yesOrNo: DoorShape = shapeOf({ type: "boolean" });
+export const anyOf = (...shapes: readonly DoorShape[]): DoorShape => shapeOf({ anyOf: shapes });
+export const orNothing = (shape: DoorShape): DoorShape => anyOf(shape, shapeOf({ type: "null" }));
+export const listOf = (items: DoorShape, maximumItemCount: number, minimumItemCount = 0): DoorShape => shapeOf({ type: "array", items, maxItems: maximumItemCount, ...(minimumItemCount ? { minItems: minimumItemCount } : {}) });
 /** A closed object: these fields and no others, the required ones named. */
-export const fieldsOf = (properties: Readonly<Record<string, DoorShape>>, required: readonly string[] = []): DoorShape => ({ type: "object", properties, required, additionalProperties: false });
-export const gameData = (maximumSizeBytes: number): DoorShape => ({ isGameData: true, maximumSizeBytes });
+export const fieldsOf = (properties: Readonly<Record<string, DoorShape>>, required: readonly string[] = []): DoorShape => shapeOf({ type: "object", properties, required, additionalProperties: false });
+/** A game's own data, of any shape: its size only, in characters of its JSON. */
+export const gameData = (maximumSizeBytes: number): DoorShape => shapeOf({ isGameData: true, maximumSizeBytes });
 
 /** A door's body, when it takes one. maximumSizeBytes is checked before any of it is read; raw bytes go by size alone, and the door reads them itself. */
 export type DoorBody =
@@ -162,7 +155,7 @@ export interface DoorContractFields {
 export type DoorContract = DoorContractFields & ({ whoMayCall: DoorCallerProvenByGuard } | { whoMayCall: DoorCallerProvenByFunction; provenBy: DoorProof });
 
 /** A Worker's rate limit bindings, by level. A self-hosted room has none, and a missing one lets the call through. */
-export type DoorLimitBindings = { [Level in DoorLimitLevel as `LIMIT_${Uppercase<Level>}`]?: { limit(options: { key: string }): Promise<{ success: boolean }> } };
+export type DoorLimitBindings = { [Level in DoorLimitLevel as `LIMIT_${Uppercase<Level>}`]?: RateLimit };
 
 /** Whether a call goes past a level's limit: door's own counter, for one subject. Keys never leave Cloudflare's counter. */
 export async function isPastLevel(env: DoorLimitBindings, level: DoorLimitLevel, counterName: string, subject: string): Promise<boolean> {
@@ -234,6 +227,21 @@ export function schemaProblems(schema: Schema, value: unknown, path = "answer"):
     for (const [name, property] of Object.entries(properties)) if (name in given) out.push(...schemaProblems(property, given[name], `${path}.${name}`));
   }
   return out;
+}
+
+/** Where a value's types and closed fields don't match a schema; what a call behind it allows stays the call's to say, with its own fix. */
+export function typeProblems(schema: Schema, value: unknown, path = "answer"): string[] {
+  if (Array.isArray(schema.anyOf)) {
+    const misses = (schema.anyOf as Schema[]).map((option) => typeProblems(option, value, path));
+    return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
+  }
+  const types = typesOf(schema);
+  const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
+  if (types.length && !types.includes(actual) && !(actual === "integer" && types.includes("number"))) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
+  if (Array.isArray(value) && schema.items) return value.flatMap((item, index) => typeProblems(schema.items as Schema, item, `${path}[${index}]`));
+  if (actual !== "object" || !schema.properties) return [];
+  const properties = schema.properties as Record<string, Schema>;
+  return Object.entries(value as Record<string, unknown>).flatMap(([name, given]) => (properties[name] ? typeProblems(properties[name]!, given, `${path}.${name}`) : schema.additionalProperties === false ? [`${path}.${name}: not in the schema`] : []));
 }
 
 /**

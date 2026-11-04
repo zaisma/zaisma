@@ -54,7 +54,7 @@ import { serveBackground } from "./background.ts";
 
 export interface Env {
   /** What a door's limit runs on (doors.ts): only link addresses and a few of Zaisma's own count, before a player is known. */
-  LIMIT_BUILDING?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  LIMIT_BUILDING?: RateLimit;
   DB: D1Database;
   GAMES: R2Bucket;
   GAME_HOST_MODE: "path" | "subdomain";

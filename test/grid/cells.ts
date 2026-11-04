@@ -16,7 +16,7 @@ export type CellVerdict = "kept" | "broken" | "not_proven";
 
 export interface GridCell {
   door_id: string;
-  caller_kind: CallerKind;
+  caller_kind: CallerKind | ShapeCheckKind;
   cell_verdict: CellVerdict;
   /** What went wrong, in general terms; null when kept. Never a value from the answer. */
   problem_line: string | null;
@@ -111,7 +111,7 @@ export function problemWithAnswer(expected: ExpectedAnswer, door: Pick<SiteDoorF
 }
 
 /** A cell, from why its answer isn't right. The owner's own call failing proves nothing about anyone else, so it's not a hole. */
-export const cellOf = (doorId: string, callerKind: CallerKind, problemLine: string | null): GridCell => ({
+export const cellOf = (doorId: string, callerKind: CallerKind | ShapeCheckKind, problemLine: string | null): GridCell => ({
   door_id: doorId,
   caller_kind: callerKind,
   cell_verdict: problemLine === null ? "kept" : callerKind === "owner" ? "not_proven" : "broken",
@@ -122,4 +122,27 @@ declare module "vitest" {
   interface TaskMeta {
     grid_cells?: GridCell[];
   }
+}
+
+/** What the grid tries besides callers: a request of the wrong shape, and a door past its limit. Each door's own contract says what it should do. */
+export type ShapeCheckKind = "wrong_shape" | "past_limit";
+
+/** A value that can't fit a shape, or undefined when none can be said: a game's own data goes by size alone. */
+export function wrongValueOf(shape: Readonly<Record<string, unknown>>): unknown {
+  if (Array.isArray(shape.anyOf)) {
+    const options = shape.anyOf as Readonly<Record<string, unknown>>[];
+    if (options.some((option) => option.isGameData === true)) return undefined;
+    // An object with a name no option takes: a list, a number and text each have their own option, and none of these is one.
+    return options.some((option) => option.type === "object") ? 12345 : { wrong: true };
+  }
+  if (shape.isGameData === true) return undefined;
+  if (shape.type === "string") return 12345;
+  if (shape.type === "integer" || shape.type === "number") return "not a number";
+  return shape.type === "boolean" || shape.type === "array" || shape.type === "object" ? "not this" : undefined;
+}
+
+/** Text too long for a query's shape, when it has a length: a query's values are all text, so size is what can be wrong. */
+export function tooLongFor(shape: Readonly<Record<string, unknown>>): string | undefined {
+  const lengths = (Array.isArray(shape.anyOf) ? (shape.anyOf as Readonly<Record<string, unknown>>[]) : [shape]).map((option) => option.maxLength);
+  return lengths.every((length) => typeof length === "number") ? "x".repeat(Math.min(Math.max(...(lengths as number[])) + 1, 40_000)) : undefined;
 }

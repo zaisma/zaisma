@@ -7,7 +7,7 @@ import type { Env } from "./env.ts";
  * Only JSON answers: pages, bytes and files have nothing to cut. About 1.5 millionths of a second per KB.
  */
 export async function withDeclaredAnswer(env: Pick<Env, "DB">, response: Response, answer: DoorAnswer, doorId: string, waitUntil?: (promise: Promise<unknown>) => void): Promise<Response> {
-  if (answer.kind !== "json" || !(response.headers.get("content-type") ?? "").includes("application/json")) return response;
+  if (answer.kind !== "json" || !response.ok || !(response.headers.get("content-type") ?? "").includes("application/json")) return response;
   let given: unknown;
   try {
     given = await response.clone().json();

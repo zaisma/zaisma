@@ -64,12 +64,12 @@ export const REAL_PLAYER_COST_CENTS = 15;
 export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / REAL_PLAYER_COST_CENTS));
 
 /** A game's share of the shared database: new joins, passes, plays and saves a minute, per shard of GAME_LIMIT. */
-export const GAME_LIMIT_PLAYERS_PER_SHARD = 25;
+export const GAME_LIMIT_PLAYER_COUNT_PER_SHARD = 25;
 /** So one game tops out at about 400 calls a second, and the shared database keeps room for every other game. */
 export const MAXIMUM_GAME_LIMIT_SHARD_COUNT = 40;
 
 /** A game's shards, which grow with its real players by themselves: nobody asks. */
-export const gameLimitShardCount = (realPlayerCount: number) => Math.min(MAXIMUM_GAME_LIMIT_SHARD_COUNT, 1 + Math.floor(realPlayerCount / GAME_LIMIT_PLAYERS_PER_SHARD));
+export const gameLimitShardCount = (realPlayerCount: number) => Math.min(MAXIMUM_GAME_LIMIT_SHARD_COUNT, 1 + Math.floor(realPlayerCount / GAME_LIMIT_PLAYER_COUNT_PER_SHARD));
 
 /** Games' real player counts this isolate read, for a minute: passes and joins are the busiest thing the shared database does, so this adds only one read a minute. */
 const gameRealPlayerCounts = new Map<string, { realPlayerCount: number; readAtMs: number }>();
@@ -80,7 +80,7 @@ const GAME_LIMIT_READ_INTERVAL_MS = 60_000;
  * subject, so a game with more real players has more room, by itself. Running matches never come here. A database that
  * can't answer lets the call through: this protects the database, and the call will find out for itself.
  */
-export async function isPastGameLimit(env: { GAME_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> } }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
+export async function isPastGameLimit(env: { GAME_LIMIT?: RateLimit }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
   if (!env.GAME_LIMIT) return false;
   let known = gameRealPlayerCounts.get(gameId);
   if (!known || nowMs - known.readAtMs > GAME_LIMIT_READ_INTERVAL_MS) {
@@ -89,10 +89,10 @@ export async function isPastGameLimit(env: { GAME_LIMIT?: { limit(options: { key
     known = { realPlayerCount: row?.real_player_count ?? 0, readAtMs: nowMs };
     gameRealPlayerCounts.set(gameId, known);
   }
-  let subjectHash = 2166136261;
-  for (let index = 0; index < subject.length; index++) subjectHash = Math.imul(subjectHash ^ subject.charCodeAt(index), 16777619);
-  const shard = (subjectHash >>> 0) % gameLimitShardCount(known.realPlayerCount);
-  return !(await env.GAME_LIMIT.limit({ key: `${gameId}:${shard}` })).success;
+  let subjectHashNumber = 2166136261;
+  for (let index = 0; index < subject.length; index++) subjectHashNumber = Math.imul(subjectHashNumber ^ subject.charCodeAt(index), 16777619);
+  const shardIndex = (subjectHashNumber >>> 0) % gameLimitShardCount(known.realPlayerCount);
+  return !(await env.GAME_LIMIT.limit({ key: `${gameId}:${shardIndex}` })).success;
 }
 
 /**

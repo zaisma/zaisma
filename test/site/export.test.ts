@@ -161,6 +161,6 @@ describe("export everything", () => {
     const third = await api("/games/busy-game/export/download", { key: busy, bindings: { LIMIT_VERY_RARE: exportLimit } });
     expect(third.status).toBe(429);
     expect(third.answer.error.code).toBe("slow_down");
-    expect(exportLimit.keys).toEqual(["dev-limit", "dev-limit", "dev-limit"]);
+    expect(exportLimit.keys).toEqual(["export:dev-limit", "export:dev-limit", "export:dev-limit"]);
   });
 });

@@ -645,7 +645,7 @@ describe("signing in", () => {
     }
     expect(statuses).toEqual([400, 400, 400, 400, 400, 429, 429]);
     // Counted by the account, whatever address each try came from.
-    expect(new Set(passwordLimit.keys)).toEqual(new Set([await idOf("Night_Owl")]));
+    expect(new Set(passwordLimit.keys)).toEqual(new Set([`password:${await idOf("Night_Owl")}`]));
   });
 
   it("only sends people back to our own pages", async () => {
@@ -4508,7 +4508,7 @@ describe("download your data", () => {
     expect((await readZip(await b.go("/account/data.zip"))).json("activity.json").events.map((event: { kind: string }) => event.kind)).toContain("account_data_downloaded");
     // Two a minute, shared with Export everything.
     expect((await b.go("/account/data.zip")).status).toBe(429);
-    expect(exportLimit.keys).toEqual([id, id, id]);
+    expect(exportLimit.keys).toEqual([`export:${id}`, `export:${id}`, `export:${id}`]);
   });
 
   it("needs Confirm it's you, like deleting the account", async () => {

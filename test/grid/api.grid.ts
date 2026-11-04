@@ -1,8 +1,9 @@
+import { env } from "cloudflare:test";
 import { afterAll, afterEach, beforeAll, describe, it, vi } from "vitest";
 import { ACCOUNT_AREAS, AREA_ACCESS_BY_LEVEL, AREA_ACCESS_CHOICES, allows, type AreaAccess, type KeyScope } from "@zaisma/core";
-import { API_ROUTES, BANNED_DEVELOPER_ROUTES, type ApiRoute } from "../../apps/site/src/developer.ts";
+import { API_INPUT_SHAPES, API_ROUTES, BANNED_DEVELOPER_ROUTES, type ApiInputName, type ApiRoute } from "../../apps/site/src/developer.ts";
 import { CONFIRMED_ON_A_PAGE, SAMPLES, keyFor, makeCall, nameOf, setUpOwnersCall, useRealServers, useStandInServers, withNothingThere, type Sample, type SiteWorker, type World } from "../site/access-world.ts";
-import { cellOf, problemWithAnswer, type CallAnswer, type CallerKind, type ExpectedAnswer, type GridCell } from "./cells.ts";
+import { cellOf, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type ExpectedAnswer, type GridCell } from "./cells.ts";
 import { SITE, emptyWorlds, keyWithScope, makeWorld, ownersThings, rememberEmptyTables, sessionCookie, showsPrivateValue, useSessions, whileBanned } from "./site-world.ts";
 
 vi.mock("../../apps/site/src/shader-check.ts", async (original) => (await import("./shader-stand-in.ts")).shaderCheckStandIn(await original<object>()));
@@ -47,6 +48,35 @@ describe("every call", () => {
     const keyOf = (scope?: KeyScope) => (scope ? keyWithScope(world.victimAccountId, scope) : keyFor(world.victimAccountId));
 
     await judge("stranger", "refused", await attempt(null));
+
+    // What the call's contract says it takes and how much it can be used: refused before any of its own code runs.
+    const ownersKey = keyOf();
+    const wrongSamples: (typeof asOwner)[] = [];
+    if (apiRoute.body && apiRoute.body !== "bytes" && !sample.bytes) {
+      wrongSamples.push({ ...asOwner, body: { ...(sample.body as object | undefined), zzz_no_such_field: "x" } });
+      for (const name of Object.keys(apiRoute.body.inputs)) {
+        const wrong = wrongValueOf(API_INPUT_SHAPES[name as ApiInputName]);
+        if (wrong === undefined) continue;
+        wrongSamples.push({ ...asOwner, body: { ...(sample.body as object | undefined), [name]: wrong } });
+        break;
+      }
+    }
+    for (const name of Object.keys(apiRoute.query)) {
+      const tooLong = tooLongFor(API_INPUT_SHAPES[name as ApiInputName]);
+      if (tooLong) wrongSamples.push({ ...asOwner, query: { ...sample.query, [name]: tooLong } });
+      if (tooLong) break;
+    }
+    if (!wrongSamples.length) wrongSamples.push({ ...asOwner, query: { ...sample.query, zzz_no_such_field: "x" } });
+    const ownersBefore = await ownersThings(world);
+    const wrongAnswers = [];
+    for (const wrongSample of wrongSamples) wrongAnswers.push(await call(apiRoute, await ownersKey, wrongSample));
+    const wrongPassed = wrongAnswers.find((answer) => answer.httpStatus < 400 || answer.httpStatus >= 500);
+    cells.push(cellOf(doorId, "wrong_shape", (await ownersThings(world)) !== ownersBefore ? "A request of the wrong shape changed something." : wrongPassed ? `Answered ${wrongPassed.httpStatus} to a request of the wrong shape.` : null));
+    if ("level" in apiRoute.limit) {
+      const refusing = { ...env, [`LIMIT_${apiRoute.limit.level.toUpperCase()}`]: { limit: async () => ({ success: false }) } };
+      const past = await makeCall(worker, refusing as typeof env)(apiRoute, await ownersKey, asOwner);
+      cells.push(cellOf(doorId, "past_limit", past.httpStatus === 429 ? null : `Answered ${past.httpStatus} past its limit.`));
+    }
 
     // Another account, by their key and by their session from Zaisma's own pages: nothing of the owner's, as if it weren't there.
     const strangerKey = await keyFor(world.strangerAccountId);

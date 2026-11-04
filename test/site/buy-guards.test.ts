@@ -161,7 +161,8 @@ const confirmed = async () => {
 
 describe("a saved card's receipts (review 14 and 21)", () => {
   it("never takes a receipt address from the browser: a saved card's receipts go to the account's email", async () => {
-    const setup = await player("/api/payment-methods/setup", { body: { receipt_email: "victim@example.com" } });
+    expect((await player("/api/payment-methods/setup", { body: { receipt_email: "victim@example.com" } })).answer.error.code).toBe("unknown_field");
+    const setup = await player("/api/payment-methods/setup", { body: {} });
     expect(setup.answer).toEqual({ setup_intent_id: "seti_test", client_secret: expect.any(String) });
     expect(setupMetadata.receipt_email).toBeUndefined();
     const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test", receipt_email: "victim@example.com" } });
@@ -471,9 +472,9 @@ describe("the rate limit on paying and forgetting the card (review 32)", () => {
     const purchaseId = await started();
     stripeCalls = [];
     const paid = await limited(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, "POST");
-    expect(paid).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["pay:player-1"] });
+    expect(paid).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["purchase:pay:player-1"] });
     const forgotten = await limited("/api/payment-methods/saved", "DELETE");
-    expect(forgotten).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["card:player-1"] });
+    expect(forgotten).toMatchObject({ status: 429, answer: { error: { code: "slow_down" } }, keys: ["purchase:card:player-1"] });
     expect(stripeCalls).toEqual([]);
     expect(await env.DB.prepare("SELECT 1 FROM saved_payment_methods").first()).not.toBeNull();
   });

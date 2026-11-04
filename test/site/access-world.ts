@@ -431,7 +431,7 @@ export function withNothingThere(world: World, sample: Required<Pick<Sample, "pa
   };
 }
 
-export const makeCall = (worker: SiteWorker) => async function call(apiRoute: ApiRoute, key: string | null, sample: Sample & { pathValues: Record<string, string> }, moreHeaders: Record<string, string> = {}) {
+export const makeCall = (worker: SiteWorker, workerEnv = env) => async function call(apiRoute: ApiRoute, key: string | null, sample: Sample & { pathValues: Record<string, string> }, moreHeaders: Record<string, string> = {}) {
   const path = apiRoute.path.replace(/:([a-z0-9_]+)/g, (_, name: string) => encodeURIComponent(sample.pathValues[name]!));
   const query = sample.query ? `?${new URLSearchParams(sample.query)}` : "";
   const isJson = sample.body !== undefined;
@@ -442,7 +442,7 @@ export const makeCall = (worker: SiteWorker) => async function call(apiRoute: Ap
       headers: { ...moreHeaders, ...(key ? { authorization: `Bearer ${key}` } : {}), ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
       body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
     }),
-    env,
+    workerEnv,
     createExecutionContext(),
   );
   // Bytes, then text: a served image is an answer too.

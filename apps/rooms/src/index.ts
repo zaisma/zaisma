@@ -205,7 +205,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "rented_share_used" | "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request" | "no_purchase" | "already_handled" | "handled_by_server";
+type CallErrorCode = "rented_share_used" | "too_big" | "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "zaisma_rooms_not_used" | "bad_report" | "hosting_paused" | "no_player" | "account_needed" | "game_not_open_to_player" | "busy" | "bad_pass" | "bad_room_code" | "bad_server_url" | "unlisted_server" | "bad_request" | "no_purchase" | "already_handled" | "handled_by_server";
 
 /**
  * A room connection turned away before it reaches a room: accepted, told why ({type: "error", code}) and
@@ -281,7 +281,7 @@ const GAME_BUSY = "So many players are joining this game that new ones wait a mo
 function refusedAtDoor(refused: NonNullable<Awaited<ReturnType<typeof guardRoomDoor>>>, request: Request, origin: string | null): Response {
   const cors = origin ?? undefined;
   if (refused === "past_limit") return request.headers.get("upgrade")?.toLowerCase() === "websocket" ? refusedSocket("busy", BUSY_CLOSE_CODE, "Too many connections. Try again in a minute.") : failure("slow_down", SLOW_DOWN, 429, cors);
-  if (refused === "too_big") return failure("bad_request", "That request is too big.", 413, cors);
+  if (refused === "too_big" || (typeof refused === "object" && / over \d+ bytes$/.test(refused.problem))) return failure("too_big", "That request is too big.", 413, cors);
   if (refused === "bad_json") return failure("bad_request", "Send a JSON object.", 400, cors);
   return failure("bad_request", `That request isn't the right shape: ${refused.problem}.`, 400, cors, refused.field);
 }

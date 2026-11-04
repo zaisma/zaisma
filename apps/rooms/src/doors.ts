@@ -1,5 +1,5 @@
 import { REQUEST_LIMITS } from "@zaisma/game-server/internal";
-import { answersJson, bodyProblem, doorPathPattern, isPastLevel, queryProblem, fieldsOf, gameData, listOf, orNothing, text, yesOrNo, type DoorAnswer, type DoorCallerProvenByFunction, type DoorContract, type DoorLimit, type DoorLimitBindings, type DoorReach, type DoorShape, type DoorTakes, type DoorTrust } from "@zaisma/core";
+import { answersJson, bodyProblem, doorPathPattern, isPastLevel, queryProblem, gameData, listOf, orNothing, text, yesOrNo, type DoorAnswer, type DoorCallerProvenByFunction, type DoorContract, type DoorLimit, type DoorLimitBindings, type DoorReach, type DoorShape, type DoorTakes, type DoorTrust } from "@zaisma/core";
 
 /**
  * Every address on rooms.zaisma.com (docs/DOORS.md). The rooms Worker's fetch finds the row before anything else
@@ -20,8 +20,6 @@ const SLUG = text(40);
 const PASS = text(96 * 1024);
 const ROOM_KEY = text(100);
 const TESTER = { tester: text(40) };
-/** Reports carry up to REPORTED_CHAT_LIMITS' lines; this is only the outer wall. */
-const REPORTED_LINE = fieldsOf({ fromPlayerId: text(100), text: text(4000), sentAt: text(40) });
 
 /** An answer's top level, closed, with each field the shape it's sent in. */
 const answerOf = (fields: Record<string, unknown>) => answersJson({ type: "object", properties: fields, required: Object.keys(fields), additionalProperties: false });
@@ -113,7 +111,7 @@ export const ROOM_ADDRESS_DOORS: readonly RoomAddressDoor[] = [
     "isGameOrigin",
     "room",
     ["game_origin", "player_pass"],
-    jsonBody({ gameSlug: SLUG, reason: text(100), roomCode: text(40), playerId: text(100), playerName: text(200), details: text(4000), chatMessages: listOf(REPORTED_LINE, 1000) }, ["gameSlug"], 4 * 1024 * 1024),
+    jsonBody({ gameSlug: SLUG, reason: text(100), roomCode: text(40), playerId: text(100), playerName: text(200), details: text(4000), chatMessages: gameData(4 * 1024 * 1024) }, ["gameSlug"], 4 * 1024 * 1024),
     answerOf({ isReported: JSON_FLAG }),
     BY_ADDRESS,
   ),

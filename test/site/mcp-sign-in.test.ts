@@ -282,7 +282,7 @@ describe("registration", () => {
     const ip = "10.3.3.3";
     for (let i = 0; i < 10; i++) expect((await registerApp(undefined, ip, { LIMIT_RARE: registerLimit })).status).toBe(201);
     expect((await registerApp(undefined, ip, { LIMIT_RARE: registerLimit })).status).toBe(429);
-    expect(new Set(registerLimit.keys)).toEqual(new Set([ip]));
+    expect(new Set(registerLimit.keys)).toEqual(new Set([`register:${ip}`]));
     // Another address has its own count.
     expect((await registerApp(undefined, "10.3.3.4", { LIMIT_RARE: registerLimit })).status).toBe(201);
   });

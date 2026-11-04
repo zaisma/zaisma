@@ -212,7 +212,7 @@ describe("script policy reports", () => {
       expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, LIMIT_STEADY: reportLimit }, context)).status).toBe(204);
       await waitOnExecutionContext(context);
     }
-    expect(new Set(reportLimit.keys)).toEqual(new Set(["192.0.2.250"]));
+    expect(new Set(reportLimit.keys)).toEqual(new Set(["csp_report:192.0.2.250"]));
     expect(await env.DB.prepare("SELECT occurrence_count FROM blocked_scripts").first()).toEqual({ occurrence_count: 30 });
   });
 

@@ -1,4 +1,4 @@
-import { ApiError, cutUndeclared, noteAnswerCut, schemaProblems, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { ApiError, cutUndeclared, noteAnswerCut, typeProblems, CONTROLS, DEVICES, GENRES, MAXIMUM_GENRE_COUNT, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, TOOL_ANSWER_SCHEMAS, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
@@ -2187,8 +2187,8 @@ export function checkArguments(tool: Pick<Tool, "name" | "inputSchema">, toolArg
     if (toolArguments[key] !== undefined) continue;
     throw new ApiError("missing_field", { message: `${tool.name} needs ${key}.`, field: key, fix: `Add ${key}${properties[key]?.description ? `: ${properties[key]!.description}` : ""}.` });
   }
-  // The rest of the tool's shape, before any of its own code runs (docs/DOORS.md).
-  const [problem] = schemaProblems(tool.inputSchema, toolArguments, "arguments");
+  // The types of what it's given, before any of its own code runs (docs/DOORS.md): what's allowed inside them is the call's to say, with its own fix.
+  const [problem] = typeProblems(tool.inputSchema, toolArguments, "arguments");
   if (problem) throw new ApiError("wrong_shape", { message: `The arguments aren't the right shape: ${problem}.`, fix: "The tool's input schema (tools/list) says what each argument takes. Change it and call again." });
 }
 

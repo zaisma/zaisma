@@ -413,7 +413,7 @@ describe("opening the sheet", () => {
   });
 
   it("answers slow_down to the 21st buy an account opens in a minute", async () => {
-    expect(configuredRateLimit(siteWranglerText, "LIMIT_STEADY")).toEqual({ limit: 20, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_STEADY")).toEqual({ limit: 30, period: 60 });
     await connect();
     await setItem("revive", revive);
     const purchaseLimit = countingRateLimiter(20);

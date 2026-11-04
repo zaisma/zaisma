@@ -843,11 +843,11 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "PUT", path: "/games/:slug/backgrounds/:screen", answers: fromTool("set_background"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", screen: "plain" }, body: { inputs: plainInputs("source", "image_id", "shader_id") } }),
   // Which of these files still need sending: it only answers hashes, so the list is plain.
   call({ method: "POST", path: "/check", answers: fromTool("check_game"), reaches: "nothing_private", access: anyKey, body: { inputs: { files: plain, slug: naming("game") }, maximumSizeBytes: MAXIMUM_CHECK_BODY_SIZE_BYTES } }),
-  call({ method: "POST", path: "/games/:slug/uploads", answers: fieldsAnswer("missing_file_hashes", "next_steps"), reaches: "game", access: needs("version_access", "upload"), isPublishing: true, pathParts: atGame, body: { inputs: plainInputs("files"), maximumSizeBytes: 4 * 1024 * 1024 } }),
-  call({ method: "PUT", path: "/files/:sha256", answers: fieldsAnswer("sha256", "size_bytes", "is_stored", "is_new", "next_steps"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: "bytes" }),
-  call({ method: "POST", path: "/files/:sha256/parts", answers: fieldsAnswer("upload_id", "part_size_bytes", "uploaded_parts", "next_steps"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("size_bytes") } }),
-  call({ method: "PUT", path: "/files/:sha256/parts/:part_number", answers: fieldsAnswer("part_number", "etag", "size_bytes", "next_steps"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash", part_number: "plain" }, query: plainInputs("upload_id"), body: "bytes" }),
-  call({ method: "POST", path: "/files/:sha256/parts/done", answers: fieldsAnswer("sha256", "size_bytes", "is_stored", "next_steps"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
+  call({ method: "POST", path: "/games/:slug/uploads", answers: fieldsAnswer("file_count", "size_bytes", "missing_file_hashes", "next_steps"), reaches: "game", access: needs("version_access", "upload"), isPublishing: true, pathParts: atGame, body: { inputs: plainInputs("files"), maximumSizeBytes: 4 * 1024 * 1024 } }),
+  call({ method: "PUT", path: "/files/:sha256", answers: fieldsAnswer("sha256", "storage_status"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: "bytes" }),
+  call({ method: "POST", path: "/files/:sha256/parts", answers: fieldsAnswer("sha256", "storage_status", "upload_id", "part_size_bytes", "part_count"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("size_bytes") } }),
+  call({ method: "PUT", path: "/files/:sha256/parts/:part_number", answers: fieldsAnswer("part_number", "etag"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash", part_number: "plain" }, query: plainInputs("upload_id"), body: "bytes" }),
+  call({ method: "POST", path: "/files/:sha256/parts/done", answers: fieldsAnswer("sha256", "storage_status"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
   call({
     method: "POST",
     path: "/games/:slug/versions",
@@ -935,9 +935,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
     access: needs("forum_access", "write"),
     body: { inputs: { ...plainInputs("kind", "title", "category", "tags", "is_public", ...FORUM_POST_INPUTS), game_slug: naming("game"), known_issue_topic_id: naming("forum_topic") }, maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES },
   }),
-  call({ method: "GET", path: "/forum/similar", answers: fieldsAnswer("topics", "similar_topics"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text") }),
+  call({ method: "GET", path: "/forum/similar", answers: fieldsAnswer("topics"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text") }),
   call({ method: "GET", path: "/forum/people", answers: fromTool("forum_people"), reaches: "nothing_private", access: needs("forum_access", "read"), query: { name_prefix: plain, topic_id: naming("forum_topic") } }),
-  call({ method: "POST", path: "/forum/media", answers: fieldsAnswer("media_id", "url", "markdown", "media"), reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
+  call({ method: "POST", path: "/forum/media", answers: answersJson({ type: "object" }), reaches: "account", access: needs("forum_access", "write"), body: "bytes" }),
   call({ method: "GET", path: "/forum/:topic_id", answers: fromTool("get_topic"), reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic" }, query: plainInputs("post_selection") }),
   // reply_to_post_id and answer_post_id are posts in the path's topic, which the forum finds there alone.
   call({ method: "POST", path: "/forum/:topic_id/posts", answers: fromTool("reply_to_topic"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic" }, body: { inputs: plainInputs("reply_to_post_id", "reopen", ...FORUM_POST_INPUTS), maximumSizeBytes: MAXIMUM_FORUM_POST_BODY_SIZE_BYTES } }),
@@ -953,8 +953,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/bookmark", answers: fromTool("bookmark_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   // Deprecated: /rating replaces /helpful, which goes 90 days after this shipped.
-  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("post_id", "is_helpful", "helpful_count", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
-  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", answers: fieldsAnswer("post_id", "is_helpful", "helpful_count", "next_steps"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", answers: answersJson({ type: "object" }), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
+  call({ method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", answers: answersJson({ type: "object" }), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" } }),
   call({ method: "POST", path: "/forum/:topic_id/posts/:post_id/report", answers: fromTool("report_post"), reaches: "forum_topic", access: needs("forum_access", "write"), pathParts: { topic_id: "forum_topic", post_id: "in_forum_topic" }, body: { inputs: plainInputs("reason", "details"), maximumSizeBytes: 8 * 1024 } }),
   call({ method: "GET", path: "/forum/:topic_id/media/:media_id", answers: ANSWERS_BYTES, reaches: "forum_topic", access: needs("forum_access", "read"), pathParts: { topic_id: "forum_topic", media_id: "in_forum_topic" } }),
   // A public profile, the same as any game gets with no key at all.
@@ -1098,13 +1098,6 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
     checked.body = await readJson(request, body.maximumSizeBytes, body.isOptional);
     closedBody(checked.body, Object.keys(body.inputs));
   }
-  // The shape of everything sent, before any of the call's own code runs (docs/DOORS.md).
-  const queryRefusal = queryProblem(inputShapes(apiRoute.query), checked.query);
-  if (queryRefusal) throw wrongShape(queryRefusal);
-  if (body && body !== "bytes") {
-    const bodyRefusal = bodyProblem(inputShapes(body.inputs), [], checked.body);
-    if (bodyRefusal) throw wrongShape(bodyRefusal);
-  }
   const inputs: [string, ApiInput, unknown][] = [
     ...Object.entries(apiRoute.query).map(([name, input]): [string, ApiInput, unknown] => [name, input, checked.query.get(name) ?? undefined]),
     ...Object.entries(body && body !== "bytes" ? body.inputs : {}).map(([name, input]): [string, ApiInput, unknown] => [name, input, checked.body[name]]),
@@ -1118,6 +1111,13 @@ async function checkCall(request: Request, env: Env, path: string, apiRoute: Api
       field: name,
       fix: `Leave ${name} out: ${input.withoutIt}. To send it, the developer makes a key with ${input.area} ${input.choice} on zaisma.com/dashboard/settings; keys can't be made through the API.`,
     });
+  }
+  // The shape of everything sent, before any of the call's own code runs (docs/DOORS.md).
+  const queryRefusal = queryProblem(inputShapes(apiRoute.query), checked.query);
+  if (queryRefusal) throw wrongShape(queryRefusal);
+  if (body && body !== "bytes") {
+    const bodyRefusal = bodyProblem(inputShapes(body.inputs), [], checked.body);
+    if (bodyRefusal) throw wrongShape(bodyRefusal);
   }
   for (const [name, input, given] of inputs) {
     if (input.kind !== "names") continue;

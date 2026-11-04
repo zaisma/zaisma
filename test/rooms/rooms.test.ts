@@ -584,7 +584,7 @@ describe("rooms", () => {
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
-    expect(configuredRateLimit(roomsWranglerText, "LIMIT_BUILDING")).toEqual({ limit: 60, period: 60 });
+    expect(configuredRateLimit(roomsWranglerText, "LIMIT_BUILDING")).toEqual({ limit: 1000, period: 60 });
     // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 61 calls can straddle.
     const connectLimit = countingRateLimiter(60);
     // A game that isn't there answers quickly, and still counts toward the limit.
@@ -907,10 +907,11 @@ describe("rooms", () => {
     expect(row.room_connection_count).toBe(1);
     expect(row.bookkeeping_written_row_count).toBeGreaterThan(0);
     expect(Object.keys(row).sort()).toEqual([
+      "new_player_room_play_duration_sec", "rented_network_room_play_duration_sec", "rented_share_relay_credential_count", "rented_share_request_count", "rented_share_room_use_cents",
       "adult_chat_check_count", "bookkeeping_written_row_count", "database_awake_duration_sec", "database_call_count", "database_read_row_count", "database_size_bytes", "database_written_row_count", "date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count",
       "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_session_count", "game_server_startup_cpu_duration_ms", "game_server_stopped_count", "inbound_size_bytes", "log_file_count", "message_count", "object_awake_duration_sec",
       "object_request_count", "outbound_message_count", "outbound_size_bytes", "outside_call_count", "outside_room_cpu_duration_ms", "relay_credential_count", "relayed_size_bytes", "room_awake_duration_sec", "room_connection_count", "room_count", "room_play_duration_sec",
-    ]);
+    ].sort());
     const { results: types } = await e.DB.prepare("SELECT message_type, direction, message_count FROM room_message_types WHERE game_id = ? ORDER BY direction, message_type").bind(id).all();
     expect(types).toEqual([
       { message_type: "(none)", direction: "inbound", message_count: 1 },

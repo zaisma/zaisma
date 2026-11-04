@@ -211,6 +211,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
 export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|_(id|ids|sha256|hash|key|token|code|status|kind|level|mode|band|choice|via|access|date)$|^who_/;
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
+  "door_answer_cuts.door_id",
+  "door_answer_cuts.field_paths",
   // A game's own review status and reason, kept only to put back on the game (a bring-back).
   "game_deletions.review_status_before", "game_deletions.review_reason_before",
   // Choices from fixed lists.

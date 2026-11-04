@@ -1,4 +1,4 @@
-import { ANSWERS_FILE, ANSWERS_PAGE, ANSWERS_REDIRECT, TAKES_NOTHING, integer, text, type DoorContract, type DoorLimit, type DoorTakes } from "@zaisma/core";
+import { ANSWERS_FILE, ANSWERS_PAGE, ANSWERS_REDIRECT, TAKES_NOTHING, text, type DoorContract, type DoorLimit, type DoorTakes } from "@zaisma/core";
 
 /**
  * Every kind of address on the game domain (docs/DOORS.md). All of them are GET and HEAD, and all go through serve,
@@ -38,14 +38,14 @@ const PUBLIC: DoorContract = { whoMayCall: "anyone", reaches: "nothing_private",
 const OPEN_THROUGH_LINK = { source_path: "apps/games/src/index.ts", symbol_name: "openThroughLink" };
 /** A link's grant and where to go after it. */
 const ENTERING: DoorTakes = { query: { grant: text(200), then: text(2000) }, body: null };
-const BEFORE_A_PLAYER: DoorLimit = { level: "building", counts: "address" };
+const BY_ADDRESS: DoorLimit = { level: "building", counts: "address" };
 
 export const GAME_FILE_DOORS: Readonly<Record<GameFileDoorName, DoorContract>> = {
   file: { ...PUBLIC, takes: { query: { room: text(40) }, body: null } },
-  preview_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BEFORE_A_PLAYER },
-  tester_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BEFORE_A_PLAYER },
-  "_zaisma/enter": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BEFORE_A_PLAYER },
-  "_zaisma/entered": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BEFORE_A_PLAYER },
+  preview_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BY_ADDRESS },
+  tester_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BY_ADDRESS },
+  "_zaisma/enter": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BY_ADDRESS },
+  "_zaisma/entered": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BY_ADDRESS },
   "_zaisma/background": PUBLIC,
   "_zaisma/background.json": PUBLIC,
   "_zaisma/background.glsl": PUBLIC,
@@ -57,10 +57,10 @@ export const GAME_FILE_DOORS: Readonly<Record<GameFileDoorName, DoorContract>> =
   "_zaisma/relay.js": PUBLIC,
   "_zaisma/picture.js": PUBLIC,
   "_zaisma/performance.js": PUBLIC,
-  "_zaisma/saves.js": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: BEFORE_A_PLAYER },
-  "_zaisma/restore": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_PAGE, limit: BEFORE_A_PLAYER },
-  "_zaisma/warm": { ...PUBLIC, answers: ANSWERS_PAGE, takes: { query: { version_id: text(100), maximum_start_size_bytes: integer() }, body: null } },
-  "_zaisma/warm.json": { ...PUBLIC, takes: { query: { version_id: text(100), maximum_start_size_bytes: integer() }, body: null } },
+  "_zaisma/saves.js": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: BY_ADDRESS },
+  "_zaisma/restore": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_PAGE, limit: BY_ADDRESS },
+  "_zaisma/warm": { ...PUBLIC, answers: ANSWERS_PAGE, takes: { query: { version_id: text(100), maximum_start_size_bytes: text(40) }, body: null } },
+  "_zaisma/warm.json": { ...PUBLIC, takes: { query: { version_id: text(100), maximum_start_size_bytes: text(40) }, body: null } },
   "_zaisma/warm.js": PUBLIC,
   "_zaisma/warm-redirects.json": PUBLIC,
 };
