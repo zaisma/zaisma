@@ -102,7 +102,7 @@ async function logDeletedWorld(env: Env, caller: Caller, game: Game, code: strin
 
 async function bringBack(env: Env, game: Game, code: string, erasesAtMs: number | null, caller: Caller, nowMs: number): Promise<[unknown, number?]> {
   checkWaiting(game, code, erasesAtMs, nowMs);
-  const { bringBackOutcome } = await env.GAME_ROOMS!.bringBackKeptRoom({ gameId: game.id, slug: game.slug, roomCode: code });
+  const { bringBackOutcome } = env.GAME_ROOMS ? await env.GAME_ROOMS.bringBackKeptRoom({ gameId: game.id, slug: game.slug, roomCode: code }) : { bringBackOutcome: "no_room" as const };
   if (bringBackOutcome === "failed") throw noAnswer();
   if (bringBackOutcome === "no_room") {
     await env.DB.prepare("DELETE FROM kept_rooms WHERE game_id = ? AND room_code = ?").bind(game.id, code).run();
