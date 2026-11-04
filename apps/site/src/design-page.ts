@@ -189,7 +189,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-buttons { margin-left: auto; }
 /* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. */
 .gallery-screens { margin-left: auto; }
-.gallery-screens + .gallery-buttons { margin-left: 0; }
+@media (min-width: 761px) { .gallery-screens + .gallery-buttons { margin-left: 0; } }
 @media (max-width: 760px) { .gallery-screens { display: none; } }
 /* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
 @media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
