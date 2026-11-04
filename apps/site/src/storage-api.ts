@@ -222,7 +222,7 @@ export async function deleteOwnGame(env: Env, game: Game, body: Record<string, u
   return deletedAnswer(erasesAtMs);
 }
 
-/** What a game waiting out its week has: its deletion, or a refusal when it isn't waiting or Zaisma's own step came since. */
+/** A waiting game's deletion, or a refusal when it isn't waiting or its week is over. */
 async function waitingDeletionOf(env: Env, game: Game, nowMs: number) {
   const deletion = await gameDeletionOf(env.DB, game.id);
   if (deletion?.erases_at_ms == null) throw new ApiError("not_waiting_to_erase", { message: `${game.slug} isn't deleted and waiting to be erased.`, field: "slug", fix: "get_game says erases_at for a game that is." });
