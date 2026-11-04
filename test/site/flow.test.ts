@@ -1014,7 +1014,7 @@ describe("pages", () => {
     expect(home).toContain('<header class="top bar-layout glass');
     const foot = home.slice(home.indexOf('<footer class="foot glass'));
     for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
-      expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
+      expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&").replace(/ (?=[^ ]+$)/, " (?:<[^>]+>)?")}`));
     // Off a developer page the developer tabs are folded away, out of reach.
     expect(home).toContain('<a class="flush-row quiet foldable folded" data-lights href="/developers" tabindex="-1" aria-hidden="true">');
     // A legal page doesn't know who's looking: its header says Sign in.

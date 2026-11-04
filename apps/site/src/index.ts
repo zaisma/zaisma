@@ -9,6 +9,8 @@ import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
+import { isLocalSite } from "./html.ts";
+import { playingNowAnswer } from "./live-world.ts";
 import { withDeclaredAnswer } from "./answers.ts";
 import { siteDoorAt } from "./doors.ts";
 import { guardSiteDoor } from "./guard.ts";
@@ -108,6 +110,12 @@ async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): P
   if (path === "/csp-reports") return method === "POST" ? recordBlockedScripts(request, env) : new Response("Method not allowed", { status: 405 });
   const speedReport = await handleSpeedReports(request, env, path);
   if (speedReport) return speedReport;
+  // Public and the same for everyone, for the live world on the sign-in pages.
+  if (path === "/api/playing-now" && (method === "GET" || method === "HEAD")) {
+    // The local preview can show any count: /signin?preview_players=640.
+    const previewPlayerCount = isLocalSite(env) ? Number(url.searchParams.get("preview_players")) || null : null;
+    return Response.json(await playingNowAnswer(env, Date.now(), previewPlayerCount), { headers: { "Cache-Control": previewPlayerCount === null ? "public, max-age=30" : "no-store" } });
+  }
   const developer = await handleDeveloper(request, env, path, ctx);
   if (developer) return developer;
   // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).

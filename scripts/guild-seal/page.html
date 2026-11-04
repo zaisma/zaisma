@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- The guild seal on its own, for scripts/guild-seal.mjs to render: the drawing (drawing.js), and the two timelines the videos are made from. -->
+<html lang="en"><head><meta charset="utf-8"><title>Guild seal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&display=swap">
+<style>
+html,body{margin:0;background:transparent}
+#stage{position:relative;width:100vw;height:100vh;overflow:hidden;--a:#d3a860;--b:#6d5230;--c:#17120c;--d:#1d1710;--o:#d3a860}
+.seal-stack{position:relative;width:100%;height:100%}
+.seal-stack svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+#glint{position:absolute;inset:0;border-radius:50%;pointer-events:none;background:linear-gradient(115deg,transparent 42%,rgba(255,240,205,.5) 50%,transparent 58%);background-size:300% 100%;background-position:120% 0;mix-blend-mode:soft-light}
+</style></head><body><div id="stage"><div id="host" style="height:100%"></div><div id="glint"></div></div>
+<script src="drawing.js"></script><script>
+var host = document.getElementById("host"), glint = document.getElementById("glint"), live = [], seed = 7;
+var SOFT = "cubic-bezier(.2,.8,.2,1)", OVER = "cubic-bezier(.3,1.5,.5,1)";
+var q = function (s) { return [].slice.call(host.querySelectorAll(s)); };
+// The same sparks on every render, so a video changes only when the drawing does.
+var random = function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+function A(el, kf, o) { var a = el.animate(kf, { fill: o.fill || "both", easing: o.easing || SOFT, delay: o.delay || 0, duration: o.duration || 400, iterations: o.iterations || 1, direction: o.direction || "normal" }); a.pause(); live.push(a); return a; }
+function draw(el, delay, dur) { el.setAttribute("pathLength", "1"); el.style.strokeDasharray = "1 1"; A(el, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { delay: delay, duration: dur, easing: "cubic-bezier(.45,.05,.3,1)" }); }
+function sweep(list, start, span, fn) { list.forEach(function (el, i) { fn(el, start + i / list.length * span); }); }
+function fadeIn(el, delay, dur) { A(el, [{ opacity: 0 }, { opacity: 1 }], { delay: delay, duration: dur || 160 }); }
+function pop(el, delay, dur) { el.style.transformBox = "fill-box"; el.style.transformOrigin = "center"; A(el, [{ opacity: 0, transform: "scale(.1)" }, { opacity: 1, transform: "scale(1)" }], { delay: delay, duration: dur || 300, easing: OVER }); }
+function ringPulse(s, delay) { A(q(".seal-base")[0], [{ transform: "scale(1)" }, { transform: "scale(" + s + ")", offset: .25 }, { transform: "scale(1)" }], { delay: delay, duration: 420, easing: "ease-out", fill: "none" }); }
+function sparks(x, y, count, power, delay) {
+  var root = host.querySelector(".seal-top > g");
+  for (var i = 0; i < count; i++) {
+    var t = -Math.PI * (.04 + .92 * random()), sp = power * (30 + random() * random() * 170), dx = Math.cos(t) * sp, dy = Math.sin(t) * sp, l = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    l.setAttribute("d", "M" + x + " " + y + "l" + (Math.cos(t) * (5 + random() * 10)).toFixed(1) + " " + (Math.sin(t) * (5 + random() * 10)).toFixed(1));
+    l.setAttribute("stroke", "var(--a)"); l.setAttribute("stroke-width", (.8 + random() * 1.6).toFixed(1)); l.setAttribute("stroke-linecap", "round"); l.style.opacity = 0; root.appendChild(l);
+    A(l, [{ transform: "translate(0,0)", opacity: 1 }, { transform: "translate(" + dx * .7 + "px," + dy * .72 + "px)", opacity: 1, offset: .5 }, { transform: "translate(" + dx + "px," + (dy * .7 + 70 * power) + "px)", opacity: 0 }], { delay: delay, duration: 520 + random() * 560, easing: "cubic-bezier(.15,.7,.4,1)", fill: "none" });
+  }
+}
+// The hammer swings on its own foot, lands, and everything answers it. A blow holds a piece only while it lasts.
+function strike(delay, angle, power) {
+  var hit = delay + 620;
+  A(q(".s-hammer")[0], [{ transform: "rotate(0deg)" }, { transform: "rotate(-16deg)", offset: .3, easing: "cubic-bezier(.5,0,.9,.5)" }, { transform: "rotate(" + angle + "deg)", offset: .56, easing: "ease-out" }, { transform: "rotate(" + (angle - 7) + "deg)", offset: .66, easing: "ease-in" }, { transform: "rotate(" + (angle - 1) + "deg)", offset: .74, easing: SOFT }, { transform: "rotate(0deg)" }], { delay: delay, duration: 1100, easing: "ease-in-out", fill: "none" });
+  sparks(-34, 4, Math.round(14 + 24 * power), .7 + .6 * power, hit);
+  q(".s-arm").forEach(function (a) { var s = +a.dataset.side; a.style.transformOrigin = "0px 79px"; A(a, [{ transform: "rotate(0deg)" }, { transform: "rotate(" + s * -3 + "deg)" }, { transform: "rotate(0deg)" }], { delay: hit, duration: 320, easing: "ease-out", fill: "none" }); });
+  A(q(".s-anvil")[0], [{ transform: "translateY(0)" }, { transform: "translateY(2.5px)", offset: .2 }, { transform: "translateY(0)" }], { delay: hit, duration: 260, easing: "ease-out", fill: "none" });
+  ringPulse(1 + .003 * (1 + power), hit);
+}
+function reset() { live.forEach(function (a) { a.cancel(); }); live = []; seed = 7; host.innerHTML = window.zSeal(); }
+// The seal being made, once: rim, words, frame, oak, block and anvil, tools, then three blows.
+function forging() {
+  reset();
+  q(".s-face").forEach(function (e) { fadeIn(e, 0, 300); });
+  [[".s-r0", 0, 700], [".s-r1", 120, 700], [".s-r2", 420, 650], [".s-r3", 520, 650], [".s-r4", 1000, 620], [".s-r5", 1120, 620], [".s-r6", 1520, 560], [".s-r7", 1620, 560]].forEach(function (r) { q(r[0]).forEach(function (e) { draw(e, r[1], r[2]); }); });
+  sweep(q(".s-pearl"), 150, 880, function (e, d) { pop(e, d, 260); });
+  sweep(q(".s-tick-out"), 540, 700, function (e, d) { fadeIn(e, d, 90); });
+  sweep(q(".s-tick-in").reverse(), 1040, 640, function (e, d) { fadeIn(e, d, 90); });
+  sweep(q(".s-tooth"), 1240, 560, function (e, d) { fadeIn(e, d, 70); });
+  var chars = q(".s-char");
+  sweep(chars.slice(0, 16), 1250, 700, function (e, d) { A(e, [{ fillOpacity: 0 }, { fillOpacity: 1 }], { delay: d, duration: 200 }); });
+  sweep(chars.slice(16), 1500, 620, function (e, d) { A(e, [{ fillOpacity: 0 }, { fillOpacity: 1 }], { delay: d, duration: 200 }); });
+  q(".s-mark").forEach(function (e, i) { e.style.transformBox = "fill-box"; e.style.transformOrigin = "center"; A(e, [{ opacity: 0, transform: "rotate(-120deg) scale(.2)" }, { opacity: 1, transform: "rotate(0) scale(1)" }], { delay: 1700 + i * 80, duration: 620, easing: OVER }); });
+  q(".s-frame").forEach(function (e, i) { draw(e, 1950 + i * 140, 820); });
+  q(".s-framecut").forEach(function (e) { fadeIn(e, 2700, 200); });
+  sweep(q(".s-bead"), 2150, 620, function (e, d) { pop(e, d, 220); });
+  q(".s-fieldback").forEach(function (e) { fadeIn(e, 2300, 500); });
+  q(".s-diaper").forEach(function (e) { e.style.transformBox = "fill-box"; A(e, [{ clipPath: "circle(0% at 50% 50%)" }, { clipPath: "circle(72% at 50% 50%)" }], { delay: 2500, duration: 1000, easing: "cubic-bezier(.3,.1,.3,1)" }); });
+  q(".s-stem").forEach(function (e, i) { draw(e, 2750 + Math.floor(i / 2) * 130, 620); });
+  q(".s-leaf").forEach(function (e, i) { var c = Math.floor(i / 6), o = +e.dataset.order, side = i % 2 ? 1 : -1; A(e, [{ opacity: 0, transform: "rotate(" + side * -58 + "deg) scale(.04,.02)" }, { opacity: 1, transform: "rotate(" + side * -20 + "deg) scale(.55,.3)", offset: .45 }, { transform: "rotate(" + side * 6 + "deg) scale(1.06,1.08)", offset: .8 }, { opacity: 1, transform: "rotate(0deg) scale(1,1)" }], { delay: 2850 + c * 130 + o * 150 + random() * 50, duration: 760, easing: "ease-out" }); });
+  q(".s-acorn").forEach(function (e, i) { A(e, [{ opacity: 0, transform: "scale(.1)" }, { opacity: 1, transform: "scale(1.14)", offset: .7 }, { transform: "scale(1)" }], { delay: 3400 + Math.floor(i / 2) * 130, duration: 520, easing: "ease-out" }); });
+  A(q(".s-block")[0], [{ opacity: 0, transform: "scaleY(.05)" }, { opacity: 1, transform: "scaleY(1)" }], { delay: 3350, duration: 460, easing: OVER });
+  A(q(".s-anvil")[0], [{ opacity: 0, transform: "translateY(-46px)" }, { opacity: 1, transform: "translateY(-46px)", offset: .05 }, { transform: "translateY(-46px)", offset: .72 }, { transform: "translateY(0)", offset: .9, easing: "ease-in" }, { transform: "translateY(-5px)", offset: .95 }, { transform: "translateY(0)" }], { delay: 3500, duration: 1350, easing: "cubic-bezier(.6,0,.9,.4)" });
+  q(".s-anvil .s-line").forEach(function (e) { draw(e, 3500, 620); });
+  q(".s-anvil .s-fill").forEach(function (e) { fadeIn(e, 3950, 240); });
+  sweep(q(".s-anvil .s-cuts path"), 4080, 320, function (e, d) { fadeIn(e, d, 60); });
+  q(".s-anvil .s-detail").forEach(function (e) { fadeIn(e, 4200, 200); });
+  var landed = 3500 + 1350 * .9; sparks(-90, 190, 10, .5, landed); sparks(90, 190, 10, .5, landed); ringPulse(1.006, landed);
+  q(".s-discback").forEach(function (e) { fadeIn(e, 4300, 300); });
+  q(".s-disc").forEach(function (e, i) { draw(e, 4300 + i * 160, 640); });
+  sweep(q(".s-cut"), 4500, 520, function (e, d) { fadeIn(e, d, 80); });
+  sweep(q(".s-sundot"), 4700, 420, function (e, d) { pop(e, d, 180); });
+  A(q(".s-handle")[0], [{ opacity: 0, transform: "scaleY(.02)" }, { opacity: 1, transform: "scaleY(1)" }], { delay: 4550, duration: 480 });
+  A(q(".s-head")[0], [{ opacity: 0, transform: "translateY(-50px)" }, { opacity: 1, transform: "translateY(-50px)", offset: .35 }, { transform: "translateY(0)", offset: .75, easing: "ease-in" }, { transform: "translateY(-7px)", offset: .87 }, { transform: "translateY(0)" }], { delay: 4800, duration: 640, easing: "ease-in" });
+  A(q(".s-tongs")[0], [{ opacity: 0, transform: "rotate(16deg)" }, { opacity: 1, transform: "rotate(0deg)" }], { delay: 4650, duration: 560 });
+  q(".s-arm").forEach(function (a) { var s = +a.dataset.side; a.style.transformOrigin = "0px 79px"; A(a, [{ transform: "rotate(" + s * -20 + "deg)" }, { transform: "rotate(" + s * -20 + "deg)", offset: .5 }, { transform: "rotate(" + s * 3 + "deg)", offset: .8, easing: "ease-in" }, { transform: "rotate(0deg)" }], { delay: 4650, duration: 860, easing: "ease-in" }); });
+  q(".s-rivet").forEach(function (e) { pop(e, 4780, 240); });
+  q(".s-armcuts").forEach(function (e) { fadeIn(e, 5100, 200); });
+  var first = 5350, gap = 1000;
+  [0, 1, 2].forEach(function (i) { var el = q('.z-shard[data-i="' + i + '"]')[0]; el.style.transformBox = "fill-box"; el.style.transformOrigin = "center"; A(el, [{ opacity: 0, transform: "scale(1.14)" }, { opacity: 1, transform: "scale(1)" }], { delay: first + i * gap + 620, duration: 190, easing: "ease-out" }); strike(first + i * gap, 44, [.3, .5, 1][i]); });
+  q(".s-ray").forEach(function (r, i) { var wavy = r.classList.contains("is-wavy"); r.style.transformOrigin = "0px 118px"; A(r, [{ opacity: 0, transform: "scaleY(.02)" }, { opacity: 1, transform: "scaleY(1.16)", offset: .6 }, { transform: "scaleY(1)" }], { delay: first + 2 * gap + 620 + i * 16, duration: wavy ? 620 : 470, easing: "cubic-bezier(.2,.9,.3,1)" }); });
+  return 9300;
+}
+// The seal at rest, a loop whose last frame is its first: the sun turns one ray's pair, the oak sways, the light crosses, the hammer falls once.
+function resting() {
+  reset();
+  var L = 8000;
+  A(q(".rays")[0], [{ transform: "rotate(0deg)" }, { transform: "rotate(" + 360 / 14 + "deg)" }], { duration: L, easing: "linear", iterations: Infinity });
+  q(".s-leaf").forEach(function (e, i) { var side = i % 2 ? 1 : -1; A(e, [{ transform: "rotate(0deg)" }, { transform: "rotate(" + side * 2 + "deg)", offset: .25 }, { transform: "rotate(0deg)", offset: .5 }, { transform: "rotate(" + side * -2 + "deg)", offset: .75 }, { transform: "rotate(0deg)" }], { delay: 0, duration: L / 2, easing: "ease-in-out", iterations: Infinity }); });
+  A(glint, [{ backgroundPosition: "120% 0" }, { backgroundPosition: "120% 0", offset: .1 }, { backgroundPosition: "-40% 0", offset: .7 }, { backgroundPosition: "-40% 0" }], { duration: L, easing: "ease-in-out", iterations: Infinity });
+  strike(2600, 44, .5);
+  return L;
+}
+window.guildSeal = {
+  forging: forging, resting: resting,
+  still: function () { reset(); glint.style.display = "none"; },
+  seek: function (ms) { live.forEach(function (a) { a.currentTime = ms; }); return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(done); }); }); },
+  isFontReady: function () { return document.fonts.load('40px "IM Fell English SC"').then(function () { return document.fonts.check('40px "IM Fell English SC"'); }); }
+};
+</script></body></html>

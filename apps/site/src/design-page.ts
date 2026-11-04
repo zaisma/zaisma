@@ -1,7 +1,7 @@
 import type { Env } from "./env.ts";
 import { SPECULATION_RULES_PATH } from "./prepared-pages.ts";
 import { checkedPageTag, headScriptTags, html, isLocalSite, pageData, raw, scriptTags, securityHeaders, styleTags, stylesAppliedTag, type Raw } from "./html.ts";
-import { CITY_SCRIPT } from "./components/city.ts";
+import { LIVE_WORLD_SCRIPT } from "./components/live-world.ts";
 import { pageStyle } from "./page-styles.ts";
 import { examplePage } from "./example-page.ts";
 import { pageScript, type PageScript } from "./page-scripts.ts";
@@ -91,7 +91,7 @@ function head(title: string, group: ComponentGroup, scripts: PageScript[] = []):
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preload" href="/fonts/jost.7726a5cd.woff2" as="font" type="font/woff2" crossorigin>
 ${styleTags(DESIGN_STYLE)}
-${headScriptTags(FIRST_PAINT_SCRIPT, LOOK_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(CITY_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
+${headScriptTags(FIRST_PAINT_SCRIPT, LOOK_SCRIPT, COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}${group === "foundations" ? scriptTags(LIVE_WORLD_SCRIPT) : ""}${group === "foundations" || group === "actions" || group === "panes" ? scriptTags(STAND_IN_BACKGROUNDS_SCRIPT) : ""}${scripts.length ? scriptTags(...scripts) : ""}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -489,6 +489,21 @@ export const GALLERY_SCRIPT = pageScript(
     if (event.target.closest && event.target.closest("[data-setting-hue]")) window.zaismaSettings.set({ glass: { hueColor: event.detail.colorValue || null } }, stage);
   });
   pickTheme(stage.dataset.themeChoice === "dark" ? "dark" : "light");
+  // Motion's moment: each step moves a real piece at its own token and says so. Pressing Play again starts it over.
+  document.querySelectorAll("[data-motion-stage]").forEach(function (motionStage) {
+    var now = motionStage.querySelector("[data-motion-now]"), arrivingTag = motionStage.querySelector("[data-motion-tag]"), play = motionStage.querySelector("[data-motion-play]"), timers = [];
+    var tabs = motionStage.querySelectorAll(".tab-switch button"), wrap = play.closest(".run-wrap") || play;
+    function step(afterMs, words, move) { timers.push(setTimeout(function () { now.textContent = words; move(); }, afterMs)); }
+    play.addEventListener("click", function () {
+      timers.forEach(clearTimeout); timers = [];
+      step(150, "A press sinks in place.", function () { wrap.classList.add("is-pressed"); });
+      step(550, "And comes back up.", function () { wrap.classList.remove("is-pressed"); });
+      step(1200, "A slab glides to its tab.", function () { tabs[1].click(); });
+      step(2300, "Something arrives.", function () { arrivingTag.classList.add("is-arrived"); });
+      step(3500, "It leaves faster than it came.", function () { arrivingTag.classList.remove("is-arrived"); });
+      step(4500, "The slab glides back. Press Play.", function () { tabs[0].click(); });
+    });
+  });
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
     var win = play.querySelector(".glass-window"), grip = win.querySelector(".glass-grip"), readout = win.querySelector(".glass-size");
     var MIN_W = 64, MIN_H = 40;

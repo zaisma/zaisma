@@ -133,8 +133,10 @@ describe("the site's script files", () => {
     const putInWhenPrepared = ["when-opened"];
     // Only the gallery's Over a game pages and their frames load these.
     const onlyOverAGame = ["over-a-game-start", "over-a-game-show", "over-a-game"];
+    // The background's first-paint script asks for this one itself, when the browser hasn't kept it yet.
+    const askedForByTheBackground = ["zaisma-shader"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));
-    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name) && !putInWhenPrepared.includes(name) && !onlyOverAGame.includes(name))).toEqual([]);
+    expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name) && !putInByScreens.includes(name) && !putInWhenPrepared.includes(name) && !onlyOverAGame.includes(name) && !askedForByTheBackground.includes(name))).toEqual([]);
   });
 });
 

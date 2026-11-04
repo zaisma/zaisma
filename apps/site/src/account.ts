@@ -115,7 +115,7 @@ import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
 import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { html, layout, message, pageData, raw, scriptTags, type Raw } from "./html.ts";
-import { cityPane, cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
+import { liveWorldPane, liveWorldStage, WORLD_PANE_SCRIPT, LIVE_WORLD_SCRIPT } from "./components/live-world.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
@@ -842,14 +842,14 @@ const USERNAME_SCRIPT = pageScript("username-check", `(() => {
   const input = document.getElementById("username-box"), status = document.getElementById("username-status"), box = document.getElementById("username-suggestions");
   if (!input || !status || !box) return;
   let timer = null, asked = input.value.trim();
-  // In the city's look (a template of a secondary button to copy, and the field's own hint and error lines), or the account page's.
+  // In the live world's look (a template of a secondary button to copy, and the field's own hint and error lines), or the account page's.
   const template = document.getElementById("username-suggestion");
   const show = (text, kind) => {
     status.textContent = text;
     if (template) { status.className = kind === "bad" ? "field-error" : "field-hint"; if (kind === "bad") status.setAttribute("role", "alert"); else status.removeAttribute("role"); }
     else status.className = "hint" + (kind ? " " + kind : "");
   };
-  // In the city's look the suggestions are a row (layout.ts): each one a copy of the template's cell, its button named for it.
+  // In the live world's look the suggestions are a row (layout.ts): each one a copy of the template's cell, its button named for it.
   const row = box.querySelector(".layout-row") || box;
   const suggest = (names) => {
     row.replaceChildren();
@@ -917,22 +917,21 @@ interface SignInPageOptions {
 }
 
 /**
- * Signing in and making an account, and every step between: one glass pane over the city (docs/DECISIONS.md, "Signing in happens
- * in the city, on every device"), with only the logo above it.
+ * Signing in and making an account, and every step between: one glass pane over the live world (docs/DECISIONS.md, "Signing in happens * in the live world, on every device"), with only the logo above it.
  */
 function signInPage(env: Env, title: string, items: LayoutItem[], options: SignInPageOptions): Response {
-  // Every step allows the bot check, since each can swap in the next one's in place (CITY_PANE_SCRIPT).
+  // Every step allows the bot check, since each can swap in the next one's in place (WORLD_PANE_SCRIPT).
   const hasTurnstileCheck = Boolean(env.TURNSTILE_SITE_KEY);
   const response = layout(env, {
     title: `${title} · Zaisma`,
-    stage: cityStage(),
+    stage: liveWorldStage(),
     isBare: true,
     checkedPage: options.checkedPage,
     pageShape: "full",
     isPrivate: true,
     hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: cityPane({ header: header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true }), label: title, body: stack({ items }), after: html`${options.scripts ?? ""}${scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}` }),
+    body: liveWorldPane({ header: header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true }), label: title, body: stack({ items }), after: html`${options.scripts ?? ""}${scriptTags(LIVE_WORLD_SCRIPT, WORLD_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}` }),
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });
 }
@@ -959,13 +958,13 @@ const signInSwitch = (current: "signin" | "join", next: string | null) =>
   });
 
 /**
- * The guest way, at the pane's foot: Continue as guest, home; or, when a game asked, back to it as a guest, closing this tab
+ * The guest way, at the pane's foot: Play as a guest, home; or, when a game asked, back to it as a guest, closing this tab
  * (BACK_TO_GAME_SCRIPT) so the game carries on in its own. After an "or" of its own unless the ways in above already had one.
  */
 function guestItems(game: Game | null | undefined, hasOr = true): LayoutItem[] {
   const button: LayoutItem = game
     ? { kind: "block", markup: html`<div data-back>${tertiaryButton(`Back to ${game.title} as a guest`, { href: `/g/${game.slug}?play`, hasArrow: true, isFullWidth: true })}</div>` }
-    : { kind: "control", markup: tertiaryButton("Continue as guest", { href: "/", hasArrow: true, isFullWidth: true }) };
+    : { kind: "control", markup: tertiaryButton("Play as a guest", { href: "/", hasArrow: true, isFullWidth: true }) };
   return [...(hasOr ? [{ kind: "words" as const, markup: html`<p class="or">or</p>` }] : []), button];
 }
 
@@ -983,7 +982,7 @@ const providerButtons = (providers: Provider[], next: string | null) =>
 type EntryView = "signin" | "join";
 
 /**
- * Sign in and Make an account are one pane with both in it: the switch swaps them in place (ENTRY_SWITCH_SCRIPT), so the city
+ * Sign in and Make an account are one pane with both in it: the switch swaps them in place (ENTRY_SWITCH_SCRIPT), so the world
  * carries on behind, and the address follows. Each is its own address too, so a link or a page without the script opens the right one.
  */
 async function entryPage(env: Env, current: EntryView, next: string | null, given: { signinError?: string; login?: string; ageError?: string; via?: Provider; httpStatus?: number } = {}): Promise<Response> {
@@ -1052,7 +1051,7 @@ const JOIN_TODAY_SCRIPT = pageScript("join-today", `(() => {
 // Sign in and Make an account swap in place: the other view shows, the switch's slab slides to it, and the address and title follow
 // (back and forward too). Anything but a plain click (a new tab, a modifier) goes to its own address as a link does.
 const ENTRY_SWITCH_SCRIPT = pageScript("entry-switch", `(() => {
-  const sw = document.querySelector(".city-pane .tab-switch");
+  const sw = document.querySelector(".world-pane .tab-switch");
   const views = [...document.querySelectorAll("[data-entry-view]")];
   if (!sw || views.length < 2) return;
   const tabs = [...sw.querySelectorAll(":scope > a")];
@@ -1119,7 +1118,7 @@ async function codePage(env: Env, email: string, next: string | null, error?: st
     confirm: html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.`,
     email: html`We sent a code to <strong>${email}</strong>. Enter it to add the email to your account.`,
   }[kind];
-  // Signing in with a code is a step of signing in, so it's in the city; confirming and adding an email are the account page's.
+  // Signing in with a code is a step of signing in, so it's in the live world; confirming and adding an email are the account page's.
   if (kind === "signin") {
     const game = await askingGame(env, next);
     return signInPage(
@@ -1294,7 +1293,7 @@ interface JoinGiven {
 const botCheck = (env: Env, action: TurnstileAction) => (env.TURNSTILE_SITE_KEY ? html`<input type="hidden" name="turnstile_token"><div data-bot-check="${action}" data-site-key="${env.TURNSTILE_SITE_KEY}"></div>` : "");
 
 /**
- * The username, in the city's look: what it says as it's typed (free, taken, why not) under it, and free ones close
+ * The username, in the live world's look: what it says as it's typed (free, taken, why not) under it, and free ones close
  * to it to tap, a row of small buttons (USERNAME_SCRIPT, which copies the template's cell for each). The server says the same when the form
  * comes back, so it works without the script.
  */

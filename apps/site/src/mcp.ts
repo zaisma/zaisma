@@ -277,6 +277,15 @@ export const TOOLS: Tool[] = [
     run: (_, call) => call("GET", "/games"),
   },
   {
+    name: "get_playing_now",
+    title: "See who's playing on Zaisma",
+    description: "Everyone playing on Zaisma right now, the same public number the sign-in page shows: the total of every game's playing-now count, with the busiest listed games. A game's own count is null below 3 players.",
+    inputSchema: object({}),
+    outputSchema: answer({ playing_now_player_count: countOf("Everyone playing on Zaisma now."), busiest_games: list(object({ slug, title: { type: "string", description: "The game's name." }, cover_url: { type: ["string", "null"], description: "Its cover, or null." }, playing_now_player_count: { type: ["integer", "null"], description: "People playing it now, or null below 3." } }, ["slug", "title", "cover_url", "playing_now_player_count"])) }),
+    annotations: read,
+    run: (_, call) => call("GET", "/playing-now"),
+  },
+  {
     name: "create_game",
     title: "Make a game",
     description: "Make a new game. It starts as a draft only you can see. The link name comes from the title unless you give one. Until the beta, only accounts Zaisma adds can make games: others get publishing_not_open (get_access says can_publish).",

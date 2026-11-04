@@ -5,6 +5,7 @@ import { ACCOUNT_LINK_SCRIPT, CUTOUT_SIDE_SCRIPT, FOLLOWING_FILES_SCRIPT, HIDDEN
 import { COMPONENTS } from "./component.ts";
 import { BACKDROP_SCRIPT, EDGE_LIGHT_SCRIPT, GLASS_SCRIPT, PAGE_SWITCH_SCRIPT, PICTURE_SCRIPT, TOKEN_STYLES, WATCH_SCRIPT } from "./foundations.ts";
 import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
+import { GUILD_SEAL_SCRIPT } from "./guild-seal.ts";
 import { CHECK_SCRIPT, CHOICE_CARDS_SCRIPT, COLOR_FIELD_SCRIPT, COPY_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, PIN_FIELD_SCRIPT, SEARCH_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT, WHEEL_SCRIPT, TYPING_BAR_SCRIPT } from "./inputs.ts";
 import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, HEADER_FIT_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, SCROLL_FADE_SCRIPT, SIDEBAR_SCRIPT } from "./navigation.ts";
 import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
@@ -27,9 +28,9 @@ import "./screens.ts";
 import "./waiting.ts";
 // A game's page while it plays: the bar beside the game and the cards over it.
 import "./playing.ts";
-// The city defines its gallery entry as it loads; its script is its own (CITY_SCRIPT), loaded only by the pages on it, but for where its
-// pane sits on a phone, which is part of the first paint (CITY_PANE_PLACE_SCRIPT).
-import { CITY_PANE_PLACE_SCRIPT } from "./city.ts";
+// The live world defines its gallery entry as it loads; its script is its own (LIVE_WORLD_SCRIPT), loaded only by the pages on it, but for where its
+// pane sits on a phone, which is part of the first paint (WORLD_PANE_PLACE_SCRIPT).
+import { WORLD_PANE_PLACE_SCRIPT } from "./live-world.ts";
 
 /*
  * The components, bundled for the pages: importing this module defines every one of them (each group file
@@ -150,6 +151,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   // A game's shader frame fades in once it has drawn: listening from the start, as its runner can say so before the page's files run.
   firstPaintPiece("shown-once-drawn", SHOWN_ONCE_DRAWN_SCRIPT, /data-shows-once-drawn/),
   firstPaintPiece("switches", SWITCH_SCRIPT, /\btab-switch\b/),
+  firstPaintPiece("guild-seal", GUILD_SEAL_SCRIPT, /\bguild-seal-video\b/),
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
   firstPaintPiece("started-low", STARTED_LOW_SCRIPT, /\bis-started-low\b/),
   // Where a pane hangs from its button: a wheel or a colour field makes its floating pane as it's wired.
@@ -159,7 +161,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("long-fields", LONG_FIELD_SCRIPT, /data-long-field/),
   firstPaintPiece("sliders", SLIDER_SCRIPT, /data-slider/),
   firstPaintPiece("color-fields", COLOR_FIELD_SCRIPT, /data-color-field/),
-  firstPaintPiece("city-pane", CITY_PANE_PLACE_SCRIPT, /data-city-pane|\bcity-stage\b/),
+  firstPaintPiece("world-pane", WORLD_PANE_PLACE_SCRIPT, /data-world-pane|\bworld-stage\b/),
   firstPaintPiece("account-link", ACCOUNT_LINK_SCRIPT, /data-account-from-cookie/),
   firstPaintPiece("hidden-amounts", HIDDEN_AMOUNTS_SCRIPT, /data-amount/),
 ];

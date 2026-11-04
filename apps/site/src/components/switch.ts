@@ -1,10 +1,10 @@
-import { action, ICON_ROOM_WIDTH, type ListedIcon } from "./actions.ts";
+import { action, ICON_ROOM_WIDTH, primaryButton, type ListedIcon } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, glassPane, icon, tag, well, type IconName } from "./foundations.ts";
 import { stack } from "./layout.ts";
-import { HEADER_RAIL_MEDIA } from "./tokens.ts";
+import { HEADER_RAIL_MEDIA, tokenValue } from "./tokens.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -630,17 +630,52 @@ component({
 
 
 // Motion sits with the switch, whose slab shows it, so it can use the real one (foundations.ts can't import this file).
+const MOTIONS: { token: string; use: string }[] = [
+  { token: "--motion-press", use: "a press sinking" },
+  { token: "--motion-state", use: "a state fading, and anything leaving" },
+  { token: "--motion-page-switch", use: "moving to the next page" },
+  { token: "--motion-arrive", use: "a layer arriving" },
+  { token: "--motion-glide", use: "a slab gliding, a size changing" },
+  { token: "--motion-settle", use: "a flare settling" },
+  { token: "--motion-world", use: "a game's world fading in" },
+  { token: "--motion-loop", use: "a light looping" },
+  { token: "--motion-loop-slow", use: "a slower light looping" },
+  { token: "--ease-standard", use: "easing in and out, with no overshoot" },
+  { token: "--ease-glide", use: "starting fast and settling" },
+  { token: "--ease-leave", use: "gathering speed on the way out" },
+  { token: "--ease-spring", use: "swinging a little past its place and back" },
+  { token: "--spring", use: "the same spring, by its short name" },
+];
+
 component({
   name: "Motion",
   slug: "motion",
   group: "foundations",
   subgroup: "look",
-  summary: "Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.",
-  styles: "",
+  summary: "Things move only when pointed at, pressed or chosen, each at one of these times on one of these curves; nothing times itself. Anything leaving goes faster than it came. Reduced motion stops all of it.",
+  styles: `
+/* Motion: one small moment on a stage, played by its button (GALLERY_SCRIPT), saying each motion as it happens. */
+.motion-stage { display: grid; gap: var(--gap-block-block); width: 100%; }
+.motion-now { margin: 0; font: var(--type-label); color: var(--ink); }
+.motion-tag { display: block; opacity: 0; transform: translateY(-8px); transition: opacity var(--motion-state) var(--ease-leave), transform var(--motion-state) var(--ease-leave); }
+.motion-tag.is-arrived { opacity: 1; transform: none; transition: opacity var(--motion-arrive) var(--ease-glide), transform var(--motion-arrive) var(--ease-glide); }
+@media (prefers-reduced-motion: reduce) { .motion-tag { transition: none; transform: none; } }
+`,
   examples: [
     {
-      label: "Choose a tab: the slab springs across",
-      markup: html`<div style="width:min(380px,100%)">${tabSwitch({ label: "Motion", switchSize: "big", tabs: [{ label: "Spring 0.55s", isCurrent: true }, { label: "Choose me", isCurrent: false }] })}</div>`,
+      label: "One moment, each motion named as it happens",
+      isWide: true,
+      markup: html`<div class="motion-stage" data-motion-stage>${glassPane({ paneWidth: "full", body: stack({ items: [
+        { kind: "words", markup: html`<p class="motion-now" data-motion-now>Press Play.</p>` },
+        { kind: "control", markup: tabSwitch({ label: "Motion", switchSize: "big", tabs: [{ label: "Here", isCurrent: true }, { label: "There", isCurrent: false }] }) },
+        { kind: "block", markup: html`<span class="motion-tag" data-motion-tag>${tag("Saved", "new")}</span>` },
+        { kind: "control", markup: primaryButton("Play", { type: "button", dataAttributes: { "motion-play": "" } }) },
+      ] }) })}</div>`,
+    },
+    {
+      label: "Every time and every curve",
+      isWide: true,
+      markup: html`<ul class="type-sample">${MOTIONS.map(({ token, use }) => html`<li><code class="words-margin">${token}: ${tokenValue(token.slice(2))}</code><p class="is-muted" style="font:var(--type-note)">${use}</p></li>`)}</ul>`,
     },
   ],
 });

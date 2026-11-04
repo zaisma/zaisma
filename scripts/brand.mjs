@@ -25,12 +25,6 @@ const Z_SHARDS = [
   [[415.6, 3484.54], [2523.65, 1440.22], [3772.16, 945.05], [1949.08, 2877.19]],
   [[835.12, 1305.06], [899.94, 721.38], [4047.84, 721.38], [2575.7, 1305.06]],
 ];
-// His small cut (brand/zaisma-mark-small-black.svg), thicker, for 32 px and under.
-const Z_SMALL_SHARDS = [
-  [[1887.28, 2962.39], [4086.07, 2962.39], [4286.72, 3778.62], [0, 3778.62]],
-  [[471.95, 3302.71], [2449.22, 1427.02], [3492.34, 1012.36], [1950.97, 2719.65]],
-  [[2486.31, 1242.1], [1001.78, 1242.1], [1092.39, 721.38], [3675.01, 721.38]],
-];
 // The letters "aisma" (brand/zaisma-wordmark-black.svg), each one or more rings of straight lines; a second ring is a hole (or the i's dot).
 const LETTERS = [
   "M4957,1879 L5877,1879 L6132,3779 L5212,3779 L4837,3449 L4765,2909 L5051,2579 L5601,2579 L5557,2249 L4677,2249 Z M5140,2949 L5650,2949 L5712,3409 L5202,3409 Z",
@@ -238,7 +232,7 @@ function iconSvg(theme, { isRounded = true, zShare = 1 } = {}) {
   return svgFile("0 0 100 100", body);
 }
 
-/* The favicon: the icon with the small cut in three flat tones per shard (face, lit and shaded), light or dark with the browser. */
+/* The favicon: the icon with the Z in three flat tones per shard (face, lit and shaded), light or dark with the browser. */
 
 function faviconSvg() {
   const tones = {
@@ -248,14 +242,14 @@ function faviconSvg() {
   // At 16 to 32 px a bevel needs to be wider than a pixel to show.
   const bevelUnits = 250, depth = MARK_LOOK.depth;
   let shapes = "";
-  for (const ring of Z_SMALL_SHARDS) {
+  for (const ring of Z_SHARDS) {
     const [normals] = outwardNormals([ring]);
     ring.forEach((a, index) => {
       const b = ring[(index + 1) % ring.length], normal = normals[index];
       if (normal[0] * depth[0] + normal[1] * depth[1] > 0) shapes += `<polygon class="shade" points="${pointsOf([a, b, [b[0] + depth[0], b[1] + depth[1]], [a[0] + depth[0], a[1] + depth[1]]], 0)}"/>`;
     });
   }
-  for (const ring of Z_SMALL_SHARDS) {
+  for (const ring of Z_SHARDS) {
     const [normals] = outwardNormals([ring]), inset = insetRing(ring, normals, bevelUnits);
     ring.forEach((a, index) => {
       const b = ring[(index + 1) % ring.length], facing = normals[index][0] * LIGHT[0] + normals[index][1] * LIGHT[1];
@@ -276,7 +270,7 @@ function faviconSvg() {
 
 // The card is 190 by 99.75 units, drawn at 1200 by 630.
 const CARD_WIDTH = 190, CARD_HEIGHT = 99.75;
-// The Relay's heights in the city (apps/site/src/components/city.ts), drawn RELAY_DRAWN_HEIGHT units tall from its feet to its tips.
+// The Relay's heights, drawn RELAY_DRAWN_HEIGHT units tall from its feet to its tips.
 const RELAY_FOOT_Y = 9.25, RELAY_TIP_Y = 168, CAPSTONE_BOTTOM_Y = 180, CAPSTONE_TOP_Y = 193;
 const RELAY_DRAWN_HEIGHT = 10, RELAY_SCALE = RELAY_DRAWN_HEIGHT / (RELAY_TIP_Y - RELAY_FOOT_Y);
 const RELAY_FOOT = [131, 33], RELAY_AXIS = [Math.sin(GRID_ROLL_RAD), -Math.cos(GRID_ROLL_RAD)];

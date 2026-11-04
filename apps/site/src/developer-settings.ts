@@ -1,4 +1,5 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
+import { guildSeal } from "./components/guild-seal.ts";
 import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
@@ -517,6 +518,7 @@ function proPane(settings: Settings): LayoutItem {
   const { pro, storage } = settings;
   const isPro = pro.plan === "pro";
   const items: LayoutItem[] = [
+    block(html`<div class="guild-seal-place">${guildSeal({ sealSize: "large", isForging: true })}</div>`),
     block(keyDetails({ details: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", detailValue: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro gives you more storage and performance checks for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
@@ -605,14 +607,14 @@ function paymentsPane(settings: Settings): LayoutItem {
   }
   const rows: ListRow[] = [];
   if (!stripe.can_take_payments) {
-    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: opens(action("openStripe", "Finish on Stripe"), "payments-finish") });
+    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: secondaryButton("Finish setting up", { type: "button", isSmall: true, controls: "payments-finish", wayIn: "stripe" }) });
     items.push(layer(tapSheet("payments-finish", "Finish on Stripe?", "Tap your passkey, then finish setting up your account on Stripe's page.", `${PAGE}/payments/connect`, "Continue to Stripe")));
   }
   rows.push(
     {
       title: stripe.business_name ?? "No seller name yet",
       detail: `${stripe.support_email ?? "No support email"} · ${stripe.country_code ?? ""} · ${(stripe.default_currency_code ?? "").toUpperCase()}`,
-      action: secondaryButton(action("openStripe", "Change on Stripe"), { href: "https://dashboard.stripe.com/settings/account", isSmall: true }),
+      action: secondaryButton("Account settings", { href: "https://dashboard.stripe.com/settings/account", isSmall: true, wayIn: "stripe" }),
     },
     { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens(action("change"), "payments-tax") },
     ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: visibilityButton({ show: "Show amounts", hide: "Hide amounts" }, { type: "button", isSmall: true, isContentHidden: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
@@ -632,7 +634,7 @@ function paymentsPane(settings: Settings): LayoutItem {
     ),
     layer(askSheet("payments-disconnect", "Disconnect Stripe?", "Players can't buy in any of your games until you connect again. Past sales stay.", `${PAGE}/payments/disconnect`, "Disconnect")),
   );
-  return settingsPane("payments", "Payments", items, { end: secondaryButton(action("openStripe"), { href: "https://dashboard.stripe.com", isSmall: true }) });
+  return settingsPane("payments", "Payments", items, { end: secondaryButton("Dashboard", { href: "https://dashboard.stripe.com", isSmall: true, wayIn: "stripe" }) });
 }
 
 /* ---- Webhooks ---- */

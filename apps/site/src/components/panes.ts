@@ -2,7 +2,8 @@ import { html, raw, type Raw, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
 import "./materials.ts";
-import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
+import { tokenValue } from "./tokens.ts";
+import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, leavesZaisma, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { gameKeyDetails, listRows, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
 import { action, cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton, type ListedIcon } from "./actions.ts";
@@ -41,7 +42,7 @@ export interface DropdownChoice {
   id?: string;
   /** Not shown for now: a page script shows it (Keep your progress, once there's progress to keep). Arrow keys skip it. */
   isHidden?: boolean;
-  /** A link that opens in a new tab, so the page it's on keeps running (the rules from beside a running game): it ends in the out-of-the-page arrow. */
+  /** A page of Zaisma's that opens in a new tab, so the page it's on keeps running (the rules from beside a running game). Another site's address opens one by itself. Either way it ends in the out-of-the-page arrow. */
   isNewTab?: boolean;
   /** data-* attributes a page's script reads ({ report: "" } is data-report=""), names in lowercase words joined by dashes. */
   dataAttributes?: Record<string, string>;
@@ -67,14 +68,15 @@ export const DROPDOWN_TICK = html`<span class="dropdown-tick">${icon("check")}</
  * It's a menu item the arrow keys move between.
  */
 function dropdownChoice(choice: DropdownChoice): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}${choice.isCurrent ? DROPDOWN_TICK : ""}`;
+  const isNewTab = choice.isNewTab || leavesZaisma(choice.href);
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span class="one-line">${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${isNewTab ? html`<span class="dropdown-out" aria-hidden="true">${icon("out-of-page")}</span>` : ""}${choice.isCurrent ? DROPDOWN_TICK : ""}`;
   const dataMarkup = choice.dataAttributes ? html`${Object.entries(choice.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
   const shared = html` class="${DROPDOWN_CHOICE_CLASS}${choice.state ? ` ${choice.state}` : ""}"${raw(' role="menuitem" tabindex="-1" data-lights')} data-cut-line="8"${choice.id ? html` id="${choice.id}"` : ""}${choice.isHidden ? raw(" hidden") : ""}${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   if (choice.action !== undefined) return html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`;
   if (choice.confirmSheetId !== undefined) return html`<button type="button" aria-controls="${choice.confirmSheetId}"${shared}>${inside}</button>`;
   if (choice.controls !== undefined) return html`<button type="button" aria-controls="${choice.controls}"${dataMarkup}${shared}>${inside}</button>`;
   if (choice.isButton) return html`<button type="button"${dataMarkup}${shared}>${inside}</button>`;
-  return html`<a href="${choice.href ?? "#"}"${choice.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${dataMarkup}${shared}>${inside}</a>`;
+  return html`<a href="${choice.href ?? "#"}"${isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${dataMarkup}${shared}>${inside}</a>`;
 }
 
 export interface DropdownOptions {
@@ -2204,6 +2206,17 @@ component({
 // picks (or of itself), "pad" inside it.
 const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
 const spacingPane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(body) });
+const onPhoneToo = (tokenName: string) => tokenValue(tokenName, "phone") === tokenValue(tokenName) ? tokenValue(tokenName) : `${tokenValue(tokenName)} (${tokenValue(tokenName, "phone")} on a phone)`;
+/** The tokens a worked example can't show alone, each with what it's for. */
+const SPACING_OTHERS: { token: string; use: string }[] = [
+  { token: "--gap-control-row-boxes", use: "the same gap as two slanted boxes' overlap: the layout's, never set by hand" },
+  { token: "--gap-words-beside-control", use: "words beside a control, so they line up with the pane's words" },
+  { token: "--pad-words", use: "how much further in a pane's words sit than its edged things: set by the pane, nothing outside one" },
+  { token: "--pad-inside-words", use: "words inside something with an edge (a field, a row, a table's cell), so they line up with the pane's words" },
+  { token: "--pad-tray", use: "a compact material's words: a menu, a compact sheet, a small bar" },
+  { token: "--pad-frame-compact", use: "what has an edge, in a compact material" },
+  { token: "--pad-icon", use: "the room either side of a button's icon" },
+];
 component({
   name: "Spacing",
   slug: "spacing",
@@ -2220,36 +2233,41 @@ component({
 `,
   examples: [
     {
-      label: "Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: 4px",
+      label: `Between the slants of two controls side by side (their boxes overlap by --control-slant less this), and the edge rule's neighbor distance: ${tokenValue("gap-control-row")}`,
       markup: spacingExample("--gap-control-row", html`<div data-spacing-show="gap" data-spacing-of=".layout-row">${row({ widths: "fit", items: [{ kind: "control", markup: primaryButton(action("play"), { type: "button" }) }, { kind: "control", markup: secondaryButton("Details", { type: "button" }) }] })}</div>`),
     },
     {
-      label: "Two controls stacked: 8px",
+      label: `Two controls stacked: ${tokenValue("gap-control-stack")}`,
       markup: spacingExample("--gap-control-stack", spacingPane(html`<div class="edge-stack" data-spacing-show="gap">${secondaryButton(action("settings"), { type: "button", isFullWidth: true })}${secondaryButton("Account", { type: "button", isFullWidth: true })}${secondaryButton(action("signOut"), { type: "button", isFullWidth: true })}</div>`)),
     },
     {
-      label: "A control and the words that belong to it: 8px",
+      label: `A control and the words that belong to it: ${tokenValue("gap-words-control")}`,
       markup: spacingExample("--gap-words-control", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".cut-field">${cutField({ id: "spacing-username", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "off" })}</div>`)),
     },
     {
-      label: "Words beside or under words in one block, an icon and its word: 8px",
+      label: `Words beside or under words in one block, an icon and its word: ${tokenValue("gap-words-words")}`,
       markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".key-details">${gameKeyDetails({ playerCount: 1204, playedAtMs: Date.now() - 2 * 60 * 60_000 })}</div>`)),
     },
     {
-      label: "Two blocks, here two labeled fields in a pane: 24px",
+      label: `Two blocks, here two labeled fields in a pane: ${tokenValue("gap-block-block")}`,
       markup: spacingExample("--gap-block-block", html`<div data-spacing-show="gap" data-spacing-of=".layout-stack">${spacingPane(stack({ items: [{ kind: "control", markup: cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" }) }, { kind: "control", markup: cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" }) }] }))}</div>`),
     },
     {
-      label: "A pane's edge and anything with an edge of its own (a button, a field, a cover, a table): the frame gap, 12px (10px on a phone)",
+      label: `A pane's edge and anything with an edge of its own (a button, a field, a cover, a table): the frame gap, ${onPhoneToo("pad-frame")}`,
       markup: spacingExample("--pad-frame", html`<div data-spacing-show="pad" data-spacing-of=".pane-in">${spacingPane(primaryButton(action("signIn"), { type: "button", isFullWidth: true }))}</div>`),
     },
     {
-      label: "A pane's edge and its words: 24px (18px on a phone), --pad-words further in than the frame gap",
+      label: `A pane's edge and its words: ${onPhoneToo("pad-pane")}, --pad-words further in than the frame gap`,
       markup: spacingExample("--pad-pane", html`<div data-spacing-show="pad" data-spacing-of=".stack-cell.is-words">${spacingPane(stack({ items: [{ kind: "words", markup: html`<h2>Welcome back</h2>` }, { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true }) }] }))}</div>`),
     },
     {
-      label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",
+      label: `An inner pane's edge (the birthday picker, a menu) and a bar's (the header): ${tokenValue("pad-inner-pane")}`,
       markup: spacingExample("--pad-inner-pane", spacingPane(html`<div data-spacing-show="pad" data-spacing-of=".wheel-pick">${wheelField({ id: "spacing-bday", wheelKind: "birthday", name: "birthday", label: "When's your birthday?", state: "open" })}</div>`)),
+    },
+    {
+      label: "The rest of the set",
+      isWide: true,
+      markup: html`<ul class="type-sample">${SPACING_OTHERS.map(({ token, use }) => html`<li><code class="words-margin">${token}: ${tokenValue(token.slice(2))}</code><p class="is-muted" style="font:var(--type-note)">${use}</p></li>`)}</ul>`,
     },
   ],
 });

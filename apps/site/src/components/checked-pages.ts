@@ -77,8 +77,8 @@ export interface CheckedPage {
   /** On this site, or on the stand-in site of a developer using Sign in with Zaisma (isOnSignInSite), which sends the player on to Zaisma's own page. */
   path: string;
   /**
-   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the city's pane starts
-   * low on a phone, showing down to its heading, so the city has the screen: docs/DECISIONS.md, "Signing in happens in the city"), or
+   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the live world's pane starts
+   * low on a phone, showing down to its heading, so the live world has the screen: docs/DECISIONS.md, "Signing in happens in the live world"), or
    * nowhere (the page has none, or many, like the gallery).
    */
   mainActionShows: "everywhere" | "desktop" | "nowhere";
