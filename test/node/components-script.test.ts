@@ -53,6 +53,7 @@ describe("the components' script", () => {
 
   it("empties a search's list only once it has faded, so it never shrinks as it goes", () => {
     expect(COMPONENT_SCRIPT_SOURCE).toContain("if (!typed) { setActive(-1); hide(); emptyOnceGone(); return; }");
+    expect(COMPONENT_SCRIPT_SOURCE).toContain("if (!next.length && !nextGames.length) { setActive(-1); hide(); emptyOnceGone(); return; }");
     expect(COMPONENT_SCRIPT_SOURCE).toContain("list.getAnimations({ subtree: true })");
   });
 

@@ -607,6 +607,8 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var games = (answer.games || []).slice(0, 3);
       var next = (answer.finishes || []).slice(0, 3).map(function (finish) { return finishRow(finish, typed, kept); });
       var nextGames = games.map(function (game) { return gameRow(game, typed, kept); });
+      // Nothing to show: it goes as it is, as it does when nothing's typed.
+      if (!next.length && !nextGames.length) { setActive(-1); hide(); emptyOnceGone(); return; }
       var isSame = next.length + nextGames.length === rows.length && next.concat(nextGames).every(function (row, rowIndex) { return rows[rowIndex] === row; });
       // Only rows that changed are put in: the same rows in the same order stay where they are.
       if (!isSame) {
@@ -620,9 +622,9 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var titledIndex = games.findIndex(function (game) { return game.title.toLowerCase() === typed.toLowerCase(); });
       if (rows.length && document.activeElement === input) { show(); setActive(titledIndex < 0 ? -1 : next.length + titledIndex); } else { setActive(-1); hide(); }
     }
-    // Nothing typed: the list fades as it is and only then empties, so it never shrinks as it goes, and it comes back only once it's empty.
+    // Nothing to show: the list fades as it is and only then empties, so it never shrinks as it goes. Opened again by then, it has rows of its own.
     function emptyOnceGone() {
-      function empty() { if (!isOpen() && !input.value.trim()) { rows = []; box.textContent = ""; setActive(-1); } }
+      function empty() { if (!isOpen()) { rows = []; box.textContent = ""; setActive(-1); } }
       Promise.allSettled(list.getAnimations({ subtree: true }).map(function (animation) { return animation.finished; })).then(empty);
     }
     function ask() {
