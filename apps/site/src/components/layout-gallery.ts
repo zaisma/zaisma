@@ -108,7 +108,7 @@ component({
   slug: "row",
   group: "layout",
   subgroup: "inside",
-  summary: "Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other; a row that can't fit on one line becomes a stack of them. Not for covers or cards (Grid or Track), or two panes (Columns).",
+  summary: "Things side by side. Say how they share the width: equal, the lead fills (the others fit their words), or each fits at the start, the end, the middle or both ends. Controls in a row are always one height, the tallest one's, and slant toward each other; a row that can't fit on one line becomes a stack of them. Not for covers or cards (Grid or Track), two panes (Columns), or a pane's heading with a control in its corner (Pane parts).",
   styles: ROW_STYLES,
   render: row,
   examples: [
@@ -127,10 +127,6 @@ component({
     {
       label: "Fit, between: a heading at the start, its control at the end, on the control's center line",
       markup: glassPane({ paneWidth: "fit", body: row({ widths: "fit", alignment: "between", items: [words(html`<h2>Versions</h2>`), { kind: "control", markup: secondaryButton(action("newVersion"), { type: "button" }) }] }) }),
-    },
-    {
-      label: "A long heading beside its control wraps, its first line on the control's center line",
-      markup: glassPane({ paneWidth: "full", body: row({ widths: "lead-fills", items: [words(html`<h2>Every version of this game you have uploaded so far</h2>`), { kind: "control", markup: secondaryButton(action("newVersion"), { type: "button" }) }] }) }),
     },
     {
       label: "A field and its button: the field fills, Join fits, on the field's box",
