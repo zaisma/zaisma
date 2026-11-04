@@ -21,6 +21,8 @@
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
 # scripts/ship-github-check.mjs.
+# A pull request's commit that only sets the CLI's or game server's version on top of a commit that passed runs as docs do
+# (scripts/version-commit.mjs): it changes nothing the check tests, and the merge queue runs everything after it anyway.
 # A pull request runs the Engine exports only when its branch changes something they run: the preview's Workers and everything
 # they import, its test data and scripts, the samples (scripts/affected-tests.mjs, from the repository's own graph); a push to
 # main always runs them. A run that skipped them still passes "Tests and typecheck", and npm run ship counts it only with an
@@ -109,6 +111,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
           # A pull request: what its branch changed since it left main. A merge group or a push: what it adds to main.
           RANGE_DOTS: ${{ github.event_name == 'pull_request' && '...' || '..' }}
           EVENT_NAME: ${{ github.event_name }}
@@ -128,6 +131,9 @@ jobs:
           node scripts/affected-tests.mjs --github
           if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
             echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
+            echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = pull_request ] && [ "$(node scripts/version-commit.mjs "$HEAD_SHA")" = true ]; then
+            echo "This commit only sets a package's version on a commit that passed: running the docs tests. The merge queue runs everything."
             echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "is_code_changed=true" >> "$GITHUB_OUTPUT"

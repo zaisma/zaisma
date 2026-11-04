@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KEPT_PLAYED_GAME_COUNT, MAXIMUM_WEBHOOK_ATTEMPT_COUNT, accountById, accountDeletionReach, createAccount, createApiKey, createGame, createReport, deleteAccount, queuePlayerErase, recordPlayed, signatureFor, useSignInGrant } from "@zaisma/core";
+import { KEPT_PLAYED_GAME_COUNT, MAXIMUM_WEBHOOK_ATTEMPT_COUNT, failedPlayerErases, accountById, accountDeletionReach, createAccount, createApiKey, createGame, createReport, deleteAccount, queuePlayerErase, recordPlayed, signatureFor, useSignInGrant } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
@@ -786,5 +786,24 @@ describe("room events", () => {
     await tellAlerts();
     expect(received.map((request) => request.url)).toEqual([`${HOOKS}/alerts`]);
     expect(await env.DB.prepare("SELECT COUNT(*) AS untold_count FROM alert_notices WHERE told_webhooks_at_ms IS NULL").first("untold_count")).toBe(0);
+  });
+});
+
+describe("failed player erases", () => {
+  it("finds them for an account with more games than a statement can bind variables, newest first", async () => {
+    // D1 binds at most 100 variables to a statement.
+    const gameIds = Array.from({ length: 150 }, (_, index) => `game_many_${index}`);
+    const addErase = (gameId: string, playerId: string, eraseStatus: string, createdAtMs: number) =>
+      env.DB.prepare("INSERT INTO player_erases (game_id, player_id, erase_status, attempt_count, next_attempt_at_ms, created_at_ms) VALUES (?, ?, ?, 6, 0, ?)").bind(gameId, playerId, eraseStatus, createdAtMs).run();
+    await addErase("game_many_0", "player_older", "failed", 1000);
+    await addErase("game_many_149", "player_newer", "failed", 2000);
+    await addErase("game_many_75", "player_waiting", "pending", 3000);
+    await addErase("game_someone_elses", "player_elsewhere", "failed", 4000);
+    try {
+      expect((await failedPlayerErases(env.DB, gameIds)).map((erase) => erase.player_id)).toEqual(["player_newer", "player_older"]);
+      expect(await failedPlayerErases(env.DB, [])).toEqual([]);
+    } finally {
+      await env.DB.exec("DELETE FROM player_erases;");
+    }
   });
 });
