@@ -227,12 +227,16 @@ span.hairline { flex: 1; border-top: var(--divider); }
    it or written on it keeping its words inset, past an icon at its start or a control at its end (--text-start, --text-end). With focus, it
    clears (--carving-face-focus). A press carves it a little deeper. */
 .carving.sized { height: var(--control-height, var(--control-height-field)); }
-.carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) var(--text-end, var(--pad-words)) var(--text-block, 0) var(--text-start, var(--pad-words)); background: transparent; border: 0; border-radius: 0; }
+/* Beside another control a carving's end slants, losing half the slant at mid-height: what's in it moves in by that, so it keeps its room from the slant. */
+.carving { --slant-start: 0px; --slant-end: 0px; }
+.carving[data-slanted~="start"] { --slant-start: calc(var(--control-slant) / 2); }
+.carving[data-slanted~="end"] { --slant-end: calc(var(--control-slant) / 2); }
+.carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) calc(var(--text-end, var(--pad-words)) + var(--slant-end)) var(--text-block, 0) calc(var(--text-start, var(--pad-words)) + var(--slant-start)); background: transparent; border: 0; border-radius: 0; }
 .carving.sized > :is(input, .carving-control) { height: 100%; }
 /* A drop zone: a carving you drop files onto (a file drop), what's in it a pane's margin in, at least 168px tall so it's a place to aim for. */
 .carving.drop-zone { padding: var(--pad-pane); min-height: 168px; }
 /* A carving that is itself a button you press (a wheel field's) keeps its words inset the same way. */
-.carving.is-button { padding: 0 var(--text-end, var(--pad-words)) 0 var(--text-start, var(--pad-words)); border: 0; }
+.carving.is-button { padding: 0 calc(var(--text-end, var(--pad-words)) + var(--slant-end)) 0 calc(var(--text-start, var(--pad-words)) + var(--slant-start)); border: 0; }
 /* A pointed place in a carving (a wheel's picked row): its face cleared as a pointed field's, its edges raised. */
 .carving-pointed { background: var(--carving-face-pointed); clip-path: var(--cut-shape); }
 .carving-pointed > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }

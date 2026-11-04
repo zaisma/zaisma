@@ -306,7 +306,7 @@ component({
 .select-button:focus-visible { outline: none; }
 .field.select.is-open { --face-color: var(--carving-face-focus); }
 .field.select:has(:focus-visible) > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform var(--motion-arrive) var(--ease-glide); }
+.select-chev { position: absolute; z-index: 3; right: calc(var(--pad-inside-words) + var(--slant-end, 0px)); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform var(--motion-arrive) var(--ease-glide); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */

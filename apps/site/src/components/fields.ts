@@ -953,11 +953,13 @@ const FIELD_STYLES = `
 /* A hidden password's dots: the display face's are too small to count, so they're Verdana's, larger and a little apart. */
 .field input[type="password"]:not(:placeholder-shown) { font-family: Verdana, var(--body); font-size: 1.375rem; letter-spacing: 0.12em; }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
+.field > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+/* Words over or under a field that slants at its start keep lining up with the words in it. */
+.cut-field:has(> [data-slanted~="start"]) > .words-margin { padding-inline-start: calc(var(--pad-words) + var(--control-slant) / 2); }
 .field-error { margin: 0; font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
@@ -967,7 +969,7 @@ const FIELD_STYLES = `
 .field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
 .field.with-toggle { --toggle-width: ${ICON_ROOM_WIDTH}; }
 .field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
-.field > .cut-btn { position: absolute; z-index: 5; right: var(--toggle-inset); top: var(--toggle-inset); }
+.field > .cut-btn { position: absolute; z-index: 5; right: calc(var(--toggle-inset) + var(--slant-end, 0px)); top: var(--toggle-inset); }
 /* Read-only: nothing to type, so it doesn't light as you point at it; it can still be selected, copied and focused. */
 .field:has(> input[readonly])::before { --face-color: var(--carving-face); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */
@@ -1166,7 +1168,7 @@ component({
   font: 500 1.125rem var(--display); color: var(--muted); }
 .wheel-button[aria-expanded="true"], .wheel-button:focus-visible { outline: none; --face-color: var(--carving-face-focus); }
 .wheel-button.set { color: var(--ink); font-weight: 500; }
-.wheel-button > .ico { position: absolute; left: var(--pad-inside-words); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
+.wheel-button > .ico { position: absolute; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
 .wheel-button[aria-expanded="true"] > .ico, .wheel-button.set > .ico { color: var(--ink); }
 .wheel-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform var(--motion-arrive) var(--ease-glide); }
 .wheel-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }

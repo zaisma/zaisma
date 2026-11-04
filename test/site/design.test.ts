@@ -1338,6 +1338,12 @@ describe("layout", () => {
     expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
   });
 
+  it("keeps what's in a carving clear of its slant, wherever it's beside another control", () => {
+    expect(COMPONENT_STYLES()).toContain('.carving[data-slanted~="start"] { --slant-start: calc(var(--control-slant) / 2); }');
+    expect(COMPONENT_STYLES()).toContain('.carving[data-slanted~="end"] { --slant-end: calc(var(--control-slant) / 2); }');
+    expect(COMPONENT_STYLES()).toContain("right: calc(var(--pad-inside-words) + var(--slant-end, 0px));");
+  });
+
   it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {
     expect(track({ whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), id: "covers", itemSize: "cover", items: [block("a")] }).html).toMatch(/^<div class="track-holder"><div class="layout-track item-cover"/);
     expect(TRACK_STYLES).toContain(".track-holder { display: flex; flex-direction: column; min-width: 0; }");
