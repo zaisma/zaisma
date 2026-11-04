@@ -1344,6 +1344,10 @@ describe("layout", () => {
     expect(COMPONENT_STYLES()).toContain("right: calc(var(--pad-inside-words) + var(--slant-end, 0px));");
   });
 
+  it("presses only the thumb whose own label is busy, never every thumb on a page with something busy", () => {
+    expect(COMPONENT_STYLES()).not.toContain(', :has(input[aria-busy="true"]), .is-held) .thumb');
+  });
+
   it("places no control by hand: what's at a holder's edge comes from a layout piece", () => {
     // Taken out of its flow by a rule of its own, a control keeps whatever gap someone typed, and the edge rule cuts its corner from another.
     const problems = [...COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]

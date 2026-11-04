@@ -292,9 +292,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); }
 .thumb-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
 .thumb-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 /* Layered: its face is a layer of its own under what's typed in it, so the words can fade at an end with more past it while the face stays
    whole (a field, a search, a long field). */
 .carving.layered { background: none; box-shadow: none; }
