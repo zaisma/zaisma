@@ -225,6 +225,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   joining("/join/account"),
   joining("/join/username"),
   joining("/join/play"),
+  open(["GET"], "/api/playing-now", { origin: "anywhere", answersAs: "json" }),
   open(["GET"], "/api/username-check", { trusts: ["session"] }),
   open(["POST"], "/api/passkeys/signin/options", OWN_PAGES_JSON),
   open(["POST"], "/api/passkeys/signin", { reaches: "account", trusts: ["passkey"], ...OWN_PAGES_JSON }),

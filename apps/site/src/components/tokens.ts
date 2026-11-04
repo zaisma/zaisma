@@ -172,7 +172,7 @@ export const BARE_GROUPS_STYLES = `
  */
 /** A token's value, read from the tokens themselves; on a phone, its value there. So what the gallery says is always what it is. */
 export const tokenValue = (tokenName: string, screen: "any" | "phone" = "any"): string => {
-  const found = [...TOKEN_STYLES.matchAll(new RegExp(`--${tokenName}:\\s*([^;]+);`, "g"))].map((match) => match[1]!.trim());
+  const found = [...TOKEN_STYLES.matchAll(/--([\w-]+):\s*([^;]+);/g)].filter((match) => match[1] === tokenName).map((match) => match[2]!.trim());
   return (screen === "phone" ? found[found.length - 1] : found[0]) ?? "";
 };
 
