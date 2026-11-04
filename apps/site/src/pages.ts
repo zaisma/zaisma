@@ -74,7 +74,7 @@ import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
 import { blockSheetParts } from "./blocks.ts";
 import { playingPeople } from "./players-sheet.ts";
-import { ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
+import { ZAISMA_OVERLAY_SCRIPT, gameOverlay, keepProgressCard, rentedShareCard, roomCodeItems, signInAskCard, signedOutCard } from "./zaisma-overlay.ts";
 import { friendRequestParts } from "./friend-requests.ts";
 import { GAME_UPDATES_SCRIPT, updateButton } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
@@ -508,6 +508,7 @@ ${multiplayer ? html`${reportScript(game, { gameOrigin })}${blockSheetParts({ ga
 ${saves ? keepProgressCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
 ${saves ? signedOutCard(signinHere) : ""}
 ${canSignIn ? signInAskCard({ title: game.title, joinHref: joinHere, signInHref: signinHere }) : ""}
+${canSignIn ? rentedShareCard(signinHere) : ""}
 ${isClosed || !authConfigured(env) ? "" : friendRequestParts({ gameOrigin, slug: game.slug })}
 ${multiplayer ? stillThereCard() : ""}
 ${leavingCard(game.title)}
@@ -1346,11 +1347,12 @@ let isRentedShareTold = false;
 function tellRentedShareUsed() {
   if (isRentedShareTold) return;
   isRentedShareTold = true;
-  if (window.askSignInFor) return window.askSignInFor(gamePage.rented_share_text);
-  zaismaLayers.say({ text: gamePage.rented_share_text, noticeUrgency: "ask" });
+  const card = document.getElementById("rented-share");
+  if (card) zaismaLayers.show(card);
+  else zaismaLayers.say({ text: gamePage.rented_share_text, noticeUrgency: "ask" });
 }
 // The local preview shows the words by a link (?play&preview_bar=rented_share). Never on zaisma.com.
-if (/^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) && new URLSearchParams(location.search).get("preview_bar") === "rented_share") addEventListener("load", () => setTimeout(tellRentedShareUsed, 1000));
+if (/^(localhost|127\.0\.0\.1|.+\.ts\.net)$/.test(location.hostname) && new URLSearchParams(location.search).get("preview_bar") === "rented_share") setTimeout(tellRentedShareUsed, 1000);
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -1520,14 +1522,6 @@ window.askSignIn = async () => {
   if (keep) zaismaLayers.leave(keep);
   zaismaLayers.show(signInAsk);
   if (!signInAsk.hidden) signInAsk.querySelector("[data-sign-in]").focus();
-};
-// A guest stopped on a rented network: the same card, with why. An account has nothing to sign in to, so it hears the words alone.
-window.askSignInFor = (words) => {
-  if (!wasGuest) return zaismaLayers.say({ text: words, noticeUrgency: "ask" });
-  signInText.textContent = words;
-  const keep = document.getElementById("keep");
-  if (keep) zaismaLayers.leave(keep);
-  zaismaLayers.show(signInAsk);
 };
 document.getElementById("sign-in-later").onclick = () => {
   zaismaLayers.leave(signInAsk);
