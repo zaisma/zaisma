@@ -1,7 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { extractSymbol } from "./anchors.mjs";
-
 /**
  * Every way into Zaisma, read from the code: one extractor per source, each giving doors
  * { door_id, door_name, door_kind, sector_id, source_path, anchors, gives, trusts, covered_by_door_id }.
@@ -13,8 +9,8 @@ import { extractSymbol } from "./anchors.mjs";
 const DEVELOPER = "apps/site/src/developer.ts";
 const anchorOf = (sourcePath, symbolName) => ({ anchor_id: `${sourcePath}:${symbolName}`, source_path: sourcePath, symbol_name: symbolName });
 
-function door({ door_id, door_name, door_kind, sector_id, source_path, anchors, gives = [], trusts = [], covered_by_door_id = null, stored_value = null }) {
-  return { door_id, door_name, door_kind, sector_id, source_path, anchors, gives: [...new Set(gives)].sort(), trusts: [...new Set(trusts)].sort(), covered_by_door_id, stored_value };
+function door({ door_id, door_name, door_kind, sector_id, source_path, anchors, gives = [], trusts = [], covered_by_door_id = null, stored_value = null, contract = null }) {
+  return { door_id, door_name, door_kind, sector_id, source_path, anchors, gives: [...new Set(gives)].sort(), trusts: [...new Set(trusts)].sort(), covered_by_door_id, stored_value, contract };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -32,6 +28,10 @@ const API_HANDLERS = [
   ["/games/:slug/reports", "games-and-files", DEVELOPER, "reportsFor"],
   ["/games/:slug/stats", "games-and-files", DEVELOPER, "statsFor"],
   ["/games/:slug/history", "games-and-files", DEVELOPER, "historyFor"],
+  ["/games/:slug/items", "money", DEVELOPER, "route"],
+  ["/games/:slug/purchases", "money", DEVELOPER, "route"],
+  ["/games/:slug/purchase-settings", "money", DEVELOPER, "route"],
+  ["/games/:slug/players/:player_id/items", "money", DEVELOPER, "route"],
   ["/games", "games-and-files", DEVELOPER, "route"],
   ["/files/:sha256/parts", "games-and-files", DEVELOPER, "bigFile"],
   ["/files/:sha256", "games-and-files", DEVELOPER, "putBlob"],
@@ -41,6 +41,10 @@ const API_HANDLERS = [
   ["/players", "accounts", "packages/core/src/profiles.ts", "playerProfile"],
   ["/access", "api-keys", DEVELOPER, "accessJson"],
   ["/activity", "accounts", "apps/site/src/security-log.ts", "activityAnswer"],
+  ["/credit", "money", DEVELOPER, "route"],
+  ["/pro", "money", DEVELOPER, "route"],
+  ["/stripe-account", "money", DEVELOPER, "route"],
+  ["/spending-requests", "money", DEVELOPER, "route"],
 ].sort((first, second) => second[0].length - first[0].length);
 
 const isUnder = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);
@@ -74,7 +78,7 @@ export function apiDoors(site, warn = () => {}) {
     const anchors = [anchorOf(DEVELOPER, "checkCall"), handler].filter((anchor, index, all) => all.findIndex((other) => other.anchor_id === anchor.anchor_id) === index);
     const gives = API_GIVES.filter(([prefix, methods]) => isUnder(apiRoute.path, prefix) && methods.includes(apiRoute.method)).flatMap(([, , things]) => things);
     const trusts = ["api_key", ...(apiRoute.path.includes(":player_id") ? ["player_id"] : [])];
-    return door({ door_id: apiDoorIdOf(apiRoute), door_name: `${apiRoute.method} /api/dev${apiRoute.path}`, door_kind: "api_call", sector_id, source_path: DEVELOPER, anchors, gives, trusts });
+    return door({ door_id: apiDoorIdOf(apiRoute), door_name: `${apiRoute.method} /api/dev${apiRoute.path}`, door_kind: "api_call", sector_id, source_path: DEVELOPER, anchors, gives, trusts, contract: site.apiRouteContract(apiRoute) });
   });
 }
 
@@ -123,7 +127,7 @@ export async function mcpDoors(site, apiDoorList) {
     const covering = apiRoutes.find((apiRoute) => apiRoute.method !== "GET") ?? apiRoutes[0];
     const coveredBy = apiDoorList.find((apiDoor) => apiDoor.door_id === apiDoorIdOf(covering));
     if (!apiDoorIds.has(apiDoorIdOf(covering))) continue;
-    doors.push(door({ door_id: `mcp:${tool.name}`, door_name: tool.name, door_kind: "mcp_tool", sector_id: coveredBy.sector_id, source_path: "apps/site/src/mcp.ts", anchors: [anchorOf("apps/site/src/mcp.ts", "handleMcp")], trusts: ["api_key"], covered_by_door_id: coveredBy.door_id }));
+    doors.push(door({ door_id: `mcp:${tool.name}`, door_name: tool.name, door_kind: "mcp_tool", sector_id: coveredBy.sector_id, source_path: "apps/site/src/mcp.ts", anchors: [anchorOf("apps/site/src/mcp.ts", "handleMcp")], trusts: ["api_key"], covered_by_door_id: coveredBy.door_id, contract: coveredBy.contract }));
   }
   return doors;
 }
@@ -141,32 +145,55 @@ export function adminDoors(site) {
       source_path: "apps/site/src/admin-mcp.ts",
       anchors: [anchorOf("apps/site/src/admin.ts", "handleAdmin"), anchorOf("apps/site/src/admin-mcp.ts", "handleAdminMcp")],
       trusts: ["admin_access"],
+      contract: { whoMayCall: "admin", reaches: tool.reaches, trusts: ["admin_access"] },
     }),
   );
 }
 
 // ---------------------------------------------------------------------------------------------------
-// zaisma.com's pages and forms.
+// zaisma.com's pages and forms: the site's door table (SITE_DOORS, apps/site/src/doors.ts).
 
-/** Where the site's pages are routed: each file's entry (its handle* function) and the functions that hold its paths. */
-const PAGE_SOURCES = [
-  { source_path: "apps/site/src/index.ts", entry: "route", routeSymbols: ["route"] },
-  { source_path: "apps/site/src/account.ts", entry: "handleAccount", routeSymbols: ["PATHS", "handleAccount"] },
-  { source_path: "apps/site/src/sign-in.ts", entry: "handleSignIn", routeSymbols: ["handleSignIn"] },
-  { source_path: "apps/site/src/passkeys.ts", entry: "handlePasskeys", routeSymbols: ["handlePasskeys"], onlyMethod: "POST" },
-  { source_path: "apps/site/src/dashboard.ts", entry: "handleDashboard", routeSymbols: ["handleDashboard"] },
-  { source_path: "apps/site/src/developer-settings.ts", entry: "handleDeveloperSettings", routeSymbols: ["handleDeveloperSettings"] },
-  { source_path: "apps/site/src/forum-pages.ts", entry: "handleForum", routeSymbols: ["handleForum"] },
-  { source_path: "apps/site/src/friends.ts", entry: "handleFriends", routeSymbols: ["handleFriends"] },
-  { source_path: "apps/site/src/blocks.ts", entry: "handleBlocks", routeSymbols: ["handleBlocks"] },
-  { source_path: "apps/site/src/friends-now.ts", entry: "handleFriendsNow", routeSymbols: ["handleFriendsNow"] },
-  { source_path: "apps/site/src/players-sheet.ts", entry: "handlePlayersSheet", routeSymbols: ["handlePlayersSheet"], onlyMethod: "GET" },
-  { source_path: "apps/site/src/profiles.ts", entry: "handleProfiles", routeSymbols: ["handleProfiles"] },
-  { source_path: "apps/site/src/plays.ts", entry: "handlePlays", routeSymbols: ["handlePlays"], onlyMethod: "POST" },
-  { source_path: "apps/site/src/home.ts", entry: "handlePlayed", routeSymbols: ["handlePlayed"] },
-  { source_path: "apps/site/src/game-links.ts", entry: "handleGameLinks", routeSymbols: ["handleGameLinks"], onlyMethod: "POST" },
-  { source_path: "apps/site/src/admin.ts", entry: "handleAdmin", routeSymbols: ["handleAdmin", "adminAction", "adminForm"] },
-];
+const GUARD = anchorOf("apps/site/src/guard.ts", "guardSiteDoor");
+
+/** Where a page path's own code is, by its longest matching prefix: [prefix, source_path, symbol_name]. */
+const PAGE_HANDLERS = [
+  ["/account", "apps/site/src/account.ts", "handleAccount"],
+  ["/api/account/confirm", "apps/site/src/account.ts", "handleAccount"],
+  ["/api/account/purchase-pin", "apps/site/src/buy.ts", "handleBuy"],
+  ["/signin", "apps/site/src/account.ts", "handleAccount"],
+  ["/signout", "apps/site/src/account.ts", "handleAccount"],
+  ["/join", "apps/site/src/account.ts", "handleAccount"],
+  ["/api/username-check", "apps/site/src/account.ts", "handleAccount"],
+  ["/account/passkeys", "apps/site/src/passkeys.ts", "handlePasskeys"],
+  ["/api/passkeys", "apps/site/src/passkeys.ts", "handlePasskeys"],
+  ["/oauth", "apps/site/src/sign-in.ts", "handleSignIn"],
+  ["/.well-known/oauth", "apps/site/src/mcp-sign-in.ts", "handleMcpSignIn"],
+  ["/.well-known/openid-configuration", "apps/site/src/sign-in.ts", "handleSignIn"],
+  ["/.well-known/jwks.json", "apps/site/src/sign-in.ts", "handleSignIn"],
+  ["/dashboard/settings", "apps/site/src/developer-settings.ts", "handleDeveloperSettings"],
+  ["/dashboard", "apps/site/src/dashboard.ts", "handleDashboard"],
+  ["/forum", "apps/site/src/forum-pages.ts", "handleForum"],
+  ["/friends/among", "apps/site/src/players-sheet.ts", "handlePlayersSheet"],
+  ["/friends/blocks", "apps/site/src/blocks.ts", "handleBlocks"],
+  ["/friends/requests", "apps/site/src/friend-requests.ts", "handleFriendRequests"],
+  ["/friends", "apps/site/src/friends.ts", "handleFriends"],
+  ["/api/presence", "apps/site/src/friends-now.ts", "handleFriendsNow"],
+  ["/:at_username", "apps/site/src/profiles.ts", "handleProfiles"],
+  ["/api/plays", "apps/site/src/plays.ts", "handlePlays"],
+  ["/api/me/played", "apps/site/src/home.ts", "handlePlayed"],
+  ["/api/links", "apps/site/src/game-links.ts", "handleGameLinks"],
+  ["/api/saves", "apps/site/src/saves.ts", "handleSaves"],
+  ["/api/buy", "apps/site/src/buy.ts", "handleBuy"],
+  ["/api/payment-methods", "apps/site/src/buy.ts", "handleBuy"],
+  ["/api/speed-reports", "apps/site/src/speed-reports.ts", "handleSpeedReports"],
+  ["/api/announcements", "apps/site/src/announcements.ts", "handleAnnouncements"],
+  ["/admin/mcp", "apps/site/src/admin-mcp.ts", "handleAdminMcp"],
+  ["/admin", "apps/site/src/admin.ts", "handleAdmin"],
+  ["/img", DEVELOPER, "handleDeveloper"],
+  ["/shaders", DEVELOPER, "handleDeveloper"],
+  ["/shader-checks", DEVELOPER, "handleDeveloper"],
+  ["/api/dev", DEVELOPER, "handleDeveloper"],
+].sort((first, second) => second[0].length - first[0].length);
 
 /** A page path's sector, by its longest matching prefix ("/" only for the home page itself). */
 const PAGE_SECTORS = [
@@ -176,26 +203,45 @@ const PAGE_SECTORS = [
   ["/join", "accounts"],
   ["/oauth", "accounts"],
   ["/.well-known", "accounts"],
-  ["/@", "accounts"],
+  ["/:at_username", "accounts"],
   ["/friends", "accounts"],
   ["/api/passkeys", "accounts"],
   ["/api/username-check", "accounts"],
+  ["/api/account/confirm", "accounts"],
   ["/api/me", "accounts"],
   ["/forum", "accounts"],
   ["/legal", "accounts"],
   ["/robots.txt", "accounts"],
+  ["/sitemap.xml", "accounts"],
   ["/js/", "accounts"],
   ["/css/", "accounts"],
+  ["/:rules_file", "accounts"],
+  ["/design", "accounts"],
+  ["/developers", "accounts"],
+  ["/github/secret-scanning", "api-keys"],
+  ["/csp-reports", "accounts"],
+  ["/api/speed-reports", "accounts"],
+  ["/api/announcements", "accounts"],
   ["/mcp", "api-keys"],
+  ["/api/dev", "api-keys"],
   ["/dashboard", "games-and-files"],
+  ["/games", "games-and-files"],
   ["/g/", "games-and-files"],
   ["/t/", "games-and-files"],
   ["/p/", "games-and-files"],
+  ["/img/", "games-and-files"],
+  ["/shaders/", "games-and-files"],
+  ["/shader-checks/", "games-and-files"],
   ["/api/plays", "games-and-files"],
   ["/api/links", "games-and-files"],
   ["/api/saves", "player-data"],
   ["/api/presence", "player-data"],
   ["/admin", "zaisma-keys-and-admin"],
+  ["/buy", "money"],
+  ["/stripe", "money"],
+  ["/api/buy", "money"],
+  ["/api/payment-methods", "money"],
+  ["/api/account/purchase-pin", "money"],
 ].sort((first, second) => second[0].length - first[0].length);
 
 /** What a page or form hands out, by door id. */
@@ -203,32 +249,12 @@ const PAGE_GIVES = {
   "page:POST /signin": ["session"],
   "page:POST /signin/code": ["session"],
   "page:POST /join/account": ["session"],
-  "page:/signin/callback": ["session"],
+  "page:GET /signin/callback": ["session"],
   "page:POST /api/passkeys/signin": ["session"],
   "page:POST /dashboard/settings/keys": ["api_key"],
-  "page:/oauth/token": ["oauth_access"],
-  "page:/oauth/authorize": ["oauth_code"],
+  "page:POST /oauth/token": ["oauth_access"],
+  "page:POST /oauth/authorize": ["oauth_code"],
 };
-
-/** What a page or form relies on, by path prefix. */
-const PAGE_TRUSTS = [
-  ["/account", ["session"]],
-  ["/friends", ["session"]],
-  ["/dashboard", ["session"]],
-  ["/api/saves", ["session"]],
-  ["/api/presence", ["session"]],
-  ["/api/me", ["session"]],
-  ["/api/passkeys/add", ["session"]],
-  ["/api/passkeys/confirm", ["session"]],
-  ["/forum", ["session"]],
-  ["/@", ["session"]],
-  ["/oauth/authorize", ["session"]],
-  ["/oauth/token", ["oauth_code"]],
-  ["/oauth/userinfo", ["oauth_access"]],
-  ["/t/", ["tester_link"]],
-  ["/p/", ["preview_link"]],
-  ["/admin", ["admin_access"]],
-];
 
 export function pageSectorOf(path, warn = () => {}) {
   if (path === "/") return "accounts";
@@ -238,114 +264,51 @@ export function pageSectorOf(path, warn = () => {}) {
   return "accounts";
 }
 
-/** A route's regular expression as a path: /^\/friends\/(player_…)\/remove$/ → /friends/(player_…)/remove. */
-const patternPath = (regexSource) => regexSource.replace(/^\^/, "").replace(/\$$/, "").replace(/\\\//g, "/");
+const pageAnchors = (siteDoor) => {
+  const handler = PAGE_HANDLERS.find(([prefix]) => siteDoor.path.startsWith(prefix));
+  const anchors = [GUARD, anchorOf(handler?.[1] ?? "apps/site/src/index.ts", handler?.[2] ?? "route")];
+  if (siteDoor.contract.provenBy) anchors.push(anchorOf(siteDoor.contract.provenBy.source_path, siteDoor.contract.provenBy.symbol_name));
+  return anchors.filter((anchor, index, all) => all.findIndex((other) => other.anchor_id === anchor.anchor_id) === index);
+};
 
-/** The method a condition after a path names: `path === "/x" && post` is a POST, `&& !post` a GET. */
-function methodAfter(followingText) {
-  const flag = /^\s*&&\s*(!?)\s*(post|isPost)\b/.exec(followingText);
-  if (flag) return flag[1] ? "GET" : "POST";
-  const compared = /^\s*&&\s*(?:request\.)?method\s*(===|!==)\s*"([A-Z]+)"/.exec(followingText);
-  if (compared) return (compared[1] === "===") === (compared[2] === "POST") ? "POST" : "GET";
-  return null;
-}
-
-/** Every path a piece of routing code names: [path, method or null, isPrefix]. */
-function routedPaths(symbolText) {
-  const found = [];
-  for (const match of symbolText.matchAll(/path\s*===\s*"([^"]+)"/g)) found.push([match[1], methodAfter(symbolText.slice(match.index + match[0].length, match.index + match[0].length + 60)), false]);
-  for (const match of symbolText.matchAll(/path\.startsWith\("([^"]+)"\)/g)) found.push([match[1], null, true]);
-  for (const match of symbolText.matchAll(/\[((?:\s*"[^"]*"\s*,?)+)\]\.includes\(path\)/g)) for (const literal of match[1].matchAll(/"([^"]*)"/g)) found.push([literal[1], null, false]);
-  for (const match of symbolText.matchAll(/path\.match\(\/(\^(?:\\.|[^/\\\n])*)\/[a-z]*\)/g)) found.push([patternPath(match[1]), null, false]);
-  return found;
-}
-
-/** The string literals of an array const, like account.ts's PATHS. */
-const arrayLiterals = (symbolText) => (/=\s*\[/.test(symbolText) ? [...symbolText.slice(symbolText.indexOf("[")).matchAll(/"([^"]*)"/g)].map((match) => match[1]) : []);
-
-export function pageDoors(repoRoot, warn = () => {}) {
-  /** path → { methods, sources: [{ source_path, anchors }] } */
-  const byPath = new Map();
-  const prefixes = [];
-  for (const source of PAGE_SOURCES) {
-    const sourceText = readFileSync(join(repoRoot, source.source_path), "utf8");
-    const entryAnchor = anchorOf(source.source_path, source.entry);
-    for (const symbolName of source.routeSymbols) {
-      const symbolText = extractSymbol(sourceText, symbolName);
-      if (symbolText === null) {
-        warn(`${source.source_path} has no ${symbolName} any more; its pages aren't on the map until PAGE_SOURCES (scripts/security-map/doors.mjs) names where they went.`);
-        continue;
-      }
-      const anchors = symbolName === source.entry || symbolName === "PATHS" ? [entryAnchor] : [entryAnchor, anchorOf(source.source_path, symbolName)];
-      const paths = symbolName === "PATHS" ? arrayLiterals(symbolText).map((path) => [path, null, false]) : routedPaths(symbolText);
-      for (const [path, method, isPrefix] of paths) {
-        if (isPrefix) {
-          prefixes.push({ path, source, anchors });
-          continue;
-        }
-        const entry = byPath.get(path) ?? { methods: new Set(), source, anchors };
-        entry.methods.add(source.onlyMethod ?? method ?? "?");
-        byPath.set(path, entry);
-      }
-    }
-  }
-  // A prefix is a door of its own only when no named path sits under it (else it's just the file's guard).
-  const allPaths = [...byPath.keys()];
-  for (const prefix of prefixes) {
-    if (allPaths.some((path) => path.startsWith(prefix.path))) continue;
-    const path = `${prefix.path.replace(/\/$/, "")}/*`;
-    const entry = byPath.get(path) ?? { methods: new Set(), source: prefix.source, anchors: prefix.anchors };
-    entry.methods.add(prefix.source.onlyMethod ?? "?");
-    byPath.set(path, entry);
-  }
-  const doors = [];
-  for (const [path, { methods, source, anchors }] of byPath) {
-    const sector_id = pageSectorOf(path, warn);
-    const trusts = PAGE_TRUSTS.filter(([prefix]) => path.startsWith(prefix)).flatMap(([, things]) => things);
-    const forms = methods.has("POST") ? ["POST"] : [];
-    const views = methods.has("GET") ? ["GET"] : methods.has("POST") ? [] : [null];
-    for (const method of [...views, ...forms]) {
-      const door_id = method ? `page:${method} ${path}` : `page:${path}`;
-      doors.push(door({ door_id, door_name: method ? `${method} ${path}` : path, door_kind: method === "POST" ? "page_form" : "page_route", sector_id, source_path: source.source_path, anchors, gives: PAGE_GIVES[door_id] ?? [], trusts }));
-    }
-  }
-  return doors;
+export function pageDoors(site, warn = () => {}) {
+  return site.SITE_DOORS.flatMap((siteDoor) =>
+    site.siteDoorIds(siteDoor).map((door_id) => {
+      const method = door_id.match(/^page:([A-Z]+) /)?.[1] ?? null;
+      const isForm = method !== null && method !== "GET" && method !== "OPTIONS";
+      const anchors = pageAnchors(siteDoor);
+      return door({ door_id, door_name: method ? `${method} ${siteDoor.path}` : siteDoor.path, door_kind: isForm ? "page_form" : "page_route", sector_id: pageSectorOf(siteDoor.path, warn), source_path: anchors[1].source_path, anchors, gives: PAGE_GIVES[door_id] ?? [], trusts: siteDoor.contract.trusts, contract: siteDoor.contract });
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Game files, on the separate game domain (apps/games).
+// Game files, on the separate game domain (apps/games): its door table (GAME_FILE_DOORS, apps/games/src/doors.ts).
 
 const GAMES = "apps/games/src/index.ts";
+const GAME_DOOR_IDS = { file: ["/", "/<file>"], preview_address: ["--preview"], tester_address: ["--tester"] };
+const GAME_DOOR_NAMES = { "/": "A game's page (its index.html)", "/<file>": "Any file of a game", "--preview": "A version's preview address (<slug>--preview)", "--tester": "A tester link's address (<slug>--tester)" };
 
-export function gameFileDoors(repoRoot) {
-  const sourceText = readFileSync(join(repoRoot, GAMES), "utf8");
+export function gameFileDoors(site) {
   const serveAnchors = [anchorOf(GAMES, "serve"), anchorOf(GAMES, "resolveGame")];
-  const fixed = [
-    { address: "/", door_name: "A game's page (its index.html)" },
-    { address: "/<file>", door_name: "Any file of a game" },
-    { address: "--preview", door_name: "A version's preview address (<slug>--preview)" },
-    { address: "--tester", door_name: "A tester link's address (<slug>--tester)" },
-  ];
-  const zaismaAddresses = [...new Set([...sourceText.matchAll(/target\.path === "(_zaisma\/[^"]+)"/g)].map((match) => match[1]))].sort();
-  return [
-    ...fixed.map(({ address, door_name }) => door({ door_id: `game-file:${address}`, door_name, door_kind: "game_file_address", sector_id: "games-and-files", source_path: GAMES, anchors: serveAnchors, trusts: address === "--preview" ? ["preview_link"] : address === "--tester" ? ["tester_link"] : [] })),
-    ...zaismaAddresses.map((address) => {
-      const isThroughLink = address === "_zaisma/enter" || address === "_zaisma/entered";
-      return door({
+  return Object.entries(site.GAME_FILE_DOORS).flatMap(([name, contract]) =>
+    (GAME_DOOR_IDS[name] ?? [name]).map((address) =>
+      door({
         door_id: `game-file:${address}`,
-        door_name: address,
+        door_name: GAME_DOOR_NAMES[address] ?? address,
         door_kind: "game_file_address",
         sector_id: address === "_zaisma/saves.js" || address === "_zaisma/restore" ? "player-data" : "games-and-files",
         source_path: GAMES,
-        anchors: isThroughLink ? [...serveAnchors, anchorOf(GAMES, "openThroughLink")] : serveAnchors,
-        trusts: isThroughLink ? ["preview_link", "tester_link"] : [],
-      });
-    }),
-  ];
+        anchors: contract.provenBy ? [...serveAnchors, anchorOf(contract.provenBy.source_path, contract.provenBy.symbol_name)] : serveAnchors,
+        trusts: contract.trusts,
+        contract,
+      }),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Multiplayer rooms: the messages a room takes, and the rooms Worker's /v1 addresses.
+// Multiplayer rooms: the messages a room takes (ROOM_MESSAGE_DOORS), and the rooms Worker's addresses (ROOM_ADDRESS_DOORS).
 
 const GAME_SERVER_ROOM = "packages/game-server/src/room.ts";
 const ROOMS_ROOM = "apps/rooms/src/room.ts";
@@ -354,19 +317,12 @@ const ROOMS = "apps/rooms/src/index.ts";
 /** What a rooms address hands out, by path. */
 const ROOMS_GIVES = { "/v1/pass": ["player_pass"], "/v1/relay": ["relay_credentials"] };
 
-export function roomDoors(repoRoot) {
-  const receiveText = extractSymbol(readFileSync(join(repoRoot, GAME_SERVER_ROOM), "utf8"), "receive") ?? "";
-  const messageTypes = [...new Set([...receiveText.matchAll(/case "([a-z_-]+)":/g)].map((match) => match[1]))];
+export function roomDoors(site) {
   const messageAnchors = [anchorOf(GAME_SERVER_ROOM, "receive"), anchorOf(ROOMS_ROOM, "webSocketMessage")];
-  const roomsText = extractSymbol(readFileSync(join(repoRoot, ROOMS), "utf8"), "default") ?? "";
-  const roomsPaths = [
-    ...[...roomsText.matchAll(/pathname\s*===\s*"(\/v1\/[^"]*)"/g)].map((match) => match[1]),
-    ...[...roomsText.matchAll(/pathname\.match\(\/(\^\\\/v1(?:\\.|[^/\\\n])*)\/[a-z]*\)/g)].map((match) => patternPath(match[1])),
-  ];
   return [
-    ...messageTypes.map((messageType) => door({ door_id: `room-message:${messageType}`, door_name: `The "${messageType}" message`, door_kind: "room_message", sector_id: "rooms", source_path: GAME_SERVER_ROOM, anchors: messageAnchors, trusts: ["player_pass"] })),
-    ...[...new Set(roomsPaths)].map((path) =>
-      door({ door_id: `rooms:${path}`, door_name: `rooms.zaisma.com${path}`, door_kind: "page_route", sector_id: "rooms", source_path: ROOMS, anchors: [anchorOf(ROOMS, "default")], gives: ROOMS_GIVES[path] ?? [], trusts: path === "/v1/pass" ? ["session"] : path.startsWith("/v1/players") ? ["player_id"] : ["player_pass"] }),
+    ...Object.entries(site.ROOM_MESSAGE_DOORS).map(([messageType, contract]) => door({ door_id: `room-message:${messageType}`, door_name: `The "${messageType}" message`, door_kind: "room_message", sector_id: "rooms", source_path: GAME_SERVER_ROOM, anchors: messageAnchors, trusts: contract.trusts, contract })),
+    ...site.ROOM_ADDRESS_DOORS.filter(({ path }) => path.startsWith("/v1/")).map(({ path, contract }) =>
+      door({ door_id: `rooms:${path}`, door_name: `rooms.zaisma.com${path}`, door_kind: "page_route", sector_id: "rooms", source_path: ROOMS, anchors: [anchorOf(ROOMS, "default")], gives: ROOMS_GIVES[path] ?? [], trusts: contract.trusts, contract }),
     ),
   ];
 }
@@ -408,6 +364,7 @@ export function storedValueDoors(site) {
       sector_id: "accounts",
       source_path: STORED_VALUES_SOURCE,
       anchors: [...(entry.checked_by ? [anchorOf(entry.checked_by.source_path, entry.checked_by.symbol_name)] : []), anchorOf("apps/site/src/markup.ts", "esc"), anchorOf(STORED_VALUES_SOURCE, "STORED_VALUES")],
+      contract: site.storedValueContract(entry),
       stored_value: { format: entry.format, source: entry.source, saved_by_door_ids: [...entry.saved_by_door_ids].sort(), shown_on_door_ids: [...entry.shown_on_door_ids].sort() },
     }),
   );
@@ -416,7 +373,7 @@ export function storedValueDoors(site) {
 /** Every door in the code, sorted by id. site is loadSiteModule()'s answer. */
 export async function collectDoors(repoRoot, site, warn = () => {}) {
   const api = apiDoors(site, warn);
-  const all = [...api, ...(await mcpDoors(site, api)), ...adminDoors(site), ...pageDoors(repoRoot, warn), ...gameFileDoors(repoRoot), ...roomDoors(repoRoot), ...tokenDoors(), ...storedValueDoors(site)];
+  const all = [...api, ...(await mcpDoors(site, api)), ...adminDoors(site), ...pageDoors(site, warn), ...gameFileDoors(site), ...roomDoors(site), ...tokenDoors(), ...storedValueDoors(site)];
   const seen = new Set();
   for (const each of all) {
     if (seen.has(each.door_id)) throw new Error(`Two doors have the id ${each.door_id}; door ids key the map, so each must be unique.`);

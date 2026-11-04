@@ -87,14 +87,32 @@ interface SignInKey {
   publicJwk: JsonWebKey & { kid: string };
 }
 
-let loaded: { secret: string; key: Promise<SignInKey> } | null = null;
+const loadedKeys = new Map<string, Promise<SignInKey>>();
 
-/** The site's RS256 key, from SIGN_IN_SIGNING_KEY (a private RSA JWK), or null when it isn't set. */
-function signInKey(env: Env): Promise<SignInKey> | null {
-  const secret = env.SIGN_IN_SIGNING_KEY;
-  if (!secret || !authConfigured(env)) return null;
-  if (loaded?.secret !== secret) loaded = { secret, key: loadSignInKey(secret) };
-  return loaded.key;
+function keyFrom(secret: string): Promise<SignInKey> {
+  let key = loadedKeys.get(secret);
+  if (!key) {
+    key = loadSignInKey(secret);
+    loadedKeys.set(secret, key);
+  }
+  return key;
+}
+
+/**
+ * The site's RS256 keys, from SIGN_IN_SIGNING_KEY and SECOND_SIGN_IN_SIGNING_KEY (private RSA JWKs), the one in use
+ * first: it signs, and all of them are published and check a token, so the next key is out before it signs anything
+ * and a token from before a swap (scripts/replace-key.mjs) keeps working. Null when the first isn't set.
+ */
+function signInKeys(env: Env): Promise<SignInKey[]> | null {
+  const first = env.SIGN_IN_SIGNING_KEY;
+  if (!first || !authConfigured(env)) return null;
+  const second = env.SECOND_SIGN_IN_SIGNING_KEY;
+  if (!second) {
+    if (env.IS_SECOND_SIGN_IN_SIGNING_KEY_IN_USE === "true") return Promise.reject(new Error("IS_SECOND_SIGN_IN_SIGNING_KEY_IN_USE is set, but SECOND_SIGN_IN_SIGNING_KEY isn't"));
+    return keyFrom(first).then((key) => [key]);
+  }
+  const secrets = env.IS_SECOND_SIGN_IN_SIGNING_KEY_IN_USE === "true" ? [second, first] : [first, second];
+  return Promise.all(secrets.map(keyFrom));
 }
 
 async function loadSignInKey(secret: string): Promise<SignInKey> {
@@ -121,12 +139,13 @@ async function signToken(key: SignInKey, claims: IdTokenClaims | AccessTokenClai
 }
 
 /** An access token's claims when Zaisma signed it for userinfo and it hasn't expired; null otherwise. */
-async function readAccessToken(env: Env, key: SignInKey, token: string): Promise<AccessTokenClaims | null> {
+async function readAccessToken(env: Env, keys: SignInKey[], token: string): Promise<AccessTokenClaims | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
     const header = JSON.parse(new TextDecoder().decode(b64urlToBytes(parts[0]!))) as { alg?: string; typ?: string; kid?: string };
-    if (header.alg !== "RS256" || header.typ !== "at+jwt" || header.kid !== key.publicJwk.kid) return null;
+    const key = keys.find((candidate) => candidate.publicJwk.kid === header.kid);
+    if (header.alg !== "RS256" || header.typ !== "at+jwt" || !key) return null;
     if (!(await crypto.subtle.verify(RS256, key.publicKey, b64urlToBytes(parts[2]!), new TextEncoder().encode(`${parts[0]}.${parts[1]}`)))) return null;
     const claims = JSON.parse(new TextDecoder().decode(b64urlToBytes(parts[1]!))) as AccessTokenClaims;
     const nowSec = Math.floor(Date.now() / 1000);
@@ -154,22 +173,22 @@ export async function handleSignIn(request: Request, env: Env, path: string): Pr
   if ((path === "/oauth/authorize" || path === "/oauth/token") && isMcpClientId(await clientIdOf(request, path))) {
     return path === "/oauth/authorize" ? authorizeMcp(request, env) : tokenMcp(request, env);
   }
-  const keyLoading = signInKey(env);
-  if (!keyLoading) {
+  const keysLoading = signInKeys(env);
+  if (!keysLoading) {
     if (path === "/oauth/authorize") return glassMessage(env, "Sign in with Zaisma isn't on yet", "This site asked you to sign in with Zaisma, which isn't switched on yet. Try again later.", 404);
     return Response.json({ error: "temporarily_unavailable", error_description: "Sign in with Zaisma isn't switched on yet." }, { status: 404, headers: OPEN });
   }
-  const key = await keyLoading;
+  const keys = await keysLoading;
 
   if (isWellKnown) {
     if (method !== "GET" && method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: OPEN });
     const cached = { ...OPEN, "Cache-Control": "public, max-age=3600" };
-    if (path === "/.well-known/jwks.json") return Response.json({ keys: [key.publicJwk] }, { headers: cached });
+    if (path === "/.well-known/jwks.json") return Response.json({ keys: keys.map((key) => key.publicJwk) }, { headers: cached });
     return Response.json(authorizationServerMetadata(env, false), { headers: cached });
   }
   if (path === "/oauth/authorize") return authorize(request, env);
-  if (path === "/oauth/token") return token(request, env, key);
-  return userinfo(request, env, key);
+  if (path === "/oauth/token") return token(request, env, keys[0]!);
+  return userinfo(request, env, keys);
 }
 
 /**
@@ -179,7 +198,7 @@ export async function handleSignIn(request: Request, env: Env, path: string): Pr
  */
 export function authorizationServerMetadata(env: Env, forMcp: boolean): Record<string, unknown> {
   const origin = env.SITE_ORIGIN;
-  const hasIdTokens = !forMcp || signInKey(env) !== null;
+  const hasIdTokens = !forMcp || signInKeys(env) !== null;
   return {
     issuer: origin,
     authorization_endpoint: `${origin}/oauth/authorize`,
@@ -283,12 +302,6 @@ export function redirect(to: string, cookies: string[] = []): Response {
 
 async function authorize(request: Request, env: Env): Promise<Response> {
   const isPost = request.method === "POST";
-  if (!isPost && request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
-  if (isPost) {
-    // Continue only from our own consent page.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
   const form = isPost ? await request.formData() : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));
@@ -464,12 +477,12 @@ async function token(request: Request, env: Env, key: SignInKey): Promise<Respon
 
 // --- Userinfo -----------------------------------------------------------------------------
 
-async function userinfo(request: Request, env: Env, key: SignInKey): Promise<Response> {
+async function userinfo(request: Request, env: Env, keys: SignInKey[]): Promise<Response> {
   if (request.method !== "GET" && request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: OPEN });
   const refuse = (description: string) =>
     Response.json({ error: "invalid_token", error_description: description }, { status: 401, headers: { ...OPEN, "Cache-Control": "no-store", "WWW-Authenticate": `Bearer error="invalid_token", error_description="${description}"` } });
   const accessToken = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
-  const claims = accessToken ? await readAccessToken(env, key, accessToken) : null;
+  const claims = accessToken ? await readAccessToken(env, keys, accessToken) : null;
   if (!claims) return refuse("The access token is missing, expired or not from Zaisma.");
   const account = await env.DB.prepare("SELECT id, username FROM accounts WHERE player_id = ?").bind(claims.sub).first<{ id: string; username: string }>();
   // A player who removed the app, or deleted their account, is no longer shared.

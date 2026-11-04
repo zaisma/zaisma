@@ -32,8 +32,6 @@ export async function handleFriendRequests(request: Request, env: Env, path: str
   if (!authConfigured(env)) return answer({ error: { code: "accounts_off", message: "Accounts aren't on yet." } }, 404);
   const post = request.method === "POST";
   if ((aboutMatch && post) || (answerMatch && !post)) return new Response(null, { status: 405 });
-  // Changes only come from our own pages.
-  if (post && request.headers.get("origin") !== new URL(request.url).origin) return answer({ error: { code: "bad_origin", message: "Not allowed from here." } }, 403);
   const isForm = (request.headers.get("content-type") ?? "").includes("application/x-www-form-urlencoded");
   const session = await currentSession(request, env);
   const account = session ? await accountById(env.DB, session.userId) : null;

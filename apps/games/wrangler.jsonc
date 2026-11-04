@@ -17,6 +17,7 @@
     "GAME_DOMAIN": "zaismausercontent.com",
     "SITE_ORIGIN": "https://zaisma.com",
     "ROOMS_ORIGIN": "https://rooms.zaisma.com"
+    // Secrets: STORED_SECRETS_KEY, SECOND_STORED_SECRETS_KEY and IS_SECOND_STORED_SECRETS_KEY_IN_USE, the same in rooms, games and the site (scripts/replace-key.mjs).
   },
   // The SDK and its types, the cloud saves script and the report picture script are served to games as text.
   "rules": [{ "type": "Text", "globs": ["**/zaisma.js", "**/zaisma.d.ts", "**/saves.js", "**/picture.js", "**/relay.js", "**/warm.js", "**/performance.js"], "fallthrough": true }],

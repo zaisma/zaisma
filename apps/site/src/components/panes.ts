@@ -222,6 +222,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
   window.zaismaCast = function (pane) {
     var cast = pane.floatCast;
     if (!cast) { cast = pane.floatCast = document.createElement("div"); cast.className = "floating-cast"; cast.setAttribute("aria-hidden", "true"); cast.appendChild(document.createElement("div")).appendChild(document.createElement("span")); (pane.parentElement || document.body).appendChild(cast); }
+    // Smoked and moving as its pane does, closing too.
+    ["smoke", "is-above", "placed-over", "opens-at-once"].forEach(function (name) { cast.classList.toggle(name, pane.classList.contains(name)); });
     if (!pane.isConnected || !pane.matches(":popover-open")) { cast.hidden = true; return; }
     // Where it stands once its arriving move is done: its box less the move, so the shadow doesn't jump when the move ends.
     var box = pane.getBoundingClientRect(), move = new DOMMatrix(getComputedStyle(pane).transform === "none" ? undefined : getComputedStyle(pane).transform);
@@ -242,7 +244,6 @@ export const PLACE_SCRIPT = `/* place */(function () {
     // Its shadow is its pane's, light or dark as the pane is (the gallery's choice, or smoked over a game), not the page's own.
     var themeChoice = pane.getAttribute("data-theme-choice");
     if (themeChoice) cast.setAttribute("data-theme-choice", themeChoice); else cast.removeAttribute("data-theme-choice");
-    cast.classList.toggle("smoke", pane.classList.contains("smoke"));
     cast.style.left = r.left + (isOnPage ? window.scrollX : 0) + "px"; cast.style.top = r.top + (isOnPage ? window.scrollY : 0) + "px"; cast.style.width = r.width + "px"; cast.style.height = r.height + "px";
   };
   // Opening, closing and settling after its opening move: the toggle and transition events don't bubble, so they're caught on the way down.
@@ -375,8 +376,8 @@ export const PLACE_SCRIPT = `/* place */(function () {
       // There, it stays in the top layer while it fades toward its anchor (is-leaving), then goes.
       if (isMovedByScript) {
         pane.classList.add("is-leaving"); if (pane.floatCast) pane.floatCast.classList.add("is-leaving");
-        pane.leaveTimer = setTimeout(function () { pane.classList.remove("is-leaving"); pane.hidePopover(); if (pane.floatCast) pane.floatCast.classList.remove("is-leaving"); }, LEAVE_MS);
-      } else pane.hidePopover();
+        pane.leaveTimer = setTimeout(function () { pane.classList.remove("is-leaving"); pane.hidePopover(); window.zaismaCast(pane); pane.floatCast.classList.remove("is-leaving"); }, LEAVE_MS);
+      } else { pane.hidePopover(); window.zaismaCast(pane); }
       if (options.onToggle) options.onToggle(false);
       var back = options.focusOnClose || anchorNow();
       if (returnFocus && back) back.focus();
@@ -775,7 +776,7 @@ component({
 @property --light-span { syntax: "<length>"; inherits: true; initial-value: 0px; }
 /* It follows the pointer closely as it glides (0.2s, easing out), and comes and goes more slowly (0.45s). Its flood reaches past the
    part it lights, so it's cut off at its holder's edge: a clip only hides it, and the pane round it would still get more to scroll. */
-.edge-light { position: absolute; inset: 0; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape); transition: --light-at var(--motion-state) var(--ease-glide), --light-span var(--motion-state) var(--ease-glide); }
+.edge-light { position: absolute; inset: 0; overflow: hidden; pointer-events: none; clip-path: var(--cut-shape); --edge-light-glide: --light-at var(--motion-state) var(--ease-glide), --light-span var(--motion-state) var(--ease-glide); transition: var(--edge-light-glide); }
 .edge-light::before, .edge-light::after { content: ""; position: absolute; opacity: 0; transition: opacity var(--motion-glide) var(--ease-standard); }
 .edge-light::before { inset: 0; }
 [data-edge-light="bottom"] > .edge-light::before { box-shadow: inset 0 -1.5px 0 var(--edge-wake); }
@@ -848,6 +849,9 @@ component({
 /* It fades its glass and what's on it, never itself: a pane faded as a whole blurs nothing behind it until it's whole. Each fades by its own
    opacity, which the browser draws on the GPU, never a custom property, which would restyle all of it every frame. */
 .floating-pane::before, .floating-pane > * { transition: opacity var(--motion-state); }
+/* Its edge light fades with the rest, and keeps gliding along its edge. */
+.floating-pane > .edge-light { transition: opacity var(--motion-state), var(--edge-light-glide); }
+@media (prefers-reduced-motion: reduce) { .floating-pane > .edge-light { transition: opacity var(--motion-state); } }
 .floating-pane:not(:popover-open):not(.in-place)::before, .floating-pane:not(:popover-open):not(.in-place) > * { opacity: 0; }
 @starting-style { .floating-pane:popover-open::before, .floating-pane:popover-open > * { opacity: 0; } }
 .floating-pane.is-on-page { position: absolute; }
@@ -863,21 +867,25 @@ component({
 .floating-pane:is(.is-arriving, .is-leaving)::before, .floating-pane:is(.is-arriving, .is-leaving) > * { opacity: 0; }
 /* Opened again at once where it just was (a Filter menu drawn again with the list it filters), it shows without arriving. */
 .floating-pane.opens-at-once, .floating-pane.opens-at-once::before, .floating-pane.opens-at-once > * { transition: none; }
-.floating-pane:is(.is-arriving, .is-leaving) { transform: translateY(-6px); pointer-events: none; }
-.floating-pane.is-above:is(.is-arriving, .is-leaving) { transform: translateY(6px); }
-.floating-pane.placed-over:is(.is-arriving, .is-leaving) { transform: scale(0.97); }
-.floating-pane:not(:popover-open):not(.in-place) { display: none; transform: translateY(-6px); pointer-events: none; }
-.floating-pane.is-above:not(:popover-open):not(.in-place) { transform: translateY(6px); }
-.floating-pane.placed-over:not(:popover-open):not(.in-place) { transform: scale(0.97); }
-@starting-style { .floating-pane:popover-open { transform: translateY(-6px); } .floating-pane.is-above:popover-open { transform: translateY(6px); } .floating-pane.placed-over:popover-open { transform: scale(0.97); } }
+/* Closed, it stands a little off where it opens, and its shadow with it. */
+:is(.floating-pane, .floating-cast) { --away-move: translateY(-6px); }
+:is(.floating-pane, .floating-cast).is-above { --away-move: translateY(6px); }
+:is(.floating-pane, .floating-cast).placed-over { --away-move: scale(0.97); }
+.floating-pane:is(.is-arriving, .is-leaving) { transform: var(--away-move); pointer-events: none; }
+.floating-pane:not(:popover-open):not(.in-place) { display: none; transform: var(--away-move); pointer-events: none; }
+@starting-style { .floating-pane:popover-open { transform: var(--away-move); } }
 /* The shadow it casts onto the page (zaismaCast): a box laid under it in its cut shape, with that shape cut out after it casts. */
 .floating-cast { position: fixed; z-index: 2147483646; pointer-events: none; }
 .floating-cast > div { position: absolute; inset: 0; filter: var(--float-cast); }
 .floating-cast > div > span { position: absolute; inset: 0; background: #000; }
 .floating-cast.is-on-page { position: absolute; }
-/* Where the script moves the pane (Safari), its shadow fades in and out with it, where it stands. */
-.floating-cast { transition: opacity var(--motion-arrive) var(--ease-glide); }
-.floating-cast:is(.is-arriving, .is-leaving) { opacity: 0; }
+/* It comes and goes with its pane, at its glass's fade and its move: hidden, it stays until they're done. Where the script moves the pane
+   (Safari), its classes say so instead, as they do the pane's. */
+.floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
+.floating-cast:is([hidden], .is-arriving, .is-leaving) { opacity: 0; transform: var(--away-move); }
+@starting-style { .floating-cast { opacity: 0; transform: var(--away-move); } }
+.floating-cast.opens-at-once { transition: none; }
+@supports not (overlay: auto) { .floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide); } }
 /* Shown open in place (the gallery's open states), it's in the page's flow, no taller than a menu, scrolling past it as it does open. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */

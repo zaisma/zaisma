@@ -9,6 +9,7 @@
 
 import { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS } from "./chat.ts";
 import { DatabaseError, type GameDatabase } from "./database.ts";
+import { checkDoor, type DoorCaller, type DoorContract } from "./doors.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PassClaims, PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
@@ -1571,6 +1572,40 @@ export interface StateSyncHooks {
 export const NO_MESSAGE_TYPE = "(none)";
 export const BYTES_MESSAGE_TYPE = "(bytes)";
 export const ZAISMA_MESSAGE_TYPE = "(zaisma)";
+
+const ROOM_MEMBER: DoorContract = { whoMayCall: "room_member", reaches: "room", trusts: ["player_pass"] };
+const ROOM_PLAYER: DoorContract = { whoMayCall: "room_player", reaches: "room", trusts: ["player_pass"] };
+const ROOM_HOST: DoorContract = { whoMayCall: "room_host", reaches: "room", trusts: ["player_pass"] };
+
+/**
+ * Every message a room takes (docs/DOORS.md). receive's switch is over these names, so a new one without a row
+ * doesn't build. A spectator may send only what's for room members. hello comes first and proves the pass; chat is the host's to take before receive (readChatMessage);
+ * bytes is every binary message (receiveBytes). A type with no row, maybe from a newer SDK, is counted and ignored.
+ */
+export const ROOM_MESSAGE_DOORS = {
+  hello: { whoMayCall: "pass_holder", reaches: "room", trusts: ["player_pass"], provenBy: { source_path: "packages/game-server/src/pass.ts", symbol_name: "verifyPass" } },
+  probe_answer: ROOM_MEMBER,
+  room: ROOM_HOST,
+  kick: ROOM_HOST,
+  here: ROOM_PLAYER,
+  idle: ROOM_PLAYER,
+  hidden: ROOM_PLAYER,
+  shown: ROOM_PLAYER,
+  back: ROOM_PLAYER,
+  message: ROOM_PLAYER,
+  bytes: ROOM_PLAYER,
+  chat: ROOM_PLAYER,
+  block: ROOM_PLAYER,
+  unblock: ROOM_PLAYER,
+  friend_request: ROOM_PLAYER,
+  "zaisma:purchase": { whoMayCall: "room_player", reaches: "purchase", trusts: ["player_pass", "purchase_receipt"] },
+} as const satisfies Record<string, DoorContract>;
+
+export type RoomMessageType = keyof typeof ROOM_MESSAGE_DOORS;
+
+const isRoomMessageType = (type: unknown): type is RoomMessageType => typeof type === "string" && Object.hasOwn(ROOM_MESSAGE_DOORS, type);
+const PLAYER_PROVEN: readonly DoorCaller[] = ["room_member", "room_player"];
+const HOST_PROVEN: readonly DoorCaller[] = ["room_member", "room_player", "room_host"];
 export const OTHER_MESSAGE_TYPE = "(other)";
 /** State sync's updates (stateSyncEnabled). */
 export const STATE_MESSAGE_TYPE = "(state)";
@@ -2810,7 +2845,9 @@ export class RoomCore<S = any> {
     if (isHeld) return message.type === "back" ? this.back(playerId, message.joinData, message as ClientIdle) : null;
     const presence = this.presence.get(playerId);
     if (presence) presence.seenAtMs = this.now();
-    switch (message.type) {
+    const type = isRoomMessageType(message.type) ? message.type : null;
+    if (type && !checkDoor(ROOM_MESSAGE_DOORS[type], this.hostPlayerId === playerId ? HOST_PROVEN : PLAYER_PROVEN)) return "not_allowed";
+    switch (type) {
       case "room":
         return this.hostChange(playerId, message);
       case "kick":
@@ -2881,7 +2918,7 @@ export class RoomCore<S = any> {
     if (text.length <= ROOM_LIMITS.maximumGameMessageSizeBytes) {
       try {
         const message = JSON.parse(text) as { type?: unknown; probeNumber?: unknown } | null;
-        if (message?.type === "probe_answer" && this.answer(spectatorId, message.probeNumber)) return null;
+        if (isRoomMessageType(message?.type) && ROOM_MESSAGE_DOORS[message.type].whoMayCall === "room_member" && this.answer(spectatorId, message.probeNumber)) return null;
       } catch {
         // Refused below.
       }
@@ -2947,7 +2984,6 @@ export class RoomCore<S = any> {
    * text between strangers), so the kicked player is told the host removed them.
    */
   private hostKick(playerId: string, message: Record<string, unknown>): RoomErrorCode | null {
-    if (this.hostPlayerId !== playerId) return "not_allowed";
     const kickedId = message.playerId;
     if (typeof kickedId !== "string" || kickedId === playerId || !this.players.has(kickedId)) return "bad_message";
     this.kick(kickedId, { message: "The host removed you from this room.", keepOut: message.keepOut === true });
@@ -2956,7 +2992,6 @@ export class RoomCore<S = any> {
 
   /** The host hides, shows, opens, closes, turns friends' Join on or off, names or labels the room, when the game server allows it. */
   private hostChange(playerId: string, message: Record<string, unknown>): RoomErrorCode | null {
-    if (this.hostPlayerId !== playerId) return "not_allowed";
     const asked = message.room;
     if (!asked || typeof asked !== "object" || Array.isArray(asked)) return "bad_message";
     const room = asked as Record<string, unknown>;

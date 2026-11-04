@@ -74,10 +74,6 @@ const ok = (body?: unknown) => (body === undefined ? new Response(null, { status
 export async function handlePlays(request: Request, env: Env, path: string): Promise<Response | null> {
   const match = path.match(/^\/api\/plays\/([a-z0-9-]+)(\/account|\/entry)?$/);
   if (!match) return null;
-  if (request.method !== "POST") return new Response(null, { status: 405 });
-  // Only the game page counts plays: another site can't send them from its visitors' browsers.
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(env.SITE_ORIGIN).origin) return new Response(null, { status: 403 });
   // By connection address, checked by Cloudflare and never stored.
   const ip = request.headers.get("cf-connecting-ip") ?? "local";
   if (env.PLAY_LIMIT && !(await env.PLAY_LIMIT.limit({ key: ip })).success) return new Response(null, { status: 429 });
@@ -189,7 +185,7 @@ async function handlePlayEntry(request: Request, env: Env, game: Game | null, bo
   if (turnedAway) return withCookies(turnedAway, cookies);
   // Where to go inside the game: a path and query, checked again by the games server.
   const then = typeof body.then === "string" && body.then.length <= 2000 ? body.then : "";
-  const entryUrl = `${gameUrl(env, game.slug)}_zaisma/enter?grant=${await createEntryGrant(game)}${then ? `&then=${encodeURIComponent(then)}` : ""}`;
+  const entryUrl = `${gameUrl(env, game.slug)}_zaisma/enter?grant=${await createEntryGrant(env, game)}${then ? `&then=${encodeURIComponent(then)}` : ""}`;
   return withCookies(Response.json({ entry_url: entryUrl }, { headers: { "Cache-Control": "no-store" } }), cookies);
 }
 

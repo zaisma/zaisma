@@ -45,11 +45,6 @@ export async function handleFriends(request: Request, env: Env, path: string): P
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
 
   const post = request.method === "POST";
-  if (post) {
-    // Forms only come from our own pages.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
   const session = await currentSession(request, env);
   const account = session ? await accountById(env.DB, session.userId) : null;
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);

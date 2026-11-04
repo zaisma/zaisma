@@ -3,5 +3,7 @@ SITE_ORIGIN=http://localhost:8787
 # Locally every game is at http://localhost:8788/<slug>/.
 GAME_HOST_MODE=path
 GAME_DOMAIN=
+# Seals secrets kept in the database, the same one in rooms, games and the site: openssl rand -base64 32
+STORED_SECRETS_KEY=
 # Local rooms Worker (npm run dev:rooms).
 ROOMS_ORIGIN=http://localhost:8789

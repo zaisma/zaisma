@@ -135,7 +135,7 @@ export async function sendTestEvent(env: Env, webhook: Webhook): Promise<Webhook
   const webhookEventId = newId("webhook_event");
   const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, created_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, account_deletion: null, sign_in_app: null, security_event: null, purchase: null });
   const delivery = await queueDelivery(env.DB, webhook, webhookEventId, eventJson);
-  return (await attemptDelivery(env.DB, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
+  return (await attemptDelivery(env.DB, env, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
 }
 
 /**
@@ -305,7 +305,7 @@ export async function tellGameServerErrors(env: Env, nowMs = Date.now()): Promis
 /** One try at each delivery, to its webhook (the same place in both lists). */
 async function sendAll(env: Env, webhooks: Webhook[], deliveries: WebhookDelivery[]): Promise<void> {
   const sendToGameServer = gameServerSender(env);
-  const tries = await Promise.allSettled(deliveries.map((delivery, i) => attemptDelivery(env.DB, webhooks[i]!, delivery, { sendToGameServer })));
+  const tries = await Promise.allSettled(deliveries.map((delivery, i) => attemptDelivery(env.DB, env, webhooks[i]!, delivery, { sendToGameServer })));
   for (const attempt of tries) if (attempt.status === "rejected") console.error("A webhook delivery broke", attempt.reason);
 }
 

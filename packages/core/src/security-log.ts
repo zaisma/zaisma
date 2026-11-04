@@ -67,6 +67,9 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   version_rolled_back: "Rolled back to an earlier version",
   version_deleted: "Deleted a version",
   game_deleted: "Deleted a game",
+  game_deletion_asked: "Asked to delete a game",
+  game_brought_back: "Brought a deleted game back",
+  game_erased_now: "Erased a deleted game at once",
   storage_budget_changed: "Changed the storage budget",
   publish_scheduled: "Scheduled a version to publish later",
   publish_unscheduled: "Cancelled a scheduled publish",
@@ -174,6 +177,9 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "version_rolled_back",
   "version_deleted",
   "game_deleted",
+  "game_deletion_asked",
+  "game_brought_back",
+  "game_erased_now",
   "storage_budget_changed",
   "publish_scheduled",
   "publish_unscheduled",
@@ -265,6 +271,8 @@ export const SECURITY_ALERT_WORDS = {
   connected_app_added: { subject: "An app was connected to your Zaisma account", ifNotYou: "remove the app under Game developers and change your password" },
   account_data_downloaded: { subject: "Your Zaisma data was downloaded", ifNotYou: "sign out on every device and change your password" },
   stripe_account_connected: { subject: "A Stripe account was connected to your Zaisma games", ifNotYou: "disconnect it under Game developers and change your password" },
+  game_deleted: { subject: "A game on your Zaisma account was deleted", ifNotYou: "bring it back on its page under Game developers within its week, remove the key and change your password" },
+  game_deletion_asked: { subject: "A key or AI app asked to delete a game on your Zaisma account", ifNotYou: "decline it, remove the key under Game developers and change your password" },
   connected_app_removed: { subject: "Zaisma disconnected an app from your account", ifNotYou: "connect the app again, and change your password" },
 } as const satisfies Partial<Record<SecurityEventKind, { subject: string; ifNotYou: string }>>;
 export type SecurityAlertKind = keyof typeof SECURITY_ALERT_WORDS;
@@ -284,6 +292,8 @@ export const SECURITY_ALERT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "connected_app_added",
   "account_data_downloaded",
   "stripe_account_connected",
+  "game_deleted",
+  "game_deletion_asked",
 ];
 
 /** Whether an event is a security alert. isNewPlace: for a sign-in, from a network the account hasn't used. */

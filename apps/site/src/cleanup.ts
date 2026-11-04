@@ -15,7 +15,7 @@ import { tellWebhooks } from "./webhooks.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
-  const { results } = await env.DB.prepare("SELECT * FROM versions WHERE scheduled_publish_at_ms IS NOT NULL AND scheduled_publish_at_ms <= ? ORDER BY scheduled_publish_at_ms LIMIT 50").bind(nowMs).all<Version>();
+  const { results } = await env.DB.prepare("SELECT * FROM versions WHERE scheduled_publish_at_ms IS NOT NULL AND scheduled_publish_at_ms <= ? AND game_id NOT IN (SELECT game_id FROM game_deletions) ORDER BY scheduled_publish_at_ms LIMIT 50").bind(nowMs).all<Version>();
   let publishedCount = 0;
   for (const version of results) {
     if (version.scan_status === "scanning") continue; // Goes live as soon as it passes.

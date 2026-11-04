@@ -54,6 +54,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   credit_entries: { file_path: "developer.json", reason: "Hosting credit: every top-up, charge and refund." },
   owner_cards: { file_path: "developer.json", reason: "The cards that paid Zaisma, as fingerprints nobody can read back, with when each first paid." },
   spending_requests: { file_path: "developer.json", reason: "Raises in spending an AI asked for, and how you answered." },
+  game_deletion_requests: { file_path: "developer.json", reason: "Deletions of your games a key or AI app asked for, and how you answered." },
   webhook_deliveries: { file_path: null, reason: "Copies of events about the developer's games, kept 30 days and listed through the API." },
   performance_checks: { file_path: null, reason: "How each of the developer's versions started in Chrome, in the API with each version." },
   owned_blobs: { file_path: null, reason: "Storage bookkeeping: which uploaded files a developer's games share." },
@@ -266,6 +267,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
     credit_entries: await owned("credit_entries", "id, entry_kind, amount_cents, game_id, refundable_until_ms, refunded_cents, created_at_ms"),
     owner_cards: ownerIds.length ? await rows(env, `SELECT card_fingerprint_sha256, first_paid_at_ms FROM owner_cards WHERE owner_id IN (${ownerIds.map(() => "?").join(", ")}) ORDER BY first_paid_at_ms`, ...ownerIds) : [],
     spending_requests: await rows(env, "SELECT id, request_kind, game_id, monthly_budget_cents, refill_level_cents, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM spending_requests WHERE account_id = ? ORDER BY created_at_ms", id),
+    game_deletion_requests: await rows(env, "SELECT id, request_kind, game_id, is_asked_from_dashboard, request_status, created_at_ms, expires_at_ms, answered_at_ms FROM game_deletion_requests WHERE account_id = ? ORDER BY created_at_ms", id),
   });
 
   if (missing.length) {

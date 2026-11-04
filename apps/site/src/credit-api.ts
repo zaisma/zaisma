@@ -29,11 +29,11 @@ const DAY_MS = 86_400_000;
 /** Where the developer confirms spending with their passkey: the hosting part of Developer settings on zaisma.com. */
 export const confirmUrlOf = (env: Env) => `${env.SITE_ORIGIN}/dashboard/settings#hosting`;
 
-/** Whether this caller may turn spending on or up: our own page, with a passkey tap in the last 10 minutes. */
-export async function withSpendingConfirmation(env: Env, caller: Caller, session: Session): Promise<Caller> {
+/** Whether this caller has the developer's own step: our own page, with a passkey tap in the last 10 minutes. */
+export async function withPasskeyConfirmation(env: Env, caller: Caller, session: Session): Promise<Caller> {
   if (caller.via !== "dashboard") return caller;
   const confirmation = await confirmationOf(env, session, caller.accountId);
-  return { ...caller, isSpendingConfirmed: confirmation.isPasskeyNeeded && confirmation.isConfirmed };
+  return { ...caller, isPasskeyConfirmed: confirmation.isPasskeyNeeded && confirmation.isConfirmed };
 }
 
 /**
@@ -42,7 +42,7 @@ export async function withSpendingConfirmation(env: Env, caller: Caller, session
  * get_spending_request checks the answer.
  */
 export async function checkSpendingConfirmed(env: Env, caller: Caller, what: string, change: SpendingChange): Promise<void> {
-  if (caller.isSpendingConfirmed) return;
+  if (caller.isPasskeyConfirmed) return;
   if (caller.via === "dashboard") {
     throw new ApiError("confirmation_needed", { message: `${what} spends the developer's money, so it needs their passkey.`, fix: "Tap your passkey, then do it again.", confirmUrl: confirmUrlOf(env) });
   }

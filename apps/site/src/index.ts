@@ -1,6 +1,6 @@
 import { fillMissingPlaceholders } from "./placeholders.ts";
 import { deleteDueGames } from "./game-deletion.ts";
-import { gameBySlug, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
+import { gameBySlug, sealStoredSecrets, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
@@ -11,6 +11,7 @@ import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
 import { isLocalSite } from "./html.ts";
 import { playingNowAnswer } from "./live-world.ts";
+import { guardSiteDoor } from "./guard.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { heldUntilOpened, isPreparedRequest, speculationRulesResponse } from "./prepared-pages.ts";
@@ -83,6 +84,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method;
 
+  // The guard in front of every door (guard.ts): nothing below runs for a path with no row in doors.ts.
+  const refused = await guardSiteDoor(request, env, path);
+  if (refused) return refused;
+
   // Pages' script files (page-scripts.ts): every module that makes one is imported above, so all are known.
   if (path.startsWith("/js/")) return method === "GET" || method === "HEAD" ? pageScriptResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path.startsWith("/css/")) return method === "GET" || method === "HEAD" ? pageStyleResponse(path) : new Response("Method not allowed", { status: 405 });
@@ -114,7 +119,6 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/buy/stripe-frame" && (method === "GET" || method === "HEAD")) return stripeFramePage(env);
   const buyWindow = path.match(/^\/buy\/([a-z0-9-]+)\/([a-z0-9][a-z0-9_-]{0,39})$/);
   if (buyWindow && method === "GET") return buyWindowPage(env, request, buyWindow[1]!, buyWindow[2]!);
-  if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
   if (path === "/" && method !== "POST") return home(env, request);
   if (path === "/games" && (method === "GET" || method === "HEAD")) return browsePage(env, request);
@@ -265,7 +269,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env)]), tellGameServerErrors(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

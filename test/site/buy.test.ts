@@ -277,7 +277,7 @@ describe("a developer's Stripe account", () => {
 
   it("connects through Stripe's page with a link bound to the owner who asked, once", async () => {
     const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
-    const [link, status] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isSpendingConfirmed: true })) as [any, number];
+    const [link, status] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isPasskeyConfirmed: true })) as [any, number];
     expect(status).toBe(201);
     const connectUrl = new URL(link.connect_url);
     expect(connectUrl.origin + connectUrl.pathname).toBe("https://connect.stripe.com/oauth/authorize");
@@ -293,7 +293,7 @@ describe("a developer's Stripe account", () => {
     const again = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
     expect(again.headers.get("location")).toContain("stripe=link_expired");
 
-    const [fresh] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isSpendingConfirmed: true })) as [any];
+    const [fresh] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isPasskeyConfirmed: true })) as [any];
     const freshState = new URL(fresh.connect_url).searchParams.get("state")!;
     const back = await SELF.fetch(`${SITE}/stripe/connect-return?state=${freshState}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });
     expect(back.headers.get("location")).toBe(`${SITE}/dashboard/settings?stripe=connected#payments`);
@@ -304,7 +304,7 @@ describe("a developer's Stripe account", () => {
 
   it("turns away a link that ran out, without asking Stripe anything", async () => {
     const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
-    const [link] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isSpendingConfirmed: true })) as [any];
+    const [link] = (await stripeAccountRoute(env, "/stripe-account/connection-links", "POST", {}, { ...caller, isPasskeyConfirmed: true })) as [any];
     const state = new URL(link.connect_url).searchParams.get("state")!;
     await env.DB.prepare("UPDATE stripe_connect_states SET expires_at_ms = ? WHERE state = ?").bind(Date.now() - 1, state).run();
     const back = await SELF.fetch(`${SITE}/stripe/connect-return?state=${state}&code=ac_test`, { headers: { cookie: await sessionCookie("dev-1") }, redirect: "manual" });

@@ -88,7 +88,7 @@ describe("after the fixed checks", () => {
     const version = await uploaded(game.id, CLEAN_GAME, false);
     await scanVersion(testEnv, version, deps());
     expect(await row(version)).toMatchObject({ scan_status: "approved", ai_review_status: "not_started", published_at_ms: null });
-    expect(previewLinkToken(await row(version))).not.toBeNull();
+    expect(previewLinkToken(env, await row(version))).not.toBeNull();
   });
 
   it("publishes an established developer's version straight away, with the review behind it", async () => {
@@ -366,7 +366,7 @@ describe("who reaches a version before its review", () => {
     const game = await makeGame("tester-gate", "private");
     const version = await uploaded(game.id, CLEAN_GAME);
     await scanVersion(testEnv, version, deps());
-    const link = await addTesterLink(env.DB, game.id, "Team", { versionChoice: "live", pickedVersionId: null, endsAtMs: null });
+    const link = await addTesterLink(env.DB, env, game.id, "Team", { versionChoice: "live", pickedVersionId: null, endsAtMs: null });
     const current = (await gameById(env.DB, game.id))!;
     expect(await testerLinkVersion(env.DB, current, link)).toBeNull();
     await requestAiReview(testEnv, current, await row(version));
@@ -380,7 +380,7 @@ describe("who reaches a version before its review", () => {
     const game = await makeGame("tester-earned", "private");
     const version = await uploaded(game.id, CLEAN_GAME);
     await scanVersion(testEnv, version, deps());
-    const link = await addTesterLink(env.DB, game.id, "Team", { versionChoice: "live", pickedVersionId: null, endsAtMs: null });
+    const link = await addTesterLink(env.DB, env, game.id, "Team", { versionChoice: "live", pickedVersionId: null, endsAtMs: null });
     expect((await testerLinkVersion(env.DB, (await gameById(env.DB, game.id))!, link))?.id).toBe(version);
   });
 
@@ -388,7 +388,7 @@ describe("who reaches a version before its review", () => {
     const game = await makeGame("preview-gate", "private");
     const version = await uploaded(game.id, CLEAN_GAME, false);
     await scanVersion(testEnv, version, deps());
-    const { token } = previewLinkToken(await row(version))!;
+    const { token } = previewLinkToken(env, await row(version))!;
     const signedOut = await SELF.fetch(`${SITE}/p/${token}`, { redirect: "manual" });
     expect(signedOut.status).toBe(302);
     expect(signedOut.headers.get("location")).toContain("/signin?next=");

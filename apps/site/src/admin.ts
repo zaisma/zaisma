@@ -78,7 +78,7 @@ import {
   type Version,
   type Triage,
   gameDeletionOf,
-  queueGameDeletion,
+  cancelGameDeletionWait, queueGameDeletion,
 } from "@zaisma/core";
 import { noteRulingOnGame } from "./standing.ts";
 import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
@@ -203,12 +203,7 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   // The admin MCP: Claude Code signs in through Cloudflare Access with a service token, so it sends no Origin of ours.
   if (path === "/admin/mcp") return handleAdminMcp(request, env, actor);
 
-  if (request.method === "POST") {
-    // Admin forms only come from our own pages.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-    return adminAction(request, env, path, actor);
-  }
+  if (request.method === "POST") return adminAction(request, env, path, actor);
 
   if (path === "/admin") return dashboard(env);
   if (path === "/admin/audit") return auditPage(env);
@@ -494,6 +489,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     } else if (match[2] === "restore") {
       const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
+      await cancelGameDeletionWait(env.DB, game.id);
       await setReviewStatus(env.DB, game.id, game.live_version_id ? "live" : "pending");
       await tellWebhooks(env, "review_status_changed", game.id, {});
       // A person checked a fake-reward hold: the listing check doesn't hold it again for the same pictures or title.

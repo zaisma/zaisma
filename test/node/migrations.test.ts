@@ -207,7 +207,7 @@ describe("migration 0055", () => {
 
   it("keeps every webhook, sending to its address", () => {
     expect(database.prepare("SELECT * FROM webhooks").all()).toEqual([
-      { id: "webhook_one", owner_id: "owner_one", destination_kind: "endpoint_url", endpoint_url: "https://hooks.skyhopper.io/zaisma", event_kinds: '["bug_reported"]', game_slugs: null, signing_secret: "whsec_abc", created_at_ms: 1, updated_at_ms: 2 },
+      { id: "webhook_one", owner_id: "owner_one", destination_kind: "endpoint_url", endpoint_url: "https://hooks.skyhopper.io/zaisma", event_kinds: '["bug_reported"]', game_slugs: null, signing_secret: "whsec_abc", sealed_signing_secret: null, created_at_ms: 1, updated_at_ms: 2 },
     ]);
   });
 
@@ -216,6 +216,29 @@ describe("migration 0055", () => {
     expect(() => database.exec(`INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_three', 'owner_one', 'game_server', 'https://x.example', '[]', NULL, 'whsec_x', 3, 3)`)).toThrow();
     expect(() => database.exec(`INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_four', 'owner_one', 'endpoint_url', NULL, '[]', NULL, 'whsec_x', 3, 3)`)).toThrow();
     expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'webhooks' AND name = 'webhooks_owner'").all()).toHaveLength(1);
+  });
+});
+
+describe("migration 0222", () => {
+  const database = migratedFrom(
+    "0222_",
+    `PRAGMA foreign_keys = OFF;
+     INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_one', 'owner_one', 'endpoint_url', 'https://hooks.skyhopper.io/zaisma', '["bug_reported"]', NULL, 'whsec_abc', 1, 2);
+     INSERT INTO tester_links (id, game_id, name, token, created_at_ms, last_opened_at_ms, revoked_at_ms, version_choice, picked_version_id, ends_at_ms) VALUES ('tester_one', 'game_one', 'Team', 'abc', 1, 2, 3, 'picked', 'version_one', 4);`,
+  );
+
+  it("keeps every row and value, with the sealed columns empty for the cron to fill", () => {
+    expect(database.prepare("SELECT signing_secret, sealed_signing_secret, destination_kind, updated_at_ms FROM webhooks").all()).toEqual([{ signing_secret: "whsec_abc", sealed_signing_secret: null, destination_kind: "endpoint_url", updated_at_ms: 2 }]);
+    expect(database.prepare("SELECT * FROM tester_links").all()).toEqual([
+      { id: "tester_one", game_id: "game_one", name: "Team", token: "abc", token_sha256: null, sealed_token: null, created_at_ms: 1, last_opened_at_ms: 2, revoked_at_ms: 3, version_choice: "picked", picked_version_id: "version_one", ends_at_ms: 4 },
+    ]);
+  });
+
+  it("lets the plain columns empty, keeps tokens unique, and keeps the indexes", () => {
+    database.exec("UPDATE webhooks SET signing_secret = NULL; UPDATE tester_links SET token = NULL");
+    database.exec("INSERT INTO tester_links (id, game_id, name, token_sha256, created_at_ms) VALUES ('tester_two', 'game_one', 'Team', 'hash', 1)");
+    expect(() => database.exec("INSERT INTO tester_links (id, game_id, name, token_sha256, created_at_ms) VALUES ('tester_three', 'game_one', 'Team', 'hash', 1)")).toThrow();
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('webhooks_owner', 'tester_links_game') ORDER BY name").all()).toEqual([{ name: "tester_links_game" }, { name: "webhooks_owner" }]);
   });
 });
 

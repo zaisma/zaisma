@@ -147,6 +147,7 @@ export const BENCH_PLACES: BenchPlace[] = [
     states: [
       { ...ACCOUNT_MENU, stateValue: "settings-account-menu" },
       { stateValue: "spending-request", label: "Spending request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a spending request" },
+      { stateValue: "game-deletion-request", label: "Deletion request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a game deletion request" },
       { stateValue: "settings-places", label: "Settings' places", stateKind: "opened", seenBy: "signed_in", opens: "settings-places-sheet" },
       { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", opens: "plan-start" },
       { stateValue: "storage-budget", label: "Storage budget", stateKind: "opened", seenBy: "signed_in", opens: "storage-budget" },
@@ -183,13 +184,14 @@ export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
   { idPattern: "^conn-dialog$", reason: "the connection's dropdown: Weak connection, Reconnecting and Connection lost each show the bar's button that opens it" },
     { idPattern: "^players$", reason: "Playing's Players button opens it, with its list filled" },
   { idPattern: "^spending-request$", reason: "Spending request's button opens it from its address" },
+  { idPattern: "^game-deletion-request$", reason: "Deletion request's button opens it from its address" },
   { idPattern: "^budget-[a-z0-9-]+-off$", reason: "a game's budget turned off, a step of A game's budget" },
 ];
 
 /** Checked states with no button, each with why. */
 export const CHECKED_PAGES_NOT_ON_THE_BENCH: readonly { name: CheckedPageName; reason: string }[] = [
   { name: "Pick a username", reason: "it passes through the stand-in Google sign-in on another site, where a screen loses the mark that says whose it is" },
-  ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
+  ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Security", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
 ];
 
 /** Who a button or a choice is for: short, since the menus hold them on one line. Each of the preview's test accounts has one. */

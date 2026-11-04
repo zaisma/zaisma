@@ -246,11 +246,11 @@ describe("budgets", () => {
     const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
     // An unconfirmed caller can't approve; a confirmed one makes the same change the confirmed call would.
     await expect(answerSpendingRequest(env, caller, asked.spending_request_id, "approved")).rejects.toMatchObject({ code: "confirmation_needed" });
-    expect(await answerSpendingRequest(env, { ...caller, isSpendingConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
+    expect(await answerSpendingRequest(env, { ...caller, isPasskeyConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
     expect((await env.DB.prepare("SELECT monthly_budget_cents FROM games WHERE slug = 'sky-hopper'").first<{ monthly_budget_cents: number }>())!.monthly_budget_cents).toBe(4000);
     expect((await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request.request_status).toBe("approved");
     // Another account's request can't be answered, and the 21st waiting one replaces the oldest.
-    expect(await answerSpendingRequest(env, { ...caller, accountId: "someone-else", isSpendingConfirmed: true }, asked.spending_request_id, "declined")).toBe("not_waiting");
+    expect(await answerSpendingRequest(env, { ...caller, accountId: "someone-else", isPasskeyConfirmed: true }, asked.spending_request_id, "declined")).toBe("not_waiting");
     const ids: string[] = [];
     for (let gameNumber = 0; gameNumber < 21; gameNumber++) ids.push(await askForSpending(env, "dev-1", { requestKind: "game_budget", gameId: `game_fake_${gameNumber}`, monthlyBudgetCents: 1000 }));
     expect((await env.DB.prepare("SELECT COUNT(*) AS waiting_count FROM spending_requests WHERE request_status = 'waiting'").first<{ waiting_count: number }>())!.waiting_count).toBe(20);
@@ -457,7 +457,7 @@ describe("the monthly credit plan", () => {
     expect((await tool("get_spending_request", { spending_request_id: asked.spending_request_id })).spending_request).toMatchObject({ request_kind: "credit_plan_refill_level", game_slug: null, requested_change: { refill_level_cents: 6000 }, current_setting: { refill_level_cents: 3000 }, request_status: "waiting" });
     expect((await plan()).refill_level_cents).toBe(3000);
     const caller = (await callerFor(env, new Request(SITE), "dev-1"))!;
-    expect(await answerSpendingRequest(env, { ...caller, isSpendingConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
+    expect(await answerSpendingRequest(env, { ...caller, isPasskeyConfirmed: true }, asked.spending_request_id, "approved")).toBe("answered");
     expect((await plan()).refill_level_cents).toBe(6000);
     // A later event from Stripe keeps Zaisma's level, not the one the plan started with.
     await subscriptionEvent("customer.subscription.updated", { status: "active" });

@@ -102,7 +102,7 @@ export async function stripeAccountRoute(env: Env, path: string, method: string,
   if (path === "/stripe-account" && method === "GET") return [{ stripe_account: await stripeAccountWithBalance(env, row) }];
 
   if (path === "/stripe-account/connection-links" && method === "POST") {
-    if (!caller.isSpendingConfirmed) {
+    if (!caller.isPasskeyConfirmed) {
       throw new ApiError("confirmation_needed", {
         message: "Connecting a Stripe account decides where players' money goes, so it needs the developer's passkey on zaisma.com.",
         fix: "Send the developer to confirm_url to connect Stripe there with their passkey.",

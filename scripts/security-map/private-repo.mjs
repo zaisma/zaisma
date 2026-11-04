@@ -4,6 +4,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
+import { isOpenItem, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
+import { lastReviewDateOf, pageDataHashOf, pageDataOfMapDir } from "./page-data.mjs";
+import { publicPromisesNextStepOf } from "./public-promises.mjs";
 import { caseRefOf, withVerdict } from "./schema.mjs";
 
 /**
@@ -15,10 +18,16 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *   node scripts/security-map/private-repo.mjs pull              pull (clone when missing)
  *   node scripts/security-map/private-repo.mjs mark-fixed <finding_id> --test <path> [--note <text>]
  *        the finding fixed: its map cases fixed with that test as evidence, verify, export, the finding's
- *        status line, its queue lines gone, then commit and push
+ *        status line, the item it came from done, its queue lines gone, then commit and push
  *   node scripts/security-map/private-repo.mjs remove-queue-line <text>    queue.md lines holding <text> gone, then commit and push
- *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the export's generated_at, then commit and push
- *   node scripts/security-map/private-repo.mjs commit --message <text>     commit and push what's changed in the clone (after cli.mjs or a verdict)
+ *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the hash of what the page shows now, then commit and push
+ *   node scripts/security-map/private-repo.mjs commit --message <text> [--path <path>]    commit and push what's changed in the clone (after cli.mjs or a verdict), or only under each --path
+ *   node scripts/security-map/private-repo.mjs items             pull, then where every item stands, as JSON
+ *   node scripts/security-map/private-repo.mjs item <item_id>    pull, then one item whole, as JSON
+ *   node scripts/security-map/private-repo.mjs item-claim <item_id> --launch-id <id>    a next item doing, for the session of that launch
+ *   node scripts/security-map/private-repo.mjs item-back <item_id>    a doing item back to next
+ *   node scripts/security-map/private-repo.mjs item-settle <item_id> --from <answers.json>    calls answered: a list of call_line and answer_line
+ *   node scripts/security-map/private-repo.mjs item-done <item_id> --test <path>    a doing item done, with the test on origin/main that guards it
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security), --dry (say
  * what a change would do, change nothing), --date <YYYY-MM-DD> (mark-fixed, default today in UTC).
@@ -26,21 +35,21 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  */
 
 const REPO_ROOT = join(import.meta.dirname, "../..");
-const COMMANDS = ["read", "pull", "mark-fixed", "remove-queue-line", "page-shown", "commit"];
+const COMMANDS = ["read", "pull", "mark-fixed", "remove-queue-line", "page-shown", "commit", "items", "item", "item-claim", "item-back", "item-settle", "item-done"];
 const SECURITY_REPO = "zaisma/security";
 /** The public code the map's doors and test evidence are drawn from; mark-fixed needs it as on origin/main. */
 const MAP_SOURCE_PATHS = ["apps", "packages", "scripts", "test"];
-/** Unproven repros (hole-hunt keeps them out of commits); never committed even when .gitignore is missing. */
+/** Unproven repros; never committed even when .gitignore is missing. */
 const CANDIDATES_PATH = "findings/candidates/";
-const QUEUE_ITEM = /^\s*(?:[-*]\s+)?(URGENT:|Security fix:|hardening:)/;
+const QUEUE_ITEM = /^\s*(?:[-*]\s+)?(URGENT:|Security fix:)/;
 const FINDING_ID = /^fnd_\d{4}-\d{2}-\d{2}_[a-z0-9-]+$/;
 
-/** queue.md's work lines (URGENT, Security fix and hardening), without its heading and intro. */
+/** queue.md's work lines (URGENT and Security fix), without its heading and intro. */
 export const queueItemsOf = (queueText) => queueText.split("\n").filter((line) => QUEUE_ITEM.test(line)).map((line) => line.trim());
 
 /** queue.md without the work lines that hold matchText; answers the new text and the lines removed. */
 export function withoutQueueLines(queueText, matchText) {
-  if (!matchText.trim()) throw new Error("Say which queue line to remove: text it holds, like findings/2026-10-18-slug.md or the hardening row's name.");
+  if (!matchText.trim()) throw new Error("Say which queue line to remove: text it holds, like findings/2026-10-18-slug.md.");
   const removedLines = [];
   const kept = queueText.split("\n").filter((line) => {
     const isMatch = QUEUE_ITEM.test(line) && line.includes(matchText);
@@ -50,19 +59,19 @@ export function withoutQueueLines(queueText, matchText) {
   return { text: kept.join("\n"), removed_lines: removedLines };
 }
 
-/** The README's map page lines: the page's address and the export's generated_at it last showed (null when missing). */
+/** The README's map page lines: the page's address and the hash of the data it last showed (null when missing). */
 export function pageLinesOf(readmeText) {
   return {
     map_page_url: readmeText.match(/^Map page: (\S+)/m)?.[1] ?? null,
-    map_page_shows_generated_at: readmeText.match(/^Map page shows: (\S+)/m)?.[1] ?? null,
+    map_page_shows_data_hash: readmeText.match(/^Map page shows: (\S+)/m)?.[1] ?? null,
   };
 }
 
 /** The README with its "Map page shows:" line set (added under "Map page:" when missing). */
-export function withPageShows(readmeText, generatedAt) {
-  if (/^Map page shows: .*$/m.test(readmeText)) return readmeText.replace(/^Map page shows: .*$/m, `Map page shows: ${generatedAt}`);
+export function withPageShows(readmeText, dataHash) {
+  if (/^Map page shows: .*$/m.test(readmeText)) return readmeText.replace(/^Map page shows: .*$/m, `Map page shows: ${dataHash}`);
   if (!/^Map page: .*$/m.test(readmeText)) throw new Error("The README has no Map page: line, so the map page isn't published yet. Skip with the line `map page not published yet`.");
-  return readmeText.replace(/^(Map page: .*)$/m, `$1\nMap page shows: ${generatedAt}`);
+  return readmeText.replace(/^(Map page: .*)$/m, `$1\nMap page shows: ${dataHash}`);
 }
 
 /** A finding file with its status line (Status: …, bold or in a list) set, or one added at the end. */
@@ -95,7 +104,7 @@ export function markFindingFixed(map, { findingId, evidence, now }) {
   return { map: next, case_refs: caseRefs };
 }
 
-function run(command, args, cwd) {
+export function run(command, args, cwd) {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000 }).trim();
 }
 
@@ -105,6 +114,15 @@ function runOrNull(command, args, cwd) {
   } catch {
     return null;
   }
+}
+
+/** queue.md with these work lines put above the ones it holds, under its heading and intro. */
+export function withQueueLines(queueText, lines) {
+  const queueLines = queueText.split("\n");
+  const firstItemIndex = queueLines.findIndex((line) => QUEUE_ITEM.test(line));
+  if (firstItemIndex === -1) return `${queueText.replace(/\n*$/, "")}\n\n${lines.join("\n")}\n`;
+  queueLines.splice(firstItemIndex, 0, ...lines);
+  return queueLines.join("\n");
 }
 
 /** The clone pulled (fast-forward only) onto main, or cloned when the folder is missing. */
@@ -167,16 +185,19 @@ export function commitAndPush(mapDir, { message, paths = [] }) {
   return { committed_paths: staged, pushed: true };
 }
 
-/** What the coordinator reads at the top of every run: the queue's work lines and whether the map page is behind the export. */
+/** What the coordinator reads at the top of every run: the queue's work lines, whether the map page is behind the records, the last daily review's day and what the printed promises need. */
 export function readState(mapDir) {
-  const exportText = readClonedText(mapDir, "exports/map-public.json");
-  const exportGeneratedAt = exportText ? JSON.parse(exportText).generated_at ?? null : null;
+  const pageData = pageDataOfMapDir(mapDir);
+  const pageDataHash = pageData ? pageDataHashOf(pageData) : null;
   const pageLines = pageLinesOf(readClonedText(mapDir, "README.md"));
   return {
     queue_items: queueItemsOf(readClonedText(mapDir, "queue.md")),
     ...pageLines,
-    export_generated_at: exportGeneratedAt,
-    is_map_page_behind: Boolean(pageLines.map_page_url && exportGeneratedAt && exportGeneratedAt !== pageLines.map_page_shows_generated_at),
+    page_data_hash: pageDataHash,
+    last_review_date: lastReviewDateOf(mapDir),
+    open_item_count: readItems(mapDir).filter(isOpenItem).length,
+    is_map_page_behind: Boolean(pageLines.map_page_url && pageDataHash && pageDataHash !== pageLines.map_page_shows_data_hash),
+    public_promises_next_step: publicPromisesNextStepOf(mapDir),
   };
 }
 
@@ -220,8 +241,10 @@ async function markFixed(mapDir, { findingId, testPath, note, date, isDry }) {
     if (findingPath) writeFileSync(join(mapDir, findingPath), withFindingStatus(readFileSync(join(mapDir, findingPath), "utf8"), `fixed ${date}`));
     const queue = withoutQueueLines(readClonedText(mapDir, "queue.md"), queueMatch);
     if (queue.removed_lines.length) writeFileSync(join(mapDir, "queue.md"), queue.text);
-    const pushed = commitAndPush(mapDir, { message: `Mark ${findingId} fixed`, paths: ["map", "exports", "queue.md", ...(findingPath ? [findingPath] : [])] });
-    return { ...plan, case_refs: marked.case_refs, ...pushed };
+    const fixedItems = itemsWithFindingFixed(readItems(mapDir), { findingId, testPath, date, now });
+    for (const item of fixedItems) writeFileSync(join(mapDir, itemFilePathOf(item.item_id)), `${JSON.stringify(item, null, 2)}\n`);
+    const pushed = commitAndPush(mapDir, { message: `Mark ${findingId} fixed`, paths: ["map", "exports", "queue.md", ...(findingPath ? [findingPath] : []), ...fixedItems.map((item) => itemFilePathOf(item.item_id))] });
+    return { ...plan, case_refs: marked.case_refs, fixed_item_ids: fixedItems.map((item) => item.item_id), ...pushed };
   } catch (error) {
     restoreClone(mapDir);
     throw error;
@@ -237,18 +260,64 @@ function removeQueueLine(mapDir, { matchText, isDry }) {
 }
 
 function pageShown(mapDir, { isDry }) {
-  const { export_generated_at: generatedAt } = readState(mapDir);
-  if (!generatedAt) throw new Error("There's no exports/map-public.json yet: run node scripts/security-map/cli.mjs export first.");
+  const { page_data_hash: dataHash } = readState(mapDir);
+  if (!dataHash) throw new Error("The private repo has no promises yet, so the page has nothing to show.");
   const readmePath = join(mapDir, "README.md");
-  const next = withPageShows(readFileSync(readmePath, "utf8"), generatedAt);
-  if (isDry) return { map_page_shows_generated_at: generatedAt, is_dry: true };
+  const next = withPageShows(readFileSync(readmePath, "utf8"), dataHash);
+  if (isDry) return { map_page_shows_data_hash: dataHash, is_dry: true };
   writeFileSync(readmePath, next);
-  return { map_page_shows_generated_at: generatedAt, ...commitAndPush(mapDir, { message: `Map page shows ${generatedAt}`, paths: ["README.md"] }) };
+  return { map_page_shows_data_hash: dataHash, ...commitAndPush(mapDir, { message: `Map page shows ${dataHash.slice(0, 12)}`, paths: ["README.md"] }) };
+}
+
+/** One item from the clone, whole. */
+function readItem(mapDir, itemId) {
+  const path = itemFilePathOf(itemId ?? "");
+  if (!itemId || !existsSync(join(mapDir, path))) throw new Error(`No item has id ${JSON.stringify(itemId ?? "")}. \`items\` lists them.`);
+  return JSON.parse(readFileSync(join(mapDir, path), "utf8"));
+}
+
+/** One item changed, checked whole, and committed alone, so a run's other files never ride along. */
+function changeItem(mapDir, { itemId, change, message, isDry }) {
+  const item = readItem(mapDir, itemId);
+  const next = change(item);
+  const problems = itemProblems(next);
+  if (problems.length) throw new Error(`The item would break its shape: ${problems.join("; ")}.`);
+  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state };
+  if (isDry) return { ...answer, is_dry: true };
+  if (JSON.stringify(next) === JSON.stringify(item)) return { ...answer, is_changed: false };
+  writeFileSync(join(mapDir, itemFilePathOf(itemId)), `${JSON.stringify(next, null, 2)}\n`);
+  try {
+    return { ...answer, is_changed: true, ...commitAndPush(mapDir, { message: `${itemId}: ${message}`, paths: [itemFilePathOf(itemId)] }) };
+  } catch (error) {
+    restoreClone(mapDir);
+    throw error;
+  }
+}
+
+export function claimItem(mapDir, { itemId, launchId, isDry = false }) {
+  return changeItem(mapDir, { itemId, isDry, message: "claimed", change: (item) => itemWithClaim(item, { launchId }) });
+}
+
+export function putItemBack(mapDir, { itemId, isDry = false }) {
+  return changeItem(mapDir, { itemId, isDry, message: "back to next", change: itemBackToNext });
+}
+
+export function settleItemCalls(mapDir, { itemId, answers, now, isDry = false }) {
+  return changeItem(mapDir, { itemId, isDry, message: "calls settled", change: (item) => itemWithCallsSettled(item, answers, { now }) });
+}
+
+/** Refuses a test that isn't on the public origin/main, since a done item's proof must be live code. */
+export function finishItem(mapDir, { itemId, testPath, date, now, repoRoot = REPO_ROOT, isDry = false }) {
+  if (!testPath) throw new Error("item-done needs --test <path>: the test in zaisma/zaisma that now guards it, like test/node/guard.test.ts.");
+  run("git", ["fetch", "--quiet", "origin", "main"], repoRoot);
+  if (runOrNull("git", ["cat-file", "-e", `origin/main:${testPath}`], repoRoot) === null) throw new Error(`${testPath} isn't on origin/main yet. Close the item once its pull request is live.`);
+  const commit = run("git", ["rev-parse", "origin/main"], repoRoot);
+  return changeItem(mapDir, { itemId, isDry, message: "done", change: (item) => itemDoneWithTest(item, { testPath, date, now, commit }) });
 }
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, positional: [] };
+  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, launchId: null, fromPath: null, paths: [], positional: [] };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === "--dry") options.isDry = true;
@@ -256,22 +325,31 @@ function readArguments(argv) {
     else if (flag === "--map-dir") options.mapDir = rest[++index];
     else if (flag === "--date") options.date = rest[++index];
     else if (flag === "--message") options.message = rest[++index];
+    else if (flag === "--path") options.paths.push(rest[++index]);
     else if (flag === "--test") options.testPath = rest[++index];
     else if (flag === "--note") options.note = rest[++index];
-    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> (commit), --test <path> and --note <text> (mark-fixed).`);
+    else if (flag === "--launch-id") options.launchId = rest[++index];
+    else if (flag === "--from") options.fromPath = rest[++index];
+    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> and --path <path> (commit), --test <path> (mark-fixed, item-done), --note <text> (mark-fixed), --launch-id <id> (item-claim), --from <path> (item-settle).`);
     else options.positional.push(flag);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) throw new Error("--date is a day like 2026-10-18.");
-  if (command === "commit" && !options.message) throw new Error('commit needs --message <text>: plain, like "Nightly map update 2026-10-18".');
+  if (command === "commit" && !options.message) throw new Error('commit needs --message <text>: plain, like "Map update 2026-10-18".');
+  if (command === "item-settle" && !options.fromPath) throw new Error("item-settle needs --from <answers.json>: a list of call_line and answer_line.");
   return { command, options };
 }
 
 function printRead(state, pullResult) {
   console.log(`Clone: ${pullResult}`);
   console.log(`Queue: ${state.queue_items.length}${state.queue_items.length ? `\n  ${state.queue_items.join("\n  ")}` : " (empty)"}`);
+  console.log(`Open items: ${state.open_item_count} (\`items\` says where each stands)`);
+  console.log(`Last daily review: ${state.last_review_date ?? "none yet"}`);
   if (!state.map_page_url) console.log("Map page: not published yet");
-  else console.log(`Map page: ${state.map_page_url}\nMap page shows: ${state.map_page_shows_generated_at ?? "nothing yet"}\nExport generated_at: ${state.export_generated_at ?? "no export yet"}\nMap page behind: ${state.is_map_page_behind ? "yes, republish it (security-map skill, Page)" : "no"}`);
+  else console.log(`Map page: ${state.map_page_url}
+Map page shows: ${state.map_page_shows_data_hash ?? "nothing yet"}
+Map page behind: ${state.is_map_page_behind ? "yes" : "no"}`);
+  console.log(`Public promises: ${state.public_promises_next_step ?? "nothing to do"}`);
 }
 
 async function main() {
@@ -288,14 +366,26 @@ async function main() {
     console.log(`Clone: ${pullResult}`);
     return;
   }
+  if (command === "items") {
+    console.log(JSON.stringify(itemQueueOf(readItems(mapDir)), null, 2));
+    return;
+  }
+  if (command === "item") {
+    console.log(JSON.stringify(readItem(mapDir, options.positional[0]), null, 2));
+    return;
+  }
   let result;
   if (command === "commit") {
     if (options.isDry) result = { changes: run("git", ["status", "--porcelain"], mapDir).split("\n").filter(Boolean), message: options.message, is_dry: true };
-    else result = commitAndPush(mapDir, { message: options.message });
+    else result = commitAndPush(mapDir, { message: options.message, paths: options.paths });
   } else {
     refuseDirtyClone(mapDir);
     if (command === "mark-fixed") result = await markFixed(mapDir, { findingId: options.positional[0], testPath: options.testPath, note: options.note, date: options.date, isDry: options.isDry });
     else if (command === "remove-queue-line") result = removeQueueLine(mapDir, { matchText: options.positional.join(" "), isDry: options.isDry });
+    else if (command === "item-claim") result = claimItem(mapDir, { itemId: options.positional[0], launchId: options.launchId, isDry: options.isDry });
+    else if (command === "item-back") result = putItemBack(mapDir, { itemId: options.positional[0], isDry: options.isDry });
+    else if (command === "item-settle") result = settleItemCalls(mapDir, { itemId: options.positional[0], answers: JSON.parse(readFileSync(options.fromPath, "utf8")), now: new Date().toISOString(), isDry: options.isDry });
+    else if (command === "item-done") result = finishItem(mapDir, { itemId: options.positional[0], testPath: options.testPath, date: options.date, now: new Date().toISOString(), isDry: options.isDry });
     else result = pageShown(mapDir, { isDry: options.isDry });
   }
   console.log(JSON.stringify(result, null, 2));

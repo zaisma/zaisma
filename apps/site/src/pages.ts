@@ -2,6 +2,7 @@ import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 import {
+  readReviewReason,
   ALLOWED_CONTENT,
   CREDIT_LIMITS,
   PRO_PRICE_CENTS_PER_MONTH,
@@ -85,7 +86,8 @@ import { BUY_SHEET_SCRIPT, buySheetParts, buySheetData, buySheetStripe } from ".
 import { PASSKEY_SCRIPT } from "./passkeys.ts";
 import { STILL_THERE_SCRIPT, stillThereCard } from "./still-there.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
-import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH } from "./security-policy.ts";
+import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH, securityPromisesSection } from "./security-policy.ts";
+import { PUBLISHED_PROMISES } from "./security-promises.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -199,7 +201,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isFullGameOwner = tester ? true : await fullGameOwner(env.DB, game, viewer.account);
   const isHidden = game.visibility === "draft" || game.visibility === "private";
   if (!tester && isHidden && !(game.full_game_item_name !== null && isFullGameOwner && game.live_version_id)) return glassMessage(env, "Game not found", "Check the link and try again.", 404);
-  if (game.review_status === "removed") return glassMessage(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
+  if (game.review_status === "removed") return readReviewReason(game.review_reason)?.code === "developer_deleted_game" ? glassMessage(env, "This game was deleted", "Its developer deleted it.", 410) : glassMessage(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.review_status === "held") return glassMessage(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
   // Blocked in the player's country on a notice under its law, and only there (country-blocks.ts).
   const countryCode = requestCountryCode(request);
@@ -598,7 +600,7 @@ export async function testerEnter(env: Env, token: string, request: Request): Pr
 export async function previewPage(request: Request, env: Env, token: string): Promise<Response> {
   const read = readPreviewLinkToken(token);
   const version = read ? await versionById(env.DB, read.versionId) : null;
-  const expiresAtMs = version ? checkPreviewLinkToken(token, version) : null;
+  const expiresAtMs = version ? checkPreviewLinkToken(env, token, version) : null;
   const game = version && expiresAtMs ? await env.DB.prepare("SELECT * FROM games WHERE id = ?").bind(version.game_id).first<Game>() : null;
   if (!version || !expiresAtMs || !game) return glassMessage(env, "This preview link doesn't work", "Preview links last a day, and the developer can turn them off. Get a fresh one from the dashboard or the API.", 404);
   if (!canOpen(game)) return glassMessage(env, game.review_status === "removed" ? "This game was removed" : "This game is being reviewed", "Its previews are closed too.", game.review_status === "removed" ? 410 : 404);
@@ -626,10 +628,10 @@ export function legal(env: Env, page: string): Response | null {
   if (page === "content-rules") return layout(env, { title: "Content rules · Zaisma", body: contentRulesBody(), pageShape: "reading", checkedPage: "Content rules" });
   if (page === "terms") return layout(env, { title: "Terms of service · Zaisma", body: termsBody(), pageShape: "reading", checkedPage: "Terms of service" });
   if (page === "privacy") return layout(env, { title: "Privacy policy · Zaisma", body: privacyBody(), pageShape: "reading", checkedPage: "Privacy policy" });
+  if (page === "security") return layout(env, { title: "Security · Zaisma", body: securityBody(), pageShape: "reading", checkedPage: "Security" });
   const pages: Record<string, { title: string; body: string }> = {
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     defamation: { title: "Defamation notices", body: DEFAMATION },
-    security: { title: "Security", body: SECURITY_PAGE },
   };
   const legalPage = pages[page];
   if (!legalPage) return null;
@@ -943,7 +945,7 @@ function privacyBody(): Raw {
         html`<h2>Downloading your data</h2>
 <p>On your account page, choose ${textLink("Download your data", "/account#your-data")} to receive a copy of everything Zaisma keeps about your account, including your game saves.</p>
 <h2>Deleting your account</h2>
-<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
+<p>On your account page, choose ${textLink("Delete account", "/account#delete-account")}. Your username, password, any email, game saves, recently played games and all other account data are deleted immediately. Their copies in the backup are gone within 30 days. Games you made are deleted as well, with their files, database and players' saves. A game its developer deletes on its own stays off for a week, so they can bring it back, then it is erased the same way, and its copies in the backup are gone within 30 days of that. The games you played and the sites you signed in to with Zaisma are notified, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Questions about this policy may be sent to ${textLink("privacy@zaisma.com", "mailto:privacy@zaisma.com")}.</p>`,
       ),
@@ -952,33 +954,50 @@ function privacyBody(): Raw {
 }
 
 // Julius settled it on Oct 19, 2026: safe harbor with scope and rules, no cash reward in the beta, reply in 5 days, fix serious holes in 30, 90 days before publishing.
-const SECURITY_PAGE = `
-<p class="lead">Found a security hole in Zaisma? Tell us privately, and you won't get in trouble for looking.</p>
+function securityBody(): Raw {
+  const pane = (label: string, markup: Raw): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stackOfOne(readingText({ markup }), "words") }) });
+  const hasPromises = PUBLISHED_PROMISES.length > 0;
+  return stack({
+    items: [
+      pane(
+        "Security",
+        html`<h1>Security</h1>
+<p>Anyone who finds a security hole in Zaisma can report it privately, and will not get in trouble for looking.</p>
 <h2>How to report</h2>
-<p>Email <a href="mailto:${SECURITY_REPORT_EMAIL}">${SECURITY_REPORT_EMAIL}</a>, or <a href="${SECURITY_ADVISORY_URL}" rel="noopener">report it privately on GitHub</a>. Say where it is, how to make it happen, and what it lets someone do. Our machine-readable contact is <a href="${SECURITY_TEXT_FILE_PATH}">security.txt</a>.</p>
-<h2>What's covered</h2>
+<p>Email ${textLink(SECURITY_REPORT_EMAIL, `mailto:${SECURITY_REPORT_EMAIL}`)}, or ${textLink("report it privately on GitHub", SECURITY_ADVISORY_URL, { isNewTab: true })}. A report says where the hole is, how to make it happen, and what it lets someone do. Zaisma's machine-readable contact is ${textLink("security.txt", SECURITY_TEXT_FILE_PATH)}.</p>`,
+      ),
+      pane(
+        "What is covered and the rules",
+        html`<h2>What is covered</h2>
 <ul>
 <li>zaisma.com, its API and its MCP.</li>
 <li>Your own Zaisma account and your own games.</li>
 <li>The game server, the SDK and the upload command in the ${textLink("open source repo", "https://github.com/zaisma/zaisma")}.</li>
 </ul>
-<h2>Our promise: safe harbor</h2>
-<p>If you look for holes in good faith and stay inside the rules below, we won't take legal action against you and we won't close your account.</p>
+<h2>Zaisma's promise: safe harbor</h2>
+<p>If you look for holes in good faith and stay inside the rules below, Zaisma will not take legal action against you and will not close your account.</p>
 <h2>The rules</h2>
 <ul>
-<li>Test only on your own account and your own games. If you reach another player's account or data, stop at the smallest proof, don't keep it, and tell us.</li>
+<li>Test only on your own account and your own games. If you reach another player's account or data, stop at the smallest proof, do not keep it, and tell Zaisma.</li>
 <li>No denial of service, and nothing that slows Zaisma for other players.</li>
-<li>No spam, phishing or tricking other players, ours or anyone else's.</li>
-<li>Never upload illegal content, even to prove a point. Child sexual abuse material has no safe harbor: it's reported and passed to the police.</li>
-<li>Give us ${DISCLOSURE_WAIT_DAYS} days to fix a hole before you publish it. Past that we can't promise to stay quiet.</li>
-</ul>
-<h2>What to expect</h2>
-<p>We reply within ${REPLY_WITHIN_DAYS} days, and aim to fix serious holes within ${FIX_WITHIN_DAYS}. We tell you when it's fixed.</p>
+<li>No spam, phishing or tricking other players, on Zaisma or anywhere else.</li>
+<li>Never upload illegal content, even to prove a point. Child sexual abuse material has no safe harbor: it is reported and passed to the police.</li>
+<li>Give Zaisma ${DISCLOSURE_WAIT_DAYS} days to fix a hole before you publish it. Past that, Zaisma cannot promise to stay quiet.</li>
+</ul>`,
+      ),
+      pane(
+        "What to expect",
+        html`<h2>What to expect</h2>
+<p>Zaisma replies within ${REPLY_WITHIN_DAYS} days, and aims to fix serious holes within ${FIX_WITHIN_DAYS}. Zaisma tells you when a hole is fixed.</p>
 <h2>Rewards</h2>
-<p>There's no cash reward yet. Zaisma is small, and we'd rather say so than promise what we can't pay.</p>
+<p>There is no cash reward yet. Zaisma is small, and would rather say so than promise what it cannot pay.</p>
 <h2>Something else</h2>
-<p>A game that breaks the rules, or anything about children's safety, goes to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>, not here. Copyright is on the <a href="/legal/dmca">DMCA page</a>.</p>
-`;
+<p>A game that breaks the rules, or anything about children's safety, goes to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}, not here. Copyright is on the ${textLink("DMCA page", "/legal/dmca")}.</p>`,
+      ),
+      ...(hasPromises ? [pane("What Zaisma promises", securityPromisesSection(PUBLISHED_PROMISES))] : []),
+    ],
+  });
+}
 
 /**
  * The game page's script: Play, the pictures, tabs and rooms, the menu, Share, and what the game says

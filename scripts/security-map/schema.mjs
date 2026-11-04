@@ -10,6 +10,7 @@
 /** What an attacker wants, in order. Adding a sector is adding an entry here. */
 export const SECTORS = [
   { sector_id: "accounts", sector_name: "Accounts", attacker_goal: "Get into an account or act as its owner." },
+  { sector_id: "money", sector_name: "Money", attacker_goal: "Take money, items or credit that aren't theirs, or send a sale's money elsewhere." },
   { sector_id: "api-keys", sector_name: "API keys", attacker_goal: "Use a developer's API key, sign-in app or webhook beyond its limits." },
   { sector_id: "games-and-files", sector_name: "Games and files", attacker_goal: "Reach or change another game, its files, versions or secrets." },
   { sector_id: "player-data", sector_name: "Player data", attacker_goal: "Read or change a player's saves or a game's database across accounts." },
@@ -21,10 +22,10 @@ export const SECTOR_IDS = SECTORS.map((sector) => sector.sector_id);
 
 export const DOOR_KINDS = ["api_call", "mcp_tool", "admin_tool", "page_form", "page_route", "game_file_address", "room_message", "token_or_session", "stored_value"];
 
-/** What a case can be stored as. A night's "recheck" is a frontier bucket, never a stored status. */
+/** What a case can be stored as. */
 export const STATUSES = ["unexplored", "robust", "weak", "hole", "fixed", "stale"];
 
-/** On weak and hole cases only. The Nightly security review decides which. */
+/** On weak and hole cases only. */
 export const SEVERITY_TIERS = ["urgent", "important", "hardening"];
 
 /** What proves a verdict. A hole's repro is never evidence: it stays in the private finding. */

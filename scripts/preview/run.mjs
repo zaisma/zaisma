@@ -122,7 +122,12 @@ if (!existsSync(signInKeyFile)) {
   const { kty, n, e, d, p, q, dp, dq, qi } = await crypto.subtle.exportKey("jwk", pair.privateKey);
   writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
 }
+// The key that seals secrets in the database, the same in all three Workers, kept between runs so tester links keep opening.
+const storedSecretsKeyFile = join(STATE, "stored-secrets-key.txt");
+if (!existsSync(storedSecretsKeyFile)) writeFileSync(storedSecretsKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const STORED_SECRETS_KEY = readFileSync(storedSecretsKeyFile, "utf8");
 const siteSettings = {
+  STORED_SECRETS_KEY,
   SITE_ORIGIN: SITE, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), SIGN_IN_SIGNING_KEY: readFileSync(signInKeyFile, "utf8"), GAME_ORIGIN: GAMES, GAME_HOST_MODE: "path", GAME_DOMAIN: "", DEV_ADMIN: "1", SUPABASE_URL: `http://localhost:${PORTS.auth}`, SUPABASE_SECRET_KEY: "preview", KEEP_OFFER_SECONDS: "20", TOO_YOUNG_BLOCK_SECONDS: "0",
   // Runs in Chrome wait 30 seconds for a first frame, not 120: the local Chrome can't start a threaded game at all (its game frame
   // can't be isolated), and every engine sample that can start draws within 5 on GitHub's runners.
@@ -147,7 +152,7 @@ const siteSettings = {
     STRIPE_CONNECT_CLIENT_ID: "ca_test_preview", STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect_preview", STRIPE_PRO_PRICE_ID: "price_test_preview", STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_preview_credit_plan",
   }),
 };
-const gamesSettings = { SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
+const gamesSettings = { STORED_SECRETS_KEY, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_DOMAIN: "", ROOMS_ORIGIN: ROOMS, ...localSettings({ SITE_ORIGIN: LOCAL_SITE, ROOMS_ORIGIN: LOCAL_ROOMS }) };
 // Multiplayer rooms, with their own pass and receipt signing keys kept between runs so passes and receipts stay valid.
 async function keptSigningKey(file) {
   if (!existsSync(file)) {
@@ -160,7 +165,9 @@ async function keptSigningKey(file) {
 // And the key for the opaque player tags in passes, kept between runs so tags stay the same.
 const playerTagKeyFile = join(STATE, "rooms-player-tag-key.txt");
 if (!existsSync(playerTagKeyFile)) writeFileSync(playerTagKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
-const roomsSettings = { ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
+const chatGroupKeyFile = join(STATE, "rooms-chat-group-key.txt");
+if (!existsSync(chatGroupKeyFile)) writeFileSync(chatGroupKeyFile, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"));
+const roomsSettings = { STORED_SECRETS_KEY, CHAT_GROUP_KEY: readFileSync(chatGroupKeyFile, "utf8"), ISSUER: ROOMS_ISSUER, SITE_ORIGIN: SITE, GAME_HOST_MODE: "path", GAME_ORIGIN: GAMES, GAME_DOMAIN: "", ...localSettings({ SITE_ORIGIN: LOCAL_SITE, GAME_ORIGIN: LOCAL_GAMES }), PASS_SIGNING_KEY: await keptSigningKey(join(STATE, "rooms-key.json")), RECEIPT_SIGNING_KEY: await keptSigningKey(join(STATE, "receipt-key.json")), PLAYER_TAG_KEY: readFileSync(playerTagKeyFile, "utf8") };
 
 const children = [];
 const stop = () => {
@@ -2355,6 +2362,14 @@ function seedDeveloperSettings() {
     "DELETE FROM spending_requests WHERE id LIKE 'spending_request_preview%'",
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0waiting', ${account}, 'game_budget', id, 4000, ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'arena'`,
     `INSERT INTO spending_requests (id, account_id, request_kind, game_id, monthly_budget_cents, created_at_ms, expires_at_ms) SELECT 'spending_request_preview0expired', ${account}, 'game_budget', id, 9000, ${now - 100_000_000}, ${now - 13_600_000} FROM games WHERE slug = 'star-haul'`,
+    // Two games Preview_Studio deleted, five days from being erased: one nobody else played, one other people did.
+    ...[["game_previewdeleteddraft", "deleted-draft", "Deleted Draft"], ["game_previewdeletedclassic", "deleted-classic", "Deleted Classic"]].flatMap(([id, slug, title]) => [
+      `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, review_reason, owner_id, visibility, created_at_ms, updated_at_ms) SELECT '${id}', '${slug}', '${title}', 'A game waiting to be erased.', 'removed', '{"code":"developer_deleted_game"}', owners.id, 'listed', ${now - 9 * 86400_000}, ${now - 2 * 86400_000} FROM owners WHERE owners.account_id = ${account}`,
+      `INSERT OR REPLACE INTO game_deletions (game_id, requested_by_kind, deletion_status, attempt_count, next_attempt_at_ms, created_at_ms, erases_at_ms, review_status_before) VALUES ('${id}', 'developer', 'pending', 0, ${now + 5 * 86400_000}, ${now - 2 * 86400_000}, ${now + 5 * 86400_000}, 'pending')`,
+    ]),
+    `INSERT OR IGNORE INTO games_ever_played (account_id, game_id, first_played_at_ms) SELECT id, 'game_previewdeletedclassic', ${now - 7 * 86400_000} FROM accounts WHERE username = 'Moss_Runner'`,
+    "DELETE FROM game_deletion_requests WHERE id LIKE 'game_deletion_request_preview%'",
+    `INSERT INTO game_deletion_requests (id, account_id, game_id, request_kind, created_at_ms, expires_at_ms) SELECT 'game_deletion_request_preview0waiting', ${account}, id, 'delete_game', ${now - 600_000}, ${now + 85_800_000} FROM games WHERE slug = 'tiny-farm'`,
     "DELETE FROM webhooks WHERE id LIKE 'webhook_preview%'",
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewdiscord001', ${owner}, 'endpoint_url', 'https://discord.example.test/api/webhooks/preview', '["bug_reported","player_reported"]', NULL, 'whsec_preview', ${now - 9 * 86400_000}, ${now - 9 * 86400_000})`,
     `INSERT INTO webhooks (id, owner_id, destination_kind, endpoint_url, event_kinds, game_slugs, signing_secret, created_at_ms, updated_at_ms) VALUES ('webhook_previewserver0001', ${owner}, 'game_server', NULL, '["live_version_changed"]', '["arena"]', 'whsec_preview2', ${now - 5 * 86400_000}, ${now - 5 * 86400_000})`,

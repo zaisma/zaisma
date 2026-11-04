@@ -1,7 +1,7 @@
 import {
   deleteAccount,
   imageById,
-  queueGameDeletion,
+  cancelGameDeletionWait, queueGameDeletion, startGameDeletionWait,
   readQualityChecks,
   recordPlayerErased,
   setReviewStatus,
@@ -28,7 +28,8 @@ import type { Env } from "./env.ts";
  */
 export type RestoreEvent =
   | { event_kind: "game_held" | "game_removed"; at_ms: number; game_id: string; review_reason: ReviewReason }
-  | { event_kind: "game_deletion_queued"; at_ms: number; game_id: string; requested_by_kind: GameDeletionRequestedByKind }
+  | { event_kind: "game_deletion_queued"; at_ms: number; game_id: string; requested_by_kind: GameDeletionRequestedByKind; erases_at_ms?: number }
+  | { event_kind: "game_deletion_cancelled"; at_ms: number; game_id: string }
   | { event_kind: "account_deleted"; at_ms: number; account_id: string }
   | { event_kind: "image_rejected"; at_ms: number; image_id: string; review_reason: ReviewReason }
   | { event_kind: "shader_rejected"; at_ms: number; shader_id: string; review_reason: ReviewReason }
@@ -96,7 +97,12 @@ export async function replayRestoreEvent(env: Env, event: RestoreEvent): Promise
       return true;
     case "game_deletion_queued":
       if (!(await exists("SELECT 1 FROM games WHERE id = ?", event.game_id))) return false;
-      await queueGameDeletion(env.DB, event.game_id, event.requested_by_kind, event.at_ms);
+      if (event.erases_at_ms !== undefined) await startGameDeletionWait(env.DB, event.game_id, event.at_ms, event.erases_at_ms);
+      else await queueGameDeletion(env.DB, event.game_id, event.requested_by_kind, event.at_ms);
+      return true;
+    case "game_deletion_cancelled":
+      if (!(await exists("SELECT 1 FROM games WHERE id = ?", event.game_id))) return false;
+      await cancelGameDeletionWait(env.DB, event.game_id, event.at_ms);
       return true;
     case "account_deleted":
       if (!(await exists("SELECT 1 FROM accounts WHERE id = ?", event.account_id))) return false;

@@ -84,6 +84,11 @@ describe("the preview checks", () => {
     expect(affected(["scripts/ship.mjs"]).is_layout_check_reached).toBe(false);
   });
 
+  it("run the Contract grid for what its doors run on and its own files", () => {
+    for (const path of ["apps/site/src/guard.ts", "apps/site/src/developer.ts", "apps/rooms/src/index.ts", "apps/games/src/index.ts", "packages/game-server/src/room.ts", "test/grid/cells.ts", "scripts/contract-grid.mjs"]) expect(affectedChecks({ changedPaths: [path], graph }).is_contract_grid_reached, path).toBe(true);
+    expect(affectedChecks({ changedPaths: ["scripts/ship.mjs"], graph }).is_contract_grid_reached).toBe(false);
+  });
+
   it("is what GitHub's check asks, before npm ci", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/check.yml"), "utf8");
     const changes = workflow.slice(workflow.indexOf("name: What changed"), workflow.indexOf("\n  tests:"));

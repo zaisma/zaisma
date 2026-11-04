@@ -116,9 +116,6 @@ export async function checkPasskeyTap(request: Request, env: Env, accountId: str
 export async function handlePasskeys(request: Request, env: Env, path: string): Promise<Response | null> {
   const remove = path.match(/^\/account\/passkeys\/([A-Za-z0-9_-]{1,400})\/remove$/);
   if (!path.startsWith("/api/passkeys/") && !remove) return null;
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-  // Only our own pages.
-  if (request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
 
   const json = (body: unknown, httpStatus = 200, cookies: string[] = []) => {
     const response = Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });

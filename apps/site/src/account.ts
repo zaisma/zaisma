@@ -215,11 +215,6 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
 
   const post = request.method === "POST";
-  if (post) {
-    // Forms only come from our own pages.
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
   // Confirm it's you from the popup (components/confirm-its-you.ts) is JSON, not a form.
   if (path === "/api/account/confirm") return post ? confirmItsYou(request, env) : new Response("Method not allowed", { status: 405 });
   const form = post ? await request.formData() : null;
@@ -740,7 +735,7 @@ function withCookies(response: Response, cookies: string[]): Response {
 }
 
 /** Only our own paths, never another site. Long enough for a Sign in with Zaisma link (sign-in.ts). */
-function safeNext(nextPath: string | null | undefined): string | null {
+export function safeNext(nextPath: string | null | undefined): string | null {
   return nextPath && /^\/(?![/\\])[\w\-./?=&%+*#]*$/.test(nextPath) && nextPath.length < 2000 ? nextPath : null;
 }
 

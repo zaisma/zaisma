@@ -205,7 +205,7 @@ describe("a game with a budget", () => {
 
     await apiCall(testEnv, caller, "PATCH", "/games/arena", { monthly_budget_cents: 200 });
     expect(await month()).toMatchObject({ paused_reason: "budget_used", paused_at_ms: expect.any(Number) });
-    await apiCall(testEnv, { ...caller, isSpendingConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 1000 });
+    await apiCall(testEnv, { ...caller, isPasskeyConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 1000 });
     expect((await month()).paused_at_ms).toBeNull();
   });
 
@@ -318,7 +318,7 @@ describe("the meter keeps its promises", () => {
     await setUseCents(1200);
     await runHostingJob(testEnv);
     expect((await month()).paused_reason).toBe("budget_used");
-    await apiCall(testEnv, { ...(await caller()), isSpendingConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 500 });
+    await apiCall(testEnv, { ...(await caller()), isPasskeyConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 500 });
     expect((await month()).paused_at_ms).toBeNull();
     later(10);
     await setUseCents(1600);
@@ -332,7 +332,7 @@ describe("the meter keeps its promises", () => {
     await runHostingJob(testEnv);
     expect(await month()).toMatchObject({ paused_reason: "free_used", written_off_cents: 100 });
     await topUp(2000);
-    await apiCall(testEnv, { ...(await caller()), isSpendingConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 5000 });
+    await apiCall(testEnv, { ...(await caller()), isPasskeyConfirmed: true }, "PATCH", "/games/arena", { monthly_budget_cents: 5000 });
     expect((await month()).paused_at_ms).toBeNull();
     later(5);
     await setUseCents(1150);

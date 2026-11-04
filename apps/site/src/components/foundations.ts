@@ -308,7 +308,8 @@ export const EDGE_LIGHT_SCRIPT = `/* edge light */(function () {
     function place(part, isGliding) {
       var h = holder.getBoundingClientRect(), r = part.getBoundingClientRect();
       // The first light comes up where it is; after that it glides along the edge to the next part.
-      if (!isGliding) light.style.transition = "none";
+      // Only its glide stops: a holder arriving by a fade (a Floating pane) goes on fading it.
+      if (!isGliding) light.style.transition = "opacity var(--motion-state)";
       light.style.setProperty("--light-at", (isAcross ? r.left + r.width / 2 - h.left : r.top + r.height / 2 - h.top) + "px");
       light.style.setProperty("--light-span", (isAcross ? r.width : r.height) + "px");
       if (!isGliding) { void light.offsetWidth; light.style.transition = ""; }
