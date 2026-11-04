@@ -84,6 +84,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "weak-connection", label: "Weak connection", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=weak" },
       { stateValue: "reconnecting", label: "Reconnecting", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=retrying" },
       { stateValue: "connection-lost", label: "Connection lost", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=lost" },
+      { stateValue: "rented-share-used", label: "Rented share used", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=rented_share" },
       { stateValue: "update-ready", label: "Update ready", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=update" },
       { stateValue: "update-coming", label: "Update coming", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=coming" },
       { stateValue: "updating", label: "Updating", stateKind: "arrives", seenBy: "both", path: "/g/cave-crew?play&preview_bar=updating" },
