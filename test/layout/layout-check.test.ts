@@ -26,7 +26,7 @@ import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
  * (LAYOUT_CHECK_RUNS: a pull request's unless LAYOUT_CHECK_RUN says sweep), with nothing out of line; and pages made to break
  * each rule, which it must catch by name. GitHub's check runs it in its own job (Layout check, .github/workflows/check.yml) with
  * LAYOUT_CHECK=1, on the preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says
- * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first two shares also measure
+ * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first three shares also measure
  * the pages broken on purpose. A pull request's run skips each page that passed before as it is (PASSED_PATH); LAYOUT_CHECK_FRESH=1
  * measures every page, as the merge queue's and main's runs do.
  */
@@ -42,11 +42,12 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-/** The first two shares' other tests, in a tab's seconds (each about 45s on three tabs, Nov 4, 2026): they take that much fewer pages. */
+/** The first three shares' other tests, in a tab's seconds (each about 45s on three tabs, Nov 4, 2026): they take that much fewer pages. */
 const BROKEN_ON_PURPOSE_COST_SEC = 135;
-const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: [BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC] }) : layoutRun.pages) as unknown[];
+const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: [BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC] }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 const isSecondShare = !shard || shard.startsWith("2/");
+const isThirdShare = !shard || shard.startsWith("3/");
 /**
  * The pages a pull request's run passed before, by fingerprint (layout-check.mjs, pageFingerprint: the page's HTML, whose CSS and script
  * addresses carry their change, the run and the check's own code), which GitHub's Layout check keeps between a pull request's pushes
@@ -230,7 +231,7 @@ describe.skipIf(!sites)("the layout check", () => {
   }, 300_000);
 
   // On Desktop the whole of Browse fits its screen, More games and the footer on it; on a laptop they're a screen below it.
-  it.skipIf(!isSecondShare).each(["Desktop", "Laptop"] as const)("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
+  it.each((["Desktop", "Laptop"] as const).filter((screenName) => (screenName === "Desktop" ? isSecondShare : isThirdShare)))("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
     const size = SCREEN_SIZES.find((each) => each.name === screenName)!;
     const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
     try {

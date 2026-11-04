@@ -28,16 +28,6 @@ import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
-// TEMPORARY: which of the seed's calls are slow on GitHub's runners.
-if (process.env.CI) {
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async (address, init) => {
-    const startedMs = Date.now();
-    const answer = await realFetch(address, init);
-    if (Date.now() - startedMs > 1500) console.log(`  slow call: ${Date.now() - startedMs} ms ${init?.method ?? "GET"} ${String(address).replace(/\?.*/, "")}`);
-    return answer;
-  };
-}
 const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
 const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
 // The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun). An
