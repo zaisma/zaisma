@@ -204,12 +204,12 @@ describe("script policy reports", () => {
     await report("not json");
     expect(await env.DB.prepare("SELECT COUNT(*) AS row_count FROM blocked_scripts").first()).toEqual({ row_count: 0 });
     // 30 a minute from one address, counted by a limiter with no clock (test/rate-limits.ts), so the 31 reports can't straddle two minutes.
-    expect(configuredRateLimit(siteWranglerText, "CSP_REPORT_LIMIT")).toEqual({ limit: 30, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_STEADY")).toEqual({ limit: 30, period: 60 });
     const reportLimit = countingRateLimiter(30);
     for (let i = 0; i < 31; i++) {
       const context = createExecutionContext();
       const sent = new Request(`${SITE}/csp-reports`, { method: "POST", headers: { "content-type": "application/csp-report", "cf-connecting-ip": "192.0.2.250" }, body: JSON.stringify(legacy("https://evil.example/a.js")) });
-      expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, CSP_REPORT_LIMIT: reportLimit }, context)).status).toBe(204);
+      expect((await worker.fetch(sent as Parameters<typeof worker.fetch>[0], { ...env, LIMIT_STEADY: reportLimit }, context)).status).toBe(204);
       await waitOnExecutionContext(context);
     }
     expect(new Set(reportLimit.keys)).toEqual(new Set(["192.0.2.250"]));

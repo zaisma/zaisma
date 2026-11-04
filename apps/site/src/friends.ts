@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   FRIEND_INVITE_DURATION_DAYS,
   MAXIMUM_FRIEND_COUNT,
   MAXIMUM_OPEN_FRIEND_INVITE_COUNT,
@@ -252,5 +252,5 @@ function withCookies(response: Response, cookies: string[]): Response {
 
 async function limited(env: Env, request: Request): Promise<boolean> {
   // Keyed by connection address, checked by Cloudflare and never stored.
-  return env.SIGNIN_LIMIT ? !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
+  return isPastLevel(env, "rare", "sign_in", request.headers.get("cf-connecting-ip") ?? "local");
 }

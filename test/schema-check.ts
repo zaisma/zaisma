@@ -2,7 +2,9 @@
  * Checks for docs/NAMING.md: that schemas follow the naming rules, and that answers match their
  * schemas exactly. A small JSON Schema reader, only the parts our schemas use, so no dependency.
  */
-import { EVERY_ERROR_CODE, ID_KINDS, type ErrorAnswer } from "@zaisma/core";
+import { EVERY_ERROR_CODE, ID_KINDS, schemaProblems, type ErrorAnswer } from "@zaisma/core";
+
+export { schemaProblems };
 import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
@@ -90,37 +92,6 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
     walk(s, path);
   };
   walk(schema, where);
-  return out;
-}
-
-/** Where a value doesn't match its schema, as "path: problem" lines. */
-export function schemaProblems(schema: Schema, value: unknown, path = "answer"): string[] {
-  // anyOf: it fits when one of them fits; otherwise say how it misses the nearest.
-  if (Array.isArray(schema.anyOf)) {
-    const misses = (schema.anyOf as Schema[]).map((option) => schemaProblems(option, value, path));
-    return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
-  }
-  const out: string[] = [];
-  const types = typesOf(schema);
-  const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
-  const fits = types.length === 0 || types.includes(actual) || (actual === "integer" && types.includes("number"));
-  if (!fits) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
-  if (Array.isArray(schema.enum) && !(schema.enum as unknown[]).includes(value)) out.push(`${path}: ${JSON.stringify(value)} isn't one of ${JSON.stringify(schema.enum)}`);
-  if (typeof value === "string") {
-    if (schema.format === "date-time" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(value)) out.push(`${path}: ${value} isn't an ISO time in UTC`);
-    if (schema.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) out.push(`${path}: ${value} isn't YYYY-MM-DD`);
-    if (schema.format === "uri" && !/^https?:\/\//.test(value)) out.push(`${path}: ${value} isn't a link`);
-    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value)) out.push(`${path}: ${value} doesn't match ${schema.pattern}`);
-  }
-  if (typeof value === "number" && typeof schema.minimum === "number" && value < schema.minimum) out.push(`${path}: below ${schema.minimum}`);
-  if (Array.isArray(value) && schema.items) value.forEach((v, i) => out.push(...schemaProblems(schema.items as Schema, v, `${path}[${i}]`)));
-  if (actual === "object" && schema.properties) {
-    const props = schema.properties as Record<string, Schema>;
-    const obj = value as Record<string, unknown>;
-    for (const k of (schema.required as string[] | undefined) ?? []) if (!(k in obj)) out.push(`${path}.${k}: missing`);
-    if (schema.additionalProperties === false) for (const k of Object.keys(obj)) if (!(k in props)) out.push(`${path}.${k}: not in the schema`);
-    for (const [k, p] of Object.entries(props)) if (k in obj) out.push(...schemaProblems(p, obj[k], `${path}.${k}`));
-  }
   return out;
 }
 

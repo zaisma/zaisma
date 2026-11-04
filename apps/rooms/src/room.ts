@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  ROOM_MESSAGE_DOORS,
+  roomMessageProblem,
   ENDED_CLOSE_CODE,
   ERROR_TEXT,
   HOSTING_PAUSED_END_MESSAGE,
@@ -37,7 +39,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server/internal";
-import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { isPastDoorLimit, isPastGameLimit, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject } from "./database.ts";
 import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
@@ -794,7 +796,7 @@ export class Room extends DurableObject<Env> {
     let isSpectator = false;
     try {
       const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; friendJoinsEnabled?: unknown; name?: unknown; labels?: unknown }; avoidBlockedPlayers?: unknown; isQuickJoin?: unknown; versionId?: unknown; isSpectator?: unknown };
-      if (hello.type !== "hello") return this.refuse(socket, "no_hello");
+      if (hello.type !== "hello" || roomMessageProblem("hello", hello as Record<string, unknown>)) return this.refuse(socket, "no_hello");
       pass = hello.pass;
       isSpectator = hello.isSpectator === true;
       // Spectators are free: their connection comes off the meter.
@@ -832,6 +834,7 @@ export class Room extends DurableObject<Env> {
       return this.refuse(socket, "bad_pass");
     }
     if (this.hasEnded) return this.refuse(socket, "ended");
+    if (await isPastDoorLimit(this.env, ROOM_MESSAGE_DOORS.hello.limit, "hello", player.id)) return this.refuse(socket, "busy");
     if (!(await this.gameStillLive())) return this.refuse(socket, "game_unavailable");
     // Passes aren't given to guests of games that need accounts; this catches one given before the game changed.
     if (player.kind === "guest" && this.accountRequirement !== "none") return this.refuse(socket, "account_needed");
@@ -852,6 +855,8 @@ export class Room extends DurableObject<Env> {
     if (roomVersionId && helloVersionId && helloVersionId !== roomVersionId && !core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id)) {
       return this.refuse(socket, "other_version", undefined, { versionId: roomVersionId });
     }
+    // A game past its share of the shared database has new joins wait; players a room knows and running matches never do.
+    if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (await isPastGameLimit(this.env, this.db, this.meta.gameId, player.id))) return this.refuse(socket, "busy");
     // Once its game's hosting pauses, a room takes back only players it knows or is holding a place for, and its match gets an hour to finish.
     if (!core.players.has(player.id) && !core.spectators.has(player.id) && !core.expects(player.id) && (await this.checkHosting(core))) return this.refuse(socket, "hosting_paused");
     // Blocks between this account and the players the room remembers, found afresh, so one taken back since is gone.

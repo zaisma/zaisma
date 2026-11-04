@@ -359,10 +359,10 @@ describe("the purchase PIN's lock (review 20)", () => {
 });
 
 describe("the rate limit on every call that reaches Stripe (review 24)", () => {
-  /** zaisma.com's own call to the handler, with a PURCHASE_LIMIT that is used up (and the keys it was asked about). */
+  /** zaisma.com's own call to the handler, with a LIMIT_STEADY that is used up (and the keys it was asked about). */
   async function limited(path: string, method: string, body?: unknown) {
     const keys: string[] = [];
-    const used = { ...env, PURCHASE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
+    const used = { ...env, LIMIT_STEADY: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
     const request = new Request(`${SITE}${path}`, { method, headers: { cookie: await sessionCookie("player-1"), ...(method !== "GET" ? { origin: SITE, "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const response = (await handleBuy(request as never, used as never, path))!;
     return { status: response.status, answer: (await response.json()) as any, keys };
@@ -459,7 +459,7 @@ describe("a game blocked in the player's country (review 31)", () => {
 describe("the rate limit on paying and forgetting the card (review 32)", () => {
   async function limited(path: string, method: string) {
     const keys: string[] = [];
-    const used = { ...env, PURCHASE_LIMIT: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
+    const used = { ...env, LIMIT_STEADY: { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } } as unknown as typeof env;
     const request = new Request(`${SITE}${path}`, { method, headers: { cookie: await sessionCookie("player-1"), origin: SITE, "content-type": "application/json" }, body: method === "DELETE" ? undefined : "{}" });
     const response = (await handleBuy(request as never, used as never, path))!;
     return { status: response.status, answer: (await response.json()) as any, keys };

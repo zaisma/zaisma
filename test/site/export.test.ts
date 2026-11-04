@@ -154,11 +154,11 @@ describe("export everything", () => {
     const busy = (await createApiKey(env.DB, "dev-limit", "claude")).token;
     expect((await api("/games", { body: { title: "Busy Game" }, key: busy })).status).toBe(201);
     // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 3 downloads can straddle.
-    expect(configuredRateLimit(siteWranglerText, "EXPORT_LIMIT")).toEqual({ limit: 2, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_VERY_RARE")).toEqual({ limit: 2, period: 60 });
     const exportLimit = countingRateLimiter(2);
-    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } })).status).toBe(200);
-    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } })).status).toBe(200);
-    const third = await api("/games/busy-game/export/download", { key: busy, bindings: { EXPORT_LIMIT: exportLimit } });
+    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { LIMIT_VERY_RARE: exportLimit } })).status).toBe(200);
+    expect((await api("/games/busy-game/export/download", { key: busy, bindings: { LIMIT_VERY_RARE: exportLimit } })).status).toBe(200);
+    const third = await api("/games/busy-game/export/download", { key: busy, bindings: { LIMIT_VERY_RARE: exportLimit } });
     expect(third.status).toBe(429);
     expect(third.answer.error.code).toBe("slow_down");
     expect(exportLimit.keys).toEqual(["dev-limit", "dev-limit", "dev-limit"]);

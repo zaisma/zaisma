@@ -1,4 +1,4 @@
-import {
+import { isPastLevel,
   ACROSS_ZAISMA_NETWORK_NUMBER,
   SECURITY_ALERT_WORDS,
   SECURITY_LOG_LIMITS,
@@ -216,7 +216,7 @@ export async function recordBlockedScripts(request: Request, env: Env, nowMs = D
   const done = new Response(null, { status: 204 });
   try {
     const address = connectionAddressOf(request) ?? "unknown";
-    if (env.CSP_REPORT_LIMIT && !(await env.CSP_REPORT_LIMIT.limit({ key: address })).success) return done;
+    if (await isPastLevel(env, "steady", "csp_report", address)) return done;
     const declaredBytes = Number(request.headers.get("content-length") ?? "0");
     if (declaredBytes > MAXIMUM_REPORT_BODY_BYTES) return done;
     const text = await request.text();

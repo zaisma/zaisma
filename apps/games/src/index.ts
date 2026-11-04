@@ -39,6 +39,8 @@ import {
   upgradeToHttps,
   withTransportSecurity,
   checkDoor,
+  isPastDoorLimit,
+  queryProblem,
 } from "@zaisma/core";
 import { gameFileDoorAt } from "./doors.ts";
 import savesScript from "../../../packages/sdk/saves.js";
@@ -51,6 +53,8 @@ import sdkTypes from "@zaisma/sdk/zaisma.d.ts";
 import { serveBackground } from "./background.ts";
 
 export interface Env {
+  /** What a door's limit runs on (doors.ts): only link addresses and a few of Zaisma's own count, before a player is known. */
+  LIMIT_BUILDING?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   DB: D1Database;
   GAMES: R2Bucket;
   GAME_HOST_MODE: "path" | "subdomain";
@@ -494,7 +498,10 @@ async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise
   const address = "slug" in target.by ? readGameAddress(target.by.slug) : null;
   const by = address ? { slug: address.slug } : target.by;
   // The guard in front of every address (doors.ts); a link's own function proves its holder, in openThroughLink below.
-  if (!checkDoor(gameFileDoorAt(target.path, address?.addressKind ?? null), [])) return page(404, "Game not found", "Check the link and try again.", env);
+  const door = gameFileDoorAt(target.path, address?.addressKind ?? null);
+  if (!checkDoor(door, [])) return page(404, "Game not found", "Check the link and try again.", env);
+  if (queryProblem(door.takes.query, url.searchParams, true)) return page(400, "That link isn't right", "Check the link and try again.", env);
+  if (await isPastDoorLimit(env, door.limit, "game_files", request.headers.get("cf-connecting-ip") ?? "local")) return page(429, "Wait a minute", "So many requests came from this address that the next ones wait a minute.", env);
 
   // Read status on every request so a takedown applies straight away.
   const game = await servableGame(env.DB, by);

@@ -1,4 +1,4 @@
-import {
+import { isPastGameLimit,
   CRASH_KINDS,
   FRAME_RATE_BUCKETS,
   LOADING_BUCKETS_SEC,
@@ -74,10 +74,6 @@ const ok = (body?: unknown) => (body === undefined ? new Response(null, { status
 export async function handlePlays(request: Request, env: Env, path: string): Promise<Response | null> {
   const match = path.match(/^\/api\/plays\/([a-z0-9-]+)(\/account|\/entry)?$/);
   if (!match) return null;
-  // By connection address, checked by Cloudflare and never stored.
-  const ip = request.headers.get("cf-connecting-ip") ?? "local";
-  if (env.PLAY_LIMIT && !(await env.PLAY_LIMIT.limit({ key: ip })).success) return new Response(null, { status: 429 });
-
   const text = await request.text();
   if (text.length > 4096) return new Response(null, { status: 413 });
   let body: Record<string, unknown>;

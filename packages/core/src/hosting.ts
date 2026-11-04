@@ -63,6 +63,49 @@ export const REAL_PLAYER_COST_CENTS = 15;
 /** Whether a game's browsers this month (counted plays off cloud networks, and tester links') clear its bar, which rises with its use. */
 export const hasRealPlayers = (realPlayerCount: number, usedCents: number, meterCostSharePct: number) => realPlayerCount >= Math.max(MINIMUM_REAL_PLAYER_COUNT, Math.ceil(((usedCents * meterCostSharePct) / 100) / REAL_PLAYER_COST_CENTS));
 
+/** A game's share of the shared database: new joins, passes, plays and saves a minute, per shard of GAME_LIMIT. */
+export const GAME_LIMIT_PLAYERS_PER_SHARD = 25;
+/** So one game tops out at about 400 calls a second, and the shared database keeps room for every other game. */
+export const MAXIMUM_GAME_LIMIT_SHARD_COUNT = 40;
+
+/** A game's shards, which grow with its real players by themselves: nobody asks. */
+export const gameLimitShardCount = (realPlayerCount: number) => Math.min(MAXIMUM_GAME_LIMIT_SHARD_COUNT, 1 + Math.floor(realPlayerCount / GAME_LIMIT_PLAYERS_PER_SHARD));
+
+/** Games' real player counts this isolate read, for a minute: passes and joins are the busiest thing the shared database does, so this adds only one read a minute. */
+const gameRealPlayerCounts = new Map<string, { realPlayerCount: number; readAtMs: number }>();
+const GAME_LIMIT_READ_INTERVAL_MS = 60_000;
+
+/**
+ * Whether a new join, pass, play or save goes past its game's share of the shared database. A player lands on one shard by
+ * subject, so a game with more real players has more room, by itself. Running matches never come here. A database that
+ * can't answer lets the call through: this protects the database, and the call will find out for itself.
+ */
+export async function isPastGameLimit(env: { GAME_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> } }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
+  if (!env.GAME_LIMIT) return false;
+  let known = gameRealPlayerCounts.get(gameId);
+  if (!known || nowMs - known.readAtMs > GAME_LIMIT_READ_INTERVAL_MS) {
+    if (gameRealPlayerCounts.size > 10_000) gameRealPlayerCounts.clear();
+    const row = await database.prepare("SELECT real_player_count FROM game_hosting_months WHERE game_id = ? AND month_start_date = ?").bind(gameId, monthStartDateOf(nowMs)).first<{ real_player_count: number }>().catch(() => null);
+    known = { realPlayerCount: row?.real_player_count ?? 0, readAtMs: nowMs };
+    gameRealPlayerCounts.set(gameId, known);
+  }
+  let subjectHash = 2166136261;
+  for (let index = 0; index < subject.length; index++) subjectHash = Math.imul(subjectHash ^ subject.charCodeAt(index), 16777619);
+  const shard = (subjectHash >>> 0) % gameLimitShardCount(known.realPlayerCount);
+  return !(await env.GAME_LIMIT.limit({ key: `${gameId}:${shard}` })).success;
+}
+
+/**
+ * An answer's fields no door declared, by door and day (docs/DOORS.md): the first of a day raises one alert, from the site's
+ * job. Only the field's path is kept, never its value. A cut happens only when an answer and its schema disagree: a bug.
+ */
+export async function noteAnswerCut(database: D1Database, doorId: string, cutPaths: readonly string[], nowMs = Date.now()): Promise<void> {
+  await database
+    .prepare("INSERT INTO door_answer_cuts (door_id, date, field_paths, occurrence_count, first_cut_at_ms) VALUES (?, ?, ?, 1, ?) ON CONFLICT (door_id, date) DO UPDATE SET occurrence_count = occurrence_count + 1")
+    .bind(doorId, new Date(nowMs).toISOString().slice(0, 10), cutPaths.slice(0, 20).join(", ").slice(0, 2000), nowMs)
+    .run();
+}
+
 /** What a game's use is shared out as, on the meter. */
 export const HOSTING_KINDS = ["rooms", "game_server", "relayed_data", "database", "requests", "adult_chat_checks"] as const;
 export type HostingKind = (typeof HOSTING_KINDS)[number];

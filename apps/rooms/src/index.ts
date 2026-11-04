@@ -1,6 +1,6 @@
-import { checkDoor, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { checkDoor, isPastDoorLimit, isPastGameLimit, isPastLevel, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
-import { roomAddressDoorAt } from "./doors.ts";
+import { guardRoomDoor, roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
 import { purchasesForGame } from "./purchases.ts";
 import { passPublicKeys, publishedReceiptKeys, signingKey } from "./signing.ts";
@@ -31,23 +31,18 @@ export interface Env extends RelayEnv {
   GAME_SERVER_OBJECTS: DurableObjectNamespace<GameServerObject>;
   /** Each game's secrets (secrets.ts). */
   GAME_SECRETS: DurableObjectNamespace<GameSecretsObject>;
-  PASS_LIMIT?: RateLimit;
-  ROOM_LIMIT?: RateLimit;
-  REPORT_LIMIT?: RateLimit;
-  FILTER_LIMIT?: RateLimit;
-  CONNECT_LIMIT?: RateLimit;
   /** A game's sends to every room a minute, from its game server, the API and the MCP together (room-reach.ts). */
   EVERY_ROOM_SEND_LIMIT?: RateLimit;
-  PROFILE_LIMIT?: RateLimit;
-  REQUEST_LIMIT?: RateLimit;
-  /** Relay credentials for connections between players (relay.ts), like passes. */
-  RELAY_LIMIT?: RateLimit;
-  /** A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends). */
-  FRIENDS_LIMIT?: RateLimit;
-  /** A game asking for the player's purchases still to hand over, or marking one handled (Zaisma.items.unhandled, markHandled). */
-  ITEMS_LIMIT?: RateLimit;
+  /** A game's share of the shared database, per shard (isPastGameLimit). */
+  GAME_LIMIT?: RateLimit;
   /** Game servers' calls to other servers, per game (outbound.ts). */
   OUTSIDE_CALL_LIMIT?: RateLimit;
+  /** What a door's limit runs on, by its level (doors.ts). */
+  LIMIT_GUESS?: RateLimit;
+  LIMIT_RARE?: RateLimit;
+  LIMIT_STEADY?: RateLimit;
+  LIMIT_BUSY?: RateLimit;
+  LIMIT_BUILDING?: RateLimit;
   /** Developers' own servers checking chat (POST /v1/chat/check), per game and sender. */
   CHAT_CHECK_LIMIT?: RateLimit;
   /** The chat filter's AI step, in the site Worker (apps/site/src/chat-check.ts). Without it, teens' messages the rules can't tell are stopped. */
@@ -258,12 +253,26 @@ async function readBody(request: Request): Promise<{ slug: string | null; body: 
 
 const plainText = (given: unknown, maximumCharacterCount: number) => (typeof given === "string" ? given.slice(0, maximumCharacterCount).replace(/[\u0000-\u001f]/g, " ").trim() : "");
 
-async function limited(limit: RateLimit | undefined, request: Request): Promise<boolean> {
-  // Keyed by connection address, checked by Cloudflare and never stored.
-  return limit ? !(await limit.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
+/** The connection's address, for what comes before a player is known. Keyed by it, checked by Cloudflare and never stored. */
+const addressOf = (request: Request) => request.headers.get("cf-connecting-ip") ?? "local";
+
+/** Whether a call goes past its door's limit (doors.ts), for the player, or the address when no player is known yet. */
+async function isPastLimitAt(env: Env, path: string, method: string, subject: string): Promise<boolean> {
+  const door = roomAddressDoorAt(path.replace(":slug", "x"), method);
+  return door ? isPastDoorLimit(env, door.contract.limit, door.path, subject) : false;
 }
 
 const SLOW_DOWN = "Too many requests. Try again in a minute.";
+const GAME_BUSY = "So many players are joining this game that new ones wait a moment. Try again in a minute.";
+
+/** What the guard answers in place of a door: on a socket's address too, since a socket that never opens reads nothing, and with the origin given so the SDK can read it. */
+function refusedAtDoor(refused: NonNullable<Awaited<ReturnType<typeof guardRoomDoor>>>, request: Request, origin: string | null): Response {
+  const cors = origin ?? undefined;
+  if (refused === "past_limit") return request.headers.get("upgrade")?.toLowerCase() === "websocket" ? refusedSocket("busy", BUSY_CLOSE_CODE, "Too many connections. Try again in a minute.") : failure("slow_down", SLOW_DOWN, 429, cors);
+  if (refused === "too_big") return failure("bad_request", "That request is too big.", 413, cors);
+  if (refused === "bad_json") return failure("bad_request", "Send a JSON object.", 400, cors);
+  return failure("bad_request", `That request isn't the right shape: ${refused.problem}.`, 400, cors, refused.field);
+}
 
 /** A request's error, as the SDK reads it (err.code). */
 function requestFailure(code: RequestErrorCode, origin?: string, message?: string): Response {
@@ -290,7 +299,6 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
   const origin = request.headers.get("origin");
   if (!(await isGameOrigin(env, slug, origin))) return requestFailure("bad_origin");
   const cors = origin!;
-  if (await limited(env.REQUEST_LIMIT, request)) return requestFailure("slow_down", cors);
   // The request, its pass and the JSON around them; anything much bigger isn't read.
   const maximumBodySizeBytes = REQUEST_LIMITS.maximumRequestSizeBytes + REQUEST_LIMITS.maximumPassSizeBytes + 1024;
   if (Number(request.headers.get("content-length") ?? 0) > maximumBodySizeBytes) return requestFailure("too_big", cors);
@@ -312,6 +320,7 @@ async function answerGameRequest(request: Request, env: Env, slug: string): Prom
     if (!(error instanceof PassError)) throw error;
     return requestFailure("bad_pass", cors);
   }
+  if (await isPastLimitAt(env, "/v1/requests/:slug", "POST", player.id)) return requestFailure("slow_down", cors);
   // Passes aren't given to guests of games that need accounts; this catches one given before the game changed.
   if (player.kind === "guest" && game.account_requirement !== "none") return requestFailure("account_needed", cors);
   if (player.kind === "account" && (await isTooYoungFor(env.DB, game, { playerId: player.id }))) return requestFailure("game_not_open_to_player", cors);
@@ -338,7 +347,6 @@ async function answerPurchases(request: Request, env: Env, isMarking: boolean): 
   const { slug, body } = await readBody(request);
   if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
   const cors = origin!;
-  if (await limited(env.ITEMS_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
   const game = await env.DB.prepare("SELECT id, slug, purchase_delivery FROM games WHERE slug = ? AND review_status != 'removed'").bind(slug).first<{ id: string; slug: string; purchase_delivery: PurchaseDelivery }>();
   if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
   let claims: PassClaims;
@@ -348,6 +356,7 @@ async function answerPurchases(request: Request, env: Env, isMarking: boolean): 
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "This player's pass didn't check out. Zaisma.player() gets a new one.", 401, cors);
   }
+  if (await isPastLimitAt(env, isMarking ? "/v1/items/handled" : "/v1/items/unhandled", "POST", claims.sub)) return failure("slow_down", SLOW_DOWN, 429, cors);
   // Guests own nothing: their IDs last only for their pass, so they have no purchases.
   if (!isMarking) return json({ purchases: claims.kind === "account" ? await purchasesForGame(env, game, await unhandledFor(env.DB, game.id, claims.sub)) : [] }, 200, cors);
   if (game.purchase_delivery !== "game") {
@@ -376,7 +385,6 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
   const { slug, body } = await readBody(request);
   if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
   const cors = origin!;
-  if (await limited(env.FRIENDS_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
   // Any game with a page, out yet or not: a game asks about its own players.
   const game = await env.DB.prepare("SELECT id, own_server_urls FROM games WHERE slug = ? AND review_status != 'removed'").bind(slug).first<{ id: string; own_server_urls: string }>();
   if (!game) return failure("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
@@ -387,6 +395,7 @@ async function answerFriends(request: Request, env: Env, isSettingRoom: boolean)
     if (!(error instanceof PassError)) throw error;
     return failure("bad_pass", "This player's pass didn't check out. Zaisma.player.getPass() gets a new one.", 401, cors);
   }
+  if (await isPastLimitAt(env, isSettingRoom ? "/v1/friends/room" : "/v1/friends", "POST", claims.sub)) return failure("slow_down", SLOW_DOWN, 429, cors);
   if (claims.kind !== "account") return failure("account_needed", "Friends are for players signed in to Zaisma. Ask a guest to sign in first (Zaisma.player.signIn).", 403, cors);
   const account = await env.DB.prepare("SELECT id FROM accounts WHERE player_id = ?").bind(claims.sub).first<{ id: string }>();
   if (!account) return failure("bad_pass", "This player's account is gone.", 401, cors);
@@ -454,7 +463,7 @@ async function answerChatCheck(request: Request, env: Env): Promise<Response> {
     return failure("bad_pass", "A receiver's pass didn't check out for this game. Send each as your server received it from the player.", 401, undefined, "receiverPasses");
   }
   // Per game and sender: more than anyone types, not enough to use Zaisma's filter for something else. Senders from outside Zaisma count as one.
-  if (env.CHAT_CHECK_LIMIT && !(await env.CHAT_CHECK_LIMIT.limit({ key: `${game.id}:${sender?.sub ?? "outside_zaisma"}` })).success) return failure("slow_down", SLOW_DOWN, 429);
+  if (await isPastLimitAt(env, "/v1/chat/check", "POST", `${game.id}:${sender?.sub ?? "outside_zaisma"}`)) return failure("slow_down", SLOW_DOWN, 429);
   const passReceivers = receivers.filter((receiver): receiver is PassClaims => receiver !== null);
   const hasOutsidePlayer = sender === null || passReceivers.length < receivers.length;
   // The backstop for canChat: a server that skipped it still delivers nothing to players who may not chat.
@@ -505,6 +514,8 @@ export default {
     // The guard in front of every address (doors.ts): nothing below runs for one with no row.
     const door = roomAddressDoorAt(url.pathname, request.method);
     if (!door || !checkDoor(door.contract, [])) return new Response("Not found", { status: 404 });
+    const refused = await guardRoomDoor(request, env, door);
+    if (refused) return refusedAtDoor(refused, request, origin);
 
     if (url.pathname === "/.well-known/jwks.json") {
       return Response.json(jwks(await passPublicKeys(env)), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
@@ -525,7 +536,6 @@ export default {
     const profileMatch = url.pathname.match(/^\/v1\/players\/([a-z0-9_-]{1,60})$/);
     if (profileMatch && request.method === "GET") {
       const open = { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" };
-      if (await limited(env.PROFILE_LIMIT, request)) return Response.json({ error: { code: "slow_down", message: SLOW_DOWN } }, { status: 429, headers: { ...open, "Cache-Control": "no-store" } });
       const profile = await playerProfile(env.DB, profileMatch[1]!, env.SITE_ORIGIN);
       if (!profile) return Response.json({ error: { code: "no_player", message: "No account has that player ID. Guests have no profile, and a deleted account's is gone." } }, { status: 404, headers: open });
       return Response.json({ player: profile }, { headers: open });
@@ -548,7 +558,8 @@ export default {
       // The chat filter's rules and AI, for the sender's instant answer: nothing is looked up, counted or kept.
       // Zaisma checks again on its side as each message is delivered (chat-filter.ts).
       if (url.pathname === "/v1/filter") {
-        if (await limited(env.FILTER_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+        // Its AI checks cost money, and no player is known here, so this stays apart from the door's limit.
+        if (await isPastLevel(env, "busy", "filter", addressOf(request))) return failure("slow_down", SLOW_DOWN, 429, cors);
         if (String(body.text ?? "").length > CHAT_FILTER_LIMITS.maximumMessageCharacterCount) {
           return json({ isAllowed: false, reason: "too_long", message: CHAT_BLOCK_MESSAGES.too_long, hasSwearing: false, hasSlur: false, text: "" }, 200, cors);
         }
@@ -564,8 +575,10 @@ export default {
       }
 
       if (url.pathname === "/v1/pass") {
-        if (await limited(env.PASS_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+        // The room key is the player here: it's unguessable, so nobody can spend another player's limit.
+        if (await isPastLimitAt(env, url.pathname, "POST", String(body.roomKey))) return failure("slow_down", SLOW_DOWN, 429, cors);
         // Only for a browser Cloudflare's check on Play said is real: the game page's key, a few passes each.
+        if (await isPastGameLimit(env, env.DB, game.id, String(body.roomKey))) return failure("busy", GAME_BUSY, 503, cors);
         const key = await useRoomKey(env.DB, game.id, body.roomKey);
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", 403, cors);
         const nowSec = Math.floor(Date.now() / 1000);
@@ -603,7 +616,8 @@ export default {
       // Relay servers for this player's connections to other players (the relay script, packages/sdk/relay.js):
       // only for a browser the check on Play said is real, like passes, and none while the game's hosting is paused.
       if (url.pathname === "/v1/relay") {
-        if (await limited(env.RELAY_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
+        if (await isPastLimitAt(env, url.pathname, "POST", String(body.roomKey))) return failure("slow_down", SLOW_DOWN, 429, cors);
+        if (await isPastGameLimit(env, env.DB, game.id, String(body.roomKey))) return failure("busy", GAME_BUSY, 503, cors);
         const key = await useRoomKey(env.DB, game.id, body.roomKey);
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't connect to other players. Reload the game to try again.", 403, cors);
         if (!key.accountId && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
@@ -616,7 +630,8 @@ export default {
 
       // A player reporting another player. Like every report, nothing about the reporter is kept.
       if (url.pathname === "/v1/report") {
-        if (await limited(env.REPORT_LIMIT, request)) return failure("slow_down", "Too many reports. Try again in a minute.", 429, cors);
+        // Each report costs a person or an AI's time, and no player is known here, so this stays apart from the door's limit.
+        if (await isPastLevel(env, "guess", "report", addressOf(request))) return failure("slow_down", "Too many reports. Try again in a minute.", 429, cors);
         const reason = plainText(body.reason, 40) as PlayerReportReason;
         const reportedRoomCode = plainText(body.roomCode, 6);
         const playerId = plainText(body.playerId, 40);
@@ -640,7 +655,6 @@ export default {
       }
 
       if (!usesRooms(gameServerOf(game))) return failure("zaisma_rooms_not_used", "This game doesn't use Zaisma rooms.", 404, cors);
-      if (await limited(env.ROOM_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
       if ((await roomHostingOf(env.DB, game.id)).isPaused) return failure("hosting_paused", ERROR_TEXT.hosting_paused, 403, cors);
       return json({ roomCode: roomCode() }, 200, cors);
     }
@@ -696,7 +710,7 @@ export default {
       const [, slug, code] = roomMatch as unknown as [string, string, string];
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
       // Checked first: a script claiming to be the game's page can't keep waking rooms.
-      if (await limited(env.CONNECT_LIMIT, request)) return refusedSocket("busy", BUSY_CLOSE_CODE, "Too many connections. Try again in a minute.");
+      if (await isPastLimitAt(env, url.pathname, "GET", addressOf(request))) return refusedSocket("busy", BUSY_CLOSE_CODE, "Too many connections. Try again in a minute.");
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin, url.searchParams.get("tester")) : null;
       if (!from) return refusedSocket("bad_origin", REMOVED_CLOSE_CODE);
       const game = await playableGame(env.DB, slug, requestCountryCode(request));

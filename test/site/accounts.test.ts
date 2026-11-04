@@ -634,13 +634,13 @@ describe("signing in", () => {
   });
 
   it("limits password tries on one username, from any address", async () => {
-    expect(configuredRateLimit(siteWranglerText, "PASSWORD_LIMIT")).toEqual({ limit: 5, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_GUESS")).toEqual({ limit: 5, period: 60 });
     await join(new Browser(), null);
     const passwordLimit = countingRateLimiter(5);
     const statuses = [];
     for (let i = 0; i < 7; i++) {
       const b = new Browser();
-      b.bindings = { PASSWORD_LIMIT: passwordLimit };
+      b.bindings = { LIMIT_GUESS: passwordLimit };
       statuses.push((await signIn(b, { username: "Night_Owl", password: `guess number ${i}` })).status);
     }
     expect(statuses).toEqual([400, 400, 400, 400, 400, 429, 429]);
@@ -4463,9 +4463,9 @@ describe("download your data", () => {
 
     const page = await (await b.go("/account")).text();
     expect(page).toContain('href="/account/data.zip" data-download');
-    expect(configuredRateLimit(siteWranglerText, "EXPORT_LIMIT")).toEqual({ limit: 2, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_VERY_RARE")).toEqual({ limit: 2, period: 60 });
     const exportLimit = countingRateLimiter(2);
-    b.bindings = { EXPORT_LIMIT: exportLimit };
+    b.bindings = { LIMIT_VERY_RARE: exportLimit };
     const res = await b.go("/account/data.zip");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/zip");

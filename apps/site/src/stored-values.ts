@@ -1,4 +1,4 @@
-import type { DoorContract } from "@zaisma/core";
+import { ANSWERS_PAGE, TAKES_NOTHING, type DoorContract } from "@zaisma/core";
 
 /**
  * Every value Zaisma stores that someone outside Zaisma's code chose: what developers and players save,
@@ -60,7 +60,7 @@ const DETAILS = checkedIn("packages/core/src/developers.ts", "checkDetails");
 /** A stored value's contract (docs/DOORS.md): who chose it is who may call the doors that save it. */
 export function storedValueContract(entry: StoredValue): DoorContract {
   const whoMayCall = ({ developer: "developer", player: "signed_in", outside: "anyone", zaisma: "admin" } as const)[entry.source];
-  return { whoMayCall, reaches: "account", trusts: entry.source === "outside" ? [] : entry.source === "zaisma" ? ["admin_access"] : ["session"] };
+  return { whoMayCall, reaches: "account", trusts: entry.source === "outside" ? [] : entry.source === "zaisma" ? ["admin_access"] : ["session"], takes: TAKES_NOTHING, answers: ANSWERS_PAGE, limit: { whyNoLimit: "counted_by_its_call" } };
 }
 
 export const STORED_VALUES: readonly StoredValue[] = [

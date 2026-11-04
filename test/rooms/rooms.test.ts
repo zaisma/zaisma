@@ -584,12 +584,12 @@ describe("rooms", () => {
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
-    expect(configuredRateLimit(roomsWranglerText, "CONNECT_LIMIT")).toEqual({ limit: 60, period: 60 });
+    expect(configuredRateLimit(roomsWranglerText, "LIMIT_BUILDING")).toEqual({ limit: 60, period: 60 });
     // Counted with no clock: Miniflare's own limiter starts again on the clock's minute, which 61 calls can straddle.
     const connectLimit = countingRateLimiter(60);
     // A game that isn't there answers quickly, and still counts toward the limit.
     const open = (address: string) =>
-      roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, CONNECT_LIMIT: connectLimit });
+      roomsWorker.fetch(new Request(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": address } }), { ...e, LIMIT_BUILDING: connectLimit });
     /** What a turned-away socket says and how it closes: refusals come on a socket, never as an HTTP status. */
     const refusal = async (res: Response) => {
       expect(res.status).toBe(101);

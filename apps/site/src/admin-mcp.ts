@@ -1,4 +1,4 @@
-import {
+import { noteAnswerCut,
   FORUM_CATEGORIES,
   PRECEDENT_DECISIONS,
   REPORT_SEVERITIES,
@@ -1493,5 +1493,6 @@ export function handleAdminMcp(request: Request, env: Env, actor: string): Promi
       const refusal = error instanceof ApiError ? error : INTERNAL_ERROR();
       return { text: `${refusal.message} ${refusal.fix} (${refusal.code})`, structuredContent: refusal.toAnswer() };
     },
+    (doorId, cutPaths) => void noteAnswerCut(env.DB, doorId, cutPaths).catch((error: unknown) => console.error("An answer's cut wasn't noted", doorId, error)),
   );
 }

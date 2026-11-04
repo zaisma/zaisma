@@ -69,7 +69,7 @@ async function sessionCookie(accountId: string, sessionId = `session-${accountId
  */
 const unlimited = { async limit(): Promise<{ success: boolean }> { return { success: true }; } };
 const callSite = (request: Request, bindings: Record<string, unknown> = {}) =>
-  worker.fetch(request as Request<unknown, IncomingRequestCfProperties>, { ...env, DEV_LIMIT: unlimited, PURCHASE_LIMIT: unlimited, PASSWORD_LIMIT: unlimited, SIGNIN_LIMIT: unlimited, ...bindings } as typeof env, createExecutionContext());
+  worker.fetch(request as Request<unknown, IncomingRequestCfProperties>, { ...env, LIMIT_BUSY: unlimited, LIMIT_STEADY: unlimited, LIMIT_GUESS: unlimited, LIMIT_RARE: unlimited, ...bindings } as typeof env, createExecutionContext());
 
 async function api(path: string, init: { method?: string; body?: unknown } = {}) {
   const response = await callSite(new Request(`${SITE}/api/dev${path}`, {
@@ -413,13 +413,13 @@ describe("opening the sheet", () => {
   });
 
   it("answers slow_down to the 21st buy an account opens in a minute", async () => {
-    expect(configuredRateLimit(siteWranglerText, "PURCHASE_LIMIT")).toEqual({ limit: 20, period: 60 });
+    expect(configuredRateLimit(siteWranglerText, "LIMIT_STEADY")).toEqual({ limit: 20, period: 60 });
     await connect();
     await setItem("revive", revive);
     const purchaseLimit = countingRateLimiter(20);
     const statuses: number[] = [];
     for (let buyNumber = 1; buyNumber <= 21; buyNumber++) {
-      const opened = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, bindings: { PURCHASE_LIMIT: purchaseLimit } });
+      const opened = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive" }, bindings: { LIMIT_STEADY: purchaseLimit } });
       statuses.push(opened.status);
       if (buyNumber === 21) expect(opened.answer.error.code).toBe("slow_down");
     }

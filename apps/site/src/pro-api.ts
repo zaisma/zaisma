@@ -1,4 +1,4 @@
-import { ApiError, FILE_LIMITS, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, REVIEW_LIMITS, STORAGE_ALLOWANCES, iso, planOf, storageAllowanceKindOf, type StorageAllowanceKind, earnedAfterCardFeeCents } from "@zaisma/core";
+import { isPastLevel, ApiError, FILE_LIMITS, PLAN_LIMITS, PRO_PRICE_CENTS_PER_MONTH, REVIEW_LIMITS, STORAGE_ALLOWANCES, iso, planOf, storageAllowanceKindOf, type StorageAllowanceKind, earnedAfterCardFeeCents } from "@zaisma/core";
 import { dailyCheckCount } from "./performance-check.ts";
 import { largeReviewCount, smallReviewCount } from "./scan.ts";
 import { logCallerEvent } from "./security-log.ts";
@@ -68,7 +68,7 @@ export async function proRoute(env: Env, path: string, method: string, caller: C
   const ownerId = caller.ownerId;
   if (path === "/pro" && method === "GET") return [await proAnswer(env, ownerId)];
 
-  if (env.PRO_LIMIT && !(await env.PRO_LIMIT.limit({ key: ownerId })).success) {
+  if (await isPastLevel(env, "rare", "pro", ownerId)) {
     throw new ApiError("slow_down", { message: "Too many Zaisma Pro changes in a minute.", fix: "Wait a minute and try again.", retryAfterSec: 60 });
   }
   const row = await proRow(env, ownerId);

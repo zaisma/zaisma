@@ -38,7 +38,7 @@ export type ExpectedAnswer =
 
 /** The parts of a site door's row (SiteDoor, apps/site/src/doors.ts) a verdict depends on. */
 export interface SiteDoorFacts {
-  contract: DoorContract;
+  contract: Pick<DoorContract, "whoMayCall" | "reaches" | "trusts">;
   isClosedToBannedDeveloper?: true;
   isOpenToBannedDeveloper?: true;
   whenSignedOut?: { kind: string; httpStatus?: number };

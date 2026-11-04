@@ -1,4 +1,4 @@
-import type { DoorContract } from "@zaisma/core";
+import { ANSWERS_FILE, ANSWERS_PAGE, ANSWERS_REDIRECT, TAKES_NOTHING, integer, text, type DoorContract, type DoorLimit, type DoorTakes } from "@zaisma/core";
 
 /**
  * Every kind of address on the game domain (docs/DOORS.md). All of them are GET and HEAD, and all go through serve,
@@ -32,15 +32,20 @@ const ZAISMA_ADDRESSES = [
   "_zaisma/warm-redirects.json",
 ] as const;
 
-const PUBLIC: DoorContract = { whoMayCall: "anyone", reaches: "nothing_private", trusts: [] };
+/** A game's files are public once it's live, and Cloudflare caches them: a game's own query is the game's, so a file door reads no names of its own. */
+const FILES = { takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: { whyNoLimit: "cached_file" } } as const;
+const PUBLIC: DoorContract = { whoMayCall: "anyone", reaches: "nothing_private", trusts: [], ...FILES };
 const OPEN_THROUGH_LINK = { source_path: "apps/games/src/index.ts", symbol_name: "openThroughLink" };
+/** A link's grant and where to go after it. */
+const ENTERING: DoorTakes = { query: { grant: text(200), then: text(2000) }, body: null };
+const BEFORE_A_PLAYER: DoorLimit = { level: "building", counts: "address" };
 
 export const GAME_FILE_DOORS: Readonly<Record<GameFileDoorName, DoorContract>> = {
-  file: PUBLIC,
-  preview_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: OPEN_THROUGH_LINK },
-  tester_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: OPEN_THROUGH_LINK },
-  "_zaisma/enter": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK },
-  "_zaisma/entered": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK },
+  file: { ...PUBLIC, takes: { query: { room: text(40) }, body: null } },
+  preview_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BEFORE_A_PLAYER },
+  tester_address: { whoMayCall: "link_holder", reaches: "game", trusts: ["tester_link"], provenBy: OPEN_THROUGH_LINK, ...FILES, limit: BEFORE_A_PLAYER },
+  "_zaisma/enter": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BEFORE_A_PLAYER },
+  "_zaisma/entered": { whoMayCall: "link_holder", reaches: "game", trusts: ["preview_link", "tester_link"], provenBy: OPEN_THROUGH_LINK, takes: ENTERING, answers: ANSWERS_REDIRECT, limit: BEFORE_A_PLAYER },
   "_zaisma/background": PUBLIC,
   "_zaisma/background.json": PUBLIC,
   "_zaisma/background.glsl": PUBLIC,
@@ -52,10 +57,10 @@ export const GAME_FILE_DOORS: Readonly<Record<GameFileDoorName, DoorContract>> =
   "_zaisma/relay.js": PUBLIC,
   "_zaisma/picture.js": PUBLIC,
   "_zaisma/performance.js": PUBLIC,
-  "_zaisma/saves.js": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"] },
-  "_zaisma/restore": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"] },
-  "_zaisma/warm": PUBLIC,
-  "_zaisma/warm.json": PUBLIC,
+  "_zaisma/saves.js": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: BEFORE_A_PLAYER },
+  "_zaisma/restore": { whoMayCall: "anyone", reaches: "nothing_private", trusts: ["session"], takes: TAKES_NOTHING, answers: ANSWERS_PAGE, limit: BEFORE_A_PLAYER },
+  "_zaisma/warm": { ...PUBLIC, answers: ANSWERS_PAGE, takes: { query: { version_id: text(100), maximum_start_size_bytes: integer() }, body: null } },
+  "_zaisma/warm.json": { ...PUBLIC, takes: { query: { version_id: text(100), maximum_start_size_bytes: integer() }, body: null } },
   "_zaisma/warm.js": PUBLIC,
   "_zaisma/warm-redirects.json": PUBLIC,
 };

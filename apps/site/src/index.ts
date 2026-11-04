@@ -9,6 +9,8 @@ import { handleAdmin } from "./admin.ts";
 import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloperSettings } from "./developer-settings.ts";
 import { handleDeveloper } from "./developer.ts";
+import { withDeclaredAnswer } from "./answers.ts";
+import { siteDoorAt } from "./doors.ts";
 import { guardSiteDoor } from "./guard.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
@@ -77,7 +79,14 @@ export { ChatCheckService } from "./chat-check.ts";
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
 
+/** Every door's answer goes out cut to what it declares (answers.ts). The API's and MCP's own rows answer bytes here, since each call is checked by its own. */
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const response = await routeToDoor(request, env, ctx);
+  const door = siteDoorAt(pathOfRequest(request), request.method);
+  return typeof door === "string" || door.contract.answers.kind !== "json" ? response : withDeclaredAnswer(env, response, door.contract.answers, `page:${request.method} ${door.path}`, (promise) => ctx.waitUntil(promise));
+}
+
+async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method;

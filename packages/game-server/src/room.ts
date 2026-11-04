@@ -9,7 +9,7 @@
 
 import { CHAT_CHECK_LIMITS, CHAT_ROOM_LIMITS } from "./chat.ts";
 import { DatabaseError, type GameDatabase } from "./database.ts";
-import { checkDoor, type DoorCaller, type DoorContract } from "./doors.ts";
+import { answersJson, checkDoor, fieldsOf, gameData, listOf, realNumber, schemaProblems, text as textUpTo, yesOrNo, type DoorBody, type DoorCaller, type DoorContract, type DoorShape } from "./doors.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PassClaims, PlayerKind, ReceiptClaims } from "./pass.ts";
 import type { Server } from "./requests.ts";
@@ -1498,6 +1498,8 @@ export function readChatMessage(text: string): ChatClientMessage | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object" || (parsed as { type?: unknown }).type !== "chat") return null;
+  // One of the wrong shape isn't chat: receive refuses it.
+  if (roomMessageProblem("chat", parsed as Record<string, unknown>)) return null;
   const chat = parsed as { chatNumber?: unknown; text?: unknown; toPlayerIds?: unknown };
   return { chatNumber: Number.isSafeInteger(chat.chatNumber) ? (chat.chatNumber as number) : 0, text: chat.text, toPlayerIds: chat.toPlayerIds, sizeBytes: utf8ByteCount(text) };
 }
@@ -1573,9 +1575,68 @@ export const NO_MESSAGE_TYPE = "(none)";
 export const BYTES_MESSAGE_TYPE = "(bytes)";
 export const ZAISMA_MESSAGE_TYPE = "(zaisma)";
 
-const ROOM_MEMBER: DoorContract = { whoMayCall: "room_member", reaches: "room", trusts: ["player_pass"] };
-const ROOM_PLAYER: DoorContract = { whoMayCall: "room_player", reaches: "room", trusts: ["player_pass"] };
-const ROOM_HOST: DoorContract = { whoMayCall: "room_host", reaches: "room", trusts: ["player_pass"] };
+/** A pass or a player token, at most, and a whole hello with the fullest of them. */
+const HELLO_PROOF_MAXIMUM_CHARACTER_COUNT = 96 * 1024;
+const HELLO_MAXIMUM_SIZE_BYTES = HELLO_PROOF_MAXIMUM_CHARACTER_COUNT + 2 * ROOM_LIMITS.maximumJoinDataSizeBytes + 8 * 1024;
+
+/** What a player is sent, by its type, with each type's fields closed: a game's own data and a room's settings pass as they are. Checked in tests only, since this is the busiest path there is. */
+const looseObject = { type: "object" } as const;
+const frameOf = (messageType: string, fields: Record<string, unknown> = {}, optional: Record<string, unknown> = {}) => ({
+  type: "object",
+  properties: { type: { type: "string", enum: [messageType] }, ...fields, ...optional },
+  required: ["type", ...Object.keys(fields)],
+  additionalProperties: false,
+});
+const wireText = { type: "string" } as const;
+const wireNumber = { type: "number" } as const;
+const wireYesOrNo = { type: "boolean" } as const;
+const wireNullable = (type: string) => ({ type: [type, "null"] });
+const wirePlayers = { type: "array", items: looseObject } as const;
+const WIRE_DATA = {} as const;
+export const ROOM_FRAME: Readonly<Record<string, unknown>> = {
+  anyOf: [
+    frameOf("welcome", { me: looseObject, isSpectator: wireYesOrNo, players: wirePlayers, room: looseObject, spectatorCount: wireNumber, hostPlayerId: wireNullable("string"), awayChecks: looseObject, endsAt: wireNullable("string"), probeIntervalSec: wireNullable("number"), protocolVersionNumber: wireNumber, canChat: wireYesOrNo }),
+    frameOf("probe", { probeNumber: wireNumber, serverTimeMs: wireNumber, pingDurationMs: wireNullable("number") }),
+    frameOf("ending", { endsAt: wireText }),
+    frameOf("ending_cancelled"),
+    frameOf("version_update", { step: wireText, versionId: wireText, appliesAt: wireText, isReloading: wireYesOrNo }),
+    frameOf("players", { players: wirePlayers, hostPlayerId: wireNullable("string") }),
+    frameOf("away", { awayReason: wireText, seatHoldDurationSec: wireNumber }),
+    frameOf("kicked", { message: wireText, isKeptOut: wireYesOrNo }),
+    frameOf("room", { room: looseObject, spectatorCount: wireNumber }),
+    frameOf("move", { roomCode: wireText }),
+    frameOf("message", { data: WIRE_DATA, fromPlayerId: wireNullable("string") }),
+    frameOf("room_message", { roomMessage: looseObject }),
+    frameOf("state", { serverTimeMs: wireNumber }, { full: WIRE_DATA, changes: { type: "array" } }),
+    frameOf("blocks", { playerIds: { type: "array", items: wireText } }),
+    frameOf("friend_request"),
+    frameOf("chat", { fromPlayerId: wireText, text: wireText, hasSwearing: wireYesOrNo, hasSlur: wireYesOrNo, sentAt: wireText }),
+    frameOf("chat_sent", { chatNumber: wireNumber, sentAt: wireText }),
+    frameOf("chat_stopped", { chatNumber: wireNumber, reason: wireText, message: wireText }),
+    frameOf("error", { code: wireText, message: wireText }, { versionId: wireText, chatNumber: wireNumber }),
+    frameOf("ended", { message: wireText, endReason: wireText }),
+  ],
+};
+
+/** The room's settings as a client may ask for them: tidyRoomInfo cuts a name and labels to their limits, and these are only the outer wall. */
+const ASKED_ROOM = fieldsOf({
+  isListed: yesOrNo,
+  isOpen: yesOrNo,
+  friendJoinsEnabled: yesOrNo,
+  name: textUpTo(1000),
+  labels: gameData(4 * 1024),
+});
+const PLAYER_ID_SHAPE = textUpTo(80);
+const IDLE_FIELDS = { idleTimeoutSec: realNumber(0, Number.MAX_SAFE_INTEGER), idleCheckEnabled: yesOrNo };
+/** A connection's limit is a room's message bucket, which takes a token per player before any of these runs. */
+const roomMessage = (whoMayCall: "room_member" | "room_player" | "room_host", fields: Record<string, DoorShape> = {}, required: readonly string[] = []): DoorContract => ({
+  whoMayCall,
+  reaches: "room",
+  trusts: ["player_pass"],
+  takes: { query: {}, body: { kind: "json", fields: { type: textUpTo(40), ...fields }, required: ["type", ...required], maximumSizeBytes: ROOM_LIMITS.maximumGameMessageSizeBytes } },
+  answers: answersJson(ROOM_FRAME),
+  limit: { whyNoLimit: "room_token_bucket" },
+});
 
 /**
  * Every message a room takes (docs/DOORS.md). receive's switch is over these names, so a new one without a row
@@ -1583,23 +1644,81 @@ const ROOM_HOST: DoorContract = { whoMayCall: "room_host", reaches: "room", trus
  * bytes is every binary message (receiveBytes). A type with no row, maybe from a newer SDK, is counted and ignored.
  */
 export const ROOM_MESSAGE_DOORS = {
-  hello: { whoMayCall: "pass_holder", reaches: "room", trusts: ["player_pass"], provenBy: { source_path: "packages/game-server/src/pass.ts", symbol_name: "verifyPass" } },
-  probe_answer: ROOM_MEMBER,
-  room: ROOM_HOST,
-  kick: ROOM_HOST,
-  here: ROOM_PLAYER,
-  idle: ROOM_PLAYER,
-  hidden: ROOM_PLAYER,
-  shown: ROOM_PLAYER,
-  back: ROOM_PLAYER,
-  message: ROOM_PLAYER,
-  bytes: ROOM_PLAYER,
-  chat: ROOM_PLAYER,
-  block: ROOM_PLAYER,
-  unblock: ROOM_PLAYER,
-  friend_request: ROOM_PLAYER,
-  "zaisma:purchase": { whoMayCall: "room_player", reaches: "purchase", trusts: ["player_pass", "purchase_receipt"] },
+  hello: {
+    whoMayCall: "pass_holder",
+    reaches: "room",
+    trusts: ["player_pass"],
+    provenBy: { source_path: "packages/game-server/src/pass.ts", symbol_name: "verifyPass" },
+    takes: {
+      query: {},
+      body: {
+        kind: "json",
+        fields: {
+          type: textUpTo(40),
+          protocolVersionNumber: realNumber(0, Number.MAX_SAFE_INTEGER),
+          pass: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT),
+          playerToken: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT),
+          joinData: gameData(ROOM_LIMITS.maximumJoinDataSizeBytes * 2),
+          room: ASKED_ROOM,
+          isSpectator: yesOrNo,
+          isQuickJoin: yesOrNo,
+          avoidBlockedPlayers: yesOrNo,
+          versionId: textUpTo(80),
+          playShare: textUpTo(400),
+          hasGraphicsChip: yesOrNo,
+          isInputSeen: yesOrNo,
+          ...IDLE_FIELDS,
+        },
+        required: ["type"],
+        maximumSizeBytes: HELLO_MAXIMUM_SIZE_BYTES,
+      },
+    },
+    answers: answersJson(ROOM_FRAME),
+    limit: { level: "steady", counts: "player" },
+  },
+  probe_answer: roomMessage("room_member", { probeNumber: realNumber(0, Number.MAX_SAFE_INTEGER) }),
+  room: roomMessage("room_host", { room: ASKED_ROOM }, ["room"]),
+  kick: roomMessage("room_host", { playerId: PLAYER_ID_SHAPE, keepOut: yesOrNo }, ["playerId"]),
+  here: roomMessage("room_player"),
+  idle: roomMessage("room_player"),
+  hidden: roomMessage("room_player"),
+  shown: roomMessage("room_player"),
+  back: roomMessage("room_player", { joinData: gameData(ROOM_LIMITS.maximumJoinDataSizeBytes * 2), ...IDLE_FIELDS }),
+  message: roomMessage("room_player", { data: gameData(ROOM_LIMITS.maximumGameMessageSizeBytes) }),
+  bytes: {
+    whoMayCall: "room_player",
+    reaches: "room",
+    trusts: ["player_pass"],
+    takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: ROOM_LIMITS.maximumGameMessageSizeBytes } },
+    answers: answersJson(ROOM_FRAME),
+    limit: { whyNoLimit: "room_token_bucket" },
+  },
+  chat: roomMessage("room_player", { chatNumber: realNumber(0, Number.MAX_SAFE_INTEGER), text: textUpTo(ROOM_LIMITS.maximumGameMessageSizeBytes), toPlayerIds: listOf(PLAYER_ID_SHAPE, 200) }, ["text"]),
+  block: roomMessage("room_player", { playerId: PLAYER_ID_SHAPE }, ["playerId"]),
+  unblock: roomMessage("room_player", { playerId: PLAYER_ID_SHAPE }, ["playerId"]),
+  friend_request: roomMessage("room_player", { playerId: PLAYER_ID_SHAPE }, ["playerId"]),
+  "zaisma:purchase": {
+    ...roomMessage("room_player", { purchaseId: textUpTo(1000), receipt: textUpTo(HELLO_PROOF_MAXIMUM_CHARACTER_COUNT) }, ["purchaseId"]),
+    reaches: "purchase",
+    trusts: ["player_pass", "purchase_receipt"],
+  },
 } as const satisfies Record<string, DoorContract>;
+
+/**
+ * Whether a message breaks its door's shape: a field of the wrong type or past its bound, or one it needs missing. A
+ * name the door doesn't know is left alone and never read, unlike at other doors: a game's SDK comes from Zaisma and
+ * its server may be the developer's own, older one, so a newer SDK's field has to keep working there.
+ */
+export function roomMessageProblem(type: Exclude<RoomMessageType, "bytes">, message: Record<string, unknown>): string | null {
+  const body = ROOM_MESSAGE_DOORS[type].takes.body as Extract<DoorBody, { kind: "json" }>;
+  for (const name of body.required ?? []) if (!(name in message)) return `${name} is missing`;
+  for (const [name, shape] of Object.entries(body.fields)) {
+    if (!(name in message)) continue;
+    const [problem] = schemaProblems(shape, message[name], name);
+    if (problem) return problem;
+  }
+  return null;
+}
 
 export type RoomMessageType = keyof typeof ROOM_MESSAGE_DOORS;
 
@@ -2847,6 +2966,7 @@ export class RoomCore<S = any> {
     if (presence) presence.seenAtMs = this.now();
     const type = isRoomMessageType(message.type) ? message.type : null;
     if (type && !checkDoor(ROOM_MESSAGE_DOORS[type], this.hostPlayerId === playerId ? HOST_PROVEN : PLAYER_PROVEN)) return "not_allowed";
+    if (type && type !== "bytes" && roomMessageProblem(type, message)) return "bad_message";
     switch (type) {
       case "room":
         return this.hostChange(playerId, message);
