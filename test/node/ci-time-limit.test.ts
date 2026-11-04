@@ -114,7 +114,8 @@ describe("New tests ten times", () => {
 describe("the Contract grid's parts", () => {
   it("hold every grid file once, and are the ones the workflow runs", () => {
     const files = readdirSync(join(ROOT, "test/grid")).filter((name) => name.endsWith(".grid.ts")).map((name) => `test/grid/${name.replace(/\.ts$/, "")}`);
-    expect(Object.values(GRID_FILES_BY_PART).flat().sort()).toEqual(files.sort());
+    const entries: string[] = Object.values(GRID_FILES_BY_PART).flat() as string[];
+    for (const file of files) expect(entries.filter((entry) => file.startsWith(entry)), file).toHaveLength(1);
     expect(workflow).toContain(`part: [${Object.keys(GRID_FILES_BY_PART).join(", ")}]`);
   });
 });

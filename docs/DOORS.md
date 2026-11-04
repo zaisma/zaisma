@@ -49,7 +49,7 @@ Every door is tried by every kind of caller on every pull request, with no AI: t
 
 | Doors | Tried in |
 |---|---|
-| Pages and forms | `test/grid/pages.grid.ts`, with `test/grid/samples.ts` |
+| Pages and forms | `test/grid/page-doors.ts`, in the `test/grid/pages-N.grid.ts` shares, with `test/grid/samples.ts` |
 | API calls | `test/grid/api.grid.ts` |
 | MCP tools and admin tools | `test/grid/mcp.grid.ts`, with `test/grid/tool-samples.ts` |
 | Rooms addresses and `hello` | `test/grid/rooms.grid.ts` |

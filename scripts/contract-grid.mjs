@@ -23,7 +23,7 @@ const LOCAL_COMMAND = "npm run grid -- --compare ";
  * The parts GitHub's Contract grid splits across its runners (ZAISMA_CONTRACT_GRID_PART), each compared with the same part of its base: vitest's
  * filters by file, so a base from before the parts takes them too. Every grid file is in one part (test/node/ci-time-limit.test.ts).
  */
-export const GRID_FILES_BY_PART = { pages: ["test/grid/pages.grid"], api: ["test/grid/api.grid"], other: ["test/grid/mcp.grid", "test/grid/game-files.grid", "test/grid/room-messages.grid", "test/grid/rooms.grid"] };
+export const GRID_FILES_BY_PART = { pages: ["test/grid/pages"], api: ["test/grid/api.grid"], other: ["test/grid/mcp.grid", "test/grid/game-files.grid", "test/grid/room-messages.grid", "test/grid/rooms.grid"] };
 
 const cellId = ({ door_id, caller_kind }) => `${door_id} | ${caller_kind}`;
 const isFailed = (cell) => cell.cell_verdict !== "kept";
