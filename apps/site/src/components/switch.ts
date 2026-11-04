@@ -378,6 +378,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
             sw.pickTab(tab);
             shutOtherFolders();
             clearTimeout(leaving);
+            document.dispatchEvent(new Event("zaisma-leaving-page"));
             leaving = setTimeout(function () { location.assign(tab.href); }, slideMs(slab));
             return;
           }

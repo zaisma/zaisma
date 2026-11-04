@@ -363,7 +363,8 @@ export const HEADER_SCRIPT = pageScript(
   function setWaiting(isWaiting) {
     clearTimeout(waitingTimer);
     if (!isWaiting && pressedLink) { pressedLink.classList.remove("is-pressed"); pressedLink = null; }
-    headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); });
+    // Every bar of header glass, the gallery's too: the line is the glass's own (.glass-bar).
+    document.querySelectorAll("header.glass-bar").forEach(function (bar) { if (!bar.hasAttribute("data-stays-waiting")) bar.classList.toggle("is-waiting", isWaiting); });
   }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[href]");
@@ -378,6 +379,11 @@ export const HEADER_SCRIPT = pageScript(
       link.classList.add("is-pressed");
       waitingTimer = setTimeout(function () { setWaiting(true); }, 500);
     }, 0);
+  });
+  // A stacked switch moves on the press and opens the next page itself (SWITCH_SCRIPT), so its links say so here: its slab is what stays pressed.
+  document.addEventListener("zaisma-leaving-page", function () {
+    setWaiting(false);
+    waitingTimer = setTimeout(function () { setWaiting(true); }, 500);
   });
   window.addEventListener("pageshow", function () { setWaiting(false); });
   window.addEventListener("pagehide", function () { setWaiting(false); });

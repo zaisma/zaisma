@@ -43,8 +43,10 @@ describe("the components' script", () => {
   });
 
   it("lights the header for a new page, after the waiting delay, and puts it out when the page comes back from the browser's history", () => {
-    expect(HEADER_SCRIPT.sourceText).toContain('top.classList.toggle("is-waiting", isWaiting)');
+    expect(HEADER_SCRIPT.sourceText).toContain('document.querySelectorAll("header.glass-bar").forEach(function (bar) { if (!bar.hasAttribute("data-stays-waiting")) bar.classList.toggle("is-waiting", isWaiting); });');
     expect(HEADER_SCRIPT.sourceText).toContain('addEventListener("pageshow", function () { setWaiting(false); })');
+    // A stacked switch opens the next page itself, and says so, so its links light the header too.
+    expect(HEADER_SCRIPT.sourceText).toContain('document.addEventListener("zaisma-leaving-page"');
   });
 });
 
