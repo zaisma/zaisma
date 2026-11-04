@@ -26,10 +26,27 @@ async function addGame(status = "live"): Promise<{ id: string; slug: string }> {
   return { id, slug };
 }
 
+/** A room's own address answers only a WebSocket's opening, with its origin checked after that. */
 const hit = (method: string, path: string, origin: string | null, body?: Record<string, unknown>) =>
-  SELF.fetch(`${R}${path}`, { method, redirect: "manual", headers: { ...(origin ? { Origin: origin } : {}), "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  SELF.fetch(`${R}${path}`, { method, redirect: "manual", headers: { ...(origin ? { Origin: origin } : {}), ...(/^\/v1\/rooms\/[^/]+\/[^/]+$/.test(path) ? { Upgrade: "websocket" } : {}), "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
 
-const answered = async (response: Response): Promise<CallAnswer> => ({ http_status: response.status, location: response.headers.get("location"), is_owners_changed: false, is_private_value_shown: false });
+/**
+ * A refused socket opens to say why, since a browser's page can't read a status (refusedSocket), so here that counts as the door's
+ * 403. A room that let it in answers a ping.
+ */
+async function socketStatus(socket: WebSocket): Promise<number> {
+  socket.accept();
+  const status = new Promise<number>((resolve) => {
+    socket.addEventListener("message", (event) => resolve(event.data === "pong" ? 101 : 403));
+    socket.addEventListener("close", () => resolve(403));
+  });
+  socket.send("ping");
+  const given = await status;
+  socket.close();
+  return given;
+}
+
+const answered = async (response: Response): Promise<CallAnswer> => ({ http_status: response.webSocket ? await socketStatus(response.webSocket) : response.status, location: response.headers.get("location"), is_owners_changed: false, is_private_value_shown: false });
 
 const passFor = async (game: { id: string; slug: string }, accountId?: string) => (await (await hit("POST", "/v1/pass", ORIGIN, { gameSlug: game.slug, roomKey: await issueRoomKey(e.DB, game.id, accountId) })).json<{ pass: string }>()).pass;
 
@@ -101,9 +118,14 @@ describe("every address on rooms.zaisma.com", () => {
     }
 
     if (!(door.path in OWNER_NOT_PROVEN)) push("owner", problemWithAnswer("goes_through", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, ownersProof)))));
-    // Another site's page, and no page at all: the same body, from where a game's page isn't.
-    push("another_account", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(game.slug), EVIL, bodyOf(game.slug, ownersProof)))));
-    push("stranger", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(game.slug), null, bodyOf(game.slug, ownersProof)))));
+    // Another site's page, and no page at all: the same body, from where a game's page isn't. A door a game's page proves says so
+    // itself, so a body it wouldn't take anyway can't pass for its refusal.
+    const fromElsewhere = async (origin: string | null) => {
+      const answer = await answered(await hit(method, pathOf(game.slug), origin, bodyOf(game.slug, ownersProof)));
+      return door.contract.whoMayCall === "game_page" && answer.http_status !== 403 ? `Answered ${answer.http_status}, where a game's page is what proves the caller.` : problemWithAnswer("refused", null, answer);
+    };
+    push("another_account", await fromElsewhere(EVIL));
+    push("stranger", await fromElsewhere(null));
     // A game that's down.
     push("banned_developer", problemWithAnswer("refused", null, await answered(await hit(method, pathOf(down.slug), ORIGIN, bodyOf(down.slug, ownersProof)))));
     // Where a pass proves the player: a pass for another game, and a token that isn't one.

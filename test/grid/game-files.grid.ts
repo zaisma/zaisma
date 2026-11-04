@@ -19,7 +19,7 @@ async function addGame(status: string, visibility: string): Promise<{ id: string
   const slug = `grid-game-${n}`;
   const versionId = `version_v${n}`;
   const prefix = `games/${id}/${versionId}`;
-  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 0, 0)").bind(id, slug, slug, status, visibility, status === "live" ? versionId : null).run();
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 0, 0)").bind(id, slug, slug, status, visibility, status === "pending" ? null : versionId).run();
   await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, preview_link_key, ai_review_status, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', ?, 'passed', 0)").bind(versionId, id, prefix, `key${n}`).run();
   await env.GAMES.put(`${prefix}/index.html`, "<!doctype html><p>private page</p>");
   return { id, slug, versionId };
@@ -31,8 +31,8 @@ async function accessCookie(slug: string, addressKind: "preview" | "tester", gra
   return (entered.headers.get("set-cookie") ?? "").split(";")[0]!;
 }
 
-const answerOf = async (path: string, headers: Record<string, string> = {}): Promise<CallAnswer> => {
-  const response = await SELF.fetch(`${G}${path}`, { headers, redirect: "manual" });
+const answerOf = async (path: string, headers: Record<string, string> = {}, redirect: RequestRedirect = "manual"): Promise<CallAnswer> => {
+  const response = await SELF.fetch(`${G}${path}`, { headers, redirect });
   const text = await response.text();
   return { http_status: response.status, location: response.headers.get("location"), is_owners_changed: false, is_private_value_shown: text.includes("private page") };
 };
@@ -67,6 +67,8 @@ describe("every address on the game domain", () => {
     const draft = await addGame("pending", "draft");
     const held = await addGame("held", "listed");
     const removed = await addGame("removed", "listed");
+    // A game that was live and went private: its version is still its live one, and only its status may keep it in.
+    const hidden = await addGame("live", "private");
 
     if (address === "--preview" || address === "--tester") {
       const addressKind = LINK_ADDRESSES[address];
@@ -92,11 +94,13 @@ describe("every address on the game domain", () => {
     // The same request at a draft nobody may see, and at a game that's down: only a live game answers, whoever asks.
     const pathAt = (slug: string) => (address === "/" ? `/${slug}/` : address === "/<file>" ? `/${slug}/index.html` : `/${slug}/${address}`);
     const isLinkEntry = address === "_zaisma/enter" || address === "_zaisma/entered";
-    const ownerAnswer = await answerOf(pathAt(live.slug));
-    // A public address may have nothing to show yet (no background); only its own code failing or refusing the live game is wrong.
-    push("owner", isLinkEntry ? null : ownerAnswer.http_status >= 500 ? `Answered ${ownerAnswer.http_status}.` : null);
+    // A live game's address sends on to its version's own, as a browser follows.
+    const ownerAnswer = await answerOf(pathAt(live.slug), {}, address === "/" || address === "/<file>" ? "follow" : "manual");
+    // A game's own files must answer, so a refusal below can't be a world that serves nothing. Zaisma's addresses may have nothing to show yet (no background): only their own code failing is wrong.
+    const isGameFile = address === "/" || address === "/<file>";
+    push("owner", isGameFile ? (ownerAnswer.http_status === 200 && ownerAnswer.is_private_value_shown ? null : `Answered ${ownerAnswer.http_status}, where a live game's file should open.`) : isLinkEntry || ownerAnswer.http_status < 500 ? null : `Answered ${ownerAnswer.http_status}.`);
     for (const callerKind of callers) {
-      const slug = callerKind === "banned_account" ? held.slug : callerKind === "banned_developer" ? removed.slug : draft.slug;
+      const slug = callerKind === "banned_account" ? held.slug : callerKind === "banned_developer" ? removed.slug : callerKind === "another_account" ? hidden.slug : draft.slug;
       const headers: Record<string, string> = callerKind === "weaker_key" || callerKind === "another_games_key" ? { authorization: `Bearer ${token}` } : {};
       push(callerKind, problemWithAnswer(address in SAME_AT_ANY_STATUS ? "own_things_only" : "refused", null, await answerOf(pathAt(slug), headers)));
     }

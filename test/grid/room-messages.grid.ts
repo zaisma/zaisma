@@ -11,7 +11,7 @@ import { cellOf, type CallerKind, type GridCell } from "./cells.ts";
 const SAMPLE_MESSAGES: Record<string, Record<string, unknown>> = {
   probe_answer: { probeNumber: 1 },
   room: { room: { isOpen: false } },
-  kick: { playerId: "other", message: "Removed." },
+  kick: { playerId: "third", message: "Removed." },
   here: {},
   idle: {},
   hidden: {},
@@ -33,6 +33,7 @@ function roomWithEveryone() {
   room.join({ id: "host", name: "Host", kind: "guest" }, { isListed: true });
   room.join({ id: "other", name: "Other", kind: "guest" });
   room.join({ id: "watcher", name: "Watcher", kind: "guest" }, { isSpectator: true });
+  room.join({ id: "third", name: "Third", kind: "guest" });
   room.join({ id: "removed", name: "Removed", kind: "guest" });
   room.receive("host", JSON.stringify({ type: "kick", playerId: "removed", message: "Removed." }));
   sent.length = 0;
