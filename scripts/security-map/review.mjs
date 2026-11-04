@@ -26,7 +26,7 @@ export const SECOND_GUESS_WAY_COUNT = 2;
 /** Paths listed in a catch-up; a merge past this is counted, not listed. */
 const CHANGED_PATH_CAP = 200;
 
-const NIGHT_FIELDS = ["summary_line", "model_name", "started_at", "step_count", "is_contracts_checked", "is_grid_checked", "way_rescores", "strength_refreshes", "new_ways", "new_items", "item_updates", "second_guesses", "challenge"];
+const NIGHT_FIELDS = ["summary_line", "model_name", "started_at", "step_count", "is_contracts_checked", "is_grid_checked", "is_pattern_rules_checked", "way_rescores", "strength_refreshes", "new_ways", "new_items", "item_updates", "second_guesses", "challenge"];
 const WAY_RESCORE_FIELDS = ["way_id", "defense_score", "defense_reason", "damage_score", "damage_reason", "changed_because"];
 const STRENGTH_REFRESH_FIELDS = ["sector_id", "strength_line", "strength_reason"];
 const NEW_WAY_FIELDS = ["sector_id", "way_id", "way_line", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors"];
@@ -123,6 +123,7 @@ export async function startReview({ repoRoot, mapDir, date, warn }) {
     stale_case_count: generated.stale_case_refs.length,
     seeded_case_count: seeded.length,
     grid: readGridFailures(mapDir),
+    patterns: readPatternFindings(mapDir),
     ...reviewOutlineOf({ promises: refreshed.promises, items: refreshItems(readItems(mapDir), repoRoot), reviews, date }),
   };
 }
@@ -130,6 +131,12 @@ export async function startReview({ repoRoot, mapDir, date, warn }) {
 /** The contract test grid's last run on main (grid/failures.json, which its workflow in the private repo writes); null before its first. */
 export function readGridFailures(mapDir) {
   const path = join(mapDir, "grid", "failures.json");
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+}
+
+/** The pattern rules' last run on main (patterns/findings.json, which their workflow in the private repo writes); null before its first. */
+export function readPatternFindings(mapDir) {
+  const path = join(mapDir, "patterns", "findings.json");
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
 }
 
@@ -166,7 +173,7 @@ function nightShapeProblems(night) {
   for (const field of ["summary_line", "model_name"]) if (!isFilledText(night[field])) problems.push(`the night has no ${field}`);
   if (!ISO_TIME.test(night.started_at ?? "")) problems.push("the night needs started_at as an ISO time");
   if (!Number.isInteger(night.step_count) || night.step_count < 0) problems.push("the night needs step_count as a whole number");
-  for (const field of ["is_contracts_checked", "is_grid_checked"]) if (typeof night[field] !== "boolean") problems.push(`the night needs ${field} as true or false`);
+  for (const field of ["is_contracts_checked", "is_grid_checked", "is_pattern_rules_checked"]) if (typeof night[field] !== "boolean") problems.push(`the night needs ${field} as true or false`);
   for (const field of ["way_rescores", "strength_refreshes", "new_ways", "new_items", "item_updates", "second_guesses"]) if (!Array.isArray(night[field])) problems.push(`the night needs ${field} as a list`);
   return problems;
 }
@@ -353,6 +360,7 @@ export function applyNight({ promises, scales, items, reviews, night, now, date,
       merge_count: mergeCount,
       is_contracts_checked: night.is_contracts_checked,
       is_grid_checked: night.is_grid_checked,
+      is_pattern_rules_checked: night.is_pattern_rules_checked,
       rescored_way_ids: night.way_rescores.map((rescore) => rescore.way_id),
       new_way_ids: newWayIds,
       opened_item_ids: openedItemIds,

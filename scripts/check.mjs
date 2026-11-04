@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// One command for a change's checks on this machine: the typecheck, the Node tests the change can reach and the change's own new or
+// One command for a change's checks on this machine: the typecheck, the pattern rules (docs/PATTERN-RULES.md), the Node tests the change can reach and the change's own new or
 // changed Workers test files side by side, and the Layout check for the pages it changed when this checkout's preview is awake.
 // Every other Workers test file the change reaches is left to GitHub's check on the pull request (Julius, Oct 26, 2026: tests stay
 // off his Mac), and so are its own when another Workers test run is already going on this machine (one at a time,
@@ -125,6 +125,7 @@ export function formatResult(result) {
   const lines = [];
   for (const failure of result.test_failures) lines.push(`TEST ${failure.file}${failure.test_name ? ` > ${failure.test_name}` : ""}`, ...failure.error.split("\n").map((text) => `  ${text}`));
   for (const failure of result.typecheck_failures) lines.push(`TYPE ${failure.file}:${failure.line}: ${failure.message}`);
+  for (const failure of result.pattern_failures) lines.push(`PATTERN ${failure}`);
   for (const failure of result.layout_failures) lines.push(`LAYOUT ${failure}`);
   const forMemory = result.left_to_github_for_memory ?? [];
   const others = result.left_to_github.length - forMemory.length;
@@ -332,7 +333,9 @@ export async function check({ base = "origin/main" } = {}) {
     const failures = parseTypecheck(output);
     return status !== 0 && !failures.length ? [{ file: "tsc", line: 0, message: firstLines(output) }] : failures;
   });
-  const [tests, typecheckFailures] = await Promise.all([testsRun, typecheckRun]);
+  // What the change adds to where it left the base, as GitHub's check asks.
+  const patternRun = run("git", ["merge-base", base, "HEAD"]).then(({ output }) => run("node", ["scripts/pattern-rules.mjs", "--compare", output.trim()])).then(({ status, output }) => (status === 0 ? [] : output.trim().split("\n")));
+  const [tests, typecheckFailures, patternFailures] = await Promise.all([testsRun, typecheckRun, patternRun]);
   const layoutFailures = await checkLayout(changedPaths, affected, notes);
   if (affected.is_every_test_reached) notes.push(`${affected.every_test_reached_by.join(", ")} changed, which every test runs on: GitHub's check runs all ${affected.test_file_count}.`);
   const result = {
@@ -341,12 +344,13 @@ export async function check({ base = "origin/main" } = {}) {
     test_file_count: testFiles.length,
     test_failures: tests.failures,
     typecheck_failures: typecheckFailures,
+    pattern_failures: patternFailures,
     layout_failures: layoutFailures,
     left_to_github: tests.leftToGithub,
     left_to_github_for_memory: tests.leftForMemory,
     notes,
   };
-  return { ...result, is_pass: !tests.failures.length && !typecheckFailures.length && !layoutFailures.length };
+  return { ...result, is_pass: !tests.failures.length && !typecheckFailures.length && !patternFailures.length && !layoutFailures.length };
 }
 
 async function main() {

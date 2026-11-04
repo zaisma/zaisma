@@ -27,6 +27,7 @@
 # Engine exports pass on the main commit the pull request was cut from (applyEnginesProof, scripts/ship-github-check.mjs).
 # The Contract grid tries every door as every kind of caller (scripts/contract-grid.mjs): anyone can read a run's log, so it prints only what
 # a change adds to the commit it left, and nothing of what's failing there too. The merge queue compares with what it merges onto.
+# The Pattern rules read Zaisma's own code for risky patterns (scripts/pattern-rules.mjs), and print only what a change adds, for the same reason.
 # The Layout check measures pages on the preview's test data, restored from a snapshot made at most a day before from the same
 # test data files (main's, or this pull request's own): "Preview test data" makes one first when there's none.
 # A pull request's run tests its branch exactly as it is, not merged with main. The merge queue then checks it merged with
@@ -362,6 +363,34 @@ jobs:
       - env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: node scripts/contract-grid.mjs --compare "$(git merge-base "$BASE_SHA" HEAD)"
+
+  # Risky patterns in Zaisma's own code (docs/PATTERN-RULES.md), compared with what the change left: anyone can read this log, so it says only
+  # what this change adds (scripts/pattern-rules.mjs). A push to main isn't compared: the merge queue compared that very commit.
+  pattern-rules:
+    name: Pattern rules
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # npm's download cache, as in the tests job.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      # What the change left: for a pull request where its branch left main, so what main fixed since isn't taken for this change's.
+      - env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: node scripts/pattern-rules.mjs --compare "$(git merge-base "$BASE_SHA" HEAD)"
 
   # The engine samples (test/engines) through the real upload command, scan and game page, on the preview with its stand-ins
   # (seeded with only the samples), played in headless Chrome (scripts/engines/play.mjs): each runner takes its share of the
@@ -713,7 +742,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, engines, seed, layout, sweep, docs-tests]
+    needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, pattern-rules, engines, seed, layout, sweep, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -728,6 +757,7 @@ jobs:
           REPEAT_RESULT: ${{ needs.repeat-new-tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           CONTRACT_GRID_RESULT: ${{ needs.contract-grid.result }}
+          PATTERN_RULES_RESULT: ${{ needs.pattern-rules.result }}
           ENGINES_RESULT: ${{ needs.engines.result }}
           SEED_RESULT: ${{ needs.seed.result }}
           LAYOUT_RESULT: ${{ needs.layout.result }}
@@ -745,6 +775,8 @@ jobs:
           if [ "$ENGINES_RESULT" = skipped ] && [ "$IS_ENGINES_CHANGED" = false ]; then engines_ok=true; fi
           # Contract grid passed, or didn't run (nothing it tries changed, or a push to main).
           if [ "$CONTRACT_GRID_RESULT" != success ] && [ "$CONTRACT_GRID_RESULT" != skipped ]; then exit 1; fi
+          # Pattern rules passed, or didn't run (no code changed, or a push to main).
+          if [ "$PATTERN_RULES_RESULT" != success ] && [ "$PATTERN_RULES_RESULT" != skipped ]; then exit 1; fi
           # New tests ten times passed, or didn't run (no test file changed, or not a pull request).
           if [ "$REPEAT_RESULT" != success ] && [ "$REPEAT_RESULT" != skipped ]; then exit 1; fi
           # In the merge queue Every screen must pass; elsewhere it doesn't run.
