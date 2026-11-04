@@ -962,35 +962,35 @@ function securityBody(): Raw {
       pane(
         "Security",
         html`<h1>Security</h1>
-<p>Found a security hole in Zaisma? Tell us privately, and you won't get in trouble for looking.</p>
+<p>Anyone who finds a security hole in Zaisma can report it privately, and will not get in trouble for looking.</p>
 <h2>How to report</h2>
-<p>Email ${textLink(SECURITY_REPORT_EMAIL, `mailto:${SECURITY_REPORT_EMAIL}`)}, or ${textLink("report it privately on GitHub", SECURITY_ADVISORY_URL, { isNewTab: true })}. Say where it is, how to make it happen, and what it lets someone do. Our machine-readable contact is ${textLink("security.txt", SECURITY_TEXT_FILE_PATH)}.</p>`,
+<p>Email ${textLink(SECURITY_REPORT_EMAIL, `mailto:${SECURITY_REPORT_EMAIL}`)}, or ${textLink("report it privately on GitHub", SECURITY_ADVISORY_URL, { isNewTab: true })}. A report says where the hole is, how to make it happen, and what it lets someone do. Zaisma's machine-readable contact is ${textLink("security.txt", SECURITY_TEXT_FILE_PATH)}.</p>`,
       ),
       pane(
-        "What's covered and the rules",
-        html`<h2>What's covered</h2>
+        "What is covered and the rules",
+        html`<h2>What is covered</h2>
 <ul>
 <li>zaisma.com, its API and its MCP.</li>
 <li>Your own Zaisma account and your own games.</li>
 <li>The game server, the SDK and the upload command in the ${textLink("open source repo", "https://github.com/zaisma/zaisma", { isNewTab: true })}.</li>
 </ul>
-<h2>Our promise: safe harbor</h2>
-<p>If you look for holes in good faith and stay inside the rules below, we won't take legal action against you and we won't close your account.</p>
+<h2>Zaisma's promise: safe harbor</h2>
+<p>If you look for holes in good faith and stay inside the rules below, Zaisma will not take legal action against you and will not close your account.</p>
 <h2>The rules</h2>
 <ul>
-<li>Test only on your own account and your own games. If you reach another player's account or data, stop at the smallest proof, don't keep it, and tell us.</li>
+<li>Test only on your own account and your own games. If you reach another player's account or data, stop at the smallest proof, do not keep it, and tell Zaisma.</li>
 <li>No denial of service, and nothing that slows Zaisma for other players.</li>
-<li>No spam, phishing or tricking other players, ours or anyone else's.</li>
-<li>Never upload illegal content, even to prove a point. Child sexual abuse material has no safe harbor: it's reported and passed to the police.</li>
-<li>Give us ${DISCLOSURE_WAIT_DAYS} days to fix a hole before you publish it. Past that we can't promise to stay quiet.</li>
+<li>No spam, phishing or tricking other players, on Zaisma or anywhere else.</li>
+<li>Never upload illegal content, even to prove a point. Child sexual abuse material has no safe harbor: it is reported and passed to the police.</li>
+<li>Give Zaisma ${DISCLOSURE_WAIT_DAYS} days to fix a hole before you publish it. Past that, Zaisma cannot promise to stay quiet.</li>
 </ul>`,
       ),
       pane(
         "What to expect",
         html`<h2>What to expect</h2>
-<p>We reply within ${REPLY_WITHIN_DAYS} days, and aim to fix serious holes within ${FIX_WITHIN_DAYS}. We tell you when it's fixed.</p>
+<p>Zaisma replies within ${REPLY_WITHIN_DAYS} days, and aims to fix serious holes within ${FIX_WITHIN_DAYS}. Zaisma tells you when a hole is fixed.</p>
 <h2>Rewards</h2>
-<p>There's no cash reward yet. Zaisma is small, and we'd rather say so than promise what we can't pay.</p>
+<p>There is no cash reward yet. Zaisma is small, and would rather say so than promise what it cannot pay.</p>
 <h2>Something else</h2>
 <p>A game that breaks the rules, or anything about children's safety, goes to ${textLink("safety@zaisma.com", "mailto:safety@zaisma.com")}, not here. Copyright is on the ${textLink("DMCA page", "/legal/dmca")}.</p>`,
       ),
