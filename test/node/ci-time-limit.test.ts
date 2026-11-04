@@ -1,8 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
 import { CI_CEILING_SEC, CI_WARNING_SEC, ceilingVerdict, clockText, finishedRunSec, slowestJob, slowestTenthSec, warningVerdict } from "../../scripts/ci-time-limit.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { GRID_FILES_BY_PART } from "../../scripts/contract-grid.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { repeatRunnerPlan } from "../../scripts/affected-tests.mjs";
 
@@ -63,7 +65,7 @@ describe("CI's ceiling", () => {
     const needsOf = new Map(jobs.map((each) => [each.id, each.needs]));
     const chainMinutes = (id: string): number => minutesOf.get(id)! + Math.max(0, ...needsOf.get(id)!.map(chainMinutes));
     // A chain that reached its limits would fail on the ceiling first: these only stop a stuck job.
-    for (const each of jobs) expect(chainMinutes(each.id), each.id).toBeLessThanOrEqual(7);
+    for (const each of jobs) expect(chainMinutes(each.id), each.id).toBeLessThanOrEqual(8);
   });
 });
 
@@ -106,5 +108,13 @@ describe("New tests ten times", () => {
   });
   it("is what the workflow takes from What changed", () => {
     expect(workflow).toContain("matrix: ${{ fromJSON(needs.changes.outputs.repeat_runner_plan) }}");
+  });
+});
+
+describe("the Contract grid's parts", () => {
+  it("hold every grid file once, and are the ones the workflow runs", () => {
+    const files = readdirSync(join(ROOT, "test/grid")).filter((name) => name.endsWith(".grid.ts")).map((name) => `test/grid/${name.replace(/\.ts$/, "")}`);
+    expect(Object.values(GRID_FILES_BY_PART).flat().sort()).toEqual(files.sort());
+    expect(workflow).toContain(`part: [${Object.keys(GRID_FILES_BY_PART).join(", ")}]`);
   });
 });

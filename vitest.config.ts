@@ -240,10 +240,7 @@ const gameServerProject = worker("game-server", "apps/games/wrangler.jsonc");
 const roomsProject = worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra);
 
 /** A Workers project trying the contract test grid (test/grid/): the same runtime as the project it's named for, and only the grid's files. */
-/** The parts GitHub's Contract grid splits across its runners (ZAISMA_CONTRACT_GRID_PART): the same file is in the same part on the base. */
-const GRID_FILES_BY_PART: Record<string, string[]> = { pages: ["pages"], api: ["api"], other: ["mcp", "game-files", "room-messages", "rooms"] };
-const gridPartFiles = process.env.ZAISMA_CONTRACT_GRID_PART ? GRID_FILES_BY_PART[process.env.ZAISMA_CONTRACT_GRID_PART] : undefined;
-const gridProject = (project: ReturnType<typeof worker>, files: string[]) => ({ ...project, test: { ...project.test, name: `grid-${project.test.name}`, include: files.filter((file) => !gridPartFiles || gridPartFiles.includes(file)).map((file) => `test/grid/${file}.grid.ts`) } });
+const gridProject = (project: ReturnType<typeof worker>, files: string[]) => ({ ...project, test: { ...project.test, name: `grid-${project.test.name}`, include: files.map((file) => `test/grid/${file}.grid.ts`) } });
 
 export default defineConfig({
   test: {
@@ -252,7 +249,7 @@ export default defineConfig({
     // Files at once, across every project: what this run's turn in the line gave it (above). GitHub's runners have 4 cores and 16 GB.
     maxWorkers: workerCount,
     // ZAISMA_CONTRACT_GRID runs the grid and nothing else (scripts/contract-grid.mjs); no other run has its files.
-    projects: process.env.ZAISMA_CONTRACT_GRID ? [gridProject(siteProject, ["pages", "api", "mcp"]), gridProject(gamesProject, ["game-files"]), gridProject(gameServerProject, ["room-messages"]), gridProject(roomsProject, ["rooms"])].filter((project) => project.test.include.length) : [
+    projects: process.env.ZAISMA_CONTRACT_GRID ? [gridProject(siteProject, ["pages", "api", "mcp"]), gridProject(gamesProject, ["game-files"]), gridProject(gameServerProject, ["room-messages"]), gridProject(roomsProject, ["rooms"])] : [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },

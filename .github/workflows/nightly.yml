@@ -65,6 +65,11 @@ jobs:
         with:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
+      # The shaders' drawings, as in check.yml.
+      - uses: actions/cache@v4
+        with:
+          path: .wrangler/preview-shader-drawings
+          key: preview-shader-drawings-${{ hashFiles('packages/cli/shader-check.mjs', 'apps/site/src/shader-check.ts', 'apps/site/src/components/shaders.ts', 'scripts/preview/shaders/**') }}
       - run: npm ci --no-audit --no-fund
       # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
       # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.

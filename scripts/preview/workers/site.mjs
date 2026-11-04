@@ -7,7 +7,7 @@
 // ../bench/). The seed's shader checks draw beside the scan queue instead of holding it (withSeedShaderChecks, below). Production keeps its limits and
 // its one queue and never has the overlay or the bench: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
-import { checkShaderFromQueue } from "../../../apps/site/src/shader-check.ts";
+import { runShaderCheck, shaderCheckDeps } from "../../../apps/site/src/shader-check.ts";
 import { environmentAt } from "./addresses.mjs";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
 import { PASSWORD } from "../sign-ins.mjs";
@@ -109,20 +109,43 @@ function withSeedShaderChecks(request, environment) {
   const queue = environment.SCAN_QUEUE;
   return { ...environment, SCAN_QUEUE: { send: async (body, options) => ("shaderCheckId" in Object(body) ? undefined : queue.send(body, options)) } };
 }
-/** One shader's check, tried again as the queue would, at once: nothing else waits on it. */
-async function drawShaderCheck(environment, shaderCheckId) {
-  for (let attempts = 1, isToTryAgain = true; isToTryAgain && attempts <= 3; attempts++) {
-    isToTryAgain = false;
-    await checkShaderFromQueue(environment, { body: { shaderCheckId }, attempts, ack: () => {}, retry: () => { isToTryAgain = true; } });
+/** A drawing as text, for the seed to keep: its pictures are bytes. */
+const drawingAsText = (drawing) => JSON.stringify(drawing, (_, value) => (value instanceof Uint8Array ? { bytes_base64: btoa(String.fromCharCode(...value)) } : value));
+const drawingFromText = (text) => JSON.parse(text, (_, value) => (typeof value?.bytes_base64 === "string" ? Uint8Array.from(atob(value.bytes_base64), (letter) => letter.charCodeAt(0)) : value));
+/**
+ * One shader's check, tried again as the queue would, at once: nothing else waits on it. The seed sends a drawing it kept from the same shader and the
+ * same check, and only the drawing is skipped; the rest of the check runs on it. Otherwise this answers the new drawing, for the seed to keep.
+ */
+async function drawShaderCheck(request, environment) {
+  const deps = shaderCheckDeps(environment);
+  if (!deps) return new Response(null, { status: 204 });
+  const kept = await request.text();
+  let drawing = kept ? drawingFromText(kept) : null;
+  let isNewDrawing = false;
+  const render = async (input) => {
+    if (!drawing) {
+      drawing = await deps.render(input);
+      isNewDrawing = true;
+    }
+    return drawing;
+  };
+  const shaderId = new URL(request.url).searchParams.get("shader_id");
+  for (let tryNumber = 1; tryNumber <= 3; tryNumber++) {
+    try {
+      await runShaderCheck(environment, shaderId, { ...deps, render });
+      break;
+    } catch (error) {
+      console.error("shader check failed", shaderId, error);
+    }
   }
-  return new Response(null, { status: 204 });
+  return new Response(isNewDrawing ? drawingAsText(drawing) : null);
 }
 
 export default workerRetryingWhenLocked({
   ...site,
   fetch: (request, environment, context) => {
     const pathname = new URL(request.url).pathname;
-    if (request.method === "POST" && pathname === DRAW_SHADER_CHECK_PATH) return drawShaderCheck(environmentAt(request, environment), new URL(request.url).searchParams.get("shader_id"));
+    if (request.method === "POST" && pathname === DRAW_SHADER_CHECK_PATH) return drawShaderCheck(request, environmentAt(request, environment));
     const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(withSeedShaderChecks(asked, environmentAt(asked, environment))), context);
     return withFeedback(request, environment, () => withBench(request, environment, () => answer(request), answer), answer);
   },

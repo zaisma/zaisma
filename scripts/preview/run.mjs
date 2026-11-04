@@ -938,6 +938,21 @@ function givePasswords() {
   console.log(`Gave ${ids.length} test accounts from older preview data the password "${PASSWORD}".`);
 }
 
+// A shader's drawing is the same every time for the same shader and the same check, and it's most of a fresh start's time on GitHub's runners, so
+// it's kept (by what makes it, in SHADER_DRAWINGS) and sent back at the next: the rest of the check runs on it as ever (site.mjs, drawShaderCheck).
+// GitHub's check keeps the folder between its runs (.github/workflows/check.yml).
+const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
+const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
+async function drawOrReuseShader(address, screen, source) {
+  const path = join(SHADER_DRAWINGS, `${createHash("sha256").update(screen).update(source).update(shaderCheckCode).digest("hex").slice(0, 16)}.json`);
+  const kept = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  const drawing = await (await globalThis.fetch(address, { method: "POST", body: kept })).text();
+  if (drawing) {
+    mkdirSync(SHADER_DRAWINGS, { recursive: true });
+    writeFileSync(path, drawing);
+  }
+}
+
 // --- Test data, made through the same pages and API that people use ---
 
 /** A game folder with its game server beside it as zaisma-server.js (types stripped), like a developer would upload. */
@@ -1082,7 +1097,8 @@ async function seed() {
   const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
   const { shader: neonDriftWide } = await sendShader("shard-dodge", "wide", standInShader("neon-drift"));
-  const { shader: strobe } = await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
+  const strobeSource = readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8");
+  const { shader: strobe } = await sendShader("arena", "wide", strobeSource);
   // A test game's shader once its check has run. Without a local browser a person approves it, as on /admin (it then has no still or
   // frames); one the check refused on a slower or busier machine is approved the same way, saying why, so the test data is always whole.
   const settleTestShader = async (slug, shaderId) => {
@@ -1101,7 +1117,7 @@ async function seed() {
   await api("PUT", "/games/four-in-a-row/backgrounds/wide", { source: "image", image_id: boardWorld.id });
   const homeShaders = [["cave-crew", "emberfall"], ["tiny-farm", "verdant"]];
   const sentShaders = [];
-  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, "wide", (await sendShader(slug, "wide", standInShader(standIn))).shader]);
+  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, "wide", (await sendShader(slug, "wide", standInShader(standIn))).shader, standInShader(standIn)]);
   // Arena's phone background has a buffer and a texture, sent from its folder (scripts/preview/shaders/trails, also a folder to try the
   // dashboard's folder upload with) as a developer's tools send one: the texture first, as a shader_texture picture, then the shader,
   // whose Buffer A keeps glowing trails from frame to frame and whose image pass reads them over a nebula from the noise.
@@ -1113,13 +1129,16 @@ async function seed() {
   // channels.json names a texture by its file in the folder; the API by the picture it became.
   const channelsOf = (passName) => wiring[passName].map(({ texture_file: textureFile, ...channel }) => (textureFile ? { ...channel, image_id: noise.id } : channel));
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
-  sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
+  sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader, readdirSync(trails).sort().map((name) => readFileSync(join(trails, name)).toString("base64")).join()]);
   // The checks draw beside the rest of the test data (site.mjs, withSeedShaderChecks), which needs none of them, and are waited for at the end:
   // Chrome draws them on the processor, so a laptop draws one at a time and GitHub's four-core runners three.
   const settleSentShaders = async () => {
-    const shaderIds = [strobe, neonDrift, neonDriftWide, ...sentShaders.map(([, , shader]) => shader)].map((shader) => shader.id);
+    const toDraw = [[strobe, "wide", strobeSource], [neonDrift, "phone", standInShader("neon-drift")], [neonDriftWide, "wide", standInShader("neon-drift")], ...sentShaders.map(([, screen, shader, source]) => [shader, screen, source])];
     const drawNext = async () => {
-      while (shaderIds.length) await fetch(`${SITE}/__preview/draw-shader-check?shader_id=${encodeURIComponent(shaderIds.shift())}`, { method: "POST" });
+      while (toDraw.length) {
+        const [shader, screen, source] = toDraw.shift();
+        await drawOrReuseShader(`${SITE}/__preview/draw-shader-check?shader_id=${encodeURIComponent(shader.id)}`, screen, source);
+      }
     };
     await Promise.all(Array.from({ length: process.env.CI ? 3 : 1 }, drawNext));
     for (const [slug, screen, shader] of [["shard-dodge", "phone", neonDrift], ["shard-dodge", "wide", neonDriftWide], ...sentShaders]) {

@@ -19,6 +19,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** What decides the grid's own cells: a change to these can name failures the base never tried. */
 export const GRID_PATHS = ["test/grid/", "test/site/access-world.ts", "scripts/contract-grid.mjs"];
 const LOCAL_COMMAND = "npm run grid -- --compare ";
+/**
+ * The parts GitHub's Contract grid splits across its runners (ZAISMA_CONTRACT_GRID_PART), each compared with the same part of its base: vitest's
+ * filters by file, so a base from before the parts takes them too. Every grid file is in one part (test/node/ci-time-limit.test.ts).
+ */
+export const GRID_FILES_BY_PART = { pages: ["test/grid/pages.grid"], api: ["test/grid/api.grid"], other: ["test/grid/mcp.grid", "test/grid/game-files.grid", "test/grid/room-messages.grid", "test/grid/rooms.grid"] };
 
 const cellId = ({ door_id, caller_kind }) => `${door_id} | ${caller_kind}`;
 const isFailed = (cell) => cell.cell_verdict !== "kept";
@@ -61,7 +66,9 @@ export function comparisonLines(comparison, baseSha) {
 
 /** Runs the grid in a checkout and answers its results, or null when the run itself failed. Its output goes nowhere: it can name cells. */
 function runGrid(checkout, resultsPath) {
-  spawnSync("npx", ["vitest", "run", "--silent", "--reporter=./test/grid/reporter.ts", "--passWithNoTests"], {
+  const part = process.env.ZAISMA_CONTRACT_GRID_PART;
+  if (part && !GRID_FILES_BY_PART[part]) stop(`ZAISMA_CONTRACT_GRID_PART is "${part}": it takes ${Object.keys(GRID_FILES_BY_PART).join(", ")}.`);
+  spawnSync("npx", ["vitest", "run", "--silent", "--reporter=./test/grid/reporter.ts", "--passWithNoTests", ...(part ? GRID_FILES_BY_PART[part] : [])], {
     cwd: checkout,
     stdio: "ignore",
     env: { ...process.env, ZAISMA_CONTRACT_GRID: "1", ZAISMA_CONTRACT_GRID_RESULTS: resultsPath },
@@ -84,9 +91,7 @@ function runBase(baseSha, temporary) {
     const isSameLock = git(["diff", "--quiet", baseSha, "HEAD", "--", "package-lock.json"]).status === 0;
     if (isSameLock) symlinkSync(join(ROOT, "node_modules"), join(copy, "node_modules"));
     else if (spawnSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: copy, stdio: "ignore" }).status !== 0) return null;
-    const resultsPath = join(temporary, "base.json");
-    spawnSync("node", ["scripts/contract-grid.mjs", "--results", resultsPath], { cwd: copy, stdio: "ignore" });
-    return existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, "utf8")) : null;
+    return runGrid(copy, join(temporary, "base.json"));
   } finally {
     git(["worktree", "remove", "--force", copy]);
   }
