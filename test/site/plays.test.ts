@@ -54,12 +54,15 @@ describe("counted plays", () => {
 
   it("gives a browser's first counted play a signed mark, which only a browser that holds one can show", async () => {
     const { ticket } = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string }>();
+    // A play counts after a minute on screen.
+    await env.DB.prepare("UPDATE play_tickets SET issued_at_ms = issued_at_ms - 120000 WHERE id = ?").bind(ticket).run();
     const counted = await send("play-game", { ticket, counted: true, has_play_mark: false }, { origin: SITE, "cf-connecting-ip": "192.0.2.10" });
     expect(counted.status).toBe(200);
     const { play_mark: playMark } = await counted.json<{ play_mark: string }>();
     expect(playMark).toEqual(expect.any(String));
     // It says when the browser first played, so a browser that has one keeps it: the first play can't move.
     const { ticket: again } = await (await send("play-game", { ...NEW, token: "good", play_mark: playMark })).json<{ ticket: string }>();
+    await env.DB.prepare("UPDATE play_tickets SET issued_at_ms = issued_at_ms - 120000 WHERE id = ?").bind(again).run();
     expect((await send("play-game", { ticket: again, counted: true, has_play_mark: true })).status).toBe(204);
     // The mark is for this game, and made here: nothing else reads as having played.
     const storedSecretsKey = (env as unknown as { STORED_SECRETS_KEY: string }).STORED_SECRETS_KEY;

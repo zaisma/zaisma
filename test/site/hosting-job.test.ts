@@ -433,7 +433,7 @@ describe("the rented share", () => {
   });
 
   it("tells a developer and their AI where the hours went", async () => {
-    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec, new_player_room_play_duration_sec, rented_network_room_play_duration_sec, rented_share_room_use_cents) VALUES (?, ?, 36000, 9000, 3600, 25)").bind(game.id, new Date().toISOString().slice(0, 10)).run();
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec, new_player_room_play_duration_sec, rented_network_room_play_duration_sec, rented_share_room_use_cents) VALUES (?, ?, 36000, 9000, 3600, 25)").bind(game.id, "2031-03-10").run();
     const caller = await callerFor(testEnv, new Request("https://zaisma.test"), "dev-1", []);
     const { hosting_use_this_month: hosting } = (await apiCall(testEnv, caller!, "GET", "/games/arena/stats")) as { hosting_use_this_month: { play_hours: Record<string, number> } };
     expect(hosting.play_hours).toEqual({ total_duration_hours: 10, new_player_duration_hours: 2.5, returning_player_duration_hours: 7.5, rented_network_duration_hours: 1, other_network_duration_hours: 9, rented_share_used_pct: 25 });
