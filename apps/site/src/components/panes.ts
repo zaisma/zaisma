@@ -870,6 +870,8 @@ component({
 :is(.floating-pane, .floating-cast) { --away-move: translateY(-6px); }
 :is(.floating-pane, .floating-cast).is-above { --away-move: translateY(6px); }
 :is(.floating-pane, .floating-cast).placed-over { --away-move: scale(0.97); }
+/* Open, it takes its own presses: it's moved to the body, and a page may turn presses off there (the sign-in's world goes through to its scene). */
+.floating-pane:popover-open { pointer-events: auto; }
 .floating-pane:is(.is-arriving, .is-leaving) { transform: var(--away-move); pointer-events: none; }
 .floating-pane:not(:popover-open):not(.in-place) { display: none; transform: var(--away-move); pointer-events: none; }
 @starting-style { .floating-pane:popover-open { transform: var(--away-move); } }

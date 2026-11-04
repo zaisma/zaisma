@@ -314,6 +314,7 @@ html:has(.world-page) { height: 100%; }
   html:has(.world-page), body:has(> .world-page) { height: 100dvh; min-height: 0; overflow: hidden; }
   .world-page { display: block; min-height: 100dvh; padding-bottom: 0; }
   .world-page header.top { top: var(--pad-frame); left: max(var(--pad-frame), var(--safe-left)); width: max-content; transform: none; }
+  .world-page .world-count { left: max(var(--pad-frame), var(--safe-left)); }
   .world-page .world-pane { position: fixed; top: var(--pad-frame); bottom: auto; right: max(var(--pad-frame), var(--safe-right)); width: min(var(--size-pane-beside), 100%); max-height: calc(100svh - 2 * var(--pad-frame)); margin: 0; }
   .world-page .world-pane > .glass-pane > .pane-in { overflow: hidden auto; }
 }

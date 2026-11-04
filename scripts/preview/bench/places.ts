@@ -129,7 +129,7 @@ export const BENCH_PLACES: BenchPlace[] = [
     placeValue: "make-an-account", name: "Make an account", path: "/join", pathPattern: "^/(join|account/kept)", seenBy: "both",
     states: [
       { stateValue: "no-birthday", label: "No birthday", stateKind: "opened", seenBy: "guest", checkedPage: "New account, no birthday" },
-      { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", opens: "join-birthday-pick" },
+      { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", presses: "#join-birthday .wheel-button" },
       { stateValue: "how-sign-in", label: "How you sign in", stateKind: "opened", seenBy: "guest", checkedPage: "How will you sign in" },
       { stateValue: "too-young", label: "Too young", stateKind: "opened", seenBy: "guest", checkedPage: "Make an account, too young" },
       { stateValue: "how-you-play", label: "How do you play", stateKind: "opened", seenBy: "signed_in", profile: "Moss_Runner", checkedPage: "How do you play" },

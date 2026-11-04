@@ -67,7 +67,7 @@ export const MATERIAL_STYLES = `
 .carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
 .floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 /* Holding edged parts beside words (a color picker, wheels), it keeps the regular frame gap and a field's words margin. */
-.floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+.floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); --rail-inset: var(--pad-frame); }
 /* Its glass is a layer of its own (.glass::before), so the browser's own face and scroll for a popover or a dialog never apply: the face would show square
    behind its cut corners, and a scroll (or a clip) on the pane itself leaves its glass nothing to blur but what's in it, so what's behind
    shows through sharp. Its inside scrolls (Caps and scrolls). */

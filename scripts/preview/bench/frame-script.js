@@ -206,7 +206,8 @@
     } else if (state.presses) {
       const { control, opened } = opener(state);
       if (!control) return false;
-      if (!opened || !isLayerOpen(opened)) control.click();
+      // As a player would have it: what's pressed is in view first, and what it opens with it.
+      if (!opened || !isLayerOpen(opened)) { control.scrollIntoView({ block: "center", behavior: "instant" }); control.click(); }
     } else if (state.setUpName) {
       // The checks wait for the page to settle before their scripts run; here a page's own script may not be there yet, so it's tried again.
       for (let tryIndex = 0; ; tryIndex += 1) {

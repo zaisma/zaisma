@@ -222,7 +222,7 @@ ${floatingPane({
     label: options.label,
     isShownInPlace: isOpen,
     // The wheels' middle row: under the pane's room at its top, a row and a half down.
-    lineFromTop: "calc(var(--pad-inner-pane) + 54px)",
+    lineFromTop: "calc(var(--pad-frame) + 3.375rem)",
     body: html`<span class="wheel-read sr" aria-live="polite"></span><div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>`,
   })}
 <p class="field-error words-margin" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint words-margin" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
@@ -818,7 +818,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     // A Floating pane over the field, as wide as its wheels whatever the field shows, their middle row on the field's own line.
     var float = window.zaismaFloat(pick, {
       anchor: field, home: root,
-      lineOf: function () { return wheelRow.offsetTop + 1.5 * ROW; },
+      lineOf: function () { return wheelRow.parentElement.offsetTop + wheelRow.offsetTop + wheelRow.offsetHeight / 2; },
       onToggle: function (isShown) { field.setAttribute("aria-expanded", String(isShown)); }
     });
     function isOpen() { return float.isOpen(); }
@@ -1198,7 +1198,7 @@ component({
 .wheel-pick .wheel-read { position: absolute; }
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "25 min") with its room each side, so a pane that
    fits what's in it grows to them. */
-.wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
+.wheels { --wheel-row: 2.25rem; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
 .wheel-channel { min-width: 0; height: calc(3 * var(--wheel-row)); }
 .wheel-lit { position: absolute; z-index: 1; left: 3px; right: 3px; top: var(--wheel-row); bottom: var(--wheel-row); pointer-events: none; }
 .wheel-channel > .cut-line { z-index: 3; pointer-events: none; }
@@ -1210,8 +1210,9 @@ component({
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4)); }
 .wheel::-webkit-scrollbar { display: none; }
 /* A row is as wide as it is picked, in bold (its label again, unseen and unheard, holds that width), with the room words get inside a
-   control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. */
-.wheel [role="option"] { --row-height: var(--wheel-row); --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
+   control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. It's exactly the groove's
+   row tall, its words centered, so they lie in the middle of the lit slab. */
+.wheel [role="option"] { --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); height: var(--wheel-row); min-height: 0; padding-block: 0; gap: 0; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
   clip-path: none; white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color var(--motion-state), font-size var(--motion-state); }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }

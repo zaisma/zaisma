@@ -339,7 +339,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     document.querySelectorAll("[data-cut-line]").forEach(function (el) { groupIn(holderOf(el)).push(el); });
     // Boxes that scroll inside a pane, down (.own-scroll) or sideways (a track), for the controls in them (contentRectOf), read with
     // everything else, before anything is drawn.
-    document.querySelectorAll("body .own-scroll, body .layout-track").forEach(function (el) { pass.scrollers.set(el, readScroll(el)); });
+    document.querySelectorAll("body .own-scroll, body .scrolls, body .layout-track").forEach(function (el) { pass.scrollers.set(el, readScroll(el)); });
   }
   function readScroll(el) { return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }; }
   function scrollOf(el) {
@@ -531,11 +531,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // What holds a control: the nearest pane, tray or control round it. data-on-no-pane stops the search (a gallery example's stage:
   // what's shown in it is shown on no pane, even when the stage sits on a tray).
   function holderOf(el) { var found = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line], [data-on-no-pane]"); return found && !found.hasAttribute("data-on-no-pane") ? found : null; }
-  // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .own-scroll),
+  // What a control measures its gaps against: its holder's box, or, where the holder scrolls inside itself (a tall pane's .scrolls, with its rail or without, .own-scroll),
   // the whole scrolled content, so a control below the fold is square in the middle and cut at the foot wherever it's scrolled to.
   function contentRectOf(el, holder) {
     // The box that scrolls round it, never itself: a box that scrolls inside (a table capped in height) is measured where it sits.
-    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll"), track = el.parentElement && el.parentElement.closest(".layout-track");
+    var p = rectOf(holder), scroller = el.parentElement && el.parentElement.closest(".own-scroll, .scrolls"), track = el.parentElement && el.parentElement.closest(".layout-track");
     // A track (a row that scrolls sideways) runs the holder on by what's scrolled out of view to either side, so the first in it takes the
     // pane's corner at the start, the last the one at the end, and every one between is square, wherever the row is scrolled to.
     if (track && track !== holder && holder.contains(track)) {
