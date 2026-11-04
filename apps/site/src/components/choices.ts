@@ -654,15 +654,15 @@ component({
   slug: "toggle",
   group: "inputs",
   subgroup: "choices",
-  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It ends a row of List rows (a row's switch), and the whole row is its label: a press anywhere on it flips it. A row may hold the settings that only matter while it's on, in a well under it. It's a checkbox in its form, so it posts without a script.",
+  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that slides across a carved slot, which fills orange when it's on. It ends a row of List rows (a row's switch), and the whole row is its label: a press anywhere on it flips it. A row may hold the settings that only matter while it's on, in a well under it. It's a checkbox in its form, so it posts without a script.",
   styles: `
-/* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real checkbox
+/* A toggle: a carved slot holding a white slab that slides to its far end when on, the slot filling orange behind it. The real checkbox
    (role switch) lies over the slot, unseen; the row round it (List rows) is its label, so a press anywhere on the row flips it. */
 /* The slot is a carving's (materials.ts), the slab a thumb. */
 /* Off, it's carved into the glass, its edges lit and shaded like every carving; on, its orange is its edge. */
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; transition: transform var(--motion-arrive) var(--spring), filter var(--motion-state); }
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; transition: transform var(--motion-arrive) var(--ease-settle), filter var(--motion-state); }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
 .toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }
