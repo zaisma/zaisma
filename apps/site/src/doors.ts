@@ -231,7 +231,9 @@ const PLAY_TAKES = json(
 // What each family of forms takes: one handler reads them, so they share a closed list of names.
 const WEBAUTHN_NAMES = ["passkey_id", "client_data_json", "authenticator_data", "signature", "user_handle"];
 const KEY_CHOICE_NAMES = ["access_level", "game_scope", "game_slugs", "ends_after_days", ...Object.keys(AREA_ACCESS_CHOICES)];
-const ACCOUNT_FORM = form([...SOCIAL_SETTINGS, "next", "turnstile_token", "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
+/** The bot check's answer, and the field Cloudflare's script adds to a form by itself. */
+const BOT_CHECK_FIELDS = ["turnstile_token", "cf-turnstile-response"] as const;
+const ACCOUNT_FORM = form([...SOCIAL_SETTINGS, "next", ...BOT_CHECK_FIELDS, "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
 const JOINING_TAKES: DoorTakes = { ...ACCOUNT_FORM, query: query("next", "username", "with", "game", "code", "error", "welcome").query };
 const FRIEND_FORM = form(["invite_code", "is_appearing_offline", "next", "game_slug"]);
 const FORUM_FORM = form(["title", "text_markdown", "category", "kind", "tags", "game_slug", "known_issue_topic_id", "reply_to_post_id", "post_id", "answer_post_id", "rating", "reason", "details", "reopen", "undo", "t", "u"], ["images", "file"]);
@@ -256,7 +258,7 @@ const ADMIN_FORM = form(
 const PROFILE_FORM = form(["display_name", "bio", "link_url", "reason", "details"]);
 const REPORT_FORM: DoorTakes = {
   query: query("room", "reported").query,
-  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", "turnstile_token"]) }, fileNames: ["picture"], maximumSizeBytes: FILE_FORM_SIZE_BYTES },
+  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", ...BOT_CHECK_FIELDS]) }, fileNames: ["picture"], maximumSizeBytes: FILE_FORM_SIZE_BYTES },
 };
 const BUY_FIELDS: Readonly<Record<string, DoorShape>> = {
   item_name: text(40),

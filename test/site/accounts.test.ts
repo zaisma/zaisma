@@ -672,6 +672,12 @@ describe("signing in", () => {
     expect((await b.go("/account")).headers.get("location")).toBe("/signin");
   });
 
+  it("signs in with the field Cloudflare's script adds to the form by itself", async () => {
+    await join(new Browser(), "fox@example.com", "Night_Owl");
+    const res = await signIn(new Browser(), { username: "Night_Owl", password: PASSWORD, "cf-turnstile-response": "sign_in" });
+    expect(res.headers.get("location")).toBe("/");
+  });
+
   it("refuses forms posted from other sites", async () => {
     const res = await SELF.fetch(`${SITE}/signin`, { method: "POST", body: new URLSearchParams({ username: "Night_Owl", password: PASSWORD }), headers: { origin: "https://evil.example" } });
     expect(res.status).toBe(403);
