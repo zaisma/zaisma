@@ -122,8 +122,15 @@ export async function startReview({ repoRoot, mapDir, date, warn }) {
     removed_door_ids: generated.removed_door_ids,
     stale_case_count: generated.stale_case_refs.length,
     seeded_case_count: seeded.length,
+    grid: readGridFailures(mapDir),
     ...reviewOutlineOf({ promises: refreshed.promises, items: refreshItems(readItems(mapDir), repoRoot), reviews, date }),
   };
+}
+
+/** The contract test grid's last run on main (grid/failures.json, which its workflow in the private repo writes); null before its first. */
+export function readGridFailures(mapDir) {
+  const path = join(mapDir, "grid", "failures.json");
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
 }
 
 /** Items with score_stale_reason set from the code as it is now. */
