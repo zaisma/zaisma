@@ -15,7 +15,7 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
@@ -1336,6 +1336,11 @@ describe("layout", () => {
     expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }");
     expect(tokensSource).toContain("--size-cover: 180px");
     expect(tokensSource).toContain("--gap-control-stack: 8px");
+  });
+
+  it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {
+    expect(track({ whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), id: "covers", itemSize: "cover", items: [block("a")] }).html).toMatch(/^<div class="track-holder"><div class="layout-track item-cover"/);
+    expect(TRACK_STYLES).toContain(".track-holder { display: flex; flex-direction: column; min-width: 0; }");
   });
 
   it("lays a track's pictures closer than its covers, by what it says it holds", () => {

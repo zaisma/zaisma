@@ -265,7 +265,7 @@ export interface TrackOptions {
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, on its rail. */
 export function track(options: TrackOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
+  return asLayout(html`<div class="track-holder"><div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div></div>`);
 }
 
 export interface ColumnsOptions {
@@ -557,6 +557,8 @@ export const GRID_STYLES = `
 `;
 
 export const TRACK_STYLES = `
+/* A track and its rail are one thing to what holds them: whatever gap it puts between its parts never falls between them. */
+.track-holder { display: flex; flex-direction: column; min-width: 0; }
 /* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
    track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
