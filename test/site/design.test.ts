@@ -529,7 +529,7 @@ describe("components", () => {
     ];
     const leaving = ICONS["out-of-page"];
     for (const piece of pieces("https://store.steampowered.com/app/1")) {
-      expect(piece).toMatch(/target="_blank" rel="noopener"/);
+      expect(piece).toMatch(/target="_blank" rel="noopener( noreferrer)?"/);
       expect(piece).toContain(leaving);
     }
     for (const piece of [...pieces("/forum"), ...pieces("https://zaisma.com/forum")]) {
