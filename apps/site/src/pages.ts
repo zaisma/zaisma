@@ -914,7 +914,8 @@ function privacyBody(): Raw {
 </ul>
 <p>Accounts are for people 13 and older. Anyone younger cannot create one, and nothing they entered is kept. If Zaisma learns that an account belongs to someone under 13, the account is deleted.</p>
 <h2>Cookies</h2>
-<p>Zaisma uses cookies only to keep you signed in, to complete account creation, and to recognize a device you have signed in on before. Zaisma uses no advertising, tracking or analytics cookies.</p>`,
+<p>Zaisma uses cookies only to keep you signed in, to complete account creation, and to recognize a device you have signed in on before. Zaisma uses no advertising, tracking or analytics cookies.</p>
+<p>Your browser keeps the date it first played each game, signed by Zaisma, so a browser that has played before keeps playing when a network looks like a server. It stays in your browser: Zaisma keeps no copy, and it says nothing about you or your device. Clearing your browser's storage removes it.</p>`,
       ),
       pane(
         "Games and payments",

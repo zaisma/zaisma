@@ -16,7 +16,7 @@ const GAME_ID = "garena";
 let address = 0;
 
 const call = (path: string, body: Record<string, unknown>, worker: Partial<Env> = HOME) =>
-  roomsWorker.fetch(new Request(`${R}${path}`, { method: "POST", headers: { origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: GAME, ...body }) }) as never, { ...e, ...worker } as Env, {} as ExecutionContext);
+  roomsWorker.fetch(new Request(`${R}${path}`, { method: "POST", headers: { origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: GAME, ...body }) }) as never, { ...e, ...worker } as Env);
 
 async function passFor(accountId: string | null = null, isReturningBrowser = false, worker: Partial<Env> = HOME) {
   const roomKey = await issueRoomKey(e.DB, GAME_ID, accountId, Date.now(), isReturningBrowser);
@@ -25,7 +25,7 @@ async function passFor(accountId: string | null = null, isReturningBrowser = fal
 
 /** Says hello to a room from a network, and answers its first word: "welcome", or the code it was refused with. */
 async function join(code: string, given: { pass: string; playShare?: string }, worker: Partial<Env>, signs: Record<string, unknown> = {}) {
-  const response = await roomsWorker.fetch(new Request(`${R}/v1/rooms/${GAME}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } }) as never, { ...e, ...worker } as Env, {} as ExecutionContext);
+  const response = await roomsWorker.fetch(new Request(`${R}/v1/rooms/${GAME}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } }) as never, { ...e, ...worker } as Env);
   const socket = response.webSocket!;
   socket.accept();
   const first = new Promise<{ type: string; code?: string; message?: string }>((resolve) => socket.addEventListener("message", (event) => resolve(JSON.parse(event.data as string))));
