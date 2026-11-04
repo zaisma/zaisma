@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { commitAndPush, markFindingFixed, pageLinesOf, pullClone, queueItemsOf, readState, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
+import { claimItem, commitAndPush, finishItem, markFindingFixed, pageLinesOf, pullClone, putItemBack, queueItemsOf, readState, settleItemCalls, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
@@ -73,6 +73,7 @@ describe("reading the private repo", () => {
       map_page_url: "https://claude.ai/artifact/abc",
       map_page_shows_generated_at: "2026-10-18T03:00:00.000Z",
       export_generated_at: "2026-10-19T03:00:00.000Z",
+      open_item_count: 0,
       last_review_date: null,
       is_map_page_behind: true,
     });
@@ -153,5 +154,98 @@ describe("git on the private repo", () => {
     const { cloneDir } = remoteAndClone();
     git(cloneDir, "checkout", "--quiet", "-b", "fix/fnd_2026-10-18_some-slug");
     expect(() => pullClone(cloneDir)).toThrow(/not main/);
+  });
+});
+
+describe("an item through the private repo", () => {
+  const ITEM_ID = "itm_2026-11-03_some-words";
+  const CALL = "Whether it asks or waits.";
+  const anItem = () => ({ item_id: ITEM_ID, item_kind: "item", sector_id: SECTORS[0].sector_id, way_id: "some-way", item_line: "A line.", goal_line: "After this, it's impossible.", answer_kind: "remove", opened_at: NOW, opened_by: "merge_catch_up", item_state: "next", defense_score: 3, defense_reason: "reason", damage_score: 3, damage_reason: "reason", anchors: [], scored_at: NOW, score_stale_reason: null, score_changes: [], calls: [CALL], waits_on: [], proof_kind: "failing_test", proof_line: "A test fails.", test_path: "test/node/old.test.ts", finding_id: null, evidence: [] });
+
+  function cloneWithItem(item: Record<string, unknown> = anItem()) {
+    const { remoteDir, seedDir, cloneDir } = remoteAndClone();
+    mkdirSync(join(seedDir, "items"));
+    writeFileSync(join(seedDir, `items/${ITEM_ID}.json`), JSON.stringify(item));
+    git(seedDir, "add", "-A");
+    git(seedDir, "commit", "--quiet", "-m", "An item");
+    git(seedDir, "push", "--quiet", "origin", "main");
+    git(cloneDir, "pull", "--quiet", "origin", "main");
+    return { remoteDir, cloneDir };
+  }
+  const itemIn = (cloneDir: string) => JSON.parse(readFileSync(join(cloneDir, `items/${ITEM_ID}.json`), "utf8"));
+  const pushedMessage = (remoteDir: string) => git(remoteDir, "log", "-1", "--format=%s", "main");
+
+  /** A public checkout with one test on its origin/main. */
+  function publicCheckout() {
+    const remoteDir = join(workDir, "public.git");
+    const repoRoot = join(workDir, "public");
+    git(workDir, "init", "--quiet", "--bare", "--initial-branch=main", remoteDir);
+    git(workDir, "clone", "--quiet", remoteDir, repoRoot);
+    git(repoRoot, "symbolic-ref", "HEAD", "refs/heads/main");
+    mkdirSync(join(repoRoot, "test"));
+    writeFileSync(join(repoRoot, "test/guard.test.ts"), "// a test\n");
+    git(repoRoot, "add", "-A");
+    git(repoRoot, "commit", "--quiet", "-m", "Start");
+    git(repoRoot, "push", "--quiet", "origin", "main");
+    return repoRoot;
+  }
+
+  it("claims a next item for one launch and pushes only its file, then refuses a second claim", () => {
+    const { remoteDir, cloneDir } = cloneWithItem();
+    writeFileSync(join(cloneDir, "queue.md"), "someone else's change");
+    expect(claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" })).toMatchObject({ old_item_state: "next", new_item_state: "doing", committed_paths: [`items/${ITEM_ID}.json`], pushed: true });
+    expect(itemIn(cloneDir)).toMatchObject({ item_state: "doing", claimed_by_launch_id: "launch-1" });
+    expect(pushedMessage(remoteDir)).toBe(`${ITEM_ID}: claimed`);
+    expect(() => claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-2" })).toThrow("only a next item can be claimed");
+  });
+
+  it("changes nothing on a dry claim, and refuses an item that doesn't exist", () => {
+    const { cloneDir } = cloneWithItem();
+    expect(claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1", isDry: true })).toMatchObject({ new_item_state: "doing", is_dry: true });
+    expect(itemIn(cloneDir).item_state).toBe("next");
+    expect(() => claimItem(cloneDir, { itemId: "itm_2026-11-03_other", launchId: "launch-1" })).toThrow("No item has id");
+  });
+
+  it("puts a claimed item back with its claim gone", () => {
+    const { cloneDir } = cloneWithItem();
+    expect(() => putItemBack(cloneDir, { itemId: ITEM_ID })).toThrow("only a doing item");
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    putItemBack(cloneDir, { itemId: ITEM_ID });
+    expect(itemIn(cloneDir)).toMatchObject({ item_state: "next", claimed_by_launch_id: null });
+  });
+
+  it("settles a call with its answer, and refuses a call that isn't open, an unknown field or an empty answer", () => {
+    const { cloneDir } = cloneWithItem();
+    const settle = (answers: unknown) => settleItemCalls(cloneDir, { itemId: ITEM_ID, answers, now: NOW });
+    expect(() => settle([{ call_line: "Another call.", answer_line: "Asks." }])).toThrow("doesn't have open");
+    expect(() => settle([{ call_line: CALL, answer_line: "Asks.", extra: 1 }])).toThrow("unknown field extra");
+    expect(() => settle([{ call_line: CALL, answer_line: " " }])).toThrow("no answer_line");
+    expect(() => settle([])).toThrow("Give the answers");
+    settle([{ call_line: CALL, answer_line: "Asks." }]);
+    expect(itemIn(cloneDir)).toMatchObject({ calls: [], settled_calls: [{ call_line: CALL, answer_line: "Asks.", settled_at: NOW }] });
+  });
+
+  it("closes a doing item only with a test on the public origin/main, as often as it's asked", () => {
+    const { cloneDir } = cloneWithItem();
+    const repoRoot = publicCheckout();
+    const finish = (testPath: string) => finishItem(cloneDir, { itemId: ITEM_ID, testPath, date: "2026-11-04", now: NOW, repoRoot });
+    expect(() => finish("test/guard.test.ts")).toThrow("only a doing item");
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    expect(() => finish("test/missing.test.ts")).toThrow("isn't on origin/main");
+    expect(finish("test/guard.test.ts")).toMatchObject({ new_item_state: "done", is_changed: true });
+    expect(itemIn(cloneDir)).toMatchObject({ item_state: "done", claimed_by_launch_id: null, proof_kind: "failing_test", test_path: "test/guard.test.ts" });
+    expect(itemIn(cloneDir).evidence[0].rests_on_commit).toBe(git(repoRoot, "rev-parse", "origin/main"));
+    expect(finish("test/guard.test.ts")).toMatchObject({ is_changed: false });
+  });
+
+  it("sends an item with a finding to mark-fixed", () => {
+    const { cloneDir } = cloneWithItem({ ...anItem(), finding_id: "fnd_2026-11-03_some-words" });
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot: publicCheckout() })).toThrow("close it with mark-fixed");
+  });
+
+  it("counts the open items where the coordinator reads the queue", () => {
+    const { cloneDir } = cloneWithItem();
+    expect(readState(cloneDir).open_item_count).toBe(1);
   });
 });

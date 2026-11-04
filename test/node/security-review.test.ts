@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { itemFromNight, itemProblems, itemsWithFindingFixed, itemWithUpdate, isQuestionPastLifetime, readItems, writeItems } from "../../scripts/security-map/items.mjs";
+import { itemFromNight, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithUpdate, isQuestionPastLifetime, readItems, writeItems } from "../../scripts/security-map/items.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { readState } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
@@ -234,6 +234,61 @@ describe("the night's other rules", () => {
     const [fixed] = itemsWithFindingFixed([item, openedItem({ item_slug: "other" })], { findingId: item.finding_id, testPath: "test/node/guard.test.ts", date: DATE, now: NOW });
     expect(fixed).toMatchObject({ item_state: "done", proof_kind: "failing_test", test_path: "test/node/guard.test.ts" });
     expect(itemProblems(fixed)).toEqual([]);
+  });
+});
+
+describe("items the coordinator holds", () => {
+  const update = (item: Item, change: Record<string, unknown>) => itemWithUpdate(item, { item_id: item.item_id, ...change }, { now: NOW, commit: COMMIT, anchors: item.anchors, currentHashes: Object.fromEntries(item.anchors.map((anchor: Anchor) => [anchor.anchor_id, anchor.source_hash_sha256])) });
+
+  it("opens an item with no settled calls and no claim, and still reads one written before they existed", () => {
+    const { settled_calls, claimed_by_launch_id, ...older } = openedItem();
+    expect(settled_calls).toEqual([]);
+    expect(claimed_by_launch_id).toBeNull();
+    expect(itemProblems(older)).toEqual([]);
+    expect(itemProblems({ ...older, settled_calls: [{ call_line: "A call." }] }).join()).toContain("needs call_line, answer_line and settled_at");
+    expect(itemProblems({ ...older, claimed_by_launch_id: 7 }).join()).toContain("claimed_by_launch_id as text or null");
+  });
+
+  it("lets a night add evidence to a doing item, but not take its claim away", () => {
+    const item = { ...openedItem(), item_state: "doing", claimed_by_launch_id: "launch-1" };
+    expect(update(item, { evidence_line: "New fact", item_state: "next" }).problems.join()).toContain("the claim is the coordinator's");
+    expect(update(item, { evidence_line: "New fact" }).item).toMatchObject({ item_state: "doing", claimed_by_launch_id: "launch-1" });
+    expect(update(item, { evidence_line: "New fact", item_state: "done" }).item.item_state).toBe("done");
+  });
+
+  it("refuses a night reopening a settled call word for word, and takes a new call", () => {
+    const item = { ...openedItem(), settled_calls: [{ call_line: "An old call.", answer_line: "Answered.", settled_at: NOW }] };
+    expect(update(item, { evidence_line: "New fact", calls: ["An old call."] }).problems.join()).toContain("reopens a call already settled");
+    expect(update(item, { evidence_line: "New fact", calls: ["A new call."] }).item.calls).toEqual(["A new call."]);
+  });
+
+  it("shows a night the settled calls and the claim", () => {
+    const item = { ...openedItem(), item_state: "doing", claimed_by_launch_id: "launch-1", settled_calls: [{ call_line: "An old call.", answer_line: "Answered.", settled_at: NOW }] };
+    const [listed] = reviewOutlineOf({ promises: promisesFixture(), items: [item], reviews: [], date: DATE }).open_items;
+    expect(listed).toMatchObject({ claimed_by_launch_id: "launch-1", settled_calls: item.settled_calls });
+  });
+
+  it("sorts what a session could take: harden before fix soon, then more damage, then easier, then oldest", () => {
+    const scored = (slug: string, defense: number, damage: number, openedAt = NOW) => ({ ...openedItem({ item_slug: slug, defense_score: defense, damage_score: damage, anchors: [{ source_path: "src/guard.ts", symbol_name: "guardCall" }] }), opened_at: openedAt });
+    const items = [scored("soon", 2, 2), scored("harden-low", 4, 3), scored("harden-high", 4, 5), scored("harden-easier", 3, 3), scored("harden-older", 3, 3, "2026-01-01T00:00:00.000Z"), scored("watched", 4, 2), scored("urgent", 1, 5)];
+    const queue = itemQueueOf(items);
+    expect(queue.in_turn_items.map((entry: Item) => entry.item_id.split("_")[2])).toEqual(["harden-high", "harden-older", "harden-easier", "harden-low", "soon"]);
+    expect(queue.fix_now_items.map((entry: Item) => entry.item_id.split("_")[2])).toEqual(["urgent"]);
+    expect(queue.watch_items.map((entry: Item) => entry.item_id.split("_")[2])).toEqual(["watched"]);
+    expect(queue.in_turn_items[0].sector_name).toBe(SECTORS.find((sector: Item) => sector.sector_id === firstSector).sector_name);
+  });
+
+  it("says how an item opens and what it still waits on, and leaves out what takes no session", () => {
+    const talking = { ...openedItem({ item_slug: "talking", calls: ["A call."] }) };
+    const finished: Item = { ...openedItem({ item_slug: "finished" }), item_state: "done" };
+    const waiting = { ...openedItem({ item_slug: "waiting", waits_on: [finished.item_id, "Some slice"] }) };
+    const question = { ...openedItem({ item_slug: "asking", item_kind: "question", proof_kind: null, proof_line: null }) };
+    const accepted = { ...openedItem({ item_slug: "kept" }), item_state: "accepted" };
+    const claimed = { ...openedItem({ item_slug: "claimed" }), item_state: "doing", claimed_by_launch_id: "launch-1" };
+    const queue = itemQueueOf([talking, finished, waiting, question, accepted, claimed]);
+    expect(queue.in_turn_items.map((entry: Item) => [entry.item_id.split("_")[2], entry.opens_with, entry.open_waits_on])).toEqual([["talking", "talk", []], ["waiting", "build", ["Some slice"]]]);
+    expect(queue.doing_items.map((entry: Item) => entry.claimed_by_launch_id)).toEqual(["launch-1"]);
+    expect(queue).toMatchObject({ question_count: 1, accepted_count: 1 });
   });
 });
 
