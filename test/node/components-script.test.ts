@@ -42,6 +42,11 @@ describe("the components' script", () => {
     expect(fetches.filter(([, before = "", after = ""]) => !/zaismaWait\([^,]+, $/.test(before) && !after.includes('"search_text="')).map(([found]) => found)).toEqual([]);
   });
 
+  it("empties a search's list only once it has faded, so it never shrinks as it goes", () => {
+    expect(SEARCH_SCRIPT).toContain("if (!typed) { setActive(-1); hide(); emptyOnceGone(); return; }");
+    expect(SEARCH_SCRIPT).toContain("list.getAnimations({ subtree: true })");
+  });
+
   it("lights the header for a new page, after the waiting delay, and puts it out when the page comes back from the browser's history", () => {
     expect(HEADER_SCRIPT.sourceText).toContain('document.querySelectorAll("header.glass-bar").forEach(function (bar) { if (!bar.hasAttribute("data-stays-waiting")) bar.classList.toggle("is-waiting", isWaiting); });');
     expect(HEADER_SCRIPT.sourceText).toContain('addEventListener("pageshow", function () { setWaiting(false); })');

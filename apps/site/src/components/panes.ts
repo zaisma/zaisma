@@ -805,12 +805,11 @@ component({
   summary: "A box carved into a pane's glass that holds things and is never a control itself: code to copy, a link, a line of words, a list of choices. One gallery control can sit at its end, as Copy does; what's longer than it can show scrolls inside it. A field or a carved button is carved too, but it's what you use, so it isn't a well. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.",
   styles: `
 /* A well: carved into the glass, a field's height at least, lit and shaded at its edges like every carving and cut by the edge rule. What's
-   in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
+   in it keeps a field's inset (--pad-inside-words); an end control sits in its one place (.carving-end, materials.ts), over the
    well, and what's in it stops short of it. Keyboard focus on what's in it is the cut stroke round the well. */
 /* It's a carving (materials.ts): its look, its words' inset, its focus ring and its scrolling are the carving's. */
-.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); display: flex; align-items: center; min-width: 0; color: var(--ink); }
+.well { display: flex; align-items: center; min-width: 0; color: var(--ink); }
 .well > .well-body { flex: 1; min-width: 0; }
-.well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
 `,

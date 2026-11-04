@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, picture, type IconName } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { ICON_ROOM_WIDTH, secondaryButton, action, passwordToggle, tertiaryButton } from "./actions.ts";
+import { secondaryButton, action, passwordToggle, tertiaryButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
 import { row } from "./layout.ts";
@@ -63,7 +63,7 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const className = ["field", "carving", "layered", "is-used", "sized", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return controlMarkup(html`<div class="cut-field${options.isShort ? " is-short" : ""}"><label class="words-margin" for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) }) : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? html`<span class="carving-end">${passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) })}</span>` : ""}</span>
 ${options.error ? html`<p class="field-error words-margin" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint words-margin" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -455,7 +455,7 @@ export const FIELD_SCRIPT = `/* fields */(function () {
       if (search) { search.value = ""; search.dispatchEvent(new Event("input", { bubbles: true })); search.focus(); }
       return;
     }
-    var show = event.target.closest && event.target.closest(".field:not(.code) > .cut-btn[aria-controls]");
+    var show = event.target.closest && event.target.closest(".field:not(.code) > .carving-end > .cut-btn[aria-controls]");
     if (!show) return;
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
@@ -620,11 +620,16 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var titledIndex = games.findIndex(function (game) { return game.title.toLowerCase() === typed.toLowerCase(); });
       if (rows.length && document.activeElement === input) { show(); setActive(titledIndex < 0 ? -1 : next.length + titledIndex); } else { setActive(-1); hide(); }
     }
+    // Nothing typed: the list fades as it is and only then empties, so it never shrinks as it goes, and it comes back only once it's empty.
+    function emptyOnceGone() {
+      function empty() { if (!isOpen() && !input.value.trim()) { rows = []; box.textContent = ""; setActive(-1); } }
+      Promise.allSettled(list.getAnimations({ subtree: true }).map(function (animation) { return animation.finished; })).then(empty);
+    }
     function ask() {
       if (hasNoRoom()) return;
       var typed = input.value.trim();
       if (asking) { asking.abort(); asking = null; }
-      if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
+      if (!typed) { setActive(-1); hide(); emptyOnceGone(); return; }
       if (answers.has(typed)) { fill(answers.get(typed), typed); return; }
       asking = new AbortController();
       fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search_text=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
@@ -642,7 +647,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     }
     // A search sent is done with: its predictions close, and on a touch screen the keyboard goes with them, so the results show.
     form.addEventListener("submit", function () { clearTimeout(timer); if (asking) asking.abort(); hide(); if (matchMedia("(pointer: coarse)").matches) input.blur(); });
-    input.addEventListener("input", function () { clearTimeout(timer); showFinish(); timer = setTimeout(ask, WAIT_MS); });
+    input.addEventListener("input", function () { clearTimeout(timer); showFinish(); if (input.value.trim()) timer = setTimeout(ask, WAIT_MS); else ask(); });
     input.addEventListener("scroll", showFinish);
     // Back in a search that has words in it (clicked, tapped or tabbed to), its predictions show again, as if just typed.
     function reopen() { if (!isOpen() && input.value.trim()) { clearTimeout(timer); ask(); } }
@@ -966,10 +971,7 @@ const FIELD_STYLES = `
 .field.no-icon > input { --text-start: var(--pad-inside-words); }
 /* Show/Hide: a small secondary button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its icon changes and its
    width doesn't, so what's typed keeps exactly the room it leaves: the toggle's width and its inset on each side. */
-.field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
-.field.with-toggle { --toggle-width: ${ICON_ROOM_WIDTH}; }
-.field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
-.field > .cut-btn { position: absolute; z-index: 5; right: calc(var(--toggle-inset) + var(--slant-end, 0px)); top: var(--toggle-inset); }
+.field.with-toggle > input { --text-end: calc(var(--control-height-regular) + 2 * var(--pad-frame-compact)); }
 /* Read-only: nothing to type, so it doesn't light as you point at it; it can still be selected, copied and focused. */
 .field:has(> input[readonly])::before { --face-color: var(--carving-face); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */

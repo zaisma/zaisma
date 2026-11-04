@@ -571,7 +571,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
     // A holder cut by the edge rule (a control, or a slab that names no corners of its own) gives the cuts it took; any other glass, its own.
     var c = holder === document.fullscreenElement ? [0, 0, 0, 0] : holder.hasAttribute("data-cut-line") || holder.cutCorners ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
-    var r = rectOf(el), p = contentRectOf(el, holder), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
+    // A toggle's face rises from its footprint and sinks back: its corners are its footprint's, wherever the face stands.
+    var r = rectOf(el.parentElement && el.parentElement.classList.contains("toggle-btn") ? el.parentElement : el), p = contentRectOf(el, holder), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
     if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;

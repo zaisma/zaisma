@@ -179,7 +179,7 @@ export function toggleButton(button: ButtonWords, options: ToggleButtonOptions):
 
 /** A password's Show or Hide, at its field's end: one for every password and the gallery's. A password rests hidden, so it's on while it's shown. */
 export const passwordToggle = (options: { isPasswordShown: boolean; controls?: string; isDisabled?: boolean }): ControlMarkup =>
-  toggleButton(action("showPassword", options.isPasswordShown ? "Hide" : "Show"), { type: "button", isSmall: true, isLabelHidden: true, isPressed: options.isPasswordShown, ...(options.controls ? { controls: options.controls } : {}), ...(options.isDisabled ? { isDisabled: true } : {}) });
+  toggleButton(action("showPassword", options.isPasswordShown ? "Hide" : "Show"), { type: "button", isLabelHidden: true, isPressed: options.isPasswordShown, ...(options.controls ? { controls: options.controls } : {}), ...(options.isDisabled ? { isDisabled: true } : {}) });
 
 /**
  * A button that shows or hides something: on while it's hidden, its words saying what a press does. The page's script flips aria-pressed and the
@@ -698,6 +698,8 @@ component({
 .toggle-btn { position: relative; --toggle-lift: 5px; --toggle-rise: 0px; transition: --toggle-rise var(--motion-arrive) var(--ease-glide); }
 .toggle-btn.small { --toggle-lift: 4px; }
 .toggle-btn.tiny { --toggle-lift: 3px; }
+/* In a carving's end it rises less, staying inside the carving. */
+.carving-end > .toggle-btn { --toggle-lift: 3px; }
 /* Seen on the Screens bench: its words turn green while it rests. */
 .toggle-btn.is-seen[aria-pressed="false"] > .face { color: var(--tag-new-ink); }
 .toggle-btn[aria-pressed="true"] { --toggle-rise: var(--toggle-lift); }
@@ -751,7 +753,7 @@ component({
     { label: "Try it: press each", isWide: true, markup: html`<div data-toggle-example>${controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("follow"), { type: "button", isPressed: true }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("mute"), { type: "button", isLabelHidden: true, isPressed: false }))}</div>` },
     { label: "Only its icon, off and on", markup: controlsBeside(toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: false }), toggleButton(action("favorite"), { type: "button", isLabelHidden: true, isPressed: true })), isStill: true },
     { label: "With a count, off and on", markup: controlsBeside(toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1284, isPressed: false }), toggleButton(action("like"), { type: "button", isLabelHidden: true, reactionCount: 1285, isPressed: true })), isStill: true },
-    { label: "Small, off and on: a password's Show", markup: controlsBeside(passwordToggle({ isPasswordShown: false }), passwordToggle({ isPasswordShown: true })), isStill: true },
+    { label: "Only its icon, off and on: a password's Show", markup: controlsBeside(passwordToggle({ isPasswordShown: false }), passwordToggle({ isPasswordShown: true })), isStill: true },
     { label: "Tiny, off and on, and seen: the Screens bench's state buttons", markup: controlsBeside(toggleButton("Friend request", { type: "button", isTiny: true, isPressed: false }), toggleButton("Still there?", { type: "button", isTiny: true, isPressed: true }), toggleButton("Keep progress", { type: "button", isTiny: true, isPressed: false, isSeen: true })), isStill: true },
     { label: "Can't press", markup: toggleButton(action("follow"), { type: "button", isPressed: false, isDisabled: true }), isStill: true },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${toggleButton(action("follow", "Following Ashen Crown and every update from its studio"), { type: "button", isPressed: true })}</div>` },

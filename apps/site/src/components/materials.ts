@@ -77,7 +77,9 @@ export const MATERIAL_STYLES = `
 .glass.pinned { clip-path: var(--glass-clip, none); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
-.carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
+/* The one place for a control in a carving: at its end, the carving's frame gap from its edges, so the edge rule cuts its corner along the carving's. A field's height less that gap each side is a regular control's, so it never sets one by hand. */
+.carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact); right: calc(var(--pad-frame-compact) + var(--slant-end, 0px)); display: flex; }
+.carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-regular) + var(--pad-frame-compact) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thin glass over the page, capped at the screen, with the page dimmed
    behind it: a task's dim, a little for one hanging from its button, deep for one thing large, whose words turn light; a store panel and a
    buy sheet over a running game dim nothing. Past its cap what's in it scrolls, its head and buttons staying put. */

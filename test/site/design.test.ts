@@ -1344,6 +1344,15 @@ describe("layout", () => {
     expect(COMPONENT_STYLES()).toContain("right: calc(var(--pad-inside-words) + var(--slant-end, 0px));");
   });
 
+  it("puts a control in a carving in its one place, cut along the carving's corner wherever its face stands", () => {
+    const styles = COMPONENT_STYLES();
+    expect(styles).toContain(".carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact);");
+    expect(styles).not.toContain(".field > .cut-btn {");
+    expect(styles).not.toContain(".well > .well-end {");
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain('<span class="carving-end"><button');
+    expect(glassScriptSource).toContain('el.parentElement.classList.contains("toggle-btn") ? el.parentElement : el');
+  });
+
   it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {
     expect(track({ whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), id: "covers", itemSize: "cover", items: [block("a")] }).html).toMatch(/^<div class="track-holder"><div class="layout-track item-cover"/);
     expect(TRACK_STYLES).toContain(".track-holder { display: flex; flex-direction: column; min-width: 0; }");

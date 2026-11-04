@@ -384,7 +384,7 @@ export function copyField(options: CopyFieldOptions): Raw {
   // Words are a field's height, a control in a row or stack; code runs as many lines as it takes, a block.
   const markup = html`<div class="${className}"><span class="copy-head words-margin"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
     body,
-    end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
+    end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, controls: id, state: buttonState }),
     endNote: icon("check"),
     state: options.isCode && options.state === "is-focused" ? "is-focused" : undefined,
     isUsed: !options.isCode,
@@ -445,7 +445,7 @@ component({
    its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
 .copy-field.is-code .well { align-items: stretch; min-height: var(--control-height-field); }
 .copy-field.is-code .copy-field-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; cursor: text; }
-.copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); }
+.copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-regular) + var(--pad-frame-compact) - var(--pad-inside-words) + var(--gap-words-words)); }
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
 .code-word { display: inline-block; max-width: 100%; }
 /* Masked: its letters blur into their own glow, unreadable, until the page shows them, the glow with room round the words so it isn't
