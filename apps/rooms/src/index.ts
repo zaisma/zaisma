@@ -1,4 +1,4 @@
-import { HOSTING_NETWORKS, RENTED_SHARE_TEXT, accountHasHistory, checkDoor, gameHosting, isOnRentedShare, isPastDoorLimit, isPastGameLimit, isPastLevel, networkNumberOf, readPlayShare, sealPlayShare, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { HOSTING_NETWORKS, RENTED_SHARE_TEXT, accountHasHistory, banScopeOf, checkDoor, gameHosting, isOnRentedShare, isPastDoorLimit, isPastGameLimit, isPastLevel, networkNumberOf, readPlayShare, sealPlayShare, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { guardRoomDoor, roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
@@ -600,8 +600,9 @@ export default {
         const key = await useRoomKey(env.DB, game.id, body.roomKey);
         if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", 403, cors);
         const nowSec = Math.floor(Date.now() / 1000);
-        // A signed-in player is their account, with the same player ID in every game; anyone else a new guest.
-        const account = key.accountId ? await accountById(env.DB, key.accountId) : null;
+        // A signed-in player is their account, with the same player ID in every game; anyone else a new guest, and so is an account closed since its key was given.
+        const keysAccount = key.accountId ? await accountById(env.DB, key.accountId) : null;
+        const account = keysAccount && banScopeOf(keysAccount) !== "whole_account" ? keysAccount : null;
         // A game that needs accounts, for multiplayer or the whole game, gives guests no passes, so its own servers see only accounts too.
         if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         // A game for older players gives younger accounts no passes, so its own servers never see them either.
@@ -760,6 +761,8 @@ export default {
       try {
         const answer = await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
         if (answer.status === 101) return answer;
+        // A world waiting to be erased says so.
+        if (answer.status === 410) return refusedSocket("ended", REMOVED_CLOSE_CODE, await answer.text());
         // The room turned the socket away (full, or its game is gone): said on a socket, which the SDK can read.
         return answer.status === 409 ? refusedSocket("room_full", REMOVED_CLOSE_CODE) : answer.status === 404 ? refusedSocket("game_unavailable", REMOVED_CLOSE_CODE) : refusedSocket("busy", BUSY_CLOSE_CODE);
       } catch (error) {

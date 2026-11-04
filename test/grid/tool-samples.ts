@@ -20,5 +20,7 @@ export const TOOL_ARGUMENTS: Readonly<Record<string, (world: World) => Record<st
   set_background: () => ({ image_id: undefined }),
   post_topic: () => ({ category: "servers" }),
   rate_post: () => ({ rating: "like" }),
+  get_stats: () => ({ period_duration_days: 7 }),
+  get_save: () => ({ keys: ["coins"] }),
   list_rooms: () => ({ labels: [{ label_name: "Region", label_value: "North" }] }),
 };

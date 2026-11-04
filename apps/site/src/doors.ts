@@ -398,6 +398,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   joining("/join/account"),
   joining("/join/username"),
   joining("/join/play"),
+  open(["GET"], "/api/playing-now", { origin: "anywhere", takes: query("preview_players"), ...jsonAnswer("playing_now_player_count", "busiest_games") }),
   open(["GET"], "/api/username-check", { trusts: ["session"], takes: query("username"), ...jsonAnswer("is_available", "message", "suggested_usernames") }),
   open(["POST"], "/api/passkeys/signin/options", { takes: json(PASSKEY_FIELDS), ...ownPagesJson("challenge", "rpId") }),
   open(["POST"], "/api/passkeys/signin", { reaches: "account", trusts: ["passkey"], takes: json(PASSKEY_FIELDS), ...ownPagesJson("next") }),

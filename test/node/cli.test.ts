@@ -248,7 +248,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "ai-review", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "ai-review", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "kept-rooms bring-back", "kept-rooms erase-now", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -690,10 +690,22 @@ describe("kept rooms", () => {
     expect(json(refused.stdout).error).toMatchObject({ code: "no_kept_room", field: "room_code" });
   });
 
+  it("says when a deleted world is erased, and brings it back or erases it sooner", async () => {
+    answers["DELETE /games/sky-hopper/kept-rooms/K7Q2MX"] = { status: 200, body: { is_deleted: true, erases_at: "2026-11-11T12:00:00.000Z", next_steps: [] } };
+    expect((await zaisma(["kept-rooms", "delete", "sky-hopper", "K7Q2MX"])).stdout).toContain("zaisma kept-rooms bring-back sky-hopper K7Q2MX");
+    answers["POST /games/sky-hopper/kept-rooms/K7Q2MX/bring-back"] = { status: 200, body: { is_brought_back: true, next_steps: [] } };
+    expect((await zaisma(["kept-rooms", "bring-back", "sky-hopper", "K7Q2MX"])).stdout).toContain("is back, as it was");
+    answers["POST /games/sky-hopper/kept-rooms/K7Q2MX/erase-now"] = { status: 200, body: { is_erased: true, next_steps: [] } };
+    expect((await zaisma(["kept-rooms", "erase-now", "sky-hopper", "K7Q2MX"])).stdout).toContain("for good");
+    expect(calls.slice(-2).map((call) => call.path)).toEqual(["/games/sky-hopper/kept-rooms/K7Q2MX/bring-back", "/games/sky-hopper/kept-rooms/K7Q2MX/erase-now"]);
+  });
+
   it("is in help", async () => {
     const help = await zaisma(["help"]);
     expect(help.stdout).toContain("kept-rooms");
     expect(help.stdout).toContain("kept-rooms delete");
+    expect(help.stdout).toContain("kept-rooms bring-back");
+    expect(help.stdout).toContain("kept-rooms erase-now");
   });
 });
 

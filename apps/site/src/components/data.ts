@@ -2,7 +2,7 @@ import { EmptyNoteMarkup, NO_EMPTY_NOTE, accountPicture, html, raw, type Raw } f
 import { component } from "./component.ts";
 import { ACTION_NAMES, action, NARROW_HOLDER_WIDTH, iconAloneFace, secondaryButton, primaryButton, textLink, toggleButton } from "./actions.ts";
 import { ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, MINUTE_MS, ago, glassPane, groove, icon, picture, tag, well, type IconName, type ShownPicture, type TagTone } from "./foundations.ts";
+import { CUT_LINE, EDGE, MINUTE_MS, ago, glassPane, groove, icon, leavesZaisma, picture, tag, well, type IconName, type ShownPicture, type TagTone } from "./foundations.ts";
 import { STAND_IN_ACCOUNT_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 import { slab } from "./materials.ts";
@@ -609,12 +609,13 @@ const hasWordButton = (action: ControlMarkup | ControlMarkup[] | undefined): boo
 function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; shownRowCount?: number; isAcrossSideways?: boolean; isCompact?: boolean }, cap: Raw | ""): Raw {
   return html`<ul class="list-rows hairlines scrolls own-scroll${options.shownRowCount ? " is-capped" : ""}${options.isCompact ? " is-compact" : ""}${options.isAcrossSideways ? " is-across-sideways" : ""}"${cap}${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const details = [row.detail, row.secondDetail].filter((line): line is string => Boolean(line));
+    const isNewTab = row.isNewTab || leavesZaisma(row.href);
     // What a meter row opens says so on its name's line, so the meter under it has the row's whole width.
-    const opens = row.href || (row.press && (row.meter || row.action || row.press.hasChevron)) ? html`<span class="list-row-go${row.isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(row.isNewTab ? "out-of-page" : "chevron-right")}</span>` : "";
+    const opens = row.href || (row.press && (row.meter || row.action || row.press.hasChevron)) ? html`<span class="list-row-go${isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(isNewTab ? "out-of-page" : "chevron-right")}</span>` : "";
     const side = (row.href || row.press) && row.action ? html`<span class="list-row-action list-row-side">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : "";
     const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
-      ? html`<a class="list-row flush-row is-link${row.isAway ? " is-away" : ""}${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${row.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}${row.meter ? "" : opens}</a>${side}`
+      ? html`<a class="list-row flush-row is-link${row.isAway ? " is-away" : ""}${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}${row.meter ? "" : opens}</a>${side}`
       : row.press
         ? html`<button type="button" class="list-row flush-row is-press${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""}${row.press.controls ? html` aria-controls="${row.press.controls}"` : ""}${Object.entries(row.press.dataAttributes ?? {}).map(([name, text]) => html` data-${name}="${text}"`)} data-cut-line="8">${CUT_LINE}${inside}${row.action || row.press.hasChevron ? opens : ""}</button>${side}`
       : row.switch
@@ -965,8 +966,8 @@ component({
       label: "Opening in a new tab: a developer's links beside a running game",
       isWide: true,
       markup: listPane([
-        { lead: icon("globe"), title: "Wishlist on Steam", detail: "store.steampowered.com", href: "#list-rows", isNewTab: true },
-        { lead: icon("globe"), title: "ashencrown.com", href: "#list-rows", isNewTab: true, state: "is-pointed" },
+        { lead: icon("globe"), title: "Wishlist on Steam", detail: "store.steampowered.com", href: "https://store.steampowered.com" },
+        { lead: icon("globe"), title: "ashencrown.com", href: "https://ashencrown.example", state: "is-pointed" },
       ]),
     },
     {

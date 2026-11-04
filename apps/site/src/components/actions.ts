@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { action, type ListedAction } from "./action-list.ts";
 export { ACTION_NAMES, action, type ActionName, type ListedAction, type ListedIcon } from "./action-list.ts";
-import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, type ColorChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, ICONS, backdrop, glassPane, icon, leavesZaisma, type ColorChoice, type IconName } from "./foundations.ts";
 import { TOKEN_STYLES } from "./tokens.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { paneParts, row, stack, stackOfOne } from "./layout.ts";
@@ -60,7 +60,7 @@ type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${target.downloadName ? html` download="${target.downloadName}"` : ""}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    ? html`<a class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} href="${target.href}"${leavesZaisma(target.href) ? raw(' target="_blank" rel="noopener"') : ""}${target.downloadName ? html` download="${target.downloadName}"` : ""}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
     : html`<button class="shell ${className}"${target.id ? html` id="${target.id}"` : ""}${dataMarkup(target)} type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.formAction ? html` formaction="${target.formAction}"` : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const dataMarkup = (target: ButtonTarget): Raw | "" =>
   target.dataAttributes ? html`${Object.entries(target.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
@@ -106,7 +106,7 @@ export function primaryButton(button: ButtonWords, options: PrimaryButtonOptions
   const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
   const shell = classes("run-wrap", options.isFullWidth && "is-full", options.isSmall && "small", isIconOnly && "icon-only", options.state);
   const hasTrailing = options.trailingText !== undefined;
-  const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : chosenIcon && !options.isArrowKept ? "" : ARROW;
+  const ending = hasTrailing ? html`<span class="run-trailing">${options.trailingText}</span>` : leavesZaisma(options.href) ? icon("out-of-page") : chosenIcon && !options.isArrowKept ? "" : ARROW;
   return controlMarkup(html`${opening(shell, options, options.isBusy, html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.isHidden ? raw(" hidden") : ""}`)}<span class="${options.isBig ? "face run slab lit big" : "face run slab lit"}${hasTrailing ? " has-trailing" : ""}" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : words}${ending}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall ? "small" : "regular");
 }
 
@@ -232,7 +232,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & 
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${isToggle ? html` aria-pressed="${isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}${options.isHidden ? raw(" hidden") : ""}${tint ? html` data-tint="${tint}"` : ""}`;
   // Its icon and count with the label hidden: the label is still said, before the count ("Like, 12"), so a page that changes the count changes what's said.
   // The label's span has no class of its own, as on the runner (html.ts's account link finds it that way).
-  const words = !options.isLabelHidden ? html`<span>${label}</span>` : hasCount ? html`<span class="sr">${label}, </span>` : "";
+  const words = !options.isLabelHidden ? html`<span>${options.wayIn === "stripe" ? html`<span class="sr">Stripe </span>` : ""}${label}</span>${leavesZaisma(options.href) ? icon("out-of-page") : ""}` : hasCount ? html`<span class="sr">${label}, </span>` : "";
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
@@ -249,16 +249,20 @@ const DISCORD = raw(
 const APPLE_PAY = raw(
   '<svg class="pay-mark" viewBox="0 0 32 20" aria-hidden="true"><rect x=".5" y=".5" width="31" height="19" rx="3.5" fill="#fff" stroke="#000"/><path transform="translate(3.21 4.84) scale(0.38)" fill="#000" d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.2 3.09 3.79 3.04 1.52-.07 2.09-.99 3.93-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.64-3.33 1.66-3.42-.04-.01-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.49 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.16-3.68 1.09-4.61 1.09zm3.38-3.07c.84-1.01 1.4-2.43 1.25-3.83-1.21.05-2.66.81-3.53 1.82-.78.9-1.45 2.34-1.27 3.71 1.34.1 2.71-.69 3.55-1.7"/><text x="12.79" y="13.2" font-family="-apple-system, BlinkMacSystemFont, \'SF Pro Text\', \'Helvetica Neue\', Arial, sans-serif" font-size="8.4" font-weight="500" fill="#000">Pay</text></svg>',
 );
+// Stripe's wordmark, exactly as its logo kit gives it: slate on light glass and white on smoked, the only colors it allows on them.
+const STRIPE = raw(
+  '<svg class="wordmark" viewBox="0 0 360 151" aria-hidden="true"><path class="on-light" fill="#061B31" d="M360 78.2001C360 52.6001 347.6 32.4001 323.9 32.4001C300.1 32.4001 285.7 52.6001 285.7 78.0001C285.7 108.1 302.7 123.3 327.1 123.3C339 123.3 348 120.6 354.8 116.8V96.8001C348 100.2 340.2 102.3 330.3 102.3C320.6 102.3 312 98.9002 310.9 87.1002H359.8C359.8 85.8002 360 80.6002 360 78.2001ZM310.6 68.7001C310.6 57.4002 317.5 52.7001 323.8 52.7001C329.9 52.7001 336.4 57.4002 336.4 68.7001H310.6Z M247.1 32.4001C237.3 32.4001 231 37.0001 227.5 40.2001L226.2 34.0001H204.2V150.6L229.2 145.3L229.3 117C232.9 119.6 238.2 123.3 247 123.3C264.9 123.3 281.2 108.9 281.2 77.2001C281.1 48.2001 264.6 32.4001 247.1 32.4001ZM241.1 101.3C235.2 101.3 231.7 99.2001 229.3 96.6002L229.2 59.5001C231.8 56.6001 235.4 54.6002 241.1 54.6002C250.2 54.6002 256.5 64.8001 256.5 77.9001C256.5 91.3001 250.3 101.3 241.1 101.3Z M169.8 26.5L194.9 21.1V0.800049L169.8 6.10005V26.5Z M194.9 34.1001H169.8V121.6H194.9V34.1001Z M142.9 41.5001L141.3 34.1001H119.7V121.6H144.7V62.3001C150.6 54.6001 160.6 56.0001 163.7 57.1001V34.1001C160.5 32.9001 148.8 30.7001 142.9 41.5001Z M92.8999 12.4001L68.4999 17.6001L68.3999 97.7001C68.3999 112.5 79.4999 123.4 94.2999 123.4C102.5 123.4 108.5 121.9 111.8 120.1V99.8001C108.6 101.1 92.7999 105.7 92.7999 90.9001V55.4001H111.8V34.1002H92.7999L92.8999 12.4001Z M25.3 59.5001C25.3 55.6001 28.5 54.1002 33.8 54.1002C41.4 54.1002 51 56.4001 58.6 60.5001V37.0001C50.3 33.7001 42.1 32.4001 33.8 32.4001C13.5 32.4001 0 43.0001 0 60.7001C0 88.3001 38 83.9001 38 95.8001C38 100.4 34 101.9 28.4 101.9C20.1 101.9 9.5 98.5002 1.1 93.9002V117.7C10.4 121.7 19.8 123.4 28.4 123.4C49.2 123.4 63.5 113.1 63.5 95.2001C63.4 65.4001 25.3 70.7001 25.3 59.5001Z"/><path class="on-smoked" fill="#fff" d="M360 78.2001C360 52.6001 347.6 32.4001 323.9 32.4001C300.1 32.4001 285.7 52.6001 285.7 78.0001C285.7 108.1 302.7 123.3 327.1 123.3C339 123.3 348 120.6 354.8 116.8V96.8001C348 100.2 340.2 102.3 330.3 102.3C320.6 102.3 312 98.9002 310.9 87.1002H359.8C359.8 85.8002 360 80.6002 360 78.2001ZM310.6 68.7001C310.6 57.4002 317.5 52.7001 323.8 52.7001C329.9 52.7001 336.4 57.4002 336.4 68.7001H310.6Z M247.1 32.4001C237.3 32.4001 231 37.0001 227.5 40.2001L226.2 34.0001H204.2V150.6L229.2 145.3L229.3 117C232.9 119.6 238.2 123.3 247 123.3C264.9 123.3 281.2 108.9 281.2 77.2001C281.1 48.2001 264.6 32.4001 247.1 32.4001ZM241.1 101.3C235.2 101.3 231.7 99.2001 229.3 96.6002L229.2 59.5001C231.8 56.6001 235.4 54.6002 241.1 54.6002C250.2 54.6002 256.5 64.8001 256.5 77.9001C256.5 91.3001 250.3 101.3 241.1 101.3Z M169.8 26.5L194.9 21.1V0.800049L169.8 6.10005V26.5Z M194.9 34.1001H169.8V121.6H194.9V34.1001Z M142.9 41.5001L141.3 34.1001H119.7V121.6H144.7V62.3001C150.6 54.6001 160.6 56.0001 163.7 57.1001V34.1001C160.5 32.9001 148.8 30.7001 142.9 41.5001Z M92.8999 12.4001L68.4999 17.6001L68.3999 97.7001C68.3999 112.5 79.4999 123.4 94.2999 123.4C102.5 123.4 108.5 121.9 111.8 120.1V99.8001C108.6 101.1 92.7999 105.7 92.7999 90.9001V55.4001H111.8V34.1002H92.7999L92.8999 12.4001Z M25.3 59.5001C25.3 55.6001 28.5 54.1002 33.8 54.1002C41.4 54.1002 51 56.4001 58.6 60.5001V37.0001C50.3 33.7001 42.1 32.4001 33.8 32.4001C13.5 32.4001 0 43.0001 0 60.7001C0 88.3001 38 83.9001 38 95.8001C38 100.4 34 101.9 28.4 101.9C20.1 101.9 9.5 98.5002 1.1 93.9002V117.7C10.4 121.7 19.8 123.4 28.4 123.4C49.2 123.4 63.5 113.1 63.5 95.2001C63.4 65.4001 25.3 70.7001 25.3 59.5001Z"/></svg>',
+);
 /** The other ways in, and Apple Pay, with the marks their owners ask for. A mark that may also be one color (Discord's) is class one-color. */
-const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey), apple_pay: APPLE_PAY } as const;
+const WAY_MARKS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey), apple_pay: APPLE_PAY, stripe: STRIPE } as const;
 export type WayIn = keyof typeof WAY_MARKS;
 
 /**
  * A secondary button's tint: none ("clear"), or a way in's color mixed into its slab. Each way has its own unless the page picks one. "plain" is
  * the glass's own tone, as Google's buttons are: whiter on light glass, nearer Google's black on smoked.
  */
-export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "black" | "red";
-const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear", apple_pay: "plain" };
+export type ButtonTint = "clear" | "plain" | "blue" | "indigo" | "violet" | "black" | "red";
+const WAY_TINTS: Record<WayIn, ButtonTint> = { google: "plain", discord: "indigo", passkey: "clear", apple_pay: "plain", stripe: "violet" };
 
 /**
  * The primary button: it lifts as the pointer arrives, a reflection slides opposite the pointer, and one glint sweeps and
@@ -522,6 +526,7 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
 .cut-btn[data-tint="plain"] > .face { --way: light-dark(#fff, #131314); --way-mix: 60%; }
 .cut-btn[data-tint="blue"] > .face { --way: #2A75E8; }
 .cut-btn[data-tint="indigo"] > .face { --way: #5865F2; }
+.cut-btn[data-tint="violet"] > .face { --way: #635BFF; }
 .cut-btn[data-tint="black"] > .face { --way: #14171C; }
 /* A delete's confirm (a Confirm sheet's isDelete): the one red in Zaisma, deep red glass with only a little of the pane through it, so it
    reads as red, never pink; its words white, which a red that deep needs (5.5:1 on light glass, 8.3:1 on smoked). */
@@ -532,6 +537,9 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
 .way-mark { display: inline-flex; flex: none; }
 .way-mark > svg { width: 20px; height: 20px; }
 .way-mark > svg.pay-mark { width: 32px; height: 20px; }
+.way-mark > svg.wordmark { width: auto; height: 20px; }
+.way-mark > svg .on-light { display: var(--on-light); }
+.way-mark > svg .on-smoked { display: var(--on-smoked); }
 /* Google's G on smoked glass sits on a white disc, as Google asks for a dark surface, so its blue and red never sink into the dark glass. */
 .way-mark.way-google { border-radius: 50%; padding: 2px; margin: -2px; background: var(--brand-mark-backing); }
 /* A mark that may be one color (Discord's) is white over smoked glass and its own blue over light (the fallback, since light glass leaves
@@ -560,6 +568,7 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
     { label: "A delete", markup: secondaryButton("Delete this game", { type: "button" }) },
     { label: "Long words: one line, ending in an ellipsis", markup: html`<div style="${COLUMN}">${secondaryButton("Make an account and keep your progress in Ashen Crown", { type: "button", isFullWidth: true })}</div>` },
     { label: "The ways in, each in its own tint", markup: controlsStacked(waysIn()) },
+    { label: "Going to Stripe: its mark and its tint, for the buttons that leave Zaisma for Stripe's site", markup: secondaryButton("Dashboard", { href: "https://stripe.com", wayIn: "stripe", isSmall: true }) },
     { label: "A way in, pointed", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pointed" })}</div>`, isStill: true },
     { label: "A way in, pressed: it carves in", markup: html`<div style="${COLUMN}">${wayButton("Continue with Discord", "discord", { state: "is-pressed" })}</div>`, isStill: true },
     { label: "A way in, busy", markup: html`<div style="${COLUMN}">${wayButton("Sign in with a passkey", "passkey", { isBusy: true })}</div>`, isStill: true },
@@ -603,7 +612,7 @@ export function tertiaryButton(button: ButtonWords, options: TertiaryButtonOptio
   const { label, chosenIcon, pressedIcon } = faceOf(button);
   const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? html`${raw(String(icon(chosenIcon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? html`${raw(String(icon(chosenIcon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -821,16 +830,19 @@ const edgePane = (body: Raw) => glassPane({ paneWidth: "fit", body: stackOfOne(b
 export interface TextLinkOptions {
   /** In a list of links where nothing else is (a footer, a heading that links to itself): underlined only under the pointer. */
   isQuiet?: boolean;
-  /** It opens in a new tab, so the page it's on keeps running (a notice's page from beside a running game). */
+  /** A page of Zaisma's that opens in a new tab, so the page it's on keeps running (a notice's page from beside a running game). Another site's address opens one by itself. */
   isNewTab?: boolean;
   /** data-* attributes a page's script reads ({ keep: "/signin" } is data-keep="/signin"), names in lowercase words joined by dashes. */
   dataAttributes?: Record<string, string>;
   state?: "is-pointed" | "is-focused";
 }
 
-/** A link in words: ink with an orange underline, so it reads as a link without shouting. Quiet in a list of links, where it's plain until pointed at. */
+/** A link in words: ink with an orange underline, so it reads as a link without shouting. Quiet in a list of links, where it's plain until pointed at. One that opens a new tab ends in the leaving icon, held to its last word so a line never starts with the icon. */
 export function textLink(words: string, href: string, options: TextLinkOptions = {}): Raw {
-  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}"${options.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : ""}>${words}</a>`;
+  const isNewTab = options.isNewTab || leavesZaisma(href);
+  const lastWordIndex = words.lastIndexOf(" ") + 1;
+  const shown = isNewTab ? html`${words.slice(0, lastWordIndex)}<span class="link-end">${words.slice(lastWordIndex)}${icon("out-of-page")}</span>` : words;
+  return html`<a class="${classes("link", options.isQuiet && "quiet", options.state)}" href="${href}"${isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : ""}>${shown}</a>`;
 }
 
 component({
@@ -847,6 +859,8 @@ component({
 .link, .reading :where(a:not(:has(img))) { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 3px;
   transition: text-decoration-color var(--motion-state), color var(--motion-state); }
 .link:hover, .link.is-pointed, .link:active, .reading :where(a:not(:has(img))):is(:hover, :active) { color: var(--run-words); }
+.link-end { white-space: nowrap; display: inline-flex; align-items: baseline; gap: var(--gap-words-words); }
+.link-end > .ico { width: .8em; height: .8em; vertical-align: -.04em; }
 .link.quiet { color: inherit; font-weight: inherit; text-decoration-color: transparent; }
 .link.quiet:hover, .link.quiet.is-pointed { color: var(--run-words); text-decoration-color: var(--run); }
 .link:focus-visible, .link.is-focused, .reading :where(a):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
@@ -873,7 +887,8 @@ component({
       markup: html`<p style="margin:0;max-width:300px;font:var(--type-reading);color:var(--ink-2)">Saves stay on this device until you sign in. ${textLink("Read how cloud saves keep your progress on every device you play on", "#link", { state: "is-pointed" })}, or keep playing as a guest.</p>`,
       isStill: true,
     },
-    { label: "In a new tab, beside a running game", markup: html`<p style="margin:0;font:var(--type-words)">Someone copied your work? ${textLink("Send a copyright notice", "#link", { isNewTab: true })}</p>` },
+    { label: "To another site: a new tab and the leaving icon, from its address", markup: html`<p style="margin:0;font:var(--type-words)">Zaisma is open source: ${textLink("read the source code", "https://github.com/zaisma/zaisma")}</p>` },
+    { label: "A page of Zaisma's in a new tab, beside a running game", markup: html`<p style="margin:0;font:var(--type-words)">Someone copied your work? ${textLink("Send a copyright notice", "#link", { isNewTab: true })}</p>` },
     // The list spaces its links, not the link: a footer's are a block's gap apart, so each reads as its own.
     { label: "Quiet, in a list of links", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true })}${textLink("Source code", "#link", { isQuiet: true })}</p>` },
     { label: "Quiet, pointed", markup: html`<p style="margin:0;display:flex;flex-wrap:wrap;column-gap:var(--gap-block-block);row-gap:var(--gap-words-words);font:var(--type-note);color:var(--ink-2)">${textLink("Forum", "#link", { isQuiet: true })}${textLink("Privacy", "#link", { isQuiet: true, state: "is-pointed" })}${textLink("Source code", "#link", { isQuiet: true })}</p>`, isStill: true },
@@ -882,28 +897,30 @@ component({
 
 /** A cut token's value in px, read from the tokens themselves, so what Cut shapes says is always what the glass is cut to. */
 const cutPx = (tokenName: string) => new RegExp(`--${tokenName}:\\s*(\\d+)px`).exec(TOKEN_STYLES)?.[1] ?? "";
-const cutWords = (kind: "pane" | "header" | "menu") => `${cutPx(`${kind}-cut-large`)} and ${cutPx(`${kind}-cut-small`)}`;
+const cutWords = (kind: "pane" | "header" | "menu" | "strip") => `${cutPx(`${kind}-cut-large`)} and ${cutPx(`${kind}-cut-small`)}`;
 /** A slab of glass cut as a pane, the header or a menu is, empty, to show the cut alone. */
-const cutSample = (kind: "pane" | "header" | "menu") => html`<div class="glass cut-sample is-${kind}" data-glass data-glass-corners="${kind}">${EDGE}</div>`;
+const cutSample = (kind: "pane" | "header" | "menu" | "strip") => html`<div class="glass cut-sample is-${kind}" data-glass data-glass-corners="${kind}">${EDGE}</div>`;
 
 component({
   name: "Cut shapes",
   slug: "cut-shapes",
   group: "foundations",
   subgroup: "look",
-  summary: `Corners are cut, never rounded: ${cutWords("pane")} on panes, ${cutWords("header")} on the header, ${cutWords("menu")} on menus. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.`,
+  summary: `Corners are cut, never rounded: ${cutWords("pane")} on panes, ${cutWords("header")} on the header, ${cutWords("menu")} on menus, ${cutWords("strip")} on a notice's strip. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.`,
   styles: `
 /* Cut shapes: the glass's cuts, each on a slab of glass, then the edge rule on real buttons. */
 .cut-sample { max-width: 100%; }
 .cut-sample.is-pane { width: 200px; height: 140px; }
 .cut-sample.is-header { width: 260px; height: 68px; }
 .cut-sample.is-menu { width: 180px; height: 120px; }
+.cut-sample.is-strip { width: 220px; height: 44px; }
 .edge-stack { display: grid; gap: var(--gap-control-stack); }
 `,
   examples: [
     { label: `A pane: ${cutWords("pane")}`, markup: cutSample("pane") },
     { label: `The header: ${cutWords("header")}`, markup: cutSample("header") },
     { label: `A menu: ${cutWords("menu")}`, markup: cutSample("menu") },
+    { label: `A notice's strip: ${cutWords("strip")}`, markup: cutSample("strip") },
     { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(secondaryButton("Make an account", { type: "button", isFullWidth: true })) },
     { label: "Side by side: slants between, fits the outside", markup: edgePane(controlsBeside(primaryButton(action("play"), { type: "button" }), secondaryButton("Details", { type: "button" }))) },
     {

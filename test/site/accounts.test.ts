@@ -1,7 +1,7 @@
 import { stackOfOne } from "../../apps/site/src/components/layout.ts";
 import { createExecutionContext, env, SELF } from "cloudflare:test";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, addOwnedBlob, manifestKey, ownedBlobKey, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { handleSignIn } from "../../apps/site/src/sign-in.ts";
 import type { Env as SiteEnv } from "../../apps/site/src/env.ts";
@@ -15,7 +15,7 @@ import { changeSaveAsDeveloper, storedSaveText } from "../../apps/site/src/saves
 
 /** A localStorage-only save as Zaisma stores it (the v1 envelope). */
 const savedText = (localStorageItems: Record<string, string>) => canonicalSave(saveFromParts(localStorageItems, []));
-import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, deleteAbandonedSignIns } from "../../apps/site/src/cleanup.ts";
+import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, deleteWaitingSignIns } from "../../apps/site/src/cleanup.ts";
 import worker from "../../apps/site/src/index.ts";
 import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
 import { sendEmailCode } from "../../apps/site/src/email-codes.ts";
@@ -66,6 +66,7 @@ const sessions = new Map<string, { userId: string; seconds: number }>();
 /** What Supabase was asked to sign out (/logout's scope), newest last, and whether it says no. */
 const logouts: { scope: string | null }[] = [];
 let isLogoutFailing = false;
+let isSignInDeleteFailing = false;
 /** How many seconds before now the next sign-ins say they happened, for a device that signed in a while ago. */
 let signInAgeSeconds = 0;
 const codes = new Map<string, { email: string; challenge: string }>(); // Google/Discord one-time code -> who
@@ -209,6 +210,7 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     return email ? Response.json({ id: del[1], email }) : Response.json({}, { status: 404 });
   }
   if (del && init.method === "DELETE") {
+    if (isSignInDeleteFailing) return new Response("no", { status: 500 });
     deleted.push(del[1]!);
     for (const [e, id] of users) if (id === del[1]) users.delete(e);
     return Response.json({});
@@ -230,6 +232,7 @@ beforeEach(async () => {
   sessions.clear();
   logouts.length = 0;
   isLogoutFailing = false;
+  isSignInDeleteFailing = false;
   signInAgeSeconds = 0;
   links.clear();
   codes.clear();
@@ -1190,6 +1193,83 @@ describe("deleting an account deletes its games", () => {
     expect(taken.status).toBe(409);
     expect(errorProblems(answer, taken.status)).toEqual([]);
     expect(answer).toMatchObject({ error: { code: "slug_taken", field: "slug" } });
+  });
+
+  it("deletes a developer whose big files a kept game still uses, then the files nothing uses any more", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const owner = await personOwner(env.DB, accountId);
+    const kept = await ownGame(accountId, "flagged-game", "Flagged Game");
+    const keptVersionId = newId("version");
+    await createVersion(env.DB, { id: keptVersionId, gameId: kept.id, r2Prefix: `manifests/${keptVersionId}`, fileCount: 1, sizeBytes: 5, kind: "files" });
+    await saveScan(env.DB, keptVersionId, "held", SCAN_REPORT);
+    const usedSha256 = "a".repeat(64);
+    const unusedSha256 = "b".repeat(64);
+    await env.GAMES.put(manifestKey(keptVersionId), JSON.stringify({ files: { "index.html": { sha256: usedSha256, owner_id: owner.id } } }));
+    for (const sha256 of [usedSha256, unusedSha256]) {
+      await addOwnedBlob(env.DB, owner.id, sha256, 5);
+      await env.GAMES.put(ownedBlobKey(owner.id, sha256), "hello");
+    }
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(await accountById(env.DB, accountId)).toBeNull();
+    expect(await env.DB.prepare("SELECT 1 FROM owners WHERE id = ?").bind(owner.id).first()).toBeNull();
+
+    await dailyCleanup(env, Date.now() + 3 * 86_400_000);
+    await dailyCleanup(env, Date.now() + 6 * 86_400_000);
+    expect(await env.GAMES.head(ownedBlobKey(owner.id, usedSha256))).not.toBeNull();
+    expect(await env.GAMES.head(ownedBlobKey(owner.id, unusedSha256))).toBeNull();
+    const { results } = await env.DB.prepare("SELECT sha256 FROM owned_blobs WHERE owner_id = ?").bind(owner.id).all<{ sha256: string }>();
+    expect(results.map((row) => row.sha256)).toEqual([usedSha256]);
+  });
+
+  it("removes the sign-in only once the account's rows are gone, so a deletion that stops leaves its owner able to try again", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    await env.DB.exec("CREATE TABLE stops_deleting (account_id TEXT REFERENCES accounts(id))");
+    onTestFinished(async () => void (await env.DB.exec("DROP TABLE IF EXISTS stops_deleting")));
+    await env.DB.prepare("INSERT INTO stops_deleting (account_id) VALUES (?)").bind(accountId).run();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const stopped = await b.go("/account/delete", { confirm: "delete" });
+    expect(stopped.status).toBe(502);
+    expect(await stopped.text()).toContain("Couldn&#39;t delete your account");
+    expect(deleted).not.toContain(accountId);
+    expect(await accountById(env.DB, accountId)).not.toBeNull();
+    errors.mockRestore();
+    await env.DB.exec("DROP TABLE stops_deleting");
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(deleted).toContain(accountId);
+    expect(await accountById(env.DB, accountId)).toBeNull();
+  });
+
+  it("deletes the account when Supabase won't take the sign-in, and asks Supabase again until it does", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const waitingCount = async () => (await env.DB.prepare("SELECT COUNT(*) AS waiting_count FROM waiting_sign_in_deletions").first<{ waiting_count: number }>())!.waiting_count;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    isSignInDeleteFailing = true;
+
+    expect(await (await b.go("/account/delete", { confirm: "delete" })).text()).toContain("Your account is deleted");
+    expect(await accountById(env.DB, accountId)).toBeNull();
+    expect(await waitingCount()).toBe(1);
+    await deleteWaitingSignIns(env);
+    expect(await waitingCount()).toBe(1);
+    errors.mockRestore();
+
+    isSignInDeleteFailing = false;
+    await deleteWaitingSignIns(env);
+    expect(deleted).toContain(accountId);
+    expect(await waitingCount()).toBe(0);
+  });
+
+  it("leaves a waiting sign-in alone once its person has joined again", async () => {
+    await createAccount(env.DB, { id: "back-again", username: "Back_Again", ageBand: "18+" });
+    await env.DB.prepare("INSERT INTO waiting_sign_in_deletions (account_id, created_at_ms) VALUES ('back-again', 1)").run();
+    await deleteWaitingSignIns(env);
+    expect(deleted).not.toContain("back-again");
+    expect(await env.DB.prepare("SELECT 1 FROM waiting_sign_in_deletions").first()).toBeNull();
   });
 
   it("keeps a game under a child-safety hold whole, taken down with no owner", async () => {
@@ -2532,35 +2612,31 @@ describe("cloud saves", () => {
     expect(own).toContain("Go back to Owl Game to keep playing.</p>");
   });
 
-  it("signs in over the city, naming the game that asked, with the guest way back to it", async () => {
+  it("signs in over the live world, naming the game that asked, with the guest way back to it", async () => {
     await liveGame();
     await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'owl-game'").run();
     const plain = await (await new Browser().go("/signin")).text();
-    // One pane of glass over the city: its canvas, the still under it, the logo alone above, and the switch to making an account.
-    expect(plain).toContain('<div class="city-pane" data-city-pane>');
-    expect(plain).toContain('<canvas class="city"></canvas>');
-    // Every step swaps into the pane in place, so the city never starts over; the passkey script can run again for it.
-    expect(plain).toMatch(/<link rel="preload" as="script" href="\/js\/city-pane\.[0-9a-f]+\.js" fetchpriority="low" data-page-script>/);
-    expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
+    // One pane of glass over the world: its canvases, the logo alone above, and the switch to making an account.
+    expect(plain).toContain('<div class="world-pane" data-world-pane>');
+    expect(plain).toContain('<canvas class="world-birds"></canvas>');
+    // Every step swaps into the pane in place, so the world never starts over; the passkey script can run again for it.
+    expect(plain).toMatch(/<link rel="preload" as="script" href="\/js\/live-world-pane\.[0-9a-f]+\.js" fetchpriority="low" data-page-script>/);
     expect(plain).toMatch(/<header class="top bar-layout glass[^"]*"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top bar-layout glass[^"]*"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
     expect(plain).toContain('<a class="flush-row quiet" data-lights href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a class="flush-row quiet" data-lights href="/join">Make an account</a>');
-    expect(plain).toContain("Continue as guest");
+    expect(plain).toContain("Play as a guest");
     expect(plain).not.toContain("asked you to sign in");
-    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in", "entry-switch"]));
+    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["live-world", "back-to-game", "passkey-sign-in", "entry-switch"]));
     // Sign in and Make an account are both in the pane, so the switch swaps them in place; each address opens on its own.
     expect(plain).toContain('<section class="pane-stack" id="view-signin" data-entry-view="signin" data-title="Sign in · Zaisma">');
     expect(plain).toContain('<section class="pane-stack" id="view-join" data-entry-view="join" data-title="Make an account · Zaisma" hidden>');
     const joinPage = await (await new Browser().go("/join")).text();
     expect(joinPage).toContain('data-entry-view="signin" data-title="Sign in · Zaisma" hidden>');
     expect(joinPage).toContain('<a class="flush-row quiet" data-lights href="/join" aria-current="page">Make an account</a>');
-    // The stills are the stage's CSS, so only the one showing loads.
     const styles = await (await SELF.fetch(`${SITE}${plain.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
-    for (const still of ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"]) expect(styles).toContain(`url(/sign-in/${still})`);
-    // A press anywhere but on the pane, the logo or the rail reaches the city, whose shapes and sea are there to tap.
-    expect(styles).toMatch(/\.city-page[^{}]*\{ ?pointer-events: none; ?\}/);
-    expect(styles).toMatch(/\.city-stage[^{}]*\{ ?pointer-events: auto; ?\}/);
+    // A press anywhere but on the pane, the logo, the rail or the count goes through the page.
+    expect(styles).toMatch(/\.world-page[^{}]*\{ ?pointer-events: none; ?\}/);
 
     // A game's tab: the pane says the game asked, and the guest way goes back to it, on every pane of the way in.
     const next = encodeURIComponent("/account/kept?game=owl-game");
@@ -2569,14 +2645,14 @@ describe("cloud saves", () => {
       expect(asked, path).toContain("<p>Owl Game asked you to sign in.</p>");
       expect(asked, path).toContain('<div data-back><a class="shell tertiary-btn is-full" href="/g/owl-game?play">');
       expect(asked, path).toContain("Back to Owl Game as a guest");
-      expect(asked, path).not.toContain("Continue as guest");
+      expect(asked, path).not.toContain("Play as a guest");
     }
     // The switch keeps where they were going.
     expect(await (await new Browser().go(`/signin?next=${next}`)).text()).toContain(`<a class="flush-row quiet" data-lights href="/join?next=${next}">Make an account</a>`);
     // A made-up game, or one strangers can't see, isn't named.
     for (const unknown of ["/account/kept?game=no-such-game", "/account/kept?game=Owl"]) {
       const page = await (await new Browser().go(`/signin?next=${encodeURIComponent(unknown)}`)).text();
-      expect(page).toContain("Continue as guest");
+      expect(page).toContain("Play as a guest");
       expect(page).not.toContain("asked you to sign in");
     }
     await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE slug = 'owl-game'").run();
@@ -4692,8 +4768,8 @@ describe("Developer settings", () => {
     const connected = await (await b.go("/dashboard/settings")).text();
     expect(connected).toContain("Pixel Smith");
     expect(connected).toContain("Finish on Stripe");
-    expect(connected).toContain("Change on Stripe");
-    expect(connected).toContain("Open Stripe");
+    expect(connected).toContain("Account settings");
+    expect(connected).toContain("Dashboard");
     expect(pageProblems(connected)).toEqual([]);
     // The tap is in the Finish on Stripe form too, since it asks for a fresh connect_url: its sheet posts to connect, tapping the passkey first.
     expect(connected).toMatch(/action="\/dashboard\/settings\/payments\/connect"[\s\S]*?data-tap="confirm"/);

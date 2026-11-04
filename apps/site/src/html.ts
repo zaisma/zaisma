@@ -358,7 +358,7 @@ dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);ba
 [aria-busy=true] svg{display:none}
 @keyframes spin-calm{50%{opacity:.4}}
 @media (max-width:640px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.spin{-webkit-mask-image:url(/zaisma-mark-small-white.svg);mask-image:url(/zaisma-mark-small-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.spin{-webkit-mask-image:url(/zaisma-mark-white.svg);mask-image:url(/zaisma-mark-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
 `;
 
 /** A style sheet with each rule's selectors changed by mapSelector. @media and @supports blocks are changed inside; @keyframes, @property and the like stay as they are. */
@@ -612,7 +612,7 @@ const ADMIN_TABS: [string, string][] = [
 
 /**
  * What a page is, which sets how wide it runs (docs/DESIGN.md, Page shapes): words, forms and settings are "reading", one column under the
- * header; covers, cards, tables and charts are "wide", the whole frame; a page whose world is the page (the home, a game's page, the city)
+ * header; covers, cards, tables and charts are "wide", the whole frame; a page whose world is the page (the home, a game's page, the live world)
  * is "full", its world to the screen's edges and its panes in the frame.
  */
 export type PageShape = "reading" | "wide" | "full";
@@ -647,7 +647,7 @@ interface LayoutBaseOptions {
    * passes its account as { account }, so the session is read once. Left out, the header says Sign in until the page sees the signed-in cookie.
    */
   viewer?: Pick<Viewer, "account"> | null;
-  /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's city (components/city.ts). */
+  /** A scene of the page's own in place of Zaisma's backdrop, like the sign-in's live world (components/live-world.ts). */
   stage?: Raw;
   /** The stage's own color ("#rrggbb", a game's measured background), behind it from the first paint (--backdrop-edge, which BACKDROP_SCRIPT keeps). */
   stageColor?: string | null;

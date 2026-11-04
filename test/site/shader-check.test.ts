@@ -45,7 +45,7 @@ import {
   type ShaderRenderer,
   type ShaderRenderInput,
 } from "../../apps/site/src/shader-check.ts";
-import { SHADER_HELPERS, STAND_IN_BACKGROUNDS, ZAISMA_SHADER } from "../../apps/site/src/components/shaders.ts";
+import { SHADER_HELPERS, STAND_IN_BACKGROUNDS, ZAISMA_LIVE_PARTS, ZAISMA_SHADE_PASS, ZAISMA_SHADER, ZAISMA_SHAPES, ZAISMA_SHARP_DRAWING, ZAISMA_SOFT_PASS, ZAISMA_STORED_PARTS, ZAISMA_STRIP_PASS } from "../../apps/site/src/components/shaders.ts";
 import type { ListingJudge, PictureAnswer } from "../../apps/site/src/listing-judge.ts";
 import { SHADER_CHECK } from "../../apps/site/src/schemas.ts";
 import { schemaProblems } from "../schema-check.ts";
@@ -280,6 +280,9 @@ describe("WebGL2's GLSL", () => {
     expect(STAND_IN_BACKGROUNDS).toHaveLength(10);
     for (const standIn of STAND_IN_BACKGROUNDS) expect(webgl2Problems(`${SHADER_HELPERS}${standIn.shader}`), standIn.slug).toEqual([]);
     expect(webgl2Problems(`uniform float iDark;\n${SHADER_HELPERS}${ZAISMA_SHADER}`)).toEqual([]);
+    // The parts Zaisma's own pages draw it in.
+    const zaismaShapes = `uniform float iDark;\n${SHADER_HELPERS}#define RIDGE_OCTAVES 6\n${ZAISMA_SHAPES}`;
+    for (const part of [`${ZAISMA_STORED_PARTS}${ZAISMA_SHARP_DRAWING}`, `${ZAISMA_LIVE_PARTS}${ZAISMA_SOFT_PASS}`, `${ZAISMA_LIVE_PARTS}${ZAISMA_STRIP_PASS}`, `${ZAISMA_LIVE_PARTS}${ZAISMA_SHADE_PASS}`]) expect(webgl2Problems(`${zaismaShapes}${part}`).filter((problem) => !/mainImage|uses layout/.test(problem))).toEqual([]);
   });
 
   it("is what every pass compiles: #version 300 es first, every input declared once, line numbers the developer's own", () => {

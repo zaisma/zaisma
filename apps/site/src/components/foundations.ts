@@ -1,7 +1,7 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+import { ICONS, ICON_GROUPS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -12,7 +12,7 @@ import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.gene
  * From the drafts Julius approved (ops docs/drafts/look-and-voice/). "Zaisma is the glass, and the game is not"; orange
  * only on what you act on. Everything the other component files import from here is re-exported below.
  */
-export { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+export { ICONS, MARK, WORDMARK, icon, largeIcon, leavesZaisma, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
 import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
@@ -359,6 +359,13 @@ const SWATCHES: { token: string; note: string }[] = [
   { token: "--warning", note: "A warning, a field marked wrong" },
   { token: "--online", note: "Online, playing" },
   { token: "--danger", note: "A delete's confirm step only" },
+  { token: "--run-words", note: "Orange words, dark enough to read" },
+  { token: "--on-run", note: "Words on orange" },
+  { token: "--focus", note: "Keyboard focus" },
+  { token: "--marked", note: "A field marked wrong" },
+  { token: "--well", note: "What's carved in" },
+  { token: "--dim", note: "The page under a sheet" },
+  { token: "--done", note: "A step that's done" },
 ];
 
 const swatches = () =>
@@ -507,11 +514,6 @@ component({
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
     { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ standInSlug: "neon-drift", cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
-    {
-      label: "Thin to thick",
-      isWide: true,
-      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
-    },
   ],
 });
 
@@ -534,7 +536,9 @@ export interface BackdropOptions {
 /** What's behind the glass on a page: the first thing in the page's body or stage, under everything else. */
 export function backdrop(options: BackdropOptions = {}): Raw {
   if (options.standInSlug && !STAND_IN_BACKGROUNDS.some((background) => background.slug === options.standInSlug)) throw new Error(`No stand-in background is called ${options.standInSlug}`);
-  return html`<canvas class="backdrop${options.isFramed ? " is-framed" : ""}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
+  // Zaisma's own shows as its blurred placeholder from the first paint, and fades in once it's drawn; nothing holds the page for it.
+  const isOwn = !options.isScene && !options.fragmentShader && !options.standInSlug, framed = options.isFramed ? " is-framed" : "";
+  return html`${isOwn ? html`<div class="backdrop backdrop-placeholder is-own${framed}" aria-hidden="true"></div>` : ""}<canvas class="backdrop${isOwn ? " is-own" : ""}${framed}" data-backdrop="${options.isScene ? "scene" : "shader"}"${options.fragmentShader ? html` data-backdrop-shader="${options.fragmentShader}"` : ""}${options.standInSlug ? html` data-backdrop-stand-in="${options.standInSlug}"` : ""}${options.isGlassAdaptive ? raw(" data-adapts-glass") : ""} aria-hidden="true"></canvas>`;
 }
 
 /**
@@ -585,7 +589,7 @@ component({
   slug: "backdrop",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, under a midday sky in light and the Milky Way in dark, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
@@ -595,6 +599,14 @@ component({
 .backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; border: 0; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
 @media (pointer: coarse), (max-width: 760px) { .backdrop { --backdrop-bleed: 100px; } }
 .backdrop.is-framed { --backdrop-bleed: 0px; position: absolute; inset: 0; height: 100%; }
+/* Zaisma's own: its placeholder under its canvas, which fades in once it has drawn. */
+.backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
+.backdrop.is-own.is-drawn { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .backdrop.is-own { transition: none; } }
+.backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
+[data-theme-choice="dark"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
+[data-theme-choice="light"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -624,7 +636,7 @@ html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page
 `,
   render: backdrop,
   examples: [
-    { label: "Zaisma's own: behind every page, warm gray on light and warm graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "Zaisma's own: behind every page, a midday sky in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
@@ -852,6 +864,8 @@ component({
   summary: "Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.",
   styles: `
 /* Icons: the set, with names. */
+.icon-groups { width: 100%; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.icon-group-title { margin: 0 0 var(--gap-words-words); font: var(--type-words); font-weight: 600; color: var(--ink); }
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
 /* A name wraps rather than widen its column: at large text, the longest names would push the set past the page. */
 .icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-facts); color: var(--ink-2); }
@@ -864,7 +878,7 @@ component({
 `,
   render: icon,
   examples: [
-    { label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` },
+    { label: "Every icon, under what it's for", isWide: true, markup: html`<div class="icon-groups">${ICON_GROUPS.map((group) => html`<section><h3 class="icon-group-title">${group.title}</h3><ul class="icon-set">${group.iconNames.map((name) => html`<li>${icon(name)}<span>${name}</span></li>`)}</ul></section>`)}</div>` },
     { label: "Large: a pane's key icon, standing for what it is, above its title (Confirm it's you)", markup: html`${largeIcon("key")}` },
   ],
 });

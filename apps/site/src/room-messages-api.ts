@@ -2,6 +2,7 @@ import { ROOM_LIMITS, isRoomCode, type LiveRoom, type RoomPlayer } from "@zaisma
 import { ApiError, ROOM_MESSAGE_LIMITS, audit, checkRoomMessage, iso, isIdOf, isRoomLabels, listLiveRooms, newId, type Game } from "@zaisma/core";
 import type { Caller, CheckedCall, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
+import { startKeptRoomWait } from "./kept-rooms-api.ts";
 import { logCallerEvent } from "./security-log.ts";
 
 /**
@@ -194,13 +195,21 @@ export async function roomsRoute(request: Request, env: Env, game: Game, path: s
   if (path.endsWith("/end")) {
     const shownMessage = readShownMessage(checked.body.message, "bad_end_message");
     if (checked.body.confirm !== true) {
-      throw new ApiError("needs_confirm", { message: `Ending room ${code} ends the match for everyone in it, and a kept room's world for good.`, field: "confirm", fix: 'Ask the developer; if they agree, call again with "confirm": true.' });
+      throw new ApiError("needs_confirm", { message: `Ending room ${code} ends the match for everyone in it, and a kept room's world waits a week to be erased.`, field: "confirm", fix: 'Ask the developer; if they agree, call again with "confirm": true.' });
     }
-    const ended = service ? await service.endRoom({ gameId: game.id, slug: game.slug, roomCode: code, message: shownMessage }) : { endOutcome: "no_room" as const };
-    if (ended.endOutcome === "no_room") throw noRoom(game, code);
+    // A kept world other people played waits its week, like one deleted; only the game server's own room.end is final.
+    const erasesAtMs = await startKeptRoomWait(env, game, code, shownMessage, caller);
+    if (erasesAtMs === null) {
+      const ended = service ? await service.endRoom({ gameId: game.id, slug: game.slug, roomCode: code, message: shownMessage }) : { endOutcome: "no_room" as const };
+      if (ended.endOutcome === "no_room") throw noRoom(game, code);
+    }
     await audit(env.DB, game.id, "room-ended", code, caller.actor);
-    await logCallerEvent(env, caller, "room_ended", { gameId: game.id, subjectName: code });
-    return [{ is_ended: true, next_steps: [{ tool: "list_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's live rooms now." }] satisfies NextStep[] }];
+    if (erasesAtMs === null) await logCallerEvent(env, caller, "room_ended", { gameId: game.id, subjectName: code });
+    const nextSteps: NextStep[] = [
+      ...(erasesAtMs === null ? [] : [{ tool: "bring_back_kept_room", arguments: { slug: game.slug, room_code: code }, after_sec: null, reason: "Brings the world back until erases_at, as it was." }]),
+      { tool: "list_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's live rooms now." },
+    ];
+    return [{ is_ended: true, erases_at: iso(erasesAtMs), next_steps: nextSteps }];
   }
 
   if (request.method !== "GET") throw new ApiError("bad_method", { message: `${request.method} isn't a call at /games/${game.slug}/rooms/${code}.`, fix: "GET gives the room and who's in it." });

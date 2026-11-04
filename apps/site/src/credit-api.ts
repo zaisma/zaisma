@@ -199,13 +199,13 @@ export async function refundForDeletion(env: Env, accountId: string, nowMs = Dat
   await stopCreditPlanForDeletion(env, owner.id);
   for (const topUp of await refundableTopUps(env.DB, owner.id, nowMs)) {
     if (topUp.refundableCents <= 0 || !topUp.stripeObjectId) continue;
-    // The same key for every try, so a refund Stripe made without answering is never made twice.
-    const pendingRefundId = newId("pending_refund");
+    // The same key for every try, a deletion's second try included, so a refund Stripe made without answering is never made twice.
+    const pendingRefundId = `pending_refund_${topUp.id}`;
     try {
       await refundTopUp(env, owner.id, topUp.id, topUp.stripeObjectId, topUp.refundableCents, `refund:${pendingRefundId}`);
     } catch (error) {
       console.error("Couldn't refund a deleted account's top-up now; it waits in pending_refunds:", topUp.id, error);
-      await env.DB.prepare("INSERT INTO pending_refunds (id, stripe_payment_intent_id, amount_cents, created_at_ms) VALUES (?, ?, ?, ?)").bind(pendingRefundId, topUp.stripeObjectId, topUp.refundableCents, nowMs).run();
+      await env.DB.prepare("INSERT OR IGNORE INTO pending_refunds (id, stripe_payment_intent_id, amount_cents, created_at_ms) VALUES (?, ?, ?, ?)").bind(pendingRefundId, topUp.stripeObjectId, topUp.refundableCents, nowMs).run();
     }
   }
 }

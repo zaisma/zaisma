@@ -292,8 +292,8 @@ export const MEASURE_LAYOUT_SOURCE = String.raw`function measurePage(options) {
  * (FIRST_PAINT_COMPARE_SOURCE)({ tiers }): what moved more than a pixel or changed its words since, and, at the first paint, any picture
  * shown without its placeholder. Each failure names the outermost thing that moved, not everything inside it.
  */
-// What's behind the glass (a backdrop, the city) is a scene, not the page: it settles behind it as it likes. A table's frost follows its fades as they settle: nothing to read or press.
-const FIRST_PAINT_SKIPPED = "script, style, template, svg, svg *, .sr, .rail, .rail *, .edge, .cut-line, .backdrop, .city-stage, .city-stage *, dialog:not([open]), dialog:not([open]) *, [hidden], [hidden] *, .table-frost";
+// What's behind the glass (a backdrop, the live world) is a scene, not the page: it settles behind it as it likes. A table's frost follows its fades as they settle: nothing to read or press.
+const FIRST_PAINT_SKIPPED = "script, style, template, svg, svg *, .sr, .rail, .rail *, .edge, .cut-line, .backdrop, .world-stage, .world-stage *, dialog:not([open]), dialog:not([open]) *, [hidden], [hidden] *, .table-frost";
 export const FIRST_PAINT_SNAPSHOT_SOURCE = String.raw`(function () {
   var shown = [], scrollX = window.scrollX, scrollY = window.scrollY;
   document.body.querySelectorAll("*").forEach(function (el) {

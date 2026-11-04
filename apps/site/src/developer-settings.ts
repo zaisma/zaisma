@@ -1,4 +1,5 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
+import { guildSeal } from "./components/guild-seal.ts";
 import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
@@ -517,6 +518,7 @@ function proPane(settings: Settings): LayoutItem {
   const { pro, storage } = settings;
   const isPro = pro.plan === "pro";
   const items: LayoutItem[] = [
+    block(html`<div class="guild-seal-place">${guildSeal({ sealSize: "large", isForging: true })}</div>`),
     block(keyDetails({ details: [{ label: isPro ? (pro.is_pro_cancelled ? `Your plan, until ${shownDate(pro.pro_ends_at)}` : `Your plan, renews ${shownDate(pro.pro_ends_at)}`) : "Your plan", detailValue: isPro ? "Pro" : "Free" }] })),
     words(isPro ? (pro.is_pro_cancelled ? `You have Zaisma Pro until ${shownDate(pro.pro_ends_at)}. It won't renew.` : `You have Zaisma Pro. It renews ${shownDate(pro.pro_ends_at)}.`) : `Zaisma Pro gives you more storage and performance checks for ${dollars(PRO_PRICE_CENTS_PER_MONTH)} a month on your card. It's separate from hosting credit.`),
     ...(isPro ? [] : [words(`Cancel any time. Your first payment refunds within ${PRO_REFUND_LIMITS.refundableDurationDays} days.`)]),
@@ -605,14 +607,14 @@ function paymentsPane(settings: Settings): LayoutItem {
   }
   const rows: ListRow[] = [];
   if (!stripe.can_take_payments) {
-    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: opens(action("openStripe", "Finish on Stripe"), "payments-finish") });
+    rows.push({ title: "Finish setting up", detail: "Stripe isn't ready to take payments yet", end: tag("Not ready", "warning"), action: secondaryButton("Finish setting up", { type: "button", isSmall: true, controls: "payments-finish", wayIn: "stripe" }) });
     items.push(layer(tapSheet("payments-finish", "Finish on Stripe?", "Tap your passkey, then finish setting up your account on Stripe's page.", `${PAGE}/payments/connect`, "Continue to Stripe")));
   }
   rows.push(
     {
       title: stripe.business_name ?? "No seller name yet",
       detail: `${stripe.support_email ?? "No support email"} · ${stripe.country_code ?? ""} · ${(stripe.default_currency_code ?? "").toUpperCase()}`,
-      action: secondaryButton(action("openStripe", "Change on Stripe"), { href: "https://dashboard.stripe.com/settings/account", isSmall: true }),
+      action: secondaryButton("Account settings", { href: "https://dashboard.stripe.com/settings/account", isSmall: true, wayIn: "stripe" }),
     },
     { title: "Stripe Tax", detail: `${stripe.is_stripe_tax_used ? "On" : "Off"} · Stripe calculates and records the tax inside each price · prices never change`, action: opens(action("change"), "payments-tax") },
     ...(balance ? [{ title: "Amounts", detail: "Hide them on this device, for when someone's looking", action: visibilityButton({ show: "Show amounts", hide: "Hide amounts" }, { type: "button", isSmall: true, isContentHidden: false, dataAttributes: { "amounts-toggle": "" } }) }] : []),
@@ -632,7 +634,7 @@ function paymentsPane(settings: Settings): LayoutItem {
     ),
     layer(askSheet("payments-disconnect", "Disconnect Stripe?", "Players can't buy in any of your games until you connect again. Past sales stay.", `${PAGE}/payments/disconnect`, "Disconnect")),
   );
-  return settingsPane("payments", "Payments", items, { end: secondaryButton(action("openStripe"), { href: "https://dashboard.stripe.com", isSmall: true }) });
+  return settingsPane("payments", "Payments", items, { end: secondaryButton("Dashboard", { href: "https://dashboard.stripe.com", isSmall: true, wayIn: "stripe" }) });
 }
 
 /* ---- Webhooks ---- */
@@ -1022,7 +1024,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     state.gameDeletionRequestId && gameDeletion?.request_status === "waiting"
       ? sheet({
           id: "game-deletion-request",
-          title: gameDeletion.request_kind === "delete_game" ? `Delete ${gameDeletion.game_title}?` : `Erase ${gameDeletion.game_title} now?`,
+          title: gameDeletion.request_kind === "delete_game" ? `Delete ${gameDeletion.game_title}?` : gameDeletion.request_kind === "erase_game_now" ? `Erase ${gameDeletion.game_title} now?` : `Erase world ${gameDeletion.room_code} now?`,
           closeLabel: "Close",
           action: `${PAGE}/game-deletion/${gameDeletion.id}`,
           isShown: false,
@@ -1053,6 +1055,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
 function gameDeletionWords(request: NonNullable<Awaited<ReturnType<typeof gameDeletionRequestAnswer>>>): string[] {
   const who = request.is_asked_from_dashboard ? [] : ["A key or an AI app asks for this. If it wasn't you, decline, then remove the key."];
   if (request.request_kind === "erase_game_now") return [...who, "Nobody else ever played it. Its files and database go for good, at once."];
+  if (request.request_kind === "erase_kept_room_now") return [...who, `A world in ${request.game_title}. It goes for good, at once, with everything its players built. Decline and it can still be brought back until its week is over.`];
   return [...who, "It goes off for every player at once, and is erased in 7 days unless you bring it back."];
 }
 
@@ -1175,10 +1178,10 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     }
     if ((match = sub.match(/^game-deletion\/(game_deletion_request_[a-z0-9]+)$/))) {
       const answer = field("answer", 20) === "declined" ? "declined" : "approved";
-      const { outcome, gameSlug } = await answerGameDeletionRequest(env, caller, match[1]!, answer);
+      const { outcome, gameSlug, requestKind } = await answerGameDeletionRequest(env, caller, match[1]!, answer);
       if (outcome === "not_waiting") return redirect(`${PAGE}?game_deletion_request=${match[1]}#hosting`, session.cookies);
       if (answer === "declined") return back(answer, "hosting");
-      return redirect(`/dashboard/${gameSlug}?done=game-deleted`, session.cookies);
+      return redirect(`/dashboard/${gameSlug}?done=${requestKind === "erase_kept_room_now" ? "kept-room-erased" : "game-deleted"}`, session.cookies);
     }
     // Pro
     if (sub === "pro/checkout") {

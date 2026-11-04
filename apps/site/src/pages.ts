@@ -936,7 +936,7 @@ function privacyBody(): Raw {
 <p>Each night, Zaisma copies its data to a backup at Backblaze, in the United States. For up to 30 days after something is deleted, a copy of it may remain in the backup; after that, it is gone. The backup is used only to restore Zaisma after a failure, and a restore never brings back deleted data.</p>
 <h2>Service providers</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs Zaisma's servers, stores games, sends the email codes you request, and checks for automated traffic. It sees your connection address to deliver pages and prevent abuse; Zaisma keeps that address only where this policy says. The verification is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener" class="link">Turnstile Privacy Addendum</a>.</li>
+<li><strong>Cloudflare</strong> runs Zaisma's servers, stores games, sends the email codes you request, and checks for automated traffic. It sees your connection address to deliver pages and prevent abuse; Zaisma keeps that address only where this policy says. The verification is Cloudflare Turnstile, covered by its ${textLink("Turnstile Privacy Addendum", "https://www.cloudflare.com/turnstile-privacy-policy/")}.</li>
 <li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. It receives your connection address when you sign in and keeps it with each sign-in.</li>
 <li><strong>Stripe</strong> processes payments for purchases in games and keeps the cards you save. The developer you buy from receives the payment through their own Stripe account, with the email for receipts.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
@@ -975,7 +975,7 @@ function securityBody(): Raw {
 <ul>
 <li>zaisma.com, its API and its MCP.</li>
 <li>Your own Zaisma account and your own games.</li>
-<li>The game server, the SDK and the upload command in the ${textLink("open source repo", "https://github.com/zaisma/zaisma", { isNewTab: true })}.</li>
+<li>The game server, the SDK and the upload command in the ${textLink("open source repo", "https://github.com/zaisma/zaisma")}.</li>
 </ul>
 <h2>Zaisma's promise: safe harbor</h2>
 <p>If you look for holes in good faith and stay inside the rules below, Zaisma will not take legal action against you and will not close your account.</p>

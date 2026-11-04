@@ -77,8 +77,8 @@ export interface CheckedPage {
   /** On this site, or on the stand-in site of a developer using Sign in with Zaisma (isOnSignInSite), which sends the player on to Zaisma's own page. */
   path: string;
   /**
-   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the city's pane starts
-   * low on a phone, showing down to its heading, so the city has the screen: docs/DECISIONS.md, "Signing in happens in the city"), or
+   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the live world's pane starts
+   * low on a phone, showing down to its heading, so the live world has the screen: docs/DECISIONS.md, "Signing in happens in the live world"), or
    * nowhere (the page has none, or many, like the gallery).
    */
   mainActionShows: "everywhere" | "desktop" | "nowhere";
@@ -235,6 +235,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Developer settings", area: "Developers", path: "/dashboard/settings", account: "Preview_Studio", mainActionShows: "nowhere", firstPaintSizeLimitBytes: DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES },
   ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Developer settings, ${nameEnding}` as const, area: "Developers" as const, path: "/dashboard/settings", account, shownStateName: "Developer settings", firstPaintSizeLimitBytes: DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES, mainActionShows: "nowhere" as const })),
   { name: "Developer settings, a game deletion request", area: "Developers", path: "/dashboard/settings?game_deletion_request=game_deletion_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("game-deletion-request")?.open); })()` },
+  { name: "Developer settings, a request to erase a kept world", area: "Developers", path: "/dashboard/settings?game_deletion_request=game_deletion_request_preview0keptworld", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("game-deletion-request")?.open); })()` },
   { name: "Developer settings, a spending request", area: "Developers", path: "/dashboard/settings?spending_request=spending_request_preview0waiting", account: "Preview_Studio", mainActionShows: "nowhere", stateBeforeSetUp: "Developer settings", setUp: `(async () => { await new Promise((done) => setTimeout(done, 600)); return Boolean(document.getElementById("spending-request")?.open); })()` },
   { name: "Background guide", area: "Developers", path: "/developers/backgrounds", mainActionShows: "nowhere" },
   { name: "Content rules", area: "Developers", path: "/legal/content-rules", mainActionShows: "nowhere" },

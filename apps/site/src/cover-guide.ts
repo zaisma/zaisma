@@ -1,4 +1,5 @@
 import type { Env } from "./env.ts";
+import { textLink } from "./components/actions.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
 import type { Viewer } from "./viewer.ts";
 
@@ -16,6 +17,8 @@ const figure = (file: string, caption: string, verdict: "fine" | "not-fine" | "p
 
 const STYLE = raw(`<style>
 .guide{max-width:960px}
+.link-end{white-space:nowrap}
+.link-end>.ico{display:inline-block;width:.8em;height:.8em;margin-left:.25em;vertical-align:-.04em;fill:none;stroke:currentColor;stroke-width:1.8}
 .guide-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:12px 0 28px}
 .guide-figure{margin:0}
 .guide-figure img{width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border-radius:10px;display:block;background:var(--pic)}
@@ -43,7 +46,7 @@ export function coverGuidePage(env: Env, viewer: Viewer): Response {
 ${figure("good-four-in-a-row.webp", "A real board from the game, and its name.", "fine")}
 ${figure("good-arena.webp", "The game's own arena, and its name.", "fine")}
 </div>
-<p>Browsers run games as big as PC games now, so aim for their art: a cover that would sit well on a PC store, not one made for a quick mobile game. Study these on their store pages: <a href="https://store.steampowered.com/app/1145360/Hades/" rel="noopener">Hades</a>, <a href="https://store.steampowered.com/app/367520/Hollow_Knight/" rel="noopener">Hollow Knight</a>, <a href="https://store.steampowered.com/app/504230/Celeste/" rel="noopener">Celeste</a>, <a href="https://store.steampowered.com/app/921570/OCTOPATH_TRAVELER/" rel="noopener">Octopath Traveler</a>, <a href="https://store.steampowered.com/app/588650/Dead_Cells/" rel="noopener">Dead Cells</a> and <a href="https://store.steampowered.com/app/2379780/Balatro/" rel="noopener">Balatro</a>.</p>
+<p>Browsers run games as big as PC games now, so aim for their art: a cover that would sit well on a PC store, not one made for a quick mobile game. Study these on their store pages: ${textLink("Hades", "https://store.steampowered.com/app/1145360/Hades/")}, ${textLink("Hollow Knight", "https://store.steampowered.com/app/367520/Hollow_Knight/")}, ${textLink("Celeste", "https://store.steampowered.com/app/504230/Celeste/")}, ${textLink("Octopath Traveler", "https://store.steampowered.com/app/921570/OCTOPATH_TRAVELER/")}, ${textLink("Dead Cells", "https://store.steampowered.com/app/588650/Dead_Cells/")} and ${textLink("Balatro", "https://store.steampowered.com/app/2379780/Balatro/")}.</p>
 
 <h2>The five lines</h2>
 <p>An AI checks every cover, square cover and share picture in about a minute. These are the lines it holds them to, the same for every game.</p>

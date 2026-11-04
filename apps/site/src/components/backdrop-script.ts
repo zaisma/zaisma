@@ -1,5 +1,6 @@
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE, SHADER_VERTEX_SOURCE } from "@zaisma/core";
-import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER } from "./shaders.ts";
+import { pageScript, pageScriptPath } from "../page-scripts.ts";
+import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADE_PASS, ZAISMA_SHAPES, ZAISMA_SHARP_DRAWING, ZAISMA_SOFT_PASS, ZAISMA_STORED_PARTS, ZAISMA_STRIP_PASS, ZAISMA_LIVE_PARTS } from "./shaders.ts";
 
 /**
  * Backdrops: every [data-backdrop] on a page. On a canvas, "shader" draws a shader background (shaders.ts: a mainImage function, the page's own in
@@ -14,10 +15,23 @@ import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADER 
  * reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD and the glass pass round its mainImage,
  * with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
  * a phone), then sharpened as it's scaled up to its canvas (SHADER_UPSCALE_SOURCE); it gets fewer pixels, then a still frame, on a device that
- * can't keep up. Without WebGL2 a shader backdrop keeps its CSS gradient in the theme's colors.
+ * can't keep up. Zaisma's own is drawn in parts instead, at the screen's own pixels (zaismaPrograms). Its shader isn't sent with every page: it's a file (ZAISMA_SHADER_SCRIPT) kept in
+ * localStorage after the first visit, so from then on it draws in the first frame; until it's drawn its blurred placeholder shows (backdrop()), and it fades in over that. Without WebGL2 Zaisma's stays on its placeholder, and any other shader backdrop on its CSS gradient in the theme's colors.
  */
+/** A shader's words as the page carries them: no comments, no spare spaces, so what's sent on every page is only what draws. */
+function compactParts(parts: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(parts).map(([name, source]) => [name, source.replace(/\/\/[^\n]*/g, "").replace(/[ \t]+/g, " ").replace(/ ?([=*/<>,;(){}?:]) ?/g, "$1").replace(/\n\s*\n+/g, "\n").trim() + "\n"]));
+}
+
+/** Zaisma's own shader, as a file the page's first-paint script keeps after the first visit, rather than text on every page. */
+export const ZAISMA_SHADER_SCRIPT = pageScript("zaisma-shader", `window.zaismaShaderPartsArrived(${JSON.stringify(compactParts({ shapes: ZAISMA_SHAPES, live: ZAISMA_LIVE_PARTS, stored: ZAISMA_STORED_PARTS, draw: ZAISMA_SHARP_DRAWING, soft: ZAISMA_SOFT_PASS, strip: ZAISMA_STRIP_PASS, shade: ZAISMA_SHADE_PASS }))});`);
+
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
-  var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
+  var HELPERS = ${JSON.stringify(compactParts({ helpers: SHADER_HELPERS }).helpers)}, GLASS_LIGHT = ${JSON.stringify(compactParts({ glass: GLASS_LIGHT_PASS }).glass)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
+  var PARTS_PATH = ${JSON.stringify(pageScriptPath(ZAISMA_SHADER_SCRIPT))}, PARTS_KEY = "zaisma-shader-parts", ZAISMA_PARTS = null, arePartsAsked = false;
+  try { var keptParts = JSON.parse(localStorage.getItem(PARTS_KEY)); if (keptParts && keptParts.path === PARTS_PATH) ZAISMA_PARTS = keptParts.parts; } catch (error) {}
+  function askForParts() { if (ZAISMA_PARTS || arePartsAsked) return; arePartsAsked = true; var script = document.createElement("script"); script.src = PARTS_PATH; document.head.appendChild(script); }
+  window.zaismaShaderPartsArrived = function (parts) { ZAISMA_PARTS = parts; try { localStorage.setItem(PARTS_KEY, JSON.stringify({ path: PARTS_PATH, parts: parts })); } catch (error) {} wake(); };
   var HEAD = ${JSON.stringify(SHADER_HEAD)}, VERTEX = ${JSON.stringify(SHADER_VERTEX_SOURCE)}, UPSCALE = ${JSON.stringify(SHADER_UPSCALE_SOURCE)};
   var DRAW_SHARE = ${SHADER_LIMITS.runtimeDrawShareNumber}, UPSCALE_NUMBER = ${SHADER_LIMITS.runtimeUpscaleNumber}, IDLE_AFTER_MS = ${SHADER_LIMITS.runtimeIdleTimeoutSec * 1000};
   var FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeMaximumFps)}, IDLE_FRAME_GAP_MS = ${Math.round(1000 / SHADER_LIMITS.runtimeIdleFramesPerSec)};
@@ -203,7 +217,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
     prepare();
     board.addEventListener("webglcontextlost", function (event) { event.preventDefault(); shared.isLost = true; });
-    board.addEventListener("webglcontextrestored", function () { shared.programs = {}; shared.isLost = false; prepare(); layers.forEach(function (layer) { layer.isDrawn = false; }); wake(); });
+    board.addEventListener("webglcontextrestored", function () { shared.programs = {}; shared.zaisma = null; layers.forEach(function (layer) { layer.parts = null; }); shared.isLost = false; prepare(); layers.forEach(function (layer) { layer.isDrawn = false; }); wake(); });
     return shared;
   }
   // A program set compiling and linking; settle() reads how it went once it's done, without waiting on it where the browser can.
@@ -241,6 +255,73 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     context.programs[source] = built;
     return built;
   }
+  /*
+   * Zaisma's own background, in parts: its programs, built once. The camera never moves, so each range's ridgeline and slopes are worked out
+   * once, finer than a frame could afford (RIDGE_OCTAVES 6), and stored; the soft parts are drawn small each frame; and the sharp drawing
+   * reads both at the screen's own pixels. Compiled like any shader, in the background where the browser can.
+   */
+  var ZAISMA_NAMES = ["iResolution", "iTime", "iDark", "zaismaViewOffset"];
+  function zaismaPrograms(context) {
+    if (context.zaisma) return context.zaisma;
+    var defined = HEAD + "uniform float iDark;\\n" + HELPERS, fine = defined + "#define RIDGE_OCTAVES 6\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live;
+    var sharp = { status: "compiling", hasPass: true, names: ZAISMA_NAMES.concat(["iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaSoftA", "zaismaSoftB", "zaismaSoftC", "zaismaStrip", "zaismaShadeA", "zaismaShadeB", "zaismaUv"]) };
+    startBuild(sharp, defined + "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.stored + ZAISMA_PARTS.draw + "\\n" + GLASS_LIGHT);
+    function pass(source) { var built = { status: "compiling", names: ZAISMA_NAMES }; startBuild(built, fine + source); return built; }
+    context.zaisma = { sharp: sharp, soft: pass(ZAISMA_PARTS.soft), strip: pass(ZAISMA_PARTS.strip), shade: pass(ZAISMA_PARTS.shade) };
+    return context.zaisma;
+  }
+  // A stored picture and the framebuffer that draws into it: several at once where a pass writes several.
+  function zaismaTarget(gl, count, isSmooth) {
+    var target = { framebuffer: gl.createFramebuffer(), textures: [], widthPx: 0, heightPx: 0 };
+    for (var i = 0; i < count; i++) target.textures.push(gl.createTexture());
+    target.size = function (widthPx, heightPx) {
+      if (target.widthPx === widthPx && target.heightPx === heightPx) return;
+      target.widthPx = widthPx; target.heightPx = heightPx;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      target.textures.forEach(function (texture, i) {
+        gl.bindTexture(gl.TEXTURE_2D, texture); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, widthPx, heightPx, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isSmooth ? gl.LINEAR : gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, isSmooth ? gl.LINEAR : gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, texture, 0);
+      });
+      gl.drawBuffers(target.textures.map(function (texture, i) { return gl.COLOR_ATTACHMENT0 + i; }));
+    };
+    return target;
+  }
+  // One pass drawn into a stored picture, as a window onto the scene as the canvas shows it.
+  function zaismaPass(gl, built, target, widthPx, heightPx, sceneShare, sceneRatio, timeS, darkShare) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer); gl.useProgram(built.program); gl.viewport(0, 0, widthPx, heightPx);
+    var sceneWidth = widthPx * sceneShare, sceneHeight = sceneWidth / sceneRatio;
+    gl.uniform3f(built.at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(built.at.iTime, timeS); gl.uniform1f(built.at.iDark, darkShare);
+    gl.uniform2f(built.at.zaismaViewOffset, (sceneWidth - widthPx) / 2, (sceneHeight - heightPx) / 2);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  // The frame: what's stored is worked out again only when the canvas's size changes; the soft parts every frame; then the sharp drawing over the board.
+  function drawZaisma(context, layer, canvas, width, height, timeS, darkShare, sceneShare) {
+    var gl = context.gl, programs = zaismaPrograms(context), sharp = programs.sharp, parts = layer.parts, ratio = width / height;
+    if (!parts) parts = layer.parts = { strip: zaismaTarget(gl, 1, false), shade: zaismaTarget(gl, 2, true), soft: zaismaTarget(gl, 3, true), storedWidth: 0, storedHeight: 0 };
+    if (parts.storedWidth !== width || parts.storedHeight !== height) {
+      parts.storedWidth = width; parts.storedHeight = height;
+      parts.strip.size(width, 7); parts.shade.size(Math.max(2, width >> 1), Math.max(2, height >> 1));
+      // The strip's rows are the seven ranges, so its scene comes from the canvas's own shape, not the strip's.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, parts.strip.framebuffer); gl.useProgram(programs.strip.program); gl.viewport(0, 0, width, 7);
+      gl.uniform3f(programs.strip.at.iResolution, width * sceneShare, height * sceneShare, 1); gl.uniform1f(programs.strip.at.iTime, 0); gl.uniform1f(programs.strip.at.iDark, 0);
+      gl.uniform2f(programs.strip.at.zaismaViewOffset, (width * sceneShare - width) / 2, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      zaismaPass(gl, programs.shade, parts.shade, parts.shade.widthPx, parts.shade.heightPx, sceneShare, ratio, 0, 0);
+    }
+    var softHeight = Math.max(160, Math.round(Math.min(540, Math.max(300, height * 0.34)) * layer.softShare)), softWidth = Math.max(2, Math.round(softHeight * ratio));
+    parts.soft.size(softWidth, softHeight);
+    zaismaPass(gl, programs.soft, parts.soft, softWidth, softHeight, sceneShare, ratio, timeS, darkShare);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(sharp.program); gl.viewport(0, 0, width, height);
+    var at = sharp.at, stored = [["zaismaSoftA", parts.soft.textures[0]], ["zaismaSoftB", parts.soft.textures[1]], ["zaismaSoftC", parts.soft.textures[2]], ["zaismaStrip", parts.strip.textures[0]], ["zaismaShadeA", parts.shade.textures[0]], ["zaismaShadeB", parts.shade.textures[1]]];
+    stored.forEach(function (each, i) { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, each[1]); gl.uniform1i(at[each[0]], i); });
+    gl.activeTexture(gl.TEXTURE0);
+    var sceneWidth = width * sceneShare, sceneHeight = height * sceneShare, offsetX = (sceneWidth - width) / 2, offsetY = (sceneHeight - height) / 2;
+    gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, darkShare); gl.uniform2f(at.zaismaViewOffset, offsetX, offsetY);
+    gl.uniform4f(at.zaismaUv, 1 / width, 1 / height, -offsetX / width, -offsetY / height);
+    return at;
+  }
   // The shared picture shaders draw into, grown to the largest a canvas needs.
   function drawnTarget(context, widthPx, heightPx) {
     var gl = context.gl, drawn = context.drawn;
@@ -258,10 +339,19 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   // near the screen (prepare) or first drawn: a page of many backdrops (the gallery's stand-in games) compiles only the ones in reach,
   // since a phone can take a second or more to compile one and, where it can't compile in the background, holds the page while it does.
   function shaderDrawer(canvas) {
-    var source = canvas.getAttribute("data-backdrop-shader") || ZAISMA, context = sharedContext(), picture = null;
+    var isZaisma = !canvas.getAttribute("data-backdrop-shader"), source = canvas.getAttribute("data-backdrop-shader"), context = sharedContext(), picture = null;
     if (!context) return null;
+    function ownSource() { if (isZaisma && !source && ZAISMA_PARTS) source = "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live + ZAISMA_PARTS.draw; return source; }
     function drawShader(timeS, colors, layer) {
-      var context = sharedContext(), built = context && programFor(context, source);
+      if (!ownSource()) { askForParts(); return false; }
+      var context = sharedContext();
+      // Zaisma's own, in parts; where they can't build, the whole scene in one pass, as any shader is drawn.
+      if (context && isZaisma && !layer.isOnePass) {
+        var programs = zaismaPrograms(context), isReady = [programs.sharp, programs.soft, programs.strip, programs.shade].map(settle).every(Boolean);
+        if ([programs.sharp, programs.soft, programs.strip, programs.shade].some(function (each) { return each.status === "failed"; })) layer.isOnePass = true;
+        else if (!isReady) return false;
+      }
+      var built = context && (isZaisma && !layer.isOnePass ? zaismaPrograms(context).sharp : programFor(context, source));
       if (!built || !settle(built) || !settle(context.upscale)) {
         // Neither the shader with the glass pass nor alone built here: the layer is lost, and the CSS gradient under it stays.
         if (built && (built.status === "failed" || context.upscale.status === "failed")) layer.isLost = true;
@@ -273,14 +363,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var gl = context.gl, board = context.board, width = canvas.width, height = canvas.height, drawnWidth = layer.drawnWidth, drawnHeight = layer.drawnHeight, at = built.at;
       // The board grows to the largest canvas; each draws in its bottom left and is copied from there.
       if (board.width < width || board.height < height) { board.width = Math.max(board.width, width); board.height = Math.max(board.height, height); }
-      var drawn = drawnTarget(context, drawnWidth, drawnHeight);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, drawn.framebuffer); gl.useProgram(built.program); gl.viewport(0, 0, drawnWidth, drawnHeight);
+      var isParts = isZaisma && !layer.isOnePass;
+      var drawn = isParts ? null : drawnTarget(context, drawnWidth, drawnHeight);
+      if (!isParts) { gl.bindFramebuffer(gl.FRAMEBUFFER, drawn.framebuffer); gl.useProgram(built.program); gl.viewport(0, 0, drawnWidth, drawnHeight); }
       // A framed backdrop is a window onto a scene 1.8 times its size, centered on it: a shader sizes everything to its screen, so in a
       // small box its finest details (snowflakes, stars, rain) would shrink to a pixel and shimmer. Most of the picture still shows.
       var isWindow = canvas.classList.contains("is-framed"), sceneShare = isWindow ? 1.8 : 1;
       var sceneWidth = drawnWidth * sceneShare, sceneHeight = drawnHeight * sceneShare;
-      gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
-      gl.uniform2f(at.zaismaViewOffset, (sceneWidth - drawnWidth) / 2, (sceneHeight - drawnHeight) / 2);
+      if (isParts) drawZaisma(context, layer, canvas, width, height, timeS, colors.darkShare, sceneShare);
+      else { gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
+      gl.uniform2f(at.zaismaViewOffset, (sceneWidth - drawnWidth) / 2, (sceneHeight - drawnHeight) / 2); }
       var isFirstWithGlass = false;
       if (built.hasPass) {
         var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
@@ -289,11 +381,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       // Sharpened as it's scaled up to the canvas's size, onto the board.
+      if (!isParts) {
       var upscale = context.upscale;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(upscale.program); gl.viewport(0, 0, width, height);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, drawn.texture);
       gl.uniform1i(upscale.at.zaismaDrawn, 0); gl.uniform2f(upscale.at.zaismaDrawnSize, drawnWidth, drawnHeight); gl.uniform2f(upscale.at.zaismaCanvasSize, width, height);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
       // Read straight after the frame is drawn, while it's still in the buffer, then copied out before the next canvas draws over it.
       if (isFirstWithGlass) { layer.isGlassAdapted = true; adaptGlass(gl, layer, width, height); }
       picture.drawImage(board, 0, board.height - height, width, height, 0, 0, width, height);
@@ -301,7 +395,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       if (!canvas.classList.contains("is-drawn")) canvas.classList.add("is-drawn");
       return true;
     }
-    drawShader.prepare = function () { var context = sharedContext(); if (context) programFor(context, source); };
+    drawShader.prepare = function () { if (!ownSource()) { askForParts(); return; } var context = sharedContext(); if (context) programFor(context, source); };
     return drawShader;
   }
   // A change of theme fades the backdrop over the same half second as the glass's, so the two never part for a frame.
@@ -380,7 +474,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
         layer.slowS = gapMs > gapGoalMs * 1.5 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
-        if (layer.slowS > 1.5) { layer.slowS = 0; if (layer.scale > 0.26) { layer.scale *= 0.75; layer.size(); } else layer.isHeld = true; }
+        if (layer.slowS > 1.5) { layer.slowS = 0; if (layer.softShare > 0.6) layer.softShare *= 0.75; else if (layer.scale > 0.26) { layer.scale *= 0.75; layer.size(); } else layer.isHeld = true; }
       }
       draw(layer, nowMs);
     });
@@ -437,17 +531,19 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     // A shader filling the window is soft, so its canvas is about half the screen's pixels (less on a phone), and the shader draws at
     // DRAW_SHARE of that a side and is sharpened up to it. One framed in a small box (the gallery's examples) gets the screen's sharpness:
     // at half, its finest details (snowflakes, stars) would be a pixel or two and shimmer as they move. A scene gets the screen's
-    // sharpness, up to 2x, and draws itself at its canvas's size.
-    var isFramed = canvas.classList.contains("is-framed");
+    // sharpness, up to 2x, and draws itself at its canvas's size. Zaisma's own, drawn in parts (zaismaPrograms), has the screen's sharpness
+    // up to 2x too, and on a device that can't keep up gives up its soft parts' pixels first, so its ridgelines and stars stay sharp longest.
+    var isFramed = canvas.classList.contains("is-framed"), isZaismaOwn = !isScene && !canvas.getAttribute("data-backdrop-shader");
     // In view as it's set up, read once, until its observer says (below): one far down the page isn't drawn, or compiled, for its first frame.
     var isInView = inViewAtStart && inViewAtStart.has(canvas) ? inViewAtStart.get(canvas) : isInViewNow(canvas);
-    var layer = { canvas: canvas, isInView: isInView, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, scale: isScene || isFramed ? sharpness : (isPhone ? 0.4 : 0.55) * sharpness };
+    var layer = { canvas: canvas, isInView: isInView, isDrawn: false, isHeld: false, slowS: 0, target: readColors(canvas), from: null, softShare: 1, scale: isScene || isFramed ? sharpness : isZaismaOwn ? Math.min(window.devicePixelRatio || 1, 2) : (isPhone ? 0.4 : 0.55) * sharpness };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; }
     canvas.backdropLayer = layer;
     // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain color under it.
     layer.size = function () {
       var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
-      if (!isScene) {
+      if (isZaismaOwn && !layer.isOnePass) { layer.drawnWidth = width; layer.drawnHeight = height; }
+      else if (!isScene) {
         layer.drawnWidth = Math.max(2, Math.round(canvas.clientWidth * layer.scale * DRAW_SHARE)); layer.drawnHeight = Math.max(2, Math.round(canvas.clientHeight * layer.scale * DRAW_SHARE));
         width = Math.round(layer.drawnWidth * UPSCALE_NUMBER); height = Math.round(layer.drawnHeight * UPSCALE_NUMBER);
       }

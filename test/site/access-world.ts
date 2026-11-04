@@ -97,6 +97,7 @@ export const text = (given: string) => new TextEncoder().encode(given);
  */
 export const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /access": () => ({}),
+  "GET /playing-now": () => ({}),
   "GET /activity": () => ({}),
   "GET /api-keys": () => ({}),
   "GET /games": () => ({}),
@@ -163,6 +164,8 @@ export const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /games/:slug/purchases/:purchase_id/handled": () => ({}),
   "GET /games/:slug/players/:player_id/items": () => ({}),
   "DELETE /games/:slug/kept-rooms/:room_code": () => ({}),
+  "POST /games/:slug/kept-rooms/:room_code/bring-back": () => ({}),
+  "POST /games/:slug/kept-rooms/:room_code/erase-now": () => ({}),
   "GET /games/:slug/rooms": () => ({ query: { labels: '[{"label_name":"Region","label_value":"North"}]' } }),
   "GET /games/:slug/rooms/:room_code": () => ({}),
   "POST /games/:slug/rooms/:room_code/messages": () => ({ body: { message: { kind: "freeze" } } }),
@@ -476,7 +479,8 @@ export async function everything(world: World): Promise<string> {
   }
   for (const slug of [world.values.slug!, world.otherSlug]) {
     const game = await env.DB.prepare("SELECT id FROM games WHERE slug = ?").bind(slug).first<{ id: string }>();
-    parts.push(JSON.stringify(await env.GAME_DATABASES!.exportDump(game!.id, null)), JSON.stringify(await env.GAME_SECRETS!.list(game!.id)));
+    // Deleting the account erases its games.
+    if (game) parts.push(JSON.stringify(await env.GAME_DATABASES!.exportDump(game.id, null)), JSON.stringify(await env.GAME_SECRETS!.list(game.id)));
   }
   return parts.join("\n\n");
 }
@@ -484,7 +488,7 @@ export async function everything(world: World): Promise<string> {
 /** The stand-in Stripe account a developer has connected, with the owner's ID after it (each is on one owner only). */
 export const CONNECTED_ACCOUNT_ID = "acct_test_access";
 /** Calls a key can't make alone: connecting Stripe decides where players' money goes, so it needs the owner's passkey on a page first. */
-export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links", "POST /games/:slug/erase-now"]);
+export const CONFIRMED_ON_A_PAGE = new Set(["POST /stripe-account/connection-links", "POST /games/:slug/erase-now", "POST /games/:slug/kept-rooms/:room_code/erase-now"]);
 
 export const keyFor = async (accountId: string, scope?: KeyScope) => (await createApiKey(env.DB, accountId, `key ${Math.random()}`, scope)).token;
 
@@ -509,6 +513,10 @@ export async function setUpOwnersCall(routeName: string, world: World): Promise<
     const deletedGame = (await gameBySlug(env.DB, world.values.slug!))!;
     for (const table of ["purchases", "saves", "games_ever_played", "kept_rooms", "play_days"]) await env.DB.prepare(`DELETE FROM ${table} WHERE game_id = ?`).bind(deletedGame.id).run();
     if (routeName !== "DELETE /games/:slug") await startGameDeletionWait(env.DB, deletedGame.id);
+  }
+  // Bringing a kept room's world back or erasing it needs it waiting.
+  if (routeName === "POST /games/:slug/kept-rooms/:room_code/bring-back" || routeName === "POST /games/:slug/kept-rooms/:room_code/erase-now") {
+    await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ? WHERE game_id = ? AND room_code = 'K7Q2MX'").bind(Date.now() + 86_400_000, (await gameBySlug(env.DB, world.values.slug!))!.id).run();
   }
   // Cancelling, resuming and refunding need Zaisma Pro, paid on Stripe (a stand-in here), and resuming needs it cancelled.
   if (routeName === "POST /pro/cancel" || routeName === "POST /pro/resume" || routeName === "POST /pro/refund") {

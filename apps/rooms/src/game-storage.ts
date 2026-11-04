@@ -40,11 +40,16 @@ export class GameStorageService extends WorkerEntrypoint<Env> {
   /**
    * Puts a kept room's world back from its backup's JSON lines, for a restore from Zaisma's backups
    * (apps/site/src/restore.ts). A room that already holds a world got it from an earlier try of the same
-   * restore (a world's meta key goes in last), so it's left as it is.
+   * restore (a world's meta key goes in last), so it's left as it is. A world waiting to be erased goes back to waiting.
    */
   async restoreKeptRoom(gameId: string, slug: string, roomCode: string, lines: ReadableStream<Uint8Array>): Promise<void> {
     const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`)).fetch("https://room/restore", { method: "POST", headers: { "x-game-id": gameId }, body: lines });
     if (!response.ok && response.status !== 409) throw new Error(`kept room ${roomCode} said ${response.status}: ${await response.text()}`);
+    const row = await this.env.DB.prepare("SELECT erases_at_ms FROM kept_rooms WHERE game_id = ? AND room_code = ?").bind(gameId, roomCode).first<{ erases_at_ms: number | null }>();
+    if (row?.erases_at_ms != null) {
+      const held = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`)).fetch("https://room/wait-to-erase", { method: "POST", headers: { "x-game-id": gameId }, body: JSON.stringify({ erasesAtMs: row.erases_at_ms, message: null }) });
+      if (!held.ok) throw new Error(`kept room ${roomCode} said ${held.status}`);
+    }
   }
 
   /** Each kept room deletes its own world (its object is named by the game's link name and its code), then the rows go. */

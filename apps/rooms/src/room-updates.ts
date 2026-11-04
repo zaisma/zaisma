@@ -49,6 +49,31 @@ export class GameRoomsService extends WorkerEntrypoint<Env> {
   }
 
   /**
+   * A kept world's week starts: the room sends its players out, hearing message or that the world was deleted, and keeps
+   * everything until erasesAtMs. no_room when it keeps nothing; failed when it didn't answer, so the site says to try again.
+   */
+  async holdKeptRoom(keptRoom: { gameId: string; slug: string; roomCode: string; erasesAtMs: number; message: string | null }): Promise<{ holdOutcome: "held" | "no_room" | "failed" }> {
+    try {
+      const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${keptRoom.slug}:${keptRoom.roomCode}`)).fetch("https://room/wait-to-erase", { method: "POST", headers: { "x-game-id": keptRoom.gameId }, body: JSON.stringify({ erasesAtMs: keptRoom.erasesAtMs, message: keptRoom.message }) });
+      return { holdOutcome: response.ok ? "held" : response.status === 404 ? "no_room" : "failed" };
+    } catch (error) {
+      console.error("Couldn't start a kept room's wait:", error);
+      return { holdOutcome: "failed" };
+    }
+  }
+
+  /** The developer brings a waiting world back (POST /games/:slug/kept-rooms/:room_code/bring-back). no_room when it keeps nothing; failed when it didn't answer. */
+  async bringBackKeptRoom(keptRoom: { gameId: string; slug: string; roomCode: string }): Promise<{ bringBackOutcome: "brought_back" | "no_room" | "failed" }> {
+    try {
+      const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${keptRoom.slug}:${keptRoom.roomCode}`)).fetch("https://room/bring-back", { method: "POST", headers: { "x-game-id": keptRoom.gameId } });
+      return { bringBackOutcome: response.ok ? "brought_back" : response.status === 404 ? "no_room" : "failed" };
+    } catch (error) {
+      console.error("Couldn't bring back a kept room:", error);
+      return { bringBackOutcome: "failed" };
+    }
+  }
+
+  /**
    * The developer's room message to one room (POST /games/:slug/rooms/:room_code/messages): delivered, no_room, or
    * room_busy. A kept room with nobody in it wakes for it.
    */
