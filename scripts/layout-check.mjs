@@ -786,7 +786,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
         const startedMs = Date.now();
         // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
-        const isOwnContext = Boolean(page.stepsToTake);
+        // So does a game being played, whose played list would put Continue playing on a guest's home page.
+        const isOwnContext = Boolean(page.stepsToTake) || page.path.includes("?play");
         const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page.account);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
         const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
