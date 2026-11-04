@@ -186,13 +186,70 @@ const roomsBindings = {
 };
 const roomsExtra = { outboundService: outsideServers, workers: [chatCheckWorker] };
 
+const siteProject = worker("site", "apps/site/wrangler.jsonc", {
+  SITE_ORIGIN: "https://zaisma.test",
+  GAME_ORIGIN: "https://games.zaisma.test",
+  GAME_HOST_MODE: "path",
+  GAME_DOMAIN: "",
+  ACCESS_TEAM_DOMAIN: "zaisma.cloudflareaccess.com",
+  ACCESS_AUD: "test-aud",
+  DEV_ADMIN: "1",
+  SUPABASE_URL: "https://supabase.test",
+  SUPABASE_SECRET_KEY: "sb_secret_test",
+  // Email codes go to a stand-in outbox the tests read (test/site/accounts.test.ts), never real email.
+  EMAIL_OUTBOX_URL: "https://outbox.test",
+  SIGN_IN_SIGNING_KEY: signInKey,
+  STORED_SECRETS_KEY: storedSecretsKey,
+  // Room lists answer from the database every time, so tests see each change at once.
+  ROOM_LIST_CACHE_SECONDS: "0",
+  PLAYING_NOW_CACHE_SECONDS: "0",
+  // Guest pages answer from the router every time, so tests see each change at once (test/site/first-paint.test.ts turns it on).
+  GUEST_PAGE_CACHE_SECONDS: "0",
+  // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).
+  TURNSTILE_SITE_KEY: "test-site-key",
+  TURNSTILE_SECRET: "test-secret",
+  // Never the real image matcher, even with its key in .dev.vars: tests bring their own stand-in.
+  ARACHNID_SHIELD_KEY: "",
+  PHOTODNA_KEY: "",
+  // Links' sites are checked with a stand-in for Cloudflare's DNS (test/site/links.test.ts answers it).
+  LINK_CHECK_DNS_URL: "https://dns.zaisma.test/dns-query",
+  // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
+  STRIPE_SECRET_KEY: "sk_test_zaisma",
+  STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
+  STRIPE_PRO_PRICE_ID: "price_test_pro",
+  STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_credit_plan",
+  // The buy sheet's Connect stand-ins (test/site/buy.test.ts).
+  STRIPE_CONNECT_CLIENT_ID: "ca_test_zaisma",
+  STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect",
+  STRIPE_PUBLISHABLE_KEY: "pk_test_zaisma",
+  // The receipt key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
+  TEST_RECEIPT_SIGNING_KEY: receiptKey,
+  // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).
+  BACKUP_ENDPOINT: "https://backups.zaisma.test",
+  BACKUP_KEY_ID: "test-backup-key-id",
+  BACKUP_KEY_SECRET: "test-backup-key-secret",
+}, {
+  // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
+  // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs, and the cron its backup parts, to queues nothing reads.
+  queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" }, PERFORMANCE_QUEUE: { queueName: "zaisma-performance-in-tests" }, BACKUP_QUEUE: { queueName: "zaisma-backup-in-tests" } },
+  workers: [roomsDatabaseWorker, photoDnaWorker],
+  outboundService: siteOutsideServers,
+});
+const gamesProject = worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "", STORED_SECRETS_KEY: storedSecretsKey });
+const gameServerProject = worker("game-server", "apps/games/wrangler.jsonc");
+const roomsProject = worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra);
+
+/** A Workers project trying the contract test grid (test/grid/): the same runtime as the project it's named for, and only the grid's files. */
+const gridProject = (project: ReturnType<typeof worker>, files: string[]) => ({ ...project, test: { ...project.test, name: `grid-${project.test.name}`, include: files.map((file) => `test/grid/${file}.grid.ts`) } });
+
 export default defineConfig({
   test: {
     // GitHub's check runs the tests in four shards: dealt out by each file's cost, not by a hash of its path (test/shards.ts).
     sequence: { sequencer: BalancedShardSequencer },
     // Files at once, across every project: what this run's turn in the line gave it (above). GitHub's runners have 4 cores and 16 GB.
     maxWorkers: workerCount,
-    projects: [
+    // ZAISMA_CONTRACT_GRID runs the grid and nothing else (scripts/contract-grid.mjs); no other run has its files.
+    projects: process.env.ZAISMA_CONTRACT_GRID ? [gridProject(siteProject, ["pages", "api", "mcp"]), gridProject(gamesProject, ["game-files"]), gridProject(gameServerProject, ["room-messages"]), gridProject(roomsProject, ["rooms"])] : [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },
@@ -200,59 +257,11 @@ export default defineConfig({
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "layout", environment: "node", include: ["test/layout/**/*.test.ts"], sequence: { groupOrder: 2 } } },
       // The v1 contract locks (test/contracts/surface.ts): v1 only gains things.
       { extends: true as const, test: { name: "contracts", environment: "node", include: ["test/contracts/**/*.test.ts"], sequence: { groupOrder: 2 } } },
-      worker("site", "apps/site/wrangler.jsonc", {
-        SITE_ORIGIN: "https://zaisma.test",
-        GAME_ORIGIN: "https://games.zaisma.test",
-        GAME_HOST_MODE: "path",
-        GAME_DOMAIN: "",
-        ACCESS_TEAM_DOMAIN: "zaisma.cloudflareaccess.com",
-        ACCESS_AUD: "test-aud",
-        DEV_ADMIN: "1",
-        SUPABASE_URL: "https://supabase.test",
-        SUPABASE_SECRET_KEY: "sb_secret_test",
-        // Email codes go to a stand-in outbox the tests read (test/site/accounts.test.ts), never real email.
-        EMAIL_OUTBOX_URL: "https://outbox.test",
-        SIGN_IN_SIGNING_KEY: signInKey,
-        STORED_SECRETS_KEY: storedSecretsKey,
-        // Room lists answer from the database every time, so tests see each change at once.
-        ROOM_LIST_CACHE_SECONDS: "0",
-        PLAYING_NOW_CACHE_SECONDS: "0",
-        // Guest pages answer from the router every time, so tests see each change at once (test/site/first-paint.test.ts turns it on).
-        GUEST_PAGE_CACHE_SECONDS: "0",
-        // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).
-        TURNSTILE_SITE_KEY: "test-site-key",
-        TURNSTILE_SECRET: "test-secret",
-        // Never the real image matcher, even with its key in .dev.vars: tests bring their own stand-in.
-        ARACHNID_SHIELD_KEY: "",
-        PHOTODNA_KEY: "",
-        // Links' sites are checked with a stand-in for Cloudflare's DNS (test/site/links.test.ts answers it).
-        LINK_CHECK_DNS_URL: "https://dns.zaisma.test/dns-query",
-        // A Stripe test-mode stand-in: tests answer api.stripe.com themselves (test/site/credit.test.ts), and sign events with this.
-        STRIPE_SECRET_KEY: "sk_test_zaisma",
-        STRIPE_EVENTS_SECRET: "whsec_test_zaisma",
-        STRIPE_PRO_PRICE_ID: "price_test_pro",
-        STRIPE_CREDIT_PLAN_PRICE_ID: "price_test_credit_plan",
-        // The buy sheet's Connect stand-ins (test/site/buy.test.ts).
-        STRIPE_CONNECT_CLIENT_ID: "ca_test_zaisma",
-        STRIPE_CONNECT_EVENTS_SECRET: "whsec_test_connect",
-        STRIPE_PUBLISHABLE_KEY: "pk_test_zaisma",
-        // The receipt key the rooms stand-in signs receipts with, so tests can check them (test/site/items.test.ts).
-        TEST_RECEIPT_SIGNING_KEY: receiptKey,
-        // Backups go to a stand-in for Backblaze that tests answer themselves (test/site/backups.test.ts).
-        BACKUP_ENDPOINT: "https://backups.zaisma.test",
-        BACKUP_KEY_ID: "test-backup-key-id",
-        BACKUP_KEY_SECRET: "test-backup-key-secret",
-      }, {
-        // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
-        // consumer can't be removed; instead uploads send their scan, compress and Chrome jobs, and the cron its backup parts, to queues nothing reads.
-        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" }, COMPRESS_QUEUE: { queueName: "zaisma-compress-in-tests" }, PERFORMANCE_QUEUE: { queueName: "zaisma-performance-in-tests" }, BACKUP_QUEUE: { queueName: "zaisma-backup-in-tests" } },
-        workers: [roomsDatabaseWorker, photoDnaWorker],
-        outboundService: siteOutsideServers,
-      }),
-      worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "", STORED_SECRETS_KEY: storedSecretsKey }),
+      siteProject,
+      gamesProject,
       worker("core", "apps/games/wrangler.jsonc"),
-      worker("game-server", "apps/games/wrangler.jsonc"),
-      worker("rooms", "apps/rooms/wrangler.jsonc", roomsBindings, roomsExtra),
+      gameServerProject,
+      roomsProject,
       // Files that measure how fast something runs (a full room at full speed, with its players in Node and the room in a Miniflare of
       // its own): a group of their own that vitest runs before every other file starts, one at a time, so they have the machine to
       // themselves (ALONE_TEST_FILES in test/shards.ts).

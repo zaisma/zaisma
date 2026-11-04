@@ -43,6 +43,9 @@ export const PREVIEW_CHECKS = {
   engine_exports: ["scripts/engines/", "test/engines/"],
 };
 
+/** The contract test grid (scripts/contract-grid.mjs): what it runs is what its files import, on no preview. */
+const CONTRACT_GRID_ENTRIES = ["scripts/contract-grid.mjs", "test/grid/", "vitest.config.ts", "migrations/", "package.json", "package-lock.json", ".github/workflows/check.yml"];
+
 const CODE_FILE = /\.(ts|mts|js|mjs|cjs)$/;
 // What in a Workers test runs its Worker's whole code (cloudflare:test's SELF and exports, or its Durable Objects).
 const RUNS_WHOLE_WORKER = /\b(SELF|exports|runInDurableObject|runDurableObjectAlarm|listDurableObjectIds)\b/;
@@ -194,7 +197,7 @@ export function buildGraph({ root = ROOT } = {}) {
     targets.set(testFile, closure(entries));
   }
   const previewEntries = [...PREVIEW_ENTRIES, ...PREVIEW_WORKERS.flatMap(workerEntries)];
-  const checks = Object.fromEntries(Object.entries(PREVIEW_CHECKS).map(([check, entries]) => [check, closure([...previewEntries, ...entries])]));
+  const checks = { ...Object.fromEntries(Object.entries(PREVIEW_CHECKS).map(([check, entries]) => [check, closure([...previewEntries, ...entries])])), contract_grid: closure(CONTRACT_GRID_ENTRIES) };
   // The paths themselves, not what they name: this file names every entry above, and vitest.config.ts its projects' files.
   const configGraph = closure(CONFIG_ENTRIES);
   const everything = { files: new Set([...EVERYTHING_PATHS, ...configGraph.files]), folders: configGraph.folders };
@@ -253,6 +256,7 @@ export function affectedChecks({ changedPaths, graph = buildGraph() }) {
     layout_check_reached_by: checks.layout_check,
     is_engine_exports_reached: checks.engine_exports !== null,
     engine_exports_reached_by: checks.engine_exports,
+    is_contract_grid_reached: checks.contract_grid !== null,
   };
 }
 
@@ -331,7 +335,7 @@ function github() {
   if (plan.changed_test_files.length) console.log(`Ten runs of the test files it adds or changes: ${plan.changed_test_files.join(" ")}.`);
   const isEnginesChanged = EVENT_NAME !== "pull_request" || affected.is_engine_exports_reached;
   console.log(isEnginesChanged ? `The Engine exports run${EVENT_NAME === "pull_request" ? ` (${affected.engine_exports_reached_by} changed)` : " on every push to main"}.` : "Nothing the Engine exports run changed: skipping them.");
-  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\nis_full_suite=${plan.is_full_suite}\nreached_test_files=${plan.reached_test_files.join(" ")}\nchanged_test_files=${plan.changed_test_files.join(" ")}\n`);
+  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\nis_contract_grid_reached=${EVENT_NAME !== "pull_request" || affected.is_contract_grid_reached}\nis_full_suite=${plan.is_full_suite}\nreached_test_files=${plan.reached_test_files.join(" ")}\nchanged_test_files=${plan.changed_test_files.join(" ")}\n`);
 }
 
 function stop(message) {
