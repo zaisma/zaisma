@@ -1344,6 +1344,14 @@ describe("layout", () => {
     expect(COMPONENT_STYLES()).toContain("right: calc(var(--pad-inside-words) + var(--slant-end, 0px));");
   });
 
+  it("places no control by hand: what's at a holder's edge comes from a layout piece", () => {
+    // Taken out of its flow by a rule of its own, a control keeps whatever gap someone typed, and the edge rule cuts its corner from another.
+    const problems = [...COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector = "", rules = ""]) => /position:\s*(absolute|fixed)/.test(rules) && selector.split(",").some((part) => /\.(cut-btn|tertiary-btn)(:[a-z-]+)?\s*$/.test(part.trim())))
+      .map(([, selector = ""]) => selector.trim());
+    expect(problems).toEqual([]);
+  });
+
   it("puts a control in a carving in its one place, cut along the carving's corner wherever its face stands", () => {
     const styles = COMPONENT_STYLES();
     expect(styles).toContain(".carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact);");
