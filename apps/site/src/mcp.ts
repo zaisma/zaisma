@@ -2,7 +2,7 @@ import { ApiError, cutUndeclared, noteAnswerCut, typeProblems, CONTROLS, DEVICES
 import { INTERNAL_ERROR, TOOL_ANSWER_SCHEMAS, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_DELETED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -928,7 +928,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_game_deletion_request",
     title: "A game deletion request's answer",
-    description: "Whether the developer has answered a deletion you asked for. When delete_game or erase_game_now answers confirmation_needed, it also answers game_deletion_request_id. This shows request_status (waiting, approved, declined or expired after a day), the game, and how many other players have saves and how many purchases go with it. Approved means it's done.",
+    description: "Whether the developer has answered a deletion you asked for. When delete_game, erase_game_now or erase_kept_room_now answers confirmation_needed, it also answers game_deletion_request_id. This shows request_status (waiting, approved, declined or expired after a day), the game, and how many other players have saves and how many purchases go with it. Approved means it's done.",
     inputSchema: object({ slug, game_deletion_request_id: { type: "string", pattern: "^game_deletion_request_[a-z0-9]+$", description: "From confirmation_needed's game_deletion_request_id, like game_deletion_request_k2m9x4…" } }, ["slug", "game_deletion_request_id"]),
     outputSchema: GAME_DELETION_REQUEST,
     annotations: read,
@@ -1669,7 +1669,7 @@ export const TOOLS: Tool[] = [
     name: "delete_kept_room",
     title: "Delete a kept room",
     description:
-      "Deletes a kept room's world for good; players in it are sent out. Not for ending a match: the game server does that with room.end(). Frees the world's storage at once. Ask the developer first: nothing brings a deleted world back.",
+      "Deletes a kept room's world; players in it are sent out. Not for ending a match: the game server does that with room.end(). The world stops counting towards the game's storage limit at once, and it waits a week, on the game's hosting meter, before it's erased: until erases_at, bring_back_kept_room brings it back and its code stays taken. Only a game nobody but its developer ever played loses it at once (erases_at null). Ask the developer first.",
     inputSchema: {
       ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
       examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],
@@ -1677,6 +1677,30 @@ export const TOOLS: Tool[] = [
     outputSchema: KEPT_ROOM_DELETED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}`),
+  },
+  {
+    name: "bring_back_kept_room",
+    title: "Bring a deleted kept room back",
+    description: "Brings back a kept room's world deleted or ended through the API, until its erases_at: it's as it was, with the same code. list_kept_rooms says erases_at. A world that isn't waiting answers kept_room_not_waiting; one whose week is over answers kept_room_erasing.",
+    inputSchema: {
+      ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A waiting kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],
+    },
+    outputSchema: KEPT_ROOM_BROUGHT_BACK,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/bring-back`),
+  },
+  {
+    name: "erase_kept_room_now",
+    title: "Erase a deleted kept room at once",
+    description: "Erases a waiting kept room's world without waiting for its erases_at, so what it stores leaves the hosting meter and its code is free. It always answers confirmation_needed first: give the developer confirm_url, where they approve with a passkey tap or decline, and check the answer with get_game_deletion_request. Nothing brings it back after that.",
+    inputSchema: {
+      ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A waiting kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],
+    },
+    outputSchema: KEPT_ROOM_ERASED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/erase-now`),
   },
   {
     name: "list_rooms",
@@ -1761,7 +1785,7 @@ export const TOOLS: Tool[] = [
     name: "end_room",
     title: "End a live room",
     description:
-      "Ends one of the game's live rooms, as the room's own room.end would: everyone in it hears message (up to 200 characters) and is sent out, and a kept room's world ends for good. Ask the developer first: players lose their match. Needs \"confirm\": true, after they agree (needs_confirm without it).",
+      "Ends one of the game's live rooms, as the room's own room.end would: everyone in it hears message (up to 200 characters) and is sent out. A kept room's world waits a week to be erased, like one deleted with delete_kept_room: the answer's erases_at says when, and bring_back_kept_room brings it back until then. Ask the developer first: players lose their match. Needs \"confirm\": true, after they agree (needs_confirm without it).",
     inputSchema: { ...object({ slug, room_code: ROOM_CODE_INPUT, message: { type: "string", maxLength: 200, description: "What everyone in it is told." }, confirm: { type: "boolean", description: "true once the developer agreed." } }, ["slug", "room_code"]), examples: [{ slug: "frostbound", room_code: "K7Q2MX", message: "This world is closing for maintenance.", confirm: true }] },
     outputSchema: ROOM_ENDED,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

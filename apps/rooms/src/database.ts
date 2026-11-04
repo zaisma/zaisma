@@ -1,6 +1,6 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, quoteName, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, integerTooLarge, plainRow, scanStatements, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server/internal";
-import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth } from "@zaisma/core";
+import { HOSTING_PAUSED_TEXT, MATCH_FINISH_DURATION_SEC, MAXIMUM_GAME_STORAGE_SIZE_BYTES, keptRoomsSizeBytes, nextMonthStartDate, recordPlayerErased, usageMonth, waitingKeptRoomsSizeBytes } from "@zaisma/core";
 import type { Env } from "./index.ts";
 import { AwakeTime } from "./usage-counts.ts";
 
@@ -98,9 +98,10 @@ const RECORD_DELAY_MS = 60_000;
 /** The game's kept rooms' size, which counts with the database's storage, is read from D1 at most this often: not once per write. */
 const KEPT_ROOMS_READ_MS = 10 * 60_000;
 
-/** The game's kept rooms' saved size as last read, and when. */
+/** The game's kept rooms' saved size as last read, and when: those counting towards its storage, and those waiting to be erased, only on the meter. */
 interface KeptRoomsSize {
   sizeBytes: number;
+  waitingSizeBytes: number;
   readAtMs: number;
 }
 
@@ -130,7 +131,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
   /** A restore is set for the next start: nothing more runs on what's about to be replaced. */
   private isRestarting = false;
   /** The game's kept rooms' size (kept_rooms), in memory only: storing it would add a table the developer sees. */
-  private keptRooms: KeptRoomsSize = { sizeBytes: 0, readAtMs: 0 };
+  private keptRooms: KeptRoomsSize = { sizeBytes: 0, waitingSizeBytes: 0, readAtMs: 0 };
   private isReadingKeptRooms = false;
   /** Its awake time as Cloudflare bills it, for the hosting meter. */
   private readonly awake = new AwakeTime();
@@ -153,9 +154,9 @@ export class GameDatabaseObject extends DurableObject<Env> {
     if (gameId && !this.isReadingKeptRooms && Date.now() - this.keptRooms.readAtMs >= KEPT_ROOMS_READ_MS) {
       this.isReadingKeptRooms = true;
       this.ctx.waitUntil(
-        keptRoomsSizeBytes(this.env.DB, gameId)
-          .then((sizeBytes) => {
-            this.keptRooms = { sizeBytes, readAtMs: Date.now() };
+        Promise.all([keptRoomsSizeBytes(this.env.DB, gameId), waitingKeptRoomsSizeBytes(this.env.DB, gameId)])
+          .then(([sizeBytes, waitingSizeBytes]) => {
+            this.keptRooms = { sizeBytes, waitingSizeBytes, readAtMs: Date.now() };
           })
           .catch((error) => console.error("Couldn't read the game's kept rooms' size:", error))
           .finally(() => (this.isReadingKeptRooms = false)),
@@ -608,7 +609,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
       await this.env.DB.prepare(
         "INSERT INTO room_usage (game_id, date, database_read_row_count, database_written_row_count, database_size_bytes, database_call_count, database_awake_duration_sec, bookkeeping_written_row_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET database_read_row_count = database_read_row_count + excluded.database_read_row_count, database_written_row_count = database_written_row_count + excluded.database_written_row_count, database_size_bytes = excluded.database_size_bytes, database_call_count = database_call_count + excluded.database_call_count, database_awake_duration_sec = database_awake_duration_sec + excluded.database_awake_duration_sec, bookkeeping_written_row_count = bookkeeping_written_row_count + excluded.bookkeeping_written_row_count",
       )
-        .bind(gameId, unrecorded.date, unrecorded.readRowCount, unrecorded.writtenRowCount, this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes(), unrecorded.callCount ?? 0, Math.round((unrecorded.awakeDurationMs ?? 0) / 1000), 2)
+        .bind(gameId, unrecorded.date, unrecorded.readRowCount, unrecorded.writtenRowCount, this.ctx.storage.sql.databaseSize + this.keptRoomsSizeBytes() + this.keptRooms.waitingSizeBytes, unrecorded.callCount ?? 0, Math.round((unrecorded.awakeDurationMs ?? 0) / 1000), 2)
         .run();
     } catch (error) {
       console.error("Couldn't record the game database's use:", error);

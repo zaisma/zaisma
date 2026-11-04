@@ -760,6 +760,8 @@ export default {
       try {
         const answer = await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
         if (answer.status === 101) return answer;
+        // A world waiting to be erased says so.
+        if (answer.status === 410) return refusedSocket("ended", REMOVED_CLOSE_CODE, await answer.text());
         // The room turned the socket away (full, or its game is gone): said on a socket, which the SDK can read.
         return answer.status === 409 ? refusedSocket("room_full", REMOVED_CLOSE_CODE) : answer.status === 404 ? refusedSocket("game_unavailable", REMOVED_CLOSE_CODE) : refusedSocket("busy", BUSY_CLOSE_CODE);
       } catch (error) {

@@ -1022,7 +1022,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
     state.gameDeletionRequestId && gameDeletion?.request_status === "waiting"
       ? sheet({
           id: "game-deletion-request",
-          title: gameDeletion.request_kind === "delete_game" ? `Delete ${gameDeletion.game_title}?` : `Erase ${gameDeletion.game_title} now?`,
+          title: gameDeletion.request_kind === "delete_game" ? `Delete ${gameDeletion.game_title}?` : gameDeletion.request_kind === "erase_game_now" ? `Erase ${gameDeletion.game_title} now?` : `Erase world ${gameDeletion.room_code} now?`,
           closeLabel: "Close",
           action: `${PAGE}/game-deletion/${gameDeletion.id}`,
           isShown: false,
@@ -1053,6 +1053,7 @@ async function settingsPage(env: Env, request: Request, session: SignedIn, calle
 function gameDeletionWords(request: NonNullable<Awaited<ReturnType<typeof gameDeletionRequestAnswer>>>): string[] {
   const who = request.is_asked_from_dashboard ? [] : ["A key or an AI app asks for this. If it wasn't you, decline, then remove the key."];
   if (request.request_kind === "erase_game_now") return [...who, "Nobody else ever played it. Its files and database go for good, at once."];
+  if (request.request_kind === "erase_kept_room_now") return [...who, `A world in ${request.game_title}. It goes for good, at once, with everything its players built. Decline and it can still be brought back until its week is over.`];
   return [...who, "It goes off for every player at once, and is erased in 7 days unless you bring it back."];
 }
 
@@ -1175,10 +1176,10 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     }
     if ((match = sub.match(/^game-deletion\/(game_deletion_request_[a-z0-9]+)$/))) {
       const answer = field("answer", 20) === "declined" ? "declined" : "approved";
-      const { outcome, gameSlug } = await answerGameDeletionRequest(env, caller, match[1]!, answer);
+      const { outcome, gameSlug, requestKind } = await answerGameDeletionRequest(env, caller, match[1]!, answer);
       if (outcome === "not_waiting") return redirect(`${PAGE}?game_deletion_request=${match[1]}#hosting`, session.cookies);
       if (answer === "declined") return back(answer, "hosting");
-      return redirect(`/dashboard/${gameSlug}?done=game-deleted`, session.cookies);
+      return redirect(`/dashboard/${gameSlug}?done=${requestKind === "erase_kept_room_now" ? "kept-room-erased" : "game-deleted"}`, session.cookies);
     }
     // Pro
     if (sub === "pro/checkout") {

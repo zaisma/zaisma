@@ -5,12 +5,12 @@ import type { Env } from "./env.ts";
 
 /**
  * Game deletion requests (DEVELOPER-API.md, DELETE /games/:slug): deleting a game other people played, or erasing a
- * waiting game at once, is the developer's own step. A key, an AI app or the dashboard asks; Zaisma keeps what was asked,
+ * waiting game or kept room's world at once, is the developer's own step. A key, an AI app or the dashboard asks; Zaisma keeps what was asked,
  * the developer approves it on Developer settings with a passkey tap or declines it, and get_game_deletion_request checks
  * the answer. A request is for that account alone and expires a day after it was asked.
  */
 
-export type GameDeletionRequestKind = "delete_game" | "erase_game_now";
+export type GameDeletionRequestKind = "delete_game" | "erase_game_now" | "erase_kept_room_now";
 
 const REQUEST_DURATION_MS = 86_400_000;
 const MAXIMUM_WAITING_COUNT = 20;
@@ -20,6 +20,7 @@ interface GameDeletionRequestRow {
   account_id: string;
   game_id: string;
   request_kind: GameDeletionRequestKind;
+  room_code: string | null;
   is_asked_from_dashboard: number;
   request_status: "waiting" | "approved" | "declined";
   created_at_ms: number;
@@ -34,17 +35,17 @@ const requestUrl = (env: Env, id: string) => `${env.SITE_ORIGIN}/dashboard/setti
  * Keeps what was asked, replacing the account's waiting one for the same game and kind, and answers confirmation_needed.
  * It changes nothing about the game: players keep playing until the developer approves.
  */
-export async function askForGameDeletion(env: Env, caller: Caller, game: { id: string; title: string }, requestKind: GameDeletionRequestKind, nowMs = Date.now()): Promise<ApiError> {
+export async function askForGameDeletion(env: Env, caller: Caller, game: { id: string; title: string }, requestKind: GameDeletionRequestKind, nowMs = Date.now(), roomCode: string | null = null): Promise<ApiError> {
   const id = newId("game_deletion_request");
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM game_deletion_requests WHERE account_id = ? AND request_status = 'waiting' AND game_id = ? AND request_kind = ?").bind(caller.accountId, game.id, requestKind),
+    env.DB.prepare("DELETE FROM game_deletion_requests WHERE account_id = ? AND request_status = 'waiting' AND game_id = ? AND request_kind = ? AND room_code IS ?").bind(caller.accountId, game.id, requestKind, roomCode),
     // The most waiting at once: the 21st replaces the oldest.
     env.DB.prepare("DELETE FROM game_deletion_requests WHERE account_id = ? AND request_status = 'waiting' AND id IN (SELECT id FROM game_deletion_requests WHERE account_id = ? AND request_status = 'waiting' ORDER BY created_at_ms DESC LIMIT -1 OFFSET ?)").bind(caller.accountId, caller.accountId, MAXIMUM_WAITING_COUNT - 1),
-    env.DB.prepare("INSERT INTO game_deletion_requests (id, account_id, game_id, request_kind, is_asked_from_dashboard, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, caller.accountId, game.id, requestKind, caller.via === "dashboard" ? 1 : 0, nowMs, nowMs + REQUEST_DURATION_MS),
+    env.DB.prepare("INSERT INTO game_deletion_requests (id, account_id, game_id, request_kind, room_code, is_asked_from_dashboard, created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, caller.accountId, game.id, requestKind, roomCode, caller.via === "dashboard" ? 1 : 0, nowMs, nowMs + REQUEST_DURATION_MS),
   ]);
-  if (caller.via !== "dashboard") await logCallerEvent(env, caller, "game_deletion_asked", { gameId: game.id });
+  if (caller.via !== "dashboard") await logCallerEvent(env, caller, requestKind === "erase_kept_room_now" ? "kept_room_erase_asked" : "game_deletion_asked", { gameId: game.id, subjectName: roomCode });
   return new ApiError("confirmation_needed", {
-    message: requestKind === "delete_game" ? `Deleting ${game.title} needs the developer's passkey on zaisma.com, since other people played it. Nothing has changed: players keep playing.` : `Erasing ${game.title} before its week is over needs the developer's passkey on zaisma.com.`,
+    message: requestKind === "delete_game" ? `Deleting ${game.title} needs the developer's passkey on zaisma.com, since other people played it. Nothing has changed: players keep playing.` : requestKind === "erase_game_now" ? `Erasing ${game.title} before its week is over needs the developer's passkey on zaisma.com.` : `Erasing kept room ${roomCode} of ${game.title} before its week is over needs the developer's passkey on zaisma.com. Nothing has changed: it can still be brought back.`,
     fix: "Give the developer confirm_url: it opens a sheet naming the game and what goes with it, where they approve with a passkey tap or decline. Check the answer with get_game_deletion_request (game_deletion_request_id).",
     confirmUrl: requestUrl(env, id),
     gameDeletionRequestId: id,
@@ -72,6 +73,7 @@ export async function gameDeletionRequestAnswer(env: Env, accountId: string, id:
   return {
     id: row.id,
     request_kind: row.request_kind,
+    room_code: row.room_code,
     game_slug: game?.slug ?? null,
     game_title: game?.title ?? null,
     player_with_save_count: game?.player_with_save_count ?? 0,
@@ -88,18 +90,19 @@ export async function gameDeletionRequestAnswer(env: Env, accountId: string, id:
  * The developer's answer, from Developer settings: approving makes the same API call a key made, so it checks everything
  * that call checks, with a caller whose passkey tap is fresh (isPasskeyConfirmed). Answers the game's slug once it's done.
  */
-export async function answerGameDeletionRequest(env: Env, caller: Caller, id: string, answer: "approved" | "declined", nowMs = Date.now()): Promise<{ outcome: "answered" | "not_waiting"; gameSlug: string | null }> {
+export async function answerGameDeletionRequest(env: Env, caller: Caller, id: string, answer: "approved" | "declined", nowMs = Date.now()): Promise<{ outcome: "answered" | "not_waiting"; gameSlug: string | null; requestKind: GameDeletionRequestKind | null }> {
   const row = await rowOf(env, caller.accountId, id);
-  if (!row || statusOf(row, nowMs) !== "waiting") return { outcome: "not_waiting", gameSlug: null };
+  if (!row || statusOf(row, nowMs) !== "waiting") return { outcome: "not_waiting", gameSlug: null, requestKind: null };
   const game = await env.DB.prepare("SELECT slug FROM games WHERE id = ? AND owner_id IS NOT NULL").bind(row.game_id).first<{ slug: string }>();
-  if (!game) return { outcome: "not_waiting", gameSlug: null };
+  if (!game) return { outcome: "not_waiting", gameSlug: null, requestKind: null };
   if (answer === "approved") {
     if (!caller.isPasskeyConfirmed) {
       throw new ApiError("confirmation_needed", { message: "Approving this needs the developer's passkey tap.", fix: "Tap the passkey, then approve.", confirmUrl: requestUrl(env, id) });
     }
     if (row.request_kind === "delete_game") await apiCall(env, caller, "DELETE", `/games/${game.slug}`, { confirm_slug: game.slug });
-    else await apiCall(env, caller, "POST", `/games/${game.slug}/erase-now`, { confirm_slug: game.slug });
+    else if (row.request_kind === "erase_game_now") await apiCall(env, caller, "POST", `/games/${game.slug}/erase-now`, { confirm_slug: game.slug });
+    else await apiCall(env, caller, "POST", `/games/${game.slug}/kept-rooms/${row.room_code}/erase-now`);
   }
   await env.DB.prepare("UPDATE game_deletion_requests SET request_status = ?, answered_at_ms = ? WHERE id = ? AND request_status = 'waiting'").bind(answer, nowMs, id).run();
-  return { outcome: "answered", gameSlug: game.slug };
+  return { outcome: "answered", gameSlug: game.slug, requestKind: row.request_kind };
 }
