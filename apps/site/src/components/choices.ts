@@ -243,7 +243,17 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       isPicked = true; float.close(true);
     }
     var isPicked = picked() >= 0;
-    button.addEventListener("click", function () { if (button.disabled) return; if (float.isOpen()) float.close(false); else float.open(); });
+    // A mouse opens it on the press, as a browser's own select does, not on letting go. A finger waits for its tap, since a press may start a scroll; keys still arrive as a click.
+    var isPressHandled = false;
+    function toggle() { if (button.disabled) return; if (float.isOpen()) float.close(false); else float.open(); }
+    button.addEventListener("pointerdown", function (event) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      isPressHandled = true; toggle();
+      document.addEventListener("pointerup", function () { setTimeout(function () { isPressHandled = false; }, 0); }, { once: true });
+    });
+    // The press would take the focus back from the list it just opened.
+    button.addEventListener("mousedown", function (event) { if (event.button === 0) event.preventDefault(); });
+    button.addEventListener("click", function () { if (!isPressHandled) toggle(); });
     button.addEventListener("keydown", function (event) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!button.disabled) float.open(); }
     });
