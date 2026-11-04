@@ -18,7 +18,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
-  --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.55); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
+  --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.62); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   /* A carving: the glass cut away, a touch darker than the glass round it, shaded under its top edge; pointed at, it catches the light.
      Deep (a groove, a toggle's slot), it's darker and lit along its lower lip. */
@@ -31,7 +31,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   /* A tray's light: the same sheen at a third of the strength, so the tray stays muted under its pane. */
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.02));
-  --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
+  --glass-saturate: 1.6; --edge-hair: rgba(40, 60, 100, 0.1);
   /* A well is carved into the glass: a touch darker than it, so it reads on a pale backdrop too. */
   --well: var(--carving-face); --well-shade: var(--carving-shade);
   --toggle-icon-on: var(--ink);
@@ -81,13 +81,13 @@ export const LIGHT_GLASS = `color-scheme: light;
   --thick-edge-light: rgb(112, 156, 240); --thick-edge-flood: rgba(112, 156, 240, 0.62); --thick-edge-flood-far: rgba(112, 156, 240, 0.24); --thick-edge-wake: rgba(112, 156, 240, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
-  --backdrop-base: #E3E0DB; --backdrop-a: #F6F4F0; --backdrop-b: #CCC8C1; --backdrop-c: #ECE9E4;`;
+  --backdrop-base: #BBD8F0; --backdrop-a: #DCEBF6; --backdrop-b: #7FA8A8; --backdrop-c: #6FA0E6;`;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --glass-ground: #121110;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
-  --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.55); --glass-thick: rgba(14, 17, 24, 0.72); --glass-over-game: rgba(14, 17, 24, 0.88);
+  --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.72); --glass-thick: rgba(14, 17, 24, 0.82); --glass-over-game: rgba(14, 17, 24, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
   --carving-face: rgba(255, 255, 255, 0.08); --carving-face-pointed: rgba(255, 255, 255, 0.13); --carving-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
   --carving-deep-face: rgba(0, 0, 0, 0.24); --carving-deep-shade: inset 0 3px 3px rgba(0, 0, 0, 0.75), inset 0 -1.5px 0 rgba(214, 228, 255, 0.45);
@@ -95,7 +95,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --slab-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 70%);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.03));
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.04), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.04));
-  --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.09);
+  --glass-saturate: 1.4; --edge-hair: rgba(0, 0, 0, 0.09);
   --well: var(--carving-face); --well-shade: var(--carving-shade);
   --toggle-icon-on: var(--run);
   --run-words: var(--run-hi);
@@ -129,7 +129,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --thick-edge-light: rgba(214, 228, 255, 0.9); --thick-edge-flood: rgba(206, 222, 255, 0.4); --thick-edge-flood-far: rgba(206, 222, 255, 0.14); --thick-edge-wake: rgba(206, 222, 255, 0.35);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-rim: rgba(255, 255, 255, 0.16); --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
-  --backdrop-base: #121110; --backdrop-a: #2A2724; --backdrop-b: #0A0909; --backdrop-c: #1D1B19;`;
+  --backdrop-base: #0D1622; --backdrop-a: #16263A; --backdrop-b: #05080D; --backdrop-c: #0A1222;`;
 
 /**
  * The words margin (docs/DESIGN.md, Spacing), defined once. Words are never closer to the edge of a surface of glass than its margin, --pad-pane
@@ -170,6 +170,12 @@ export const BARE_GROUPS_STYLES = `
  * page. Smoked glass on its own is the class smoke on any ancestor: a dark game's background smokes the
  * glass over it whatever the theme, since the theme changes only Zaisma's own backgrounds.
  */
+/** A token's value, read from the tokens themselves; on a phone, its value there. So what the gallery says is always what it is. */
+export const tokenValue = (tokenName: string, screen: "any" | "phone" = "any"): string => {
+  const found = [...TOKEN_STYLES.matchAll(new RegExp(`--${tokenName}:\\s*([^;]+);`, "g"))].map((match) => match[1]!.trim());
+  return (screen === "phone" ? found[found.length - 1] : found[0]) ?? "";
+};
+
 export const TOKEN_STYLES = `
 @font-face { font-family: Jost; src: url(/fonts/jost.7726a5cd.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
 /* Until Jost arrives, words show in Arial sized and set to take Jost's room: the same width at each weight the pages use (size-adjust,

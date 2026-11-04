@@ -8,14 +8,14 @@ const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.
 export const ICONS = {
   // Zaisma's mark in glass: the Z over a running game. Its drawing is in the stylesheet (LOGO_ART, below), so no page carries it.
   zaisma: '<span class="logo mark"><span class="logo-art on-light"></span><span class="logo-art on-smoked"></span></span>',
-  // Leaving a game: a door with an arrow out.
   "sign-in": stroke("0 0 20 20", '<path d="M9 4h7v12H9M3 10h8M8 7l3 3-3 3"/>'),
   "closed-door": stroke("0 0 20 20", '<path d="M5 17V3h10v14M3 17h14"/><path d="M12 10v.6"/>'),
   "at-sign": stroke("0 0 20 20", '<circle cx="10" cy="10" r="3"/><path d="M13 7v4.2a2.2 2.2 0 0 0 4.4 0V10a7.4 7.4 0 1 0-3 6"/>'),
   apps: stroke("0 0 20 20", '<path d="M3.5 3.5h5v5h-5zM11.5 3.5h5v5h-5zM3.5 11.5h5v5h-5zM11.5 11.5h5v5h-5z"/>'),
   coin: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7"/><path d="M10 5.8v8.4M12.3 7.9c-.4-.7-1.2-1.1-2.3-1.1-1.4 0-2.4.7-2.4 1.7 0 2.4 4.8 1.2 4.8 3.6 0 1-1 1.6-2.4 1.6-1.1 0-2-.4-2.4-1.2"/>'),
   repeat: stroke("0 0 20 20", '<path d="M3 9.5V8.5a3 3 0 0 1 3-3h10.5"/><path d="M14 3l2.5 2.5L14 8"/><path d="M17 10.5v1a3 3 0 0 1-3 3H3.5"/><path d="M6 12l-2.5 2.5L6 17"/>'),
-  diamond: stroke("0 0 20 20", '<path d="M6 3.5h8l3.5 4.5L10 17 2.5 8z"/><path d="M2.5 8h15M7.5 8 10 17l2.5-9M7.5 8 10 3.5 12.5 8"/>'),
+  // Zaisma Pro: its guild seal, the same drawing as everywhere (guild-seal.ts).
+  "guild-seal": '<svg class="ico" viewBox="0 0 1 1" aria-hidden="true"><image href="/guild-seal-64.webp" width="1" height="1"/></svg>',
   keypad: stroke("0 0 20 20", '<circle cx="5" cy="3.5" r="1"/><circle cx="10" cy="3.5" r="1"/><circle cx="15" cy="3.5" r="1"/><circle cx="5" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="15" cy="8" r="1"/><circle cx="5" cy="12.5" r="1"/><circle cx="10" cy="12.5" r="1"/><circle cx="15" cy="12.5" r="1"/><circle cx="10" cy="17" r="1"/>'),
   hook: stroke("0 0 20 20", '<circle cx="11.5" cy="4" r="1.6"/><path d="M11.5 5.6v7a4.2 4.2 0 0 1-8.4 0V10l2.5 2.2"/>'),
   star: stroke("0 0 20 20", '<path d="M10 2.8l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8.1l5-.7z"/>'),
@@ -37,6 +37,8 @@ export const ICONS = {
   cart: stroke("0 0 20 20", '<path d="M2.5 3.5h2.2l2 9.4h8.7l1.8-6.6H5.5"/><circle cx="8" cy="16.2" r="1.2"/><circle cx="14" cy="16.2" r="1.2"/>'),
   card: stroke("0 0 20 20", '<path d="M2.5 5h15v10h-15z"/><path d="M2.5 8.6h15M5.4 12.2h3"/>'),
   "price-tag": stroke("0 0 20 20", '<path d="M10.6 2.8H17.2v6.6l-7.7 7.7a1.4 1.4 0 0 1-2 0l-4.6-4.6a1.4 1.4 0 0 1 0-2z"/><circle cx="13.7" cy="6.3" r="1.1"/>'),
+  // Rolling a new secret.
+  dice: stroke("0 0 20 20", '<path d="M10 2 17 6v8l-7 4-7-4V6z"/><path d="M3 6l7 4 7-4M10 10v8"/><path d="M10 6h.01M6 10.5h.01M7.5 14h.01M14 10.5h.01M12.5 14h.01" stroke-width="2.2"/>'),
   lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
   gear: stroke(
@@ -69,14 +71,6 @@ export const ICONS = {
   upload: stroke("0 0 20 20", '<path d="M10 13.2V3.6M6.2 7.2 10 3.4l3.8 3.8"/><path d="M3.5 12.4v4.1h13v-4.1"/>'),
   warning: stroke("0 0 20 20", '<path d="M10 2.8 18.2 17H1.8z"/><path d="M10 8v4.2M10 14.6v.1"/>'),
   passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
-  // A globe turned to a continent, marking a region (a game's rooms by where they run).
-  "globe-africa": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M7.4 6.6l3.8-.2 1.9 1.7-.4 2.1-1.5 2.2-.8 2.5-1.3-.4-.6-2.4-1.5-1.9.4-2z"/>'),
-  "globe-antarctica": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M5.2 14.4l2.7-.9h4.2l2.7.9-1.7 1.6H6.9z"/>'),
-  "globe-asia": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M5.6 6l4.2-1.6 4.4 1 1.7 2.5-1.3 1.7-2.5.4-1 1.9-1.9-.6-1.3-1.7-1.9-.8z"/>'),
-  "globe-europe": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M6.8 5.6l2.3-1 2.8.5 1.5 1.7-.6 1.9-2.1.5-1.5 1.5-1.9-.4-.6-1.7.8-1.2z"/>'),
-  "globe-north-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M4.4 6.6l2.7-2.1 3.4.2 1 1.9-1.7 1.7-.6 2.3-1.7 1.3-1.3-1.5-1.7-.6z"/>'),
-  "globe-oceania": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M9.6 11.4l3.1-.6 1.9 1.3.2 1.9-1.7 1.3-2.1-.2-1.5-1.3z"/>'),
-  "globe-south-america": stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M8.8 10.2l2.5.4 1.5 1.9-.8 2.5-1.7 2.1-.8-2.3-.8-2.3z"/>'),
   share: stroke("0 0 20 20", '<path d="M10 2.8v10M6.4 6.2 10 2.6l3.6 3.6"/><path d="M4.5 10v6.5h11V10"/>'),
   flag: stroke("0 0 20 20", '<path d="M4.5 17.5V3"/><path d="M4.5 3.5h10.5l-2.2 3.8 2.2 3.8H4.5"/>'),
   hash: stroke("0 0 20 20", '<path d="M4 7.5h13M3 12.5h13M8.5 3 7 17M13.5 3 12 17"/>'),
@@ -96,11 +90,11 @@ export const ICONS = {
   "signal-lost": stroke("0 0 20 20", '<path d="M4.5 16.5v-3M10 16.5v-7M15.5 16.5v-11" opacity="0.35"/><path d="M3 3l14 14"/>', ' stroke-width="2.2"'),
   reconnecting: stroke("0 0 20 20", '<path d="M16.5 10a6.5 6.5 0 0 1-11.4 4.3M3.5 10a6.5 6.5 0 0 1 11.4-4.3"/><path d="M15 2.8v3.4h-3.4M5 17.2v-3.4h3.4"/>'),
   // Playing together at one screen.
-  gamepad: stroke("0 0 20 20", '<path d="M6.2 6h7.6a3.6 3.6 0 0 1 3.5 2.8l.8 3.8a2 2 0 0 1-3.5 1.6L13 12.5H7l-1.6 1.7a2 2 0 0 1-3.5-1.6l.8-3.8A3.6 3.6 0 0 1 6.2 6z"/><path d="M6.4 8.4v2.4M5.2 9.6h2.4M13.4 9h.1M15 10.6h.1"/>'),
+  gamepad: stroke("0 0 20 20", '<path d="M6 4.6h8a4 4 0 0 1 3.9 3.2l1 5a2.4 2.4 0 0 1-4.2 2L12.6 12.6H7.4l-2.1 2.2a2.4 2.4 0 0 1-4.2-2l1-5A4 4 0 0 1 6 4.6z"/><path d="M6.2 7v3.2M4.6 8.6h3.2"/><path d="M12.8 9.6h.01M15 7.6h.01" stroke-width="2.2"/>'),
   // Devices a game works on.
-  phone: stroke("0 0 20 20", '<path d="M6.5 2.5h7v15h-7z"/><path d="M9.2 15h1.6"/>'),
-  tablet: stroke("0 0 20 20", '<path d="M3.5 3.5h13v13h-13z"/><path d="M9.2 14.2h1.6"/>'),
-  computer: stroke("0 0 20 20", '<path d="M2.8 4h14.4v9.5H2.8z"/><path d="M7 17h6M10 13.5V17"/>'),
+  phone: stroke("0 0 20 20", '<rect x="5.5" y="1.8" width="9" height="16.4" rx="2.2"/><path d="M8.8 15.6h2.4"/>'),
+  tablet: stroke("0 0 20 20", '<rect x="2" y="3.8" width="16" height="12.4" rx="2"/><path d="M8.6 13.6h2.8"/>'),
+  computer: stroke("0 0 20 20", '<rect x="2.8" y="4" width="14.4" height="9.5" rx="1.8"/><path d="M7 17h6M10 13.5V17"/>'),
   refresh: stroke("0 0 20 20", '<path d="M16.3 10a6.3 6.3 0 1 1-1.9-4.5"/><path d="M15.4 2.6v3.6h-3.6"/>'),
   download: stroke("0 0 20 20", '<path d="M10 3.5v9M6.2 8.8 10 12.6l3.8-3.8"/><path d="M4 16.5h12"/>'),
   "out-of-page": stroke("0 0 20 20", '<path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5"/><path d="M14.5 12v4.5h-11v-11H8"/>'),
@@ -129,7 +123,7 @@ export const ICONS = {
   sidebar: stroke("0 0 20 20", '<rect x="2.8" y="3.8" width="14.4" height="12.4" rx="1.6"/><path d="M7.8 3.8v12.4"/>'),
   filter: stroke("0 0 20 20", '<path d="M3 4.5h14l-5.5 6.4v5.3l-3-1.6v-3.7z"/>'),
   sort: stroke("0 0 20 20", '<path d="M6.5 4v12M3.5 7l3-3 3 3M13.5 16V4M10.5 13l3 3 3-3"/>'),
-  key: stroke("0 0 20 20", '<circle cx="6.5" cy="13.5" r="3.2"/><path d="M8.8 11.2 16 4M13.4 6.6l2 2M11.6 8.4l1.6 1.6"/>'),
+  key: stroke("0 0 20 20", '<circle cx="5.6" cy="10" r="3.6"/><path d="M9.2 10H18M14 10v3M17.3 10v3"/>'),
   image: stroke("0 0 20 20", '<path d="M3 4h14v12H3z"/><circle cx="7.4" cy="8" r="1.4"/><path d="M3.4 15.4l4.6-4.6 3 3 2-2 3.6 3.6"/>'),
   // What a game uses on Zaisma's servers: its database, and how much of an allowance is gone.
   database: stroke("0 0 20 20", '<ellipse cx="10" cy="5" rx="6" ry="2.2"/><path d="M4 5v10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5M4 10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/>'),
@@ -142,7 +136,27 @@ export const ICONS = {
   play: '<svg class="play" viewBox="0 0 16 18" width="14" height="16" aria-hidden="true"><path d="M2 1.5l12 7.5-12 7.5z" fill="currentColor"/></svg>',
 } as const;
 export type IconName = keyof typeof ICONS;
+
+/** Every icon under what it's for, so like ones sit side by side in the gallery. An icon with no group doesn't build. */
+export const ICON_GROUPS = [
+  { title: "Zaisma", iconNames: ["zaisma", "guild-seal"] },
+  { title: "Playing", iconNames: ["gamepad", "headphones", "genre", "door", "closed-door", "repeat", "globe", "phone", "tablet", "computer"] },
+  { title: "Media", iconNames: ["play", "pause", "speaker", "speaker-low", "speaker-off", "full-screen", "full-screen-exit", "image"] },
+  { title: "People", iconNames: ["person", "people", "person-plus", "friends", "at-sign", "ban", "flag"] },
+  { title: "Talking", iconNames: ["forum", "mail", "send", "reply", "quote", "vote-up", "vote-down", "heart", "star", "bookmark", "bell", "megaphone", "hash", "share"] },
+  { title: "Money", iconNames: ["coin", "cart", "card", "price-tag"] },
+  { title: "Signing in", iconNames: ["sign-in", "sign-out", "key", "passkey", "lock", "keypad"] },
+  { title: "Developer tools", iconNames: ["code", "hook", "database", "gauge", "dice", "qr-code", "upload", "download", "rules"] },
+  { title: "Moving around", iconNames: ["home", "compass", "apps", "search", "filter", "sort", "sidebar", "more", "link", "out-of-page", "chevron-down", "chevron-right", "chevron-back", "chevron-forward", "arrow-back", "arrow-first", "arrow-last"] },
+  { title: "Doing", iconNames: ["plus", "minus", "pencil", "copy", "save", "trash", "refresh", "close", "gear", "light-dark"] },
+  { title: "States", iconNames: ["check", "warning", "info", "clock", "calendar", "eye", "eye-off", "signal-weak", "signal-lost", "reconnecting"] },
+] as const satisfies readonly { title: string; iconNames: readonly IconName[] }[];
+true satisfies [Exclude<IconName, (typeof ICON_GROUPS)[number]["iconNames"][number]>] extends [never] ? true : never;
 export const icon = (name: IconName): Raw => raw(ICONS[name]);
+
+/** It goes outside Zaisma: an address with its own site. A button, link, list row or menu item with one opens in a new tab and ends in the leaving icon, so none can forget to. */
+export const leavesZaisma = (href: string | undefined) => /^https?:\/\/(?!(www\.)?zaisma\.com(\/|$))/.test(href ?? "");
+
 /** A large icon, a pane's key icon: it stands for what the pane is (Confirm it's you's lock), with room round it, so it reads as the pane's
  * mark above its title. */
 export const largeIcon = (name: IconName): Raw => raw(`<span class="large-icon">${ICONS[name]}</span>`);

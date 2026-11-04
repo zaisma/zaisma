@@ -2524,35 +2524,31 @@ describe("cloud saves", () => {
     expect(own).toContain("Go back to Owl Game to keep playing.</p>");
   });
 
-  it("signs in over the city, naming the game that asked, with the guest way back to it", async () => {
+  it("signs in over the live world, naming the game that asked, with the guest way back to it", async () => {
     await liveGame();
     await env.DB.prepare("UPDATE games SET visibility = 'listed' WHERE slug = 'owl-game'").run();
     const plain = await (await new Browser().go("/signin")).text();
-    // One pane of glass over the city: its canvas, the still under it, the logo alone above, and the switch to making an account.
-    expect(plain).toContain('<div class="city-pane" data-city-pane>');
-    expect(plain).toContain('<canvas class="city"></canvas>');
-    // Every step swaps into the pane in place, so the city never starts over; the passkey script can run again for it.
-    expect(plain).toMatch(/<link rel="preload" as="script" href="\/js\/city-pane\.[0-9a-f]+\.js" fetchpriority="low" data-page-script>/);
-    expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
+    // One pane of glass over the world: its canvases, the logo alone above, and the switch to making an account.
+    expect(plain).toContain('<div class="world-pane" data-world-pane>');
+    expect(plain).toContain('<canvas class="world-birds"></canvas>');
+    // Every step swaps into the pane in place, so the world never starts over; the passkey script can run again for it.
+    expect(plain).toMatch(/<link rel="preload" as="script" href="\/js\/live-world-pane\.[0-9a-f]+\.js" fetchpriority="low" data-page-script>/);
     expect(plain).toMatch(/<header class="top bar-layout glass[^"]*"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top bar-layout glass[^"]*"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
     expect(plain).toContain('<a class="flush-row quiet" data-lights href="/signin" aria-current="page">Sign in</a>');
     expect(plain).toContain('<a class="flush-row quiet" data-lights href="/join">Make an account</a>');
-    expect(plain).toContain("Continue as guest");
+    expect(plain).toContain("Play as a guest");
     expect(plain).not.toContain("asked you to sign in");
-    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["city", "back-to-game", "passkey-sign-in", "entry-switch"]));
+    expect(pageScriptNames(plain)).toEqual(expect.arrayContaining(["live-world", "back-to-game", "passkey-sign-in", "entry-switch"]));
     // Sign in and Make an account are both in the pane, so the switch swaps them in place; each address opens on its own.
     expect(plain).toContain('<section class="pane-stack" id="view-signin" data-entry-view="signin" data-title="Sign in · Zaisma">');
     expect(plain).toContain('<section class="pane-stack" id="view-join" data-entry-view="join" data-title="Make an account · Zaisma" hidden>');
     const joinPage = await (await new Browser().go("/join")).text();
     expect(joinPage).toContain('data-entry-view="signin" data-title="Sign in · Zaisma" hidden>');
     expect(joinPage).toContain('<a class="flush-row quiet" data-lights href="/join" aria-current="page">Make an account</a>');
-    // The stills are the stage's CSS, so only the one showing loads.
     const styles = await (await SELF.fetch(`${SITE}${plain.match(/href="(\/css\/site\.[0-9a-f]+\.css)"/)![1]}`)).text();
-    for (const still of ["city-day.webp", "city-day-phone.webp", "city-night.webp", "city-night-phone.webp"]) expect(styles).toContain(`url(/sign-in/${still})`);
-    // A press anywhere but on the pane, the logo or the rail reaches the city, whose shapes and sea are there to tap.
-    expect(styles).toMatch(/\.city-page[^{}]*\{ ?pointer-events: none; ?\}/);
-    expect(styles).toMatch(/\.city-stage[^{}]*\{ ?pointer-events: auto; ?\}/);
+    // A press anywhere but on the pane, the logo, the rail or the count goes through the page.
+    expect(styles).toMatch(/\.world-page[^{}]*\{ ?pointer-events: none; ?\}/);
 
     // A game's tab: the pane says the game asked, and the guest way goes back to it, on every pane of the way in.
     const next = encodeURIComponent("/account/kept?game=owl-game");
@@ -2561,14 +2557,14 @@ describe("cloud saves", () => {
       expect(asked, path).toContain("<p>Owl Game asked you to sign in.</p>");
       expect(asked, path).toContain('<div data-back><a class="shell tertiary-btn is-full" href="/g/owl-game?play">');
       expect(asked, path).toContain("Back to Owl Game as a guest");
-      expect(asked, path).not.toContain("Continue as guest");
+      expect(asked, path).not.toContain("Play as a guest");
     }
     // The switch keeps where they were going.
     expect(await (await new Browser().go(`/signin?next=${next}`)).text()).toContain(`<a class="flush-row quiet" data-lights href="/join?next=${next}">Make an account</a>`);
     // A made-up game, or one strangers can't see, isn't named.
     for (const unknown of ["/account/kept?game=no-such-game", "/account/kept?game=Owl"]) {
       const page = await (await new Browser().go(`/signin?next=${encodeURIComponent(unknown)}`)).text();
-      expect(page).toContain("Continue as guest");
+      expect(page).toContain("Play as a guest");
       expect(page).not.toContain("asked you to sign in");
     }
     await env.DB.prepare("UPDATE games SET visibility = 'private' WHERE slug = 'owl-game'").run();
@@ -4646,8 +4642,8 @@ describe("Developer settings", () => {
     const connected = await (await b.go("/dashboard/settings")).text();
     expect(connected).toContain("Pixel Smith");
     expect(connected).toContain("Finish on Stripe");
-    expect(connected).toContain("Change on Stripe");
-    expect(connected).toContain("Open Stripe");
+    expect(connected).toContain("Account settings");
+    expect(connected).toContain("Dashboard");
     expect(pageProblems(connected)).toEqual([]);
     // The tap is in the Finish on Stripe form too, since it asks for a fresh connect_url: its sheet posts to connect, tapping the passkey first.
     expect(connected).toMatch(/action="\/dashboard\/settings\/payments\/connect"[\s\S]*?data-tap="confirm"/);

@@ -9,7 +9,7 @@ import { BLOCKED_PICTURE_PATTERNS } from "../../apps/site/src/components/checked
  */
 
 /** Classes a script or a screen reader uses, with no look of their own. */
-export const UNSTYLED_HOOKS = new Set<string>([
+export const UNSTYLED_HOOKS = new Set<string>(["way-stripe", 
   "wheel-read", // The birthday's spoken summary (and .sr hides it).
   // What a layout's cell holds (layout.ts), which the measuring check reads (scripts/layout-check.mjs); words' cells are styled.
   "is-control", "is-block",
@@ -193,7 +193,7 @@ export async function pageStructureProblems(markup: string): Promise<string[]> {
   const nodes = everyNode(await pageTree(markup));
   const problems: string[] = [];
   // Hierarchy: one h1, and headings that never skip a level.
-  const titles = nodes.filter((node) => node.tag === "h1" && isInside(node, "main", ".city") && !isInside(node, EXAMPLE, "dialog", "template"));
+  const titles = nodes.filter((node) => node.tag === "h1" && isInside(node, "main", ".world-frame") && !isInside(node, EXAMPLE, "dialog", "template"));
   if (titles.length > 1) problems.push(`more than one title: ${nameOf(titles[1]!)}, a second h1 after ${nameOf(titles[0]!)}`);
   let lastLevel = 1;
   for (const heading of nodes.filter((node) => /^h[1-4]$/.test(node.tag) && isInside(node, "main") && !isInside(node, EXAMPLE, "template", ...OVER_PAGE))) {

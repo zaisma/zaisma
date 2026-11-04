@@ -1,7 +1,7 @@
 import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { html, raw, shownColor, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { ICONS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+import { ICONS, ICON_GROUPS, LOGO_STYLES, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
 import { CLOUDS_SHADER, DUSK_SHADER, STAND_IN_BACKGROUNDS } from "./shaders.ts";
 import { pageScript, type PageScript } from "../page-scripts.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -12,7 +12,7 @@ import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.gene
  * From the drafts Julius approved (ops docs/drafts/look-and-voice/). "Zaisma is the glass, and the game is not"; orange
  * only on what you act on. Everything the other component files import from here is re-exported below.
  */
-export { ICONS, MARK, WORDMARK, icon, largeIcon, type IconName } from "./icons.ts";
+export { ICONS, MARK, WORDMARK, icon, largeIcon, leavesZaisma, type IconName } from "./icons.ts";
 export { TOKEN_STYLES, cutPolygon } from "./tokens.ts";
 import { cutPolygon } from "./tokens.ts";
 import { paneParts, row, type ControlMarkup, type LayoutMarkup, stackOfOne } from "./layout.ts";
@@ -358,6 +358,13 @@ const SWATCHES: { token: string; note: string }[] = [
   { token: "--warning", note: "A warning, a field marked wrong" },
   { token: "--online", note: "Online, playing" },
   { token: "--danger", note: "A delete's confirm step only" },
+  { token: "--run-words", note: "Orange words, dark enough to read" },
+  { token: "--on-run", note: "Words on orange" },
+  { token: "--focus", note: "Keyboard focus" },
+  { token: "--marked", note: "A field marked wrong" },
+  { token: "--well", note: "What's carved in" },
+  { token: "--dim", note: "The page under a sheet" },
+  { token: "--done", note: "A step that's done" },
 ];
 
 const swatches = () =>
@@ -506,11 +513,6 @@ component({
     { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
     { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
     { label: "Over a busy shader: it picks light or smoked glass and a tint from what's behind, and the words keep their contrast", isWide: true, markup: lightFrame({ standInSlug: "neon-drift", cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
-    {
-      label: "Thin to thick",
-      isWide: true,
-      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="pane" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
-    },
   ],
 });
 
@@ -584,7 +586,7 @@ component({
   slug: "backdrop",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, a sheet of satin whose folds sway slowly in a soft light, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, under a midday sky in light and the Milky Way in dark, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
@@ -623,7 +625,7 @@ html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page
 `,
   render: backdrop,
   examples: [
-    { label: "Zaisma's own: behind every page, warm gray on light and warm graphite on dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "Zaisma's own: behind every page, a midday sky in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
@@ -851,6 +853,8 @@ component({
   summary: "Thin line icons in the words' color, so a kind of fact can be found without reading. Never decoration.",
   styles: `
 /* Icons: the set, with names. */
+.icon-groups { width: 100%; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.icon-group-title { margin: 0 0 var(--gap-words-words); font: var(--type-words); font-weight: 600; color: var(--ink); }
 .icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
 /* A name wraps rather than widen its column: at large text, the longest names would push the set past the page. */
 .icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); min-width: 0; font: var(--type-facts); color: var(--ink-2); }
@@ -863,7 +867,7 @@ component({
 `,
   render: icon,
   examples: [
-    { label: "Every icon", isWide: true, markup: html`<ul class="icon-set">${Object.keys(ICONS).map((name) => html`<li>${icon(name as IconName)}<span>${name}</span></li>`)}</ul>` },
+    { label: "Every icon, under what it's for", isWide: true, markup: html`<div class="icon-groups">${ICON_GROUPS.map((group) => html`<section><h3 class="icon-group-title">${group.title}</h3><ul class="icon-set">${group.iconNames.map((name) => html`<li>${icon(name)}<span>${name}</span></li>`)}</ul></section>`)}</div>` },
     { label: "Large: a pane's key icon, standing for what it is, above its title (Confirm it's you)", markup: html`${largeIcon("key")}` },
   ],
 });

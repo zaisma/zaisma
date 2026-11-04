@@ -5,6 +5,7 @@ import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES, hoverOnlyWherePointing } from "../../apps/site/src/components/index.ts";
 import { MATERIAL_STYLES } from "../../apps/site/src/components/materials.ts";
 import { COMPONENT_GROUPS, GALLERY_PLACES, component, galleryPagePath } from "../../apps/site/src/components/component.ts";
+import { TOKEN_STYLES } from "../../apps/site/src/components/tokens.ts";
 import { GALLERY_STYLES } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
@@ -17,7 +18,7 @@ import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
 import { PAGE_SHEETS, STEEL_PAGE_SHEETS, UNSTYLED_HOOKS, pageProblems, pageStructureProblems, pictureBoxProblems, pageWordProblems, pageWords } from "./page-rules.ts";
-import { BACKDROP_SCRIPT, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { BACKDROP_SCRIPT, ICONS, glassPane, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
@@ -25,6 +26,7 @@ import { NO_EMPTY_NOTE, raw } from "../../apps/site/src/markup.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import materialsSource from "../../apps/site/src/components/materials.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
+import { ICON_GROUPS } from "../../apps/site/src/components/icons.ts";
 import iconsSource from "../../apps/site/src/components/icons.ts?raw";
 import glassScriptSource from "../../apps/site/src/components/glass-script.ts?raw";
 import backdropScriptSource from "../../apps/site/src/components/backdrop-script.ts?raw";
@@ -44,7 +46,8 @@ import dataSource from "../../apps/site/src/components/data.ts?raw";
 import layoutSource from "../../apps/site/src/components/layout.ts?raw";
 import layoutGallerySource from "../../apps/site/src/components/layout-gallery.ts?raw";
 import controlMarkupSource from "../../apps/site/src/components/control-markup.ts?raw";
-import citySource from "../../apps/site/src/components/city.ts?raw";
+import liveWorldSource from "../../apps/site/src/components/live-world.ts?raw";
+import guildSealSource from "../../apps/site/src/components/guild-seal.ts?raw";
 import screensSource from "../../apps/site/src/components/screens.ts?raw";
 import playingSource from "../../apps/site/src/components/playing.ts?raw";
 import layersSource from "../../apps/site/src/components/layers.ts?raw";
@@ -63,7 +66,7 @@ import galleryPageSource from "../../apps/site/src/design-page.ts?raw";
 const SOURCES: Record<string, string> = {
   "components/foundations.ts": foundationsSource, "components/materials.ts": materialsSource, "components/tokens.ts": tokensSource, "components/icons.ts": iconsSource, "components/glass-script.ts": glassScriptSource, 
   "components/backdrop-script.ts": backdropScriptSource, "components/actions.ts": actionsSource, "components/fields.ts": fieldsSource, "components/switch.ts": switchSource, "components/light-box.ts": lightBoxSource, "components/qr-code.ts": qrCodeSource, "components/choices.ts": choicesSource, "components/example-pane.ts": examplePaneSource, "components/inputs.ts": inputsSource, "components/navigation.ts": navigationSource, "components/panes.ts": panesSource, "components/confirm-its-you.ts": confirmItsYouSource, "components/stripe-frame.ts": stripeFrameSource, "components/data.ts": dataSource,
-  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/city.ts": citySource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
+  "components/layout.ts": layoutSource, "components/layout-gallery.ts": layoutGallerySource, "components/control-markup.ts": controlMarkupSource, "components/live-world.ts": liveWorldSource, "components/guild-seal.ts": guildSealSource, "components/screens.ts": screensSource, "components/playing.ts": playingSource, "components/layers.ts": layersSource,
   "components/reading.ts": readingSource, "components/people.ts": peopleSource, "components/game-cover.ts": gameCoverSource, "components/waiting.ts": waitingSource, "components/first-paint-script.ts": firstPaintScriptSource,
   "components/code-colors.ts": codeColorsSource, "components/game-media.ts": gameMediaSource, "components/load-more.ts": loadMoreSource, "components/video-player.ts": videoPlayerSource,
   "design-page.ts": galleryPageSource,
@@ -195,6 +198,15 @@ describe("the gallery", () => {
     // Every rule in the pages' styles closes each bracket it opens, so no broken selector swallows the rules after it.
     const unbalanced = [...COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\/|"[^"]*"|'[^']*'/g, "").matchAll(/([^{}]*)\{/g)].map(([, selector = ""]) => selector.trim()).filter((selector) => selector.split("(").length !== selector.split(")").length);
     expect(unbalanced).toEqual([]);
+  });
+
+  it("shows every token of a family in its gallery piece, so a new one can't go unshown", () => {
+    const FAMILIES: [string, RegExp][] = [["spacing", /--(?:gap|pad)-[a-z-]+(?=:)/g], ["type", /--type-[a-z]+(?=:)/g], ["motion", /--(?:motion|ease)-[a-z-]+(?=:)/g]];
+    for (const [slug, family] of FAMILIES) {
+      const shown = COMPONENTS().find((each) => each.slug === slug)!.examples.map((example) => `${example.label} ${example.markup.html}`).join(" ");
+      const unshown = [...new Set(TOKEN_STYLES.match(family) ?? [])].filter((token) => !shown.includes(token));
+      expect(unshown, slug).toEqual([]);
+    }
   });
 
   it("gives every component a slug of its own", () => {
@@ -506,6 +518,44 @@ describe("components", () => {
     for (const hueColor of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColor } }).html).toBe("");
   });
 
+  it("sends anything with another site's address to a new tab that says so, from the address alone", () => {
+    const pieces = (href: string) => [
+      actions.textLink("Store page", href).html,
+      actions.primaryButton("Store", { href }).html,
+      actions.secondaryButton("Store", { href }).html,
+      actions.tertiaryButton("Store", { href }).html,
+      data.listRows({ whenEmpty: NO_EMPTY_NOTE, rows: [{ title: "Store", href }] }).html,
+      panes.dropdown({ id: "menu", label: "More", items: [{ label: "Store", href }] }).html,
+    ];
+    const leaving = ICONS["out-of-page"];
+    for (const piece of pieces("https://store.steampowered.com/app/1")) {
+      expect(piece).toMatch(/target="_blank" rel="noopener"/);
+      expect(piece).toContain(leaving);
+    }
+    for (const piece of [...pieces("/forum"), ...pieces("https://zaisma.com/forum")]) {
+      expect(piece).not.toContain('target="_blank"');
+      expect(piece).not.toContain(leaving);
+    }
+    // A page of Zaisma's beside a running game asks for the new tab, and says so the same way.
+    expect(actions.textLink("Send a copyright notice", "/legal/dmca", { isNewTab: true }).html).toContain(leaving);
+    // The last word holds the icon, so no line starts with it.
+    expect(actions.textLink("Read the source code", "https://github.com/zaisma/zaisma").html).toContain(`Read the source <span class="link-end">code${leaving}</span>`);
+  });
+
+  it("files every icon under one group", () => {
+    const grouped = ICON_GROUPS.flatMap((group) => [...group.iconNames] as string[]);
+    expect([...grouped].sort()).toEqual(Object.keys(ICONS).sort());
+  });
+
+  it("shows no link to another site in the gallery that stays in the tab or leaves without its icon", () => {
+    const outsideLinks = COMPONENTS().flatMap((each) => each.examples.flatMap((example) => [...example.markup.html.matchAll(/<a\s[^>]*href="https?:\/\/[^>]*>[\s\S]*?<\/a>/g)].map((match) => ({ name: `${each.name}: ${example.label}`, link: match[0] }))));
+    expect(outsideLinks.length).toBeGreaterThan(0);
+    for (const { name, link } of outsideLinks) {
+      expect(link, name).toContain('target="_blank"');
+      expect(link, name).toContain(ICONS["out-of-page"]);
+    }
+  });
+
   it("make the runner a link with an address and a button without one", () => {
     expect(actions.primaryButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
     expect(actions.primaryButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
@@ -639,7 +689,7 @@ describe("components", () => {
 // so a new one is a deliberate choice.
 const HAND_CUT = new Set<string>([
   // A pane: cut by its own corners (24 and 20, the header, the footer and the gallery's bar 20 and 14), which the edge rule fits all inside it to.
-  ".top", ".foot", ".header-frame", ".backdrop-frame", ".city-frame", ".glass-strip", ".glass-play",
+  ".top", ".foot", ".header-frame", ".backdrop-frame", ".world-frame", ".glass-strip", ".glass-play",
   // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
   ".glass-play .cut",
   // A toggle's front surface: swept down from its slab's own cut (TOGGLE_SCRIPT reads the edge rule's shape), so it keeps the rule's corners.
@@ -675,6 +725,8 @@ const GALLERY_ONLY = new Set<string>([
 
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
 const OWN_SVG = new Map<string, string>([
+  ['class="wordmark" viewBox="0 0 360 151"', "Stripe's own wordmark, as its logo kit gives it"],
+  ['"guild-seal":', "the seal, as a picture in the set of icons"],
   ["const stroke = ", "the icon set's line icons"],
   ['"arrow-back"', "the icon set's filled arrows"],
   ['"arrow-first"', "the icon set's filled arrows"],
@@ -717,7 +769,6 @@ const OWN_GLASS = new Map<string, string>([
   ['class="zaisma-press"', "the Zaisma button's shard, glass with one slanted side, in the screen's corner"],
   ['class="glass docked in-place dock-', "Docked glass's still examples"],
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
-  ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ["([name, thickness, use]) =>", "the Materials page's own demo: each thickness of glass side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
   ['class="backdrop-frame is-tall', "the Glass foundation's own demos of the light glass bends and the pointer's light"],
@@ -758,8 +809,8 @@ const NOT_SPACING = new Set<string>([
   ".sheet.placement-foot:not(.in-place) | margin", ".sheet.fills-sideways:not(.in-place) > .sheet-in | padding", ".sheet.placement-docked:not(.in-place) > .sheet-in | padding", ".zaisma-button .zaisma-shard | padding",
   // A pane that starts low on a phone: the room above it is the viewport left over, not spacing.
   ".glass-pane.is-started-low | margin-top",
-  // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
-  ".city-page .city-pane | margin",
+  // A pane on the live world, on a phone: the world's room above it until WORLD_PANE_PLACE_SCRIPT measures how low it can start.
+  ".world-page .world-pane | margin",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
@@ -1180,8 +1231,7 @@ describe("layout", () => {
   });
 
   it("changes only colours in dark: a rule for dark sets colour, background, border colour, shadow, filter, opacity or a glass variable", () => {
-    // The one rule that swaps what shows in dark, with why: the city's day and night stills are one picture in two lights, in one place.
-    const SWAPPED_IN_DARK = new Set([".city-stage .city-still.is-day | display", ".city-stage .city-still.is-night | display"]);
+    const SWAPPED_IN_DARK = new Set<string>();
     const COLOUR = /^(color|color-scheme|caret-color|accent-color|outline-color|text-decoration-color|fill|stroke|background(-color|-image)?|border(-(top|right|bottom|left))?-color|box-shadow|text-shadow|filter|backdrop-filter|opacity)$/;
     // A custom property is a colour or glass's look unless it names a size, a space, a type or a shape.
     const LAYOUT_TOKEN = /^--(pad|gap|size|type|control-height|control-slant|cut|bevel|header-room|tab-room)/;

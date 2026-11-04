@@ -224,7 +224,7 @@ export function developerLinks(links: GameLink[]): Raw | string {
     if (!destinationUrl) return [];
     const { brand, label } = linkBrand(destinationUrl);
     const host = new URL(destinationUrl).hostname.replace(/^www\./, "");
-    return [{ lead: brandMark(brand), title: label, detail: brand === "website" ? undefined : host, href: destinationUrl, isNewTab: true }];
+    return [{ lead: brandMark(brand), title: label, detail: brand === "website" ? undefined : host, href: destinationUrl }];
   });
   return rows.length ? listRows({ whenEmpty: stateNote({ stateKind: "empty", title: "No links", text: "The developer hasn't added any links yet." }), label: "The developer's links", rows }) : "";
 }

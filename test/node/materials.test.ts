@@ -33,9 +33,9 @@ const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.pict
  * than built.
  */
 const NOT_MADE_OF_MATERIALS = new Map<string, string>([
-  ["html:has(.city-page), body:has(> .city-page) | height", "the city's page is a window tall and never scrolls"],
-  ["html:has(.city-page), body:has(> .city-page) | overflow", "the city's page is a window tall and never scrolls"],
-  [".city-page .city-pane > .glass-pane > .pane-in | overflow", "a pane over the city scrolls inside itself on a short screen"],
+  ["html:has(.world-page), body:has(> .world-page) | height", "the world's page is a window tall and never scrolls"],
+  ["html:has(.world-page), body:has(> .world-page) | overflow", "the world's page is a window tall and never scrolls"],
+  [".world-page .world-pane > .glass-pane > .pane-in | overflow", "a pane over the live world scrolls inside itself on a short screen"],
   [".layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) | height", "where a control is its icon alone, its words stay for a screen reader, in no room"],
   [".layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) | overflow", "where a control is its icon alone, its words stay for a screen reader, in no room"],
   [".is-typing body | background", "the ground behind the raised typing bar, seen while the keyboard moves"],
@@ -239,6 +239,11 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".cut-sample.is-pane | height", "a pane's cut shown at a pane's size"],
   [".cut-sample.is-header | height", "the header's cut shown at the header's height"],
   [".cut-sample.is-menu | height", "a menu's cut shown at a menu's size"],
+  [".cut-sample.is-strip | height", "a notice's strip's cut shown at a strip's size"],
+  [".guild-seal | border-radius", "a seal is round: it crops its square video to the circle"],
+  [".guild-seal.is-small | height", "the seal's small size"],
+  [".guild-seal.is-medium | height", "the seal's medium size"],
+  [".guild-seal-video | background", "the seal's picture, behind its video until that plays"],
   [".spacing-mark | *", "the hatched mark that shows a gap"],
   [".icon-set .play | height", "the play mark is drawn shorter than it's wide"],
   [".logo | padding", "the logo's room round its glass, as its file draws it"],
@@ -248,17 +253,17 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".backdrop-frame > .glass | padding", "a pane in the backdrop's frame"],
   [".backdrop-frame.is-tall | *", "a taller frame for the backdrop"],
   [".shader-code | *", "a shader's source in a well, scrolling sideways"],
-  [".city-stage | *", "the city's stage: the window's height and its sky"],
-  [".city-stage .city-still | *", "the city's still picture while it loads"],
-  [".city-stage.is-still .city-still | background-image", "the full still once it's in"],
-  [".city-stage .city | transition", "the city fades and settles in"],
-  [":root:not([data-theme-choice=\"light\"]) .city-stage | background", "the city's night sky"],
-  ["[data-theme-choice=\"dark\"] .city-stage | background", "the city's night sky"],
-  ["[data-theme-choice=\"light\"] .city-stage | background", "the city's day sky"],
-  [".city-page | *", "the city's page, a window tall"],
-  [".city-page .city-pane | *", "a pane over the city, below its skyline"],
-  [".city-pane .or::before, .city-pane .or::after | *", "the lines either side of \"or\""],
-  [".city-frame | *", "a frame showing the city"],
+  [".world-stage | *", "the world's stage: the window, and the pictures it shows"],
+  [".world-still | *", "the kingdom's picture, which covers the stage"],
+  [":root:not([data-theme-choice=\"light\"]) .world-still | background-image", "the kingdom's picture by night"],
+  ["[data-theme-choice=\"dark\"] .world-still | background-image", "the kingdom's picture by night"],
+  [".world-count | min-height", "the count is a link: a touch target's height"],
+  [".icon-group-title | margin", "a group's name sits a line's gap over its icons"],
+  [".cut-btn[data-tint=\"violet\"] > .face | --way", "Stripe's own purple on Stripe's buttons, as Google and Discord keep theirs"],
+  [".world-page | *", "the world's page, a window tall"],
+  [".world-page .world-pane | *", "a pane over the live world"],
+  [".world-pane .or::before, .world-pane .or::after | *", "the lines either side of \"or\""],
+  [".world-frame | *", "a frame showing the live world"],
   // Where the window puts a sheet: the page's own placing, not the sheet's.
   [".sheet:not(.in-place) | margin", "a sheet sits a control's stack gap in from the window's sides and foot"],
   [".sheet.placement-foot:not(.in-place) | margin", "a sheet at the window's foot sits the page's margin above it"],
@@ -338,7 +343,6 @@ const MARKUP_NOT_MADE_OF_MATERIALS = new Map<string, string>([
   ["foundations.ts | padding: var(--pad-pane)", "the logo on light or smoked glass, a pane's margin round it"],
   ["foundations.ts | background: ${glassKind === \"light\" ? \"#E7E4DF\" : \"#121110\"}", "the glass the logo sits on, light or smoked whatever the page's theme"],
   ["foundations.ts | background: var(${token})", "a color swatch is its token's color"],
-  ["foundations.ts | --glass-tint: rgba(var(--glass-base),${glassOpacityPct / 100})", "glass at each opacity, side by side"],
   // Links in a line, spaced as the footer spaces its own (Footer, in Navigation), so each reads as its own.
   ["actions.ts | display: flex", "quiet links in a line, as the footer's"],
   ["actions.ts | flex-wrap: wrap", "quiet links in a line wrap, as the footer's"],
@@ -442,6 +446,15 @@ describe("materials", () => {
  * Waiting is a state of the glass ("Waiting is one light", docs/DESIGN.md): every pressable material keeps its pressed look while
  * aria-busy="true", its edge runs the one waiting light at once, and no component draws a light or a waiting look of its own.
  */
+describe("links out", () => {
+  it("leaves no page to write its own link to another site: a text link, button, list row or menu item says so from the address", () => {
+    const folder = join(import.meta.dirname, "../../apps/site/src");
+    const sourceNames = [...readdirSync(join(folder, "components")).map((name) => join("components", name)), ...readdirSync(folder)].filter((name) => name.endsWith(".ts"));
+    const handMade = sourceNames.filter((name) => /<a\s[^>]*href="https?:/.test(readFileSync(join(folder, name), "utf8")));
+    expect(handMade).toEqual([]);
+  });
+});
+
 describe("waiting", () => {
   it("is the materials' alone: no component's styles run the waiting light or give aria-busy a look of their own", () => {
     const own = COMPONENTS().filter((component) => !isMaterialOrLayout(component)).flatMap((component) => {

@@ -77,8 +77,8 @@ export interface CheckedPage {
   /** On this site, or on the stand-in site of a developer using Sign in with Zaisma (isOnSignInSite), which sends the player on to Zaisma's own page. */
   path: string;
   /**
-   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the city's pane starts
-   * low on a phone, showing down to its heading, so the city has the screen: docs/DECISIONS.md, "Signing in happens in the city"), or
+   * Where the page's runner (its one main action) must show without scrolling: at every size, only on a desktop (the live world's pane starts
+   * low on a phone, showing down to its heading, so the live world has the screen: docs/DECISIONS.md, "Signing in happens in the live world"), or
    * nowhere (the page has none, or many, like the gallery).
    */
   mainActionShows: "everywhere" | "desktop" | "nowhere";
@@ -109,6 +109,8 @@ export interface CheckedPage {
   firstPaintSizeLimitBytes?: number;
 }
 
+/** A game's page holding its buy and play sheets, over Zaisma's own background drawn in parts: about 0.1 s more on Slow 3G than the limit for every other page. */
+const GAME_WITH_SHEETS_SIZE_LIMIT_BYTES = 80_000;
 /** Developer settings' own first-paint limit (CheckedPage.firstPaintSizeLimitBytes). */
 const DEVELOPER_SETTINGS_SIZE_LIMIT_BYTES = 96_000;
 
@@ -184,10 +186,10 @@ const CHECKED_PAGE_LIST = [
   { name: "Home, full", area: "Playing", path: "/", account: "Many_Things", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
-  { name: "Game page, for sale", area: "Playing", path: "/g/ashfall", mainActionShows: "everywhere" },
+  { name: "Game page, for sale", area: "Playing", path: "/g/ashfall", mainActionShows: "everywhere", firstPaintSizeLimitBytes: GAME_WITH_SHEETS_SIZE_LIMIT_BYTES },
   // The longest title and description a game can have, and every name on its page at its longest.
   { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere" },
-  { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },
+  { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere", firstPaintSizeLimitBytes: GAME_WITH_SHEETS_SIZE_LIMIT_BYTES },
   { name: "Playing a game, the players sheet", area: "Playing", path: "/g/cave-crew?play", mainActionShows: "nowhere", setUp: OPEN_PLAYERS_SHEET, stateBeforeSetUp: "Game page" },
   { name: "Playing a game, asked to sign in", area: "Playing", path: "/g/tiny-farm?play", mainActionShows: "nowhere", setUp: SHOW_PLAYING_CARDS, stateBeforeSetUp: "Game page, no rooms" },
   { name: "Buying, one press", area: "Playing", path: "/g/tiny-farm?play", account: "Card_Keeper", mainActionShows: "nowhere", setUp: openBuySheet("revive"), stateBeforeSetUp: "Game page, no rooms" },

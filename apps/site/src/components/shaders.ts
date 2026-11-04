@@ -23,38 +23,280 @@ float motes(vec2 p, float size, float chance, float seed) {
 `;
 
 /**
- * Zaisma's own background: a matte sheet of satin, warm graphite on dark and soft warm gray on light, its long folds on the diagonal
- * swaying slowly and catching a soft light from the top left that swings a little. Plain enough to rest behind the page; only the light
- * on the folds moves. iDark eases between the two, so a change of theme fades.
+ * Zaisma's own background: mountain ranges in mist, seen from high up, with a fixed camera. By day (iDark 0) a temperate midday: blue sky,
+ * white fog, ranges turning from pale blue to muted green as they near, birds at every distance, and a high sun that now and then breaks
+ * through, its rays filtered by clouds. By night (iDark 1) the same ranges under the Milky Way, blue with distance and black up close, with
+ * fog that carries on the horizon's color and a quiet shooting star now and then. Only the fog, cloud, light, birds and stars move. iDark
+ * eases between the two, so a change of theme fades. It draws near to far and stops at what hides the rest. On Zaisma's own pages the runner
+ * (BACKDROP_SCRIPT) draws it in parts: ridgelines and slopes stored once, since the camera never moves; fog, cloud and rays drawn small each
+ * frame, since they're soft; and everything else sharp at the screen's own pixels, so the picture stays sharp for less than one pass would cost.
  */
-export const ZAISMA_SHADER = `
-float sn(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), u.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), u.x), u.y); }
-// The cloth's height: long folds running on the diagonal, bent and swaying slowly.
-float cloth(vec2 p, float t) {
-  vec2 d = vec2(0.876, 0.482); float s = dot(p, d), r = dot(p, vec2(-d.y, d.x));
-  float bend = 1.6 * sn(vec2(s * 0.45, t * 0.045)) + 0.9 * sn(vec2(r * 0.6 + 4.0, s * 0.3 - t * 0.035));
-  return 0.55 * sin(r * 2.3 + bend * 1.9 + t * 0.06) + 0.30 * sin(r * 3.9 - s * 0.7 + bend * 1.2 - t * 0.045) + 0.12 * sin(r * 6.1 + s * 0.9 + bend * 2.6 + t * 0.08) + 0.30 * sn(p * 1.1 + vec2(t * 0.02, 0.0));
-}
-void mainImage(out vec4 o, in vec2 f) {
-  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y; float t = iTime;
-  vec2 P = vec2((uv.x - 0.5) * ar, uv.y - 0.5), p = P * 1.6;
-  float e = 0.01, h = cloth(p, t);
-  vec3 n = normalize(vec3(-(cloth(p + vec2(e, 0.0), t) - h) / e * 0.38, -(cloth(p + vec2(0.0, e), t) - h) / e * 0.38, 1.0));
-  // A soft light high on the left, swinging slowly, and the matte sheen it leaves along each fold.
-  float a = 0.9 + 0.35 * sin(t * 0.05);
-  vec3 L = normalize(vec3(-cos(a), 0.55 + 0.25 * sin(a), 1.1)), H = normalize(L + vec3(0.0, 0.0, 1.0));
-  float diffuse = clamp(dot(n, L), 0.0, 1.0), sheen = pow(max(dot(n, H), 0.0), 9.0);
-  float top = smoothstep(-0.6, 0.6, P.y);
-  vec2 q = P / vec2(ar * 0.62, 0.78); float corner = clamp(1.0 - 0.45 * dot(q, q), 0.0, 1.0);
-  float l = clamp((0.18 + 0.48 * diffuse + 0.42 * sheen) * (0.75 + 0.25 * top) * (0.55 + 0.45 * corner), 0.0, 1.0);
-  vec3 darkLo = vec3(0.028, 0.027, 0.026), darkHi = vec3(0.190, 0.179, 0.165);
-  vec3 lightLo = vec3(0.760, 0.745, 0.720), lightHi = vec3(0.975, 0.969, 0.957);
-  vec3 col = mix(mix(lightLo, lightHi, l), mix(darkLo, darkHi, l), iDark);
-  col += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
-  o = vec4(col, 1.0);
+/** The scene's shapes: what's the same however it's drawn. RIDGE_OCTAVES is how fine its ridgelines are. */
+export const ZAISMA_SHAPES = `
+// A noise of three octaves: what fog and cloud need, for less than fbm costs.
+float fb3(vec2 p) { return 0.5 * noise(p) + 0.25 * noise(p * 2.03 + 1.7) + 0.125 * noise(p * 4.12 + 5.1); }
+// Ridged noise: sharp along its ridges, smooth in its valleys, as mountains are.
+float ridged(vec2 p) { float s = 0.0, w = 0.5, c = 1.0; for (int i = 0; i < RIDGE_OCTAVES; i++) { float v = 1.0 - abs(2.0 * noise(p) - 1.0); v *= v; s += w * v * c; c = clamp(v * 1.7, 0.0, 1.0); w *= 0.5; p = p * 2.1 + 3.0; } return s; }
+// A peak: its height at x, its slope a little longer on the right.
+float peak(float x, float at, float width, float height) { float d = (x - at) / (x < at ? width * 0.82 : width * 1.18); return height * pow(max(0.0, 1.0 - sqrt(d * d + 0.002)), 1.45); }
+// The ranges, far to near. Their big shapes are placed by hand, so a mountain stands on each side; only the ridgelines' detail is noise.
+const float RANGE_BASE[7] = float[7](0.565, 0.495, 0.395, 0.335, 0.255, 0.19, 0.145);
+const float RANGE_DETAIL[7] = float[7](0.03, 0.04, 0.05, 0.045, 0.07, 0.08, 0.085);
+const float RANGE_SCALE[7] = float[7](3.2, 2.6, 2.3, 2.0, 1.8, 2.0, 2.3);
+const float RANGE_SEED[7] = float[7](1.0, 2.0, 3.0, 3.5, 4.0, 5.0, 6.0);
+const float RANGE_SHIFT[7] = float[7](0.0, 0.0, 0.0, 0.41, 0.83, 0.0, 0.0);
+const float MIST_LEVEL[7] = float[7](0.55, 0.47, 0.37, 0.34, 0.28, 0.17, 0.02);
+const float FOG_LEVEL[7] = float[7](0.53, 0.43, 0.35, 0.32, 0.25, 0.15, 0.0);
+const float FOG_DRIFT[7] = float[7](0.7, -0.8, 1.0, -0.9, -1.1, 1.25, -1.4);
+const vec3 DAY_RANGE[7] = vec3[7](vec3(0.70, 0.82, 0.92), vec3(0.56, 0.74, 0.86), vec3(0.44, 0.66, 0.76), vec3(0.385, 0.615, 0.69), vec3(0.33, 0.57, 0.62), vec3(0.25, 0.49, 0.48), vec3(0.18, 0.40, 0.36));
+const vec3 NIGHT_RANGE[7] = vec3[7](vec3(0.0575, 0.1, 0.155), vec3(0.0391, 0.068, 0.1054), vec3(0.0253, 0.044, 0.0682), vec3(0.019, 0.033, 0.0512), vec3(0.01265, 0.022, 0.0341), vec3(0.0069, 0.012, 0.0186), vec3(0.00276, 0.0048, 0.00744));
+float rangeShape(int l, float x) {
+  if (l == 0) return peak(x, 0.31, 0.09, 0.1) + peak(x, 0.38, 0.05, 0.04) + peak(x, 0.77, 0.07, 0.075) + peak(x, 0.08, 0.09, 0.05) + peak(x, 0.56, 0.08, 0.05) + peak(x, 0.93, 0.08, 0.06) + peak(x, 0.68, 0.05, 0.03);
+  if (l == 1) return peak(x, 0.15, 0.19, 0.15) + peak(x, 0.27, 0.06, 0.035) + peak(x, 0.5, 0.08, 0.05) + peak(x, 0.68, 0.12, 0.085) + peak(x, 0.87, 0.09, 0.06);
+  if (l == 2) return peak(x, 0.43, 0.2, 0.125) + peak(x, 0.32, 0.06, 0.035) + peak(x, 0.9, 0.13, 0.09) + peak(x, 0.7, 0.06, 0.03);
+  if (l == 3) return peak(x, 0.64, 0.2, 0.19) + peak(x, 0.75, 0.07, 0.045) + peak(x, 0.53, 0.05, 0.02) + peak(x, 0.03, 0.1, 0.035);
+  if (l == 4) return peak(x, 0.13, 0.3, 0.34) + peak(x, 0.25, 0.08, 0.06) + peak(x, 0.34, 0.06, 0.03) + peak(x, 0.02, 0.06, 0.03) + peak(x, 0.46, 0.09, 0.035);
+  if (l == 5) return peak(x, 0.95, 0.31, 0.38) + peak(x, 0.82, 0.08, 0.075) + peak(x, 0.73, 0.06, 0.035) + peak(x, 0.46, 0.15, 0.07);
+  return peak(x, -0.05, 0.4, 0.2) + peak(x, 1.05, 0.16, 0.06);
 }
 `;
+/** The parts that take the most drawing, worked out from noise. */
+export const ZAISMA_LIVE_PARTS = `
+
+void sceneBegin(vec2 f) {}
+// The ridgeline: most pixels are plainly above or below it, and only those near it pay for its noise. False when the pixel is above it.
+float rangeTop(int l, float g, float shape) {
+  float rx = (g + RANGE_SHIFT[l]) * RANGE_SCALE[l], seed = RANGE_SEED[l], m = ridged(vec2(rx + seed * 1.7, seed)), m2 = ridged(vec2(rx * 2.3 + seed * 3.1, seed + 9.0));
+  return RANGE_BASE[l] + shape * (0.72 + 0.3 * m + 0.42 * (m2 - 0.3)) + RANGE_DETAIL[l] * (m - 0.32);
+}
+bool sceneRange(int l, float g, float x, float y, float edge, out float depth, out float cover) {
+  float shape = rangeShape(l, x), base = RANGE_BASE[l], detail = RANGE_DETAIL[l]; depth = 1.0; cover = 1.0;
+  if (y > base + shape * 1.3 + detail * 0.66 + edge) return false;
+  if (y > base + shape * 0.59 - detail * 0.32 - 0.04) { depth = rangeTop(l, g, shape) - y; cover = smoothstep(-edge, edge, depth); }
+  return cover > 0.001;
+}
+// How light or dark a range's slopes are here: 1.0 is its plain color.
+float rangeSlopes(int l, float g, float y, float depth) {
+  float lean = l >= 4 ? float(l - 3) * 0.3 : 0.0, faces = 0.0; vec2 face = vec2(g * 3.2 + float(l) * 5.0, y * 8.0);
+  float tone = noise(face) * 0.67 + noise(face * 2.1) * 0.33 - 0.5;
+  if (lean > 0.0) { vec2 c = vec2(g * 2.7 + y * 1.6 + float(l) * 5.0, y * 6.5); faces = clamp((ridged(c + vec2(0.035, 0.0)) - ridged(c - vec2(0.035, 0.0))) * 2.6, -1.0, 1.0); }
+  return 1.0 + 0.14 * tone + 0.2 * lean * faces * smoothstep(0.0, 0.03, depth);
+}
+float sceneSlopes(int l, float g, float y, float depth) { return rangeSlopes(l, g, y, depth); }
+// The fog in front of a range: broken banks with uneven tops that drift.
+float sceneFog(int l, float g, float y, float t) {
+  float level = FOG_LEVEL[l]; if (y > level + 0.21) return 0.0;
+  float drift = FOG_DRIFT[l]; vec2 q = vec2(g * 1.25 + t * 0.028 * drift + float(l) * 3.7 + 3.0, y * 5.5);
+  float warp = fb3(q * 0.65 + vec2(t * 0.011 * drift, -t * 0.005)), bank = fb3(q + vec2(warp * 1.9, warp * 0.8)) * 1.14;
+  float line = level + 0.035 + (bank - 0.5) * 0.3, density = smoothstep(line + 0.06, line - 0.055, y);
+  if (density <= 0.001) return 0.0;
+  return density * clamp(0.5 + 1.1 * (fb3(q * 2.4 + vec2(warp * 2.6, t * 0.012)) * 1.14 - 0.28), 0.0, 1.0);
+}
+float sceneCloud(float g, float y, float t) {
+  if (y <= 0.6) return 0.0;
+  return smoothstep(0.45, 0.72, fb3(vec2(g * 1.1 + t * 0.012, y * mix(6.3, 7.0, iDark) + 0.37 + fb3(vec2(g * 0.6 - t * 0.006, y * 2.0)) * 1.3)) * 1.14) * smoothstep(0.62, 0.8, y);
+}
+// The Milky Way: a tall soft stripe rising from the horizon, mottled, with a broken dark lane along it.
+vec3 sceneMilk(vec2 p, float ar, float y) {
+  if (iDark <= 0.01 || y <= 0.56) return vec3(0.0);
+  vec2 way = normalize(vec2(0.62, 1.0)), q = p - vec2(0.5 * ar + 0.31 * min(ar, 1.78), 0.74); float along = dot(q, way), across = dot(q, vec2(-way.y, way.x)) + (fb3(vec2(along * 1.7, 3.0)) * 1.14 - 0.5) * 0.07;
+  float wide = exp(-across * across / 0.03); if (wide <= 0.01) return vec3(0.0);
+  float band = exp(-across * across / 0.0085), core = exp(-across * across / 0.0035) * exp(-(along + 0.1) * (along + 0.1) / 0.035);
+  vec2 w = vec2(along * 4.5, across * 13.0); w += vec2(fb3(w * 0.7 + 2.0), fb3(w * 0.7 + 8.0)) * 1.5;
+  float billow = fb3(w) * 1.14, fine = fb3(w * 2.6 + billow * 2.0) * 1.14, laneAt = (across + (fb3(vec2(along * 3.2, 9.0)) * 1.14 - 0.5) * 0.075) / 0.03;
+  float dust = exp(-laneAt * laneAt) * smoothstep(0.4, 0.66, fb3(vec2(along * 9.0 + 1.0, across * 30.0) + billow * 2.4) * 1.14) * smoothstep(0.3, 0.56, fb3(vec2(along * 3.4 + 6.0, across * 8.0)) * 1.14);
+  vec3 tint = mix(vec3(0.58, 0.50, 0.47), vec3(0.38, 0.40, 0.56), smoothstep(0.66, 0.95, y));
+  vec3 milk = wide * vec3(0.03, 0.045, 0.07) + (0.62 + 0.38 * exp(-along * along / 0.1)) * (band * (0.32 + 1.05 * smoothstep(0.25, 0.75, billow)) * (0.72 + 0.5 * fine) * tint * 0.62 + core * vec3(0.25, 0.23, 0.23) * (0.5 + 0.8 * fine));
+  return milk * mix(vec3(1.0), vec3(0.34, 0.30, 0.31), dust) * smoothstep(0.57, 0.66, y);
+}
+// The sun's rays: filtered by clouds passing it, so they shift and change in strength.
+float sceneBeam(vec2 toSun, float sunDistance, float g, float y, float t) {
+  vec2 ray = toSun / max(sunDistance, 0.001); float gaps = smoothstep(0.34, 0.68, fb3(vec2(g * 1.5 - t * 0.04, y * 3.6 + t * 0.012)));
+  return (pow(noise(ray * 3.4 + vec2(t * 0.07, t * 0.06 + 3.0)), 2.4) * 1.8 + pow(noise(ray * 8.0 - vec2(t * 0.11, -t * 0.09 - 9.0)), 3.4)) * smoothstep(0.22, 0.7, noise(ray * 1.5 + vec2(t * 0.035, t * 0.05 + 5.0))) * (0.45 + 0.95 * gaps);
+}
+`;
+/** The same parts read from what's stored: each range's ridgeline and slopes, worked out once, and the soft parts, drawn small each frame. */
+export const ZAISMA_STORED_PARTS = `
+
+uniform sampler2D zaismaSoftA, zaismaSoftB, zaismaSoftC, zaismaStrip, zaismaShadeA, zaismaShadeB;
+uniform vec4 zaismaUv;
+vec4 softA, softB, softC, shadeA, shadeB; vec2 sceneUv;
+void sceneBegin(vec2 f) {
+  sceneUv = f * zaismaUv.xy + zaismaUv.zw;
+  softA = texture(zaismaSoftA, sceneUv); softB = texture(zaismaSoftB, sceneUv); softC = texture(zaismaSoftC, sceneUv);
+  shadeA = texture(zaismaShadeA, sceneUv); shadeB = texture(zaismaShadeB, sceneUv);
+}
+bool sceneRange(int l, float g, float x, float y, float edge, out float depth, out float cover) {
+  ivec2 size = textureSize(zaismaStrip, 0); vec4 stored = texelFetch(zaismaStrip, ivec2(clamp(int(sceneUv.x * float(size.x)), 0, size.x - 1), l), 0);
+  depth = (stored.r + stored.g / 255.0) * 1.6 - 0.3 - y; cover = smoothstep(-edge, edge, depth);
+  return cover > 0.001;
+}
+float sceneSlopes(int l, float g, float y, float depth) { return (l < 4 ? shadeA[l] : shadeB[l - 4]) * 2.0; }
+float sceneFog(int l, float g, float y, float t) { return l < 4 ? softB[l] : softC[l - 4]; }
+float sceneCloud(float g, float y, float t) { return softA.a; }
+vec3 sceneMilk(vec2 p, float ar, float y) { return softA.rgb / 1.5; }
+float sceneBeam(vec2 toSun, float sunDistance, float g, float y, float t) { return softC.a * 3.0; }
+`;
+/** Everything that has to stay sharp, drawn at the screen's own pixels: the ranges' edges, the sun, birds, stars and shooting stars. */
+export const ZAISMA_SHARP_DRAWING = `
+// One layer over what's already in front of it: the scene is drawn near to far, and stops at the first thing that hides the rest.
+void behind(inout vec3 shown, inout float covered, vec3 color, float share) { shown += (1.0 - covered) * share * color; covered += (1.0 - covered) * share; }
+// A bird seen from the side, crossing the view: a body, a tail and two wings beating with a lag from shoulder to tip.
+float segment(vec2 p, vec2 a, vec2 b, float ra, float rb) { vec2 pa = p - a, ba = b - a; float k = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * k) - mix(ra, rb, k); }
+float wingBeat(float id) { return smoothstep(0.0, 0.8, sin(iTime * 0.33 + id * 2.3)); }
+float birdSide(vec2 p, vec2 at, float size, float way, float beat, float id, float tilt, float squeeze) {
+  vec2 d = (p - at) / size; if (max(abs(d.x), abs(d.y)) > 2.0) return 0.0;
+  d.x *= way; float ct = cos(tilt), st = sin(tilt); d = vec2(ct * d.x + st * d.y, -st * d.x + ct * d.y); d.x /= squeeze;
+  float aa = 1.4 / iResolution.y / size, glide = wingBeat(id), power = mix(1.0, 0.2, glide);
+  float inner = sin(beat) * power + 0.12 * glide, outer = sin(beat - 0.85) * power + 0.18 * glide;
+  vec2 shoulder = vec2(0.12, 0.05), elbow = shoulder + vec2(-0.14, 0.52 * inner + 0.05), tip = elbow + vec2(-0.42, 0.5 * outer);
+  float near = min(segment(d, shoulder, elbow, 0.13, 0.085), segment(d, elbow, tip, 0.085, 0.012));
+  vec2 shoulder2 = shoulder + vec2(0.1, 0.02), elbow2 = shoulder2 + vec2(-0.06, 0.46 * inner + 0.08), tip2 = elbow2 + vec2(-0.32, 0.44 * outer);
+  float far = min(segment(d, shoulder2, elbow2, 0.09, 0.06), segment(d, elbow2, tip2, 0.06, 0.01));
+  float body = min(segment(d, vec2(-0.52, -0.01), vec2(0.46, 0.03), 0.055, 0.1), segment(d, vec2(0.46, 0.03), vec2(0.74, 0.07), 0.085, 0.04));
+  float tail = segment(d, vec2(-0.5, -0.01), vec2(-0.95, -0.035), 0.055, 0.012);
+  return max(smoothstep(aa, -aa, min(near, min(body, tail))), smoothstep(aa, -aa, far) * 0.6);
+}
+// A bird coming or going, seen from ahead or behind: its wings the same both sides.
+float birdFront(vec2 p, vec2 at, float size, float beat, float id) {
+  vec2 d = (p - at) / size; if (max(abs(d.x), abs(d.y)) > 2.0) return 0.0;
+  d.x = abs(d.x); float aa = 1.4 / iResolution.y / size, glide = wingBeat(id), power = mix(1.0, 0.2, glide);
+  float inner = sin(beat) * power + 0.14 * glide, outer = sin(beat - 0.85) * power + 0.1 * glide;
+  vec2 shoulder = vec2(0.08, 0.02), elbow = shoulder + vec2(0.5, 0.36 * inner + 0.1), tip = elbow + vec2(0.5, 0.42 * outer - 0.08);
+  return smoothstep(aa, -aa, min(min(segment(d, shoulder, elbow, 0.08, 0.05), segment(d, elbow, tip, 0.05, 0.01)), length(d - vec2(0.0, -0.01)) - 0.12));
+}
+vec3 birdColor(float distant) { return mix(vec3(0.10, 0.18, 0.26), vec3(0.44, 0.56, 0.68), distant); }
+// A star in a grid of cells: each cell holds at most one, at a random spot, some brighter than others, twinkling a little.
+float star(vec2 p, float cells, float rarity) {
+  vec2 id = floor(p * cells), f = fract(p * cells) - 0.5; float r = h2(id); vec2 o = vec2(h2(id + 3.1), h2(id + 7.3)) - 0.5;
+  return smoothstep(0.16, 0.02, length(f - o * 0.7)) * pow(h2(id + 11.7), 2.5) * step(rarity, r) * (0.8 + 0.2 * sin(iTime * (0.4 + r) + r * 40.0));
+}
+// A shooting star: a thin pale streak that grows from nothing, its tail catching up with it as it fades.
+float streak(vec2 p, float period, float seed, float ar) {
+  float cycle = iTime / period + seed, id = floor(cycle) + seed * 100.0, seen = fract(cycle) * period, life = 1.0 + 0.6 * h2(vec2(id, 1.0)), done = seen / life;
+  if (done >= 1.0) return 0.0;
+  vec2 from = vec2((0.12 + 0.8 * h2(vec2(id, 2.0))) * ar, 0.76 + 0.21 * h2(vec2(id, 3.0)));
+  float angle = 0.3 + 0.5 * h2(vec2(id, 4.0)), way = h2(vec2(id, 5.0)) > 0.5 ? 1.0 : -1.0, far = 0.16 + 0.2 * h2(vec2(id, 6.0));
+  vec2 d = vec2(way * cos(angle), -sin(angle)), q = p - from;
+  float along = dot(q, d), across = dot(q, vec2(-d.y, d.x)), head = far * smoothstep(0.0, 0.86, done), tail = far * smoothstep(0.24, 1.0, done);
+  float u = clamp((along - tail) / max(head - tail, 0.0001), 0.0, 1.0), w = 0.0005 + 0.0009 * u;
+  return step(tail, along) * step(along, head) * pow(u, 1.7) * smoothstep(w * 1.8, w * 0.3, abs(across)) * pow(sin(3.14159 * done), 1.4) * (0.42 + 0.3 * h2(vec2(id, 7.0)));
+}
+void mainImage(out vec4 o, in vec2 f) {
+  sceneBegin(f);
+  vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y, y = uv.y, g = uv.x * ar, t = iTime, day = 1.0 - iDark;
+  // A narrow screen shows the middle of the scene, a little squeezed, so its mountains keep their shape.
+  float x = 0.5 + (uv.x - 0.5) * clamp(ar / 1.78, 0.56, 1.0); vec2 p = vec2(g, y); float onePixel = 1.0 / iResolution.y;
+  vec3 sky = mix(vec3(0.30, 0.58, 0.92), vec3(0.014, 0.026, 0.06), iDark), glow = mix(vec3(0.78, 0.90, 0.98), vec3(0.115, 0.20, 0.31), iDark);
+  vec3 mist = mix(vec3(0.93, 0.96, 0.98), vec3(0.13, 0.1937, 0.2761), iDark), lit = mix(vec3(1.0), vec3(0.1665, 0.248, 0.3534), iDark);
+  // The sun, high on the right: now and then it breaks through, and passing clouds dim it and its rays.
+  vec2 sun = vec2(0.5 * ar + 0.16 * min(ar, 1.78), 0.9), toSun = p - sun; float sunDistance = length(toSun), phase = fract(t / 90.0), breaking = smoothstep(0.0, 0.14, phase) * smoothstep(0.42, 0.26, phase);
+  vec3 shown = vec3(0.0); float covered = 0.0;
+  if (day > 0.01) {
+    float ang = atan(toSun.y, toSun.x), veil = 0.5 + 0.5 * sin(t * 0.37) * sin(t * 0.23 + 1.0), strength = (0.34 + 0.66 * breaking) * mix(0.62, 1.0, veil), reach = 0.0025 + 0.0085 * breaking * mix(0.65, 1.0, veil);
+    float spikes = pow(abs(cos(ang * 6.0 + 0.3)), 150.0) + 0.5 * pow(abs(cos(ang * 6.0 + 1.87)), 220.0);
+    vec3 light = vec3(1.0, 0.98, 0.9) * spikes * exp(-sunDistance * sunDistance / reach) * strength * 0.8 + vec3(1.0, 0.99, 0.94) * (smoothstep(0.02, 0.009, sunDistance) * strength + exp(-sunDistance * sunDistance / 0.0045) * strength * 0.5);
+    if (breaking > 0.001) light += vec3(1.0, 0.98, 0.9) * sceneBeam(toSun, sunDistance, g, y, t) * exp(-sunDistance * sunDistance / 1.1) * breaking * 0.17;
+    shown += light * day;
+    // Birds at every distance: these fly in front of all the ranges.
+    behind(shown, covered, birdColor(0.0), day * 0.9 * birdSide(p, vec2((fract(0.2 + t * 0.024) * 1.6 - 0.3) * ar, 0.37 + 0.03 * sin(t * 0.21)), 0.026, 1.0, t * 4.4, 30.0, 0.06, 1.0));
+    for (int i = 0; i < 3; i++) { float k = float(i), way = k < 0.5 ? 1.0 : -1.0, lane = fract(0.72 + k * 0.37 + t * (0.016 + k * 0.006));
+      behind(shown, covered, birdColor(0.5), day * 0.6 * birdSide(p, vec2((way > 0.0 ? lane * 1.5 - 0.25 : 1.25 - lane * 1.5) * ar, 0.92 - k * 0.06 + 0.014 * sin(t * 0.17 + k * 2.0)), 0.0085, way, t * 7.0 + k, k + 20.0, 0.03, 1.0)); }
+    float coming = fract(t / 34.0 + 0.4), going = fract(t / 28.0 + 0.1), diagonal = fract(t / 40.0 + 0.7);
+    behind(shown, covered, birdColor(0.1), day * 0.82 * smoothstep(0.0, 0.06, coming) * birdFront(p, vec2(ar * (0.42 + 0.02 * sin(t * 0.2)), 0.64 + 0.42 * coming * coming), 0.004 + 0.03 * coming * coming, t * 4.8, 41.0));
+    behind(shown, covered, birdColor(0.3), day * 0.78 * smoothstep(0.0, 0.05, going) * smoothstep(1.0, 0.85, going) * birdFront(p, vec2(ar * (0.72 + 0.12 * going), 0.98 - 0.28 * pow(going, 0.6)), 0.002 + 0.024 * pow(1.0 - going, 1.5), t * 5.6, 42.0));
+    behind(shown, covered, birdColor(0.25), day * 0.8 * birdSide(p, vec2(ar * (1.05 - 0.7 * diagonal), 0.92 - 0.22 * diagonal), 0.005 + 0.016 * (1.0 - diagonal), -1.0, t * 5.4, 43.0, 0.26, 0.72));
+  }
+  for (int l = 6; l >= 0 && covered < 0.995; l--) {
+    // Birds between the ranges, so ridges pass in front of them and fog over them.
+    if (day > 0.01) {
+      if (l == 5 && abs(y - 0.24) < 0.08) for (int i = 0; i < 2; i++) { float k = float(i);
+        behind(shown, covered, birdColor(0.2), day * 0.85 * birdSide(p, vec2((1.3 - fract(0.82 + k * 0.09 + t * 0.026) * 1.6) * ar, 0.225 + k * 0.02 + 0.012 * sin(t * 0.19 + k * 3.0)), 0.017, -1.0, t * 5.0 + k * 1.4, k + 25.0, 0.05, 1.0)); }
+      if (l == 4 && abs(y - 0.315) < 0.1) for (int i = 0; i < 5; i++) { float k = float(i);
+        behind(shown, covered, birdColor(0.4), day * 0.82 * birdSide(p, vec2((fract(0.05 + t * 0.021) * 1.5 - 0.25) * ar - 0.04 * k, 0.315 + 0.016 * sin(t * 0.13 + 2.0) + (mod(k, 2.0) * 2.0 - 1.0) * 0.016 * (1.0 + 0.4 * k) * 0.6 + 0.004 * sin(t * 0.41 + k)), 0.012, 1.0, t * 6.2 + k * 1.3, k + 14.0, 0.05, 1.0)); }
+      if (l == 2 && abs(y - 0.475) < 0.1) for (int i = 0; i < 6; i++) { float k = float(i), side = mod(k, 2.0) * 2.0 - 1.0, row = ceil(k * 0.5);
+        behind(shown, covered, birdColor(0.7), day * 0.72 * birdSide(p, vec2((1.25 - fract(0.46 + t * 0.017) * 1.5) * ar + row * 0.032 + 0.008 * sin(t * 0.23 + k * 2.0), 0.475 + 0.018 * sin(t * 0.09 + 1.0) + row * 0.013 * side + 0.004 * sin(t * 0.37 + k * 1.4)), 0.0085, -1.0, t * 7.0 + k * 2.1, k + 9.0, 0.04, 1.0)); }
+      if (l == 0 && abs(y - 0.615) < 0.06) for (int i = 0; i < 7; i++) { float k = float(i);
+        behind(shown, covered, birdColor(0.95), day * 0.55 * birdSide(p, vec2((fract(0.13 + t * 0.011) * 1.5 - 0.25) * ar - 0.024 * k - 0.012 * mod(k, 2.0), 0.615 + 0.012 * sin(t * 0.11) + (mod(k, 3.0) - 1.0) * 0.012 + 0.003 * sin(t * 0.4 + k)), 0.0058, 1.0, t * 8.0 + k * 1.7, k, 0.05, 1.0)); }
+    }
+    // The fog in front of this range, thin in the distance at night.
+    float density = sceneFog(l, g, y, t);
+    if (density > 0.001) {
+      float amount = l == 0 ? mix(0.55, 0.22, iDark) : l == 1 ? mix(0.85, 0.5, iDark) : l == 2 ? mix(0.85, 0.68, iDark) : l == 3 ? 0.85 : l == 4 ? 0.9 : l == 5 ? mix(0.85, 0.7, iDark) : mix(0.55, 0.16, iDark);
+      vec3 bankMist = l == 0 ? mix(mix(glow, mist, 0.7), mist, iDark) : mist, bankLit = l == 0 ? mix(mix(glow, lit, 0.6), lit, iDark) : lit;
+      behind(shown, covered, mix(bankMist, bankLit, (1.0 - density) * 0.45), density * amount * mix(0.8, 0.74, iDark));
+    }
+    float edge = max(l == 0 ? mix(0.0045, 0.0025, iDark) : 0.0016, onePixel * 1.1), depth, cover;
+    if (!sceneRange(l, g, x, y, edge, depth, cover)) continue;
+    vec3 color = mix(DAY_RANGE[l], NIGHT_RANGE[l], iDark); if (l == 0) color = mix(mix(color, glow, 0.3), color, iDark);
+    color *= sceneSlopes(l, g, y, depth);
+    color = mix(color, vec3(1.0, 0.98, 0.86), day * smoothstep(0.012, 0.0, depth) * exp(-sunDistance * sunDistance / 0.5) * (0.06 + 0.14 * breaking));
+    float fade = l == 0 ? mix(0.75, 0.42, iDark) : l == 1 ? mix(0.55, 0.42, iDark) : l == 2 ? 0.5 : l == 3 ? 0.48 : l == 4 ? 0.45 : l == 5 ? 0.42 : 0.3;
+    vec3 rangeMist = l == 0 ? mix(mix(glow, mist, 0.6), mist, iDark) : mist;
+    behind(shown, covered, mix(color, rangeMist, smoothstep(MIST_LEVEL[l] + 0.16, MIST_LEVEL[l] - 0.04, y) * fade * mix(0.88, 0.72, iDark)), cover);
+  }
+  if (covered < 0.995) {
+    vec3 air = mix(glow, sky, smoothstep(0.56, mix(0.98, 1.12, iDark), y));
+    air += day * exp(-sunDistance * sunDistance / 0.08) * vec3(0.16, 0.14, 0.08) * (0.45 + 0.55 * breaking);
+    air = mix(air, mix(lit, vec3(0.11, 0.13, 0.185), iDark), sceneCloud(g, y, t) * mix(0.8, 0.18, iDark));
+    if (iDark > 0.01 && y > 0.56) {
+      // The stars: sharp, whatever the Milky Way's glow under them is drawn at; thick along it, and fewer in its dark lane.
+      vec3 milk = sceneMilk(p, ar, y); float band = smoothstep(0.0, 0.22, dot(milk, vec3(0.33)));
+      // A tall screen's sky is small and its height large: its stars are sized by the width too, so they stay points.
+      float starScale = clamp(1.6 / ar, 1.0, 2.6); vec2 sp = p * starScale;
+      float stars = star(sp, 60.0, 0.82) + 0.7 * star(sp + 3.0, 110.0, 0.75) + 0.5 * star(sp + 5.0, 190.0, 0.62) + star(sp + 7.0, 300.0, 0.3) * (0.34 + band * 1.7);
+      air += iDark * (milk + smoothstep(0.57, 0.7, y) * stars * vec3(0.84, 0.88, 1.0));
+      for (int i = 0; i < 3; i++) { float k = float(i); vec2 at = vec2((0.16 + 0.34 * k + 0.1 * h2(vec2(k, 21.0))) * ar, 0.76 + 0.2 * h2(vec2(k, 22.0))); float d = length(p - at) * starScale;
+        air += iDark * (0.88 + 0.12 * sin(t * (0.6 + h2(vec2(k, 23.0))) + k * 3.0)) * (smoothstep(0.0028, 0.001, d) * vec3(0.9, 0.95, 1.0) + exp(-d * d / 0.00005) * vec3(0.16, 0.26, 0.5)); }
+    }
+    behind(shown, covered, air, 1.0);
+  }
+  if (iDark > 0.01) shown += iDark * (streak(p, 80.0, 0.0, ar) + 0.7 * streak(p, 117.0, 0.31, ar)) * vec3(0.86, 0.9, 1.0);
+  shown += (h2(f) + h2(f + 17.31) - 1.0) / 255.0;
+  o = vec4(shown, 1.0);
+}
+`;
+/** The soft parts, drawn small each frame: the Milky Way's glow, cloud, the seven banks of fog and the sun's rays. */
+export const ZAISMA_SOFT_PASS = `
+
+uniform vec2 zaismaViewOffset;
+layout(location = 0) out vec4 softA; layout(location = 1) out vec4 softB; layout(location = 2) out vec4 softC;
+void main() {
+  vec2 f = gl_FragCoord.xy + zaismaViewOffset, uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y, y = uv.y, g = uv.x * ar, t = iTime;
+  vec2 sun = vec2(0.5 * ar + 0.16 * min(ar, 1.78), 0.9), toSun = vec2(g, y) - sun; float phase = fract(t / 90.0);
+  softA = vec4(sceneMilk(vec2(g, y), ar, y) * 1.5, sceneCloud(g, y, t));
+  softB = vec4(sceneFog(0, g, y, t), sceneFog(1, g, y, t), sceneFog(2, g, y, t), sceneFog(3, g, y, t));
+  softC = vec4(sceneFog(4, g, y, t), sceneFog(5, g, y, t), sceneFog(6, g, y, t), iDark < 0.99 && phase < 0.42 ? sceneBeam(toSun, length(toSun), g, y, t) / 3.0 : 0.0);
+}
+`;
+/** Each range's ridgeline, one row per range, one pixel per column of the canvas, stored in two channels for its precision. */
+export const ZAISMA_STRIP_PASS = `
+
+uniform vec2 zaismaViewOffset;
+out vec4 zaismaFragColor;
+void main() {
+  int l = int(gl_FragCoord.y); float px = gl_FragCoord.x + zaismaViewOffset.x, ar = iResolution.x / iResolution.y, ux = px / iResolution.x, g = ux * ar, x = 0.5 + (ux - 0.5) * clamp(ar / 1.78, 0.56, 1.0);
+  float value = clamp((rangeTop(l, g, rangeShape(l, x)) + 0.3) / 1.6, 0.0, 0.9999) * 255.0;
+  zaismaFragColor = vec4(floor(value) / 255.0, fract(value), 0.0, 1.0);
+}
+`;
+/** Each range's slopes, stored at half the canvas's size: they're soft. */
+export const ZAISMA_SHADE_PASS = `
+
+uniform vec2 zaismaViewOffset;
+layout(location = 0) out vec4 shadeA; layout(location = 1) out vec4 shadeB;
+float shadeOf(int l, float g, float x, float y) {
+  float shape = rangeShape(l, x); if (y > RANGE_BASE[l] + shape * 1.3 + RANGE_DETAIL[l] * 0.66 + 0.01) return 0.5;
+  return rangeSlopes(l, g, y, rangeTop(l, g, shape) - y) / 2.0;
+}
+void main() {
+  vec2 uv = (gl_FragCoord.xy + zaismaViewOffset) / iResolution.xy; float ar = iResolution.x / iResolution.y, y = uv.y, g = uv.x * ar, x = 0.5 + (uv.x - 0.5) * clamp(ar / 1.78, 0.56, 1.0);
+  shadeA = vec4(shadeOf(0, g, x, y), shadeOf(1, g, x, y), shadeOf(2, g, x, y), shadeOf(3, g, x, y));
+  shadeB = vec4(shadeOf(4, g, x, y), shadeOf(5, g, x, y), shadeOf(6, g, x, y), 1.0);
+}
+`;
+/** The whole scene in one pass, for a runner that only takes a mainImage (the dashboard's preview on the game domain). */
+export const ZAISMA_SHADER = `#define RIDGE_OCTAVES 4\n${ZAISMA_SHAPES}${ZAISMA_LIVE_PARTS}${ZAISMA_SHARP_DRAWING}`;
 
 /** The gallery's simplest shader: a dusk gradient whose horizon breathes. Four lines. */
 export const DUSK_SHADER = `

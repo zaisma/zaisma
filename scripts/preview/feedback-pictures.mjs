@@ -95,7 +95,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
 
   /**
    * The page at the comment's size, theme and sign-in, loaded and settled: run(send) gets the tab. The replay's many pictures are
-   * at the screen's own size (scale 1): Chrome draws the city in software, and twice the pixels took minutes.
+   * at the screen's own size (scale 1): Chrome draws the background in software, and twice the pixels took minutes.
    */
   async function onPage(comment, url, run, scale = 2) {
     const { browserContextId } = await chrome.send("Target.createBrowserContext");
@@ -116,7 +116,7 @@ export async function openPictureTaker({ siteOrigin, directory }) {
       const ready = fired("Page.domContentEventFired"), loaded = fired("Page.loadEventFired");
       await send("Page.navigate", { url });
       await Promise.race([ready, wait(PAGE_READY_TIMEOUT_MS)]);
-      // Pages that keep loading (the city streams its pieces) are pictured a moment after they're ready.
+      // Pages that keep loading (a shader background keeps drawing) are pictured a moment after they're ready.
       await Promise.race([loaded, wait(PAGE_LOAD_WAIT_MS)]);
       await send("Runtime.evaluate", { expression: SETTLE, awaitPromise: true, returnByValue: true });
       await wait(SETTLE_MS);

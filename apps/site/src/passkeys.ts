@@ -233,7 +233,7 @@ export const PASSKEY_SCRIPT = pageScript("passkeys", `
 var pkB64 = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
 var pkBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 var pkPost = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }).then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) }));
-// var, never const: a sign-in step swapped in place runs this again (CITY_PANE_SCRIPT), keeping a passkey request still waiting.
+// var, never const: a sign-in step swapped in place runs this again (WORLD_PANE_SCRIPT), keeping a passkey request still waiting.
 var pkWaiting;
 async function zaismaPasskeySignIn(next, conditional) {
   if (pkWaiting) pkWaiting.abort();

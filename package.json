@@ -28,6 +28,7 @@
     "engines:play": "node scripts/engines/play.mjs",
     "design:catalog": "node scripts/design-catalog.mjs",
     "brand": "node scripts/brand.mjs",
+    "guild-seal": "node scripts/guild-seal.mjs",
     "layout:check": "node scripts/layout-check.mjs",
     "page:probe": "node scripts/page-probe.mjs",
     "components:minify": "node scripts/minify-components.mjs",

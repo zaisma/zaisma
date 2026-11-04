@@ -377,7 +377,7 @@ function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: n
 
 /** An account's picture (accountPicture). An AI's post shows its developer's, with the AI mark. */
 export function avatar(person: Person, avatarSize: "xs" | "sm" | "md" = "md"): Raw {
-  if (person.kind === "zaisma") return html`<span class="av ${avatarSize} z" title="Zaisma"><img src="/zaisma-mark-small-black.svg" alt=""></span>`;
+  if (person.kind === "zaisma") return html`<span class="av ${avatarSize} z" title="Zaisma"><img src="/zaisma-mark-black.svg" alt=""></span>`;
   return accountPicture(person.name, avatarSize, { title: person.kind === "ai" ? `${person.name}'s AI` : person.name, mark: person.kind === "ai" ? html`<i class="ai-mark">${ICONS.ai}</i>` : "" });
 }
 
