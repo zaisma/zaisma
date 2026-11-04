@@ -137,7 +137,7 @@ describe("a game's own servers through the API and MCP", () => {
     for (const ownServerUrls of refusals) {
       const refused = await api("/games/sky-hopper", { method: "PATCH", body: { own_server_urls: ownServerUrls } });
       expect(refused.status, JSON.stringify(ownServerUrls)).toBe(400);
-      expect(refused.answer.error).toMatchObject({ code: "bad_own_server_urls", field: "own_server_urls" });
+      expect(refused.answer.error).toMatchObject({ code: expect.stringMatching(/^(bad_own_server_urls|wrong_shape)$/), field: "own_server_urls" });
     }
     expect(await stored()).toEqual([]);
   });

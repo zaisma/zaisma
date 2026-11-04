@@ -318,7 +318,7 @@ describe("a developer's Stripe account", () => {
   it("turns Stripe Tax on and off, follows Stripe's changes, and disconnects", async () => {
     await connect();
     expect((await tool("update_stripe_account", { is_stripe_tax_used: true })).stripe_account.is_stripe_tax_used).toBe(true);
-    expect((await api("/stripe-account", { method: "PATCH", body: { is_stripe_tax_used: "yes" } })).answer.error).toMatchObject({ code: "bad_is_stripe_tax_used", field: "is_stripe_tax_used" });
+    expect((await api("/stripe-account", { method: "PATCH", body: { is_stripe_tax_used: "yes" } })).answer.error).toMatchObject({ code: "wrong_shape", field: "is_stripe_tax_used" });
     expect((await connectEvent("account.updated", { ...connectedAccount, charges_enabled: false, business_profile: { name: "Pixel Smith Studio" } })).status).toBe(200);
     expect((await tool("get_stripe_account", {})).stripe_account).toMatchObject({ can_take_payments: false, business_name: "Pixel Smith Studio" });
     expect((await tool("disconnect_stripe_account", {})).stripe_account.is_connected).toBe(false);
@@ -425,7 +425,7 @@ describe("opening the sheet", () => {
     }
     expect(statuses).toEqual([...Array(20).fill(200), 429]);
     // Counted by the account, and a refused buy made no purchase.
-    expect(new Set(purchaseLimit.keys)).toEqual(new Set(["player-1"]));
+    expect(new Set(purchaseLimit.keys)).toEqual(new Set(["purchase:player-1"]));
     expect((await env.DB.prepare("SELECT COUNT(*) AS purchase_count FROM purchases").first<{ purchase_count: number }>())!.purchase_count).toBe(20);
   });
 

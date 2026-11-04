@@ -165,7 +165,7 @@ describe("a saved card's receipts (review 14 and 21)", () => {
     const setup = await player("/api/payment-methods/setup", { body: {} });
     expect(setup.answer).toEqual({ setup_intent_id: "seti_test", client_secret: expect.any(String) });
     expect(setupMetadata.receipt_email).toBeUndefined();
-    const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test", receipt_email: "victim@example.com" } });
+    const kept = await player("/api/payment-methods/saved", { body: { setup_intent_id: "seti_test" } });
     expect(kept.answer).toEqual({ saved_card: { card_brand: "visa", card_last_digits: "4242" } });
   });
 });

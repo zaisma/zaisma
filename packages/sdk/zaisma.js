@@ -230,12 +230,12 @@
     if (graphicsChipAnswer !== null) return graphicsChipAnswer;
     graphicsChipAnswer = false;
     try {
-      var context = document.createElement("canvas").getContext("webgl2") || document.createElement("canvas").getContext("webgl");
-      if (context) {
-        var info = context.getExtension("WEBGL_debug_renderer_info");
-        var renderer = info ? String(context.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
+      var webgl = document.createElement("canvas").getContext("webgl2") || document.createElement("canvas").getContext("webgl");
+      if (webgl) {
+        var rendererInfo = webgl.getExtension("WEBGL_debug_renderer_info");
+        var renderer = rendererInfo ? String(webgl.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL)) : "";
         graphicsChipAnswer = !/swiftshader|llvmpipe|software|basic render/i.test(renderer);
-        var losing = context.getExtension("WEBGL_lose_context");
+        var losing = webgl.getExtension("WEBGL_lose_context");
         if (losing) losing.loseContext();
       }
     } catch (error) {
@@ -250,8 +250,8 @@
     if (isInputSeen) return;
     isInputSeen = true;
     FIRST_INPUTS.forEach(function (type) { removeEventListener(type, firstInput, true); });
-    // A room that heard no input yet hears it now, without waiting for the game to send anything.
-    joined.forEach(function (room) { if (room._ws && room._ws.readyState === 1) room._say({ type: "here" }); });
+    // A room told of no graphics chip and no input hears of the input now, without waiting for the game to send anything.
+    if (graphicsChipAnswer === false) joined.forEach(function (room) { if (room._ws && room._ws.readyState === 1) room._say({ type: "here" }); });
   }
   var FIRST_INPUTS = ["keydown", "pointerdown", "wheel", "touchstart"];
   FIRST_INPUTS.forEach(function (type) { addEventListener(type, firstInput, { capture: true, passive: true }); });
@@ -265,7 +265,7 @@
   function keptPass() {
     try {
       var kept = JSON.parse(sessionStorage.getItem(passKey) || "null");
-      if (kept && kept.playShare) keptPlayShare = kept.playShare;
+      keptPlayShare = sessionStorage.getItem(passKey + ":share");
       return kept && Date.parse(kept.expiresAt) - Date.now() > 10 * 60 * 1000 ? kept : null;
     } catch (error) {
       return null; // storage off: fetch a new pass
@@ -286,9 +286,12 @@
         var kept = keptPass();
         if (kept && kept.kind === "guest" && given.playerKind === "guest") return kept;
         return post("/v1/pass", { gameSlug: config.game, roomKey: given.key }).then(function (answer) {
-          var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt, playShare: answer.playShare };
+          var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt };
           keptPlayShare = answer.playShare || null;
-          try { sessionStorage.setItem(passKey, JSON.stringify(mine)); } catch (error) { /* fine */ }
+          try {
+            sessionStorage.setItem(passKey, JSON.stringify(mine));
+            if (keptPlayShare) sessionStorage.setItem(passKey + ":share", keptPlayShare);
+          } catch (error) { /* fine */ }
           return mine;
         });
       }, function (error) {

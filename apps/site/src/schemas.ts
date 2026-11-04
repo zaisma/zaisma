@@ -2087,7 +2087,7 @@ export const SECURITY_SPIKE_LIST = object({
   ),
   answer_cuts: list(
     object({
-      door_id: text("The door whose answer had a field it didn't declare, as the security map names it."),
+      door_name: text("The door whose answer had a field it didn't declare, as the security map names it."),
       date: date("The day (UTC)."),
       field_paths: text("The first day's fields that were cut, as paths into the answer; never their values."),
       occurrence_count: countOf("How many answers were cut that day."),

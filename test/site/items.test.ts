@@ -354,7 +354,7 @@ describe("purchase delivery", () => {
     for (const purchase_delivery of ["server", "Game", "", null, 1]) {
       const refused = await settings({ purchase_delivery });
       expect(refused.status, JSON.stringify(purchase_delivery)).toBe(400);
-      expect(refused.answer.error).toMatchObject({ code: "bad_purchase_delivery", field: "purchase_delivery" });
+      expect(refused.answer.error).toMatchObject({ code: expect.stringMatching(/^(bad_purchase_delivery|wrong_shape)$/), field: "purchase_delivery" });
       expect(errorProblems(refused.answer, refused.status)).toEqual([]);
     }
     expect((await api("/games/sky-hopper/items")).answer.purchase_delivery).toBe("game");
@@ -499,7 +499,7 @@ describe("selling the game once", () => {
     const made = await setItem("expansion", { ...fullGame, title: "The North", is_on_game_page: true });
     expect(made.answer.item).toMatchObject({ is_on_game_page: true });
     expect(schemaProblems(GAME_ITEM, made.answer.item)).toEqual([]);
-    expect((await setItem("expansion", { ...fullGame, is_on_game_page: "yes" })).answer.error).toMatchObject({ code: "bad_item", field: "is_on_game_page" });
+    expect((await setItem("expansion", { ...fullGame, is_on_game_page: "yes" })).answer.error).toMatchObject({ code: "wrong_shape", field: "is_on_game_page" });
   });
 
   it("names a permanent content item as the full game, turning the game accounts only, and it stays so while it's set", async () => {

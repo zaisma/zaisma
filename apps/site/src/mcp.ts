@@ -2189,7 +2189,7 @@ export function checkArguments(tool: Pick<Tool, "name" | "inputSchema">, toolArg
   }
   // The types of what it's given, before any of its own code runs (docs/DOORS.md): what's allowed inside them is the call's to say, with its own fix.
   const [problem] = typeProblems(tool.inputSchema, toolArguments, "arguments");
-  if (problem) throw new ApiError("wrong_shape", { message: `The arguments aren't the right shape: ${problem}.`, fix: "The tool's input schema (tools/list) says what each argument takes. Change it and call again." });
+  if (problem) throw new ApiError("wrong_shape", { message: `The arguments aren't the right shape: ${problem}.`, field: problem.match(/^arguments\.([^.:[]+)/)?.[1] ?? null, fix: "The tool's input schema (tools/list) says what each argument takes. Change it and call again." });
 }
 
 /** A JSON-RPC 2.0 message, in the standard's own names. */
@@ -2315,9 +2315,9 @@ export async function serveMcp(
           const ran = await tool.run(toolArguments);
           const given = ran instanceof WithImages ? ran.answer : ran;
           // A field the tool's outputSchema didn't declare is cut, and the caller still gets the answer.
-          const cut = tool.outputSchema ? cutUndeclared(tool.outputSchema, given) : { value: given, cutPaths: [] };
+          const cut = tool.outputSchema ? cutUndeclared(tool.outputSchema, given) : { kept: given, cutPaths: [] };
           if (cut.cutPaths.length) onAnswerCut(`mcp:${tool.name}`, cut.cutPaths);
-          const structured = cut.value;
+          const structured = cut.kept;
           const images = ran instanceof WithImages ? ran.images.map((image) => ({ type: "image", ...image })) : [];
           // Compact JSON: indenting costs the AI tokens and tells it nothing.
           return succeed({ content: [{ type: "text", text: JSON.stringify(structured) }, ...images], structuredContent: structured });

@@ -78,12 +78,11 @@ export type DoorShape = Readonly<Record<string, unknown>> & { readonly [SHAPE_MA
 declare const SHAPE_MARK: unique symbol;
 const shapeOf = (schema: Record<string, unknown>) => schema as DoorShape;
 
-const LARGEST_INTEGER = Number.MAX_SAFE_INTEGER;
 
 export const text = (maximumCharacterCount: number, pattern?: string): DoorShape => shapeOf({ type: "string", maxLength: maximumCharacterCount, ...(pattern ? { pattern } : {}) });
 export const oneOfWords = (...words: readonly string[]): DoorShape => shapeOf({ type: "string", maxLength: Math.max(...words.map((word) => word.length)), enum: words });
-export const integer = (minimum = 0, maximum = LARGEST_INTEGER): DoorShape => shapeOf({ type: "integer", minimum, maximum });
-export const realNumber = (minimum: number, maximum: number): DoorShape => shapeOf({ type: "number", minimum, maximum });
+export const integer = (minimumNumber = 0, maximumNumber = Number.MAX_SAFE_INTEGER): DoorShape => shapeOf({ type: "integer", minimum: minimumNumber, maximum: maximumNumber });
+export const realNumber = (minimumNumber: number, maximumNumber: number): DoorShape => shapeOf({ type: "number", minimum: minimumNumber, maximum: maximumNumber });
 export const yesOrNo: DoorShape = shapeOf({ type: "boolean" });
 export const anyOf = (...shapes: readonly DoorShape[]): DoorShape => shapeOf({ anyOf: shapes });
 export const orNothing = (shape: DoorShape): DoorShape => anyOf(shape, shapeOf({ type: "null" }));
@@ -155,12 +154,19 @@ export interface DoorContractFields {
 export type DoorContract = DoorContractFields & ({ whoMayCall: DoorCallerProvenByGuard } | { whoMayCall: DoorCallerProvenByFunction; provenBy: DoorProof });
 
 /** A Worker's rate limit bindings, by level. A self-hosted room has none, and a missing one lets the call through. */
-export type DoorLimitBindings = { [Level in DoorLimitLevel as `LIMIT_${Uppercase<Level>}`]?: RateLimit };
+/** A rate limit binding, as Workers gives one. */
+export interface DoorLimitBinding {
+  limit(options: { key: string }): Promise<object>;
+}
+
+export type DoorLimitBindings = { [Level in DoorLimitLevel as `LIMIT_${Uppercase<Level>}`]?: DoorLimitBinding };
 
 /** Whether a call goes past a level's limit: door's own counter, for one subject. Keys never leave Cloudflare's counter. */
 export async function isPastLevel(env: DoorLimitBindings, level: DoorLimitLevel, counterName: string, subject: string): Promise<boolean> {
   const binding = env[`LIMIT_${level.toUpperCase()}` as keyof DoorLimitBindings];
-  return binding ? !(await binding.limit({ key: `${counterName}:${subject}` })).success : false;
+  if (!binding) return false;
+  const answer = await binding.limit({ key: `${counterName}:${subject}` });
+  return !("success" in answer && answer.success === true);
 }
 
 /** Whether a call goes past a door's limit. doorName names its counter unless its limit shares a group. */
@@ -187,61 +193,61 @@ const typesOf = (schema: Schema): readonly string[] => {
 };
 
 /** Where a value doesn't match its shape or schema, as "path: problem" lines; [] when it fits. Answers and inputs both come here. */
-export function schemaProblems(schema: Schema, value: unknown, path = "answer"): string[] {
+export function schemaProblems(schema: Schema, given: unknown, path = "answer"): string[] {
   // anyOf: it fits when one of them fits; otherwise say how it misses the nearest.
   if (Array.isArray(schema.anyOf)) {
-    const misses = (schema.anyOf as Schema[]).map((option) => schemaProblems(option, value, path));
+    const misses = (schema.anyOf as Schema[]).map((option) => schemaProblems(option, given, path));
     return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
   }
   if (schema.isGameData === true) {
-    const sizeBytes = JSON.stringify(value)?.length ?? 0;
+    const sizeBytes = JSON.stringify(given)?.length ?? 0;
     return sizeBytes > (schema.maximumSizeBytes as number) ? [`${path}: over ${schema.maximumSizeBytes as number} bytes`] : [];
   }
   const out: string[] = [];
   const types = typesOf(schema);
-  const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
+  const actual = given === null ? "null" : Array.isArray(given) ? "array" : Number.isInteger(given) ? "integer" : typeof given;
   const fits = types.length === 0 || types.includes(actual) || (actual === "integer" && types.includes("number"));
   if (!fits) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
-  if (Array.isArray(schema.enum) && !(schema.enum as unknown[]).includes(value)) out.push(`${path}: ${JSON.stringify(value)} isn't one of ${JSON.stringify(schema.enum)}`);
-  if (typeof value === "string") {
-    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) out.push(`${path}: over ${schema.maxLength} characters`);
-    if (schema.format === "date-time" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(value)) out.push(`${path}: ${value} isn't an ISO time in UTC`);
-    if (schema.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) out.push(`${path}: ${value} isn't YYYY-MM-DD`);
-    if (schema.format === "uri" && !/^https?:\/\//.test(value)) out.push(`${path}: ${value} isn't a link`);
-    if (typeof schema.pattern === "string" && !compiled(schema.pattern).test(value)) out.push(`${path}: ${value} doesn't match ${schema.pattern}`);
+  if (Array.isArray(schema.enum) && !(schema.enum as unknown[]).includes(given)) out.push(`${path}: ${JSON.stringify(given)} isn't one of ${JSON.stringify(schema.enum)}`);
+  if (typeof given === "string") {
+    if (typeof schema.maxLength === "number" && given.length > schema.maxLength) out.push(`${path}: over ${schema.maxLength} characters`);
+    if (schema.format === "date-time" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(given)) out.push(`${path}: ${given} isn't an ISO time in UTC`);
+    if (schema.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(given)) out.push(`${path}: ${given} isn't YYYY-MM-DD`);
+    if (schema.format === "uri" && !/^https?:\/\//.test(given)) out.push(`${path}: ${given} isn't a link`);
+    if (typeof schema.pattern === "string" && !compiled(schema.pattern).test(given)) out.push(`${path}: ${given} doesn't match ${schema.pattern}`);
   }
-  if (typeof value === "number") {
-    if (typeof schema.minimum === "number" && value < schema.minimum) out.push(`${path}: below ${schema.minimum}`);
-    if (typeof schema.maximum === "number" && value > schema.maximum) out.push(`${path}: above ${schema.maximum}`);
+  if (typeof given === "number") {
+    if (typeof schema.minimum === "number" && given < schema.minimum) out.push(`${path}: below ${schema.minimum}`);
+    if (typeof schema.maximum === "number" && given > schema.maximum) out.push(`${path}: above ${schema.maximum}`);
   }
-  if (Array.isArray(value)) {
-    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return [...out, `${path}: over ${schema.maxItems} items`];
-    if (typeof schema.minItems === "number" && value.length < schema.minItems) out.push(`${path}: under ${schema.minItems} items`);
-    if (schema.items) value.forEach((item, index) => out.push(...schemaProblems(schema.items as Schema, item, `${path}[${index}]`)));
+  if (Array.isArray(given)) {
+    if (typeof schema.maxItems === "number" && given.length > schema.maxItems) return [...out, `${path}: over ${schema.maxItems} items`];
+    if (typeof schema.minItems === "number" && given.length < schema.minItems) out.push(`${path}: under ${schema.minItems} items`);
+    if (schema.items) given.forEach((entry, index) => out.push(...schemaProblems(schema.items as Schema, entry, `${path}[${index}]`)));
   }
   if (actual === "object" && schema.properties) {
     const properties = schema.properties as Record<string, Schema>;
-    const given = value as Record<string, unknown>;
-    for (const name of (schema.required as string[] | undefined) ?? []) if (!(name in given)) out.push(`${path}.${name}: missing`);
-    if (schema.additionalProperties === false) for (const name of Object.keys(given)) if (!(name in properties)) out.push(`${path}.${name}: not in the schema`);
-    for (const [name, property] of Object.entries(properties)) if (name in given) out.push(...schemaProblems(property, given[name], `${path}.${name}`));
+    const fields = given as Record<string, unknown>;
+    for (const name of (schema.required as string[] | undefined) ?? []) if (!(name in fields)) out.push(`${path}.${name}: missing`);
+    if (schema.additionalProperties === false) for (const name of Object.keys(fields)) if (!(name in properties)) out.push(`${path}.${name}: not in the schema`);
+    for (const [name, property] of Object.entries(properties)) if (name in fields) out.push(...schemaProblems(property, fields[name], `${path}.${name}`));
   }
   return out;
 }
 
-/** Where a value's types and closed fields don't match a schema; what a call behind it allows stays the call's to say, with its own fix. */
-export function typeProblems(schema: Schema, value: unknown, path = "answer"): string[] {
+/** Where a value's types don't match a schema; null reads as left out, and what a call behind it allows, names included, stays the call's to say, with its own fix. */
+export function typeProblems(schema: Schema, given: unknown, path = "answer"): string[] {
+  if (given === null) return [];
   if (Array.isArray(schema.anyOf)) {
-    const misses = (schema.anyOf as Schema[]).map((option) => typeProblems(option, value, path));
+    const misses = (schema.anyOf as Schema[]).map((option) => typeProblems(option, given, path));
     return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
   }
   const types = typesOf(schema);
-  const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
+  const actual = Array.isArray(given) ? "array" : Number.isInteger(given) ? "integer" : typeof given;
   if (types.length && !types.includes(actual) && !(actual === "integer" && types.includes("number"))) return [`${path}: is ${actual}, expected ${types.join(" or ")}`];
-  if (Array.isArray(value) && schema.items) return value.flatMap((item, index) => typeProblems(schema.items as Schema, item, `${path}[${index}]`));
   if (actual !== "object" || !schema.properties) return [];
   const properties = schema.properties as Record<string, Schema>;
-  return Object.entries(value as Record<string, unknown>).flatMap(([name, given]) => (properties[name] ? typeProblems(properties[name]!, given, `${path}.${name}`) : schema.additionalProperties === false ? [`${path}.${name}: not in the schema`] : []));
+  return Object.entries(given as Record<string, unknown>).flatMap(([name, fieldValue]) => (properties[name] ? typeProblems(properties[name]!, fieldValue, `${path}.${name}`) : []));
 }
 
 /**
@@ -249,34 +255,32 @@ export function typeProblems(schema: Schema, value: unknown, path = "answer"): s
  * caller still gets the answer. Nothing else changes, and an answer with nothing to cut comes back as the same value.
  * Only closed objects cut, so a game's own rows and arguments pass as they are.
  */
-export function cutUndeclared(schema: Schema, value: unknown, path = "answer"): { value: unknown; cutPaths: string[] } {
+export function cutUndeclared(schema: Schema, given: unknown, path = "answer"): { kept: unknown; cutPaths: string[] } {
   if (Array.isArray(schema.anyOf)) {
     const options = schema.anyOf as Schema[];
     // The option that fits as it is, or else the one that needs least cut and then fits.
-    const fitting = options.find((option) => schemaProblems(option, value, path).length === 0);
-    if (fitting) return { value, cutPaths: [] };
-    const tried = options.map((option) => cutUndeclared(option, value, path)).map((cut, index) => ({ cut, problemCount: schemaProblems(options[index]!, cut.value, path).length }));
+    if (options.some((option) => schemaProblems(option, given, path).length === 0)) return { kept: given, cutPaths: [] };
+    const tried = options.map((option) => cutUndeclared(option, given, path)).map((cut, index) => ({ cut, problemCount: schemaProblems(options[index]!, cut.kept, path).length }));
     tried.sort((first, second) => first.problemCount - second.problemCount || first.cut.cutPaths.length - second.cut.cutPaths.length);
-    return tried[0]?.cut ?? { value, cutPaths: [] };
+    return tried[0]?.cut ?? { kept: given, cutPaths: [] };
   }
-  if (Array.isArray(value)) {
-    if (!schema.items) return { value, cutPaths: [] };
+  if (Array.isArray(given)) {
+    if (!schema.items) return { kept: given, cutPaths: [] };
     const cutPaths: string[] = [];
     let changed: unknown[] | null = null;
-    value.forEach((item, index) => {
-      const cut = cutUndeclared(schema.items as Schema, item, `${path}[]`);
+    given.forEach((entry, index) => {
+      const cut = cutUndeclared(schema.items as Schema, entry, `${path}[]`);
       if (!cut.cutPaths.length) return;
       cutPaths.push(...cut.cutPaths);
-      (changed ??= [...value])[index] = cut.value;
+      (changed ??= [...given])[index] = cut.kept;
     });
-    return { value: changed ?? value, cutPaths: [...new Set(cutPaths)] };
+    return { kept: changed ?? given, cutPaths: [...new Set(cutPaths)] };
   }
-  if (value === null || typeof value !== "object" || !schema.properties) return { value, cutPaths: [] };
+  if (given === null || typeof given !== "object" || !schema.properties) return { kept: given, cutPaths: [] };
   const properties = schema.properties as Record<string, Schema>;
-  const given = value as Record<string, unknown>;
   const kept: Record<string, unknown> = {};
   const cutPaths: string[] = [];
-  for (const [name, fieldValue] of Object.entries(given)) {
+  for (const [name, fieldValue] of Object.entries(given as Record<string, unknown>)) {
     const property = properties[name];
     if (!property) {
       if (schema.additionalProperties === false) cutPaths.push(`${path}.${name}`);
@@ -284,18 +288,18 @@ export function cutUndeclared(schema: Schema, value: unknown, path = "answer"): 
       continue;
     }
     const cut = cutUndeclared(property, fieldValue, `${path}.${name}`);
-    kept[name] = cut.value;
+    kept[name] = cut.kept;
     cutPaths.push(...cut.cutPaths);
   }
-  return cutPaths.length ? { value: kept, cutPaths } : { value, cutPaths: [] };
+  return cutPaths.length ? { kept, cutPaths } : { kept: given, cutPaths: [] };
 }
 
 /** A query value read as its shape says: a number or a yes or no comes as text. Text that can't be one stays text, so the shape refuses it. */
 function queryValueOf(shape: Schema, given: string): unknown {
   if (Array.isArray(shape.anyOf)) {
     for (const option of shape.anyOf as Schema[]) {
-      const value = queryValueOf(option, given);
-      if (schemaProblems(option, value).length === 0) return value;
+      const read = queryValueOf(option, given);
+      if (schemaProblems(option, read).length === 0) return read;
     }
     return given;
   }
@@ -336,10 +340,10 @@ export function formProblem(fields: Readonly<Record<string, DoorShape>>, fileNam
     if (fileNames.includes(name)) continue;
     const shape = fields[name] as Schema | undefined;
     if (!shape) return { field: name, problem: `${name} isn't one of this form's fields` };
-    const given = form.getAll(name);
-    if (given.some((value) => typeof value !== "string")) return { field: name, problem: `${name} is a file, not text` };
-    const value = shape.type === "array" ? given : given.length === 1 ? given[0] : given;
-    const [problem] = schemaProblems(shape, typeof value === "string" ? queryValueOf(shape, value) : value, name);
+    const sent = form.getAll(name);
+    if (sent.some((fieldValue) => typeof fieldValue !== "string")) return { field: name, problem: `${name} is a file, not text` };
+    const read = shape.type === "array" || sent.length !== 1 ? sent : sent[0];
+    const [problem] = schemaProblems(shape, typeof read === "string" ? queryValueOf(shape, read) : read, name);
     if (problem) return { field: name, problem };
   }
   return null;

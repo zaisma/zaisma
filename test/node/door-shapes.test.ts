@@ -108,13 +108,13 @@ describe("an answer", () => {
   it("goes out as the same value when it declares everything", () => {
     const given = { game: { id: "game_1" }, list: [{ n: 1 }], rows: { theirs: 1 } };
     const cut = cutUndeclared(schema, given);
-    expect(cut.value).toBe(given);
+    expect(cut.kept).toBe(given);
     expect(cut.cutPaths).toEqual([]);
   });
 
   it("loses only what it didn't declare, and still goes out", () => {
     const cut = cutUndeclared(schema, { game: { id: "game_1", email: "a@example.com" }, list: [{ n: 1, secret: 2 }, { n: 2, secret: 3 }], secret_key: "x" });
-    expect(cut.value).toEqual({ game: { id: "game_1" }, list: [{ n: 1 }, { n: 2 }] });
+    expect(cut.kept).toEqual({ game: { id: "game_1" }, list: [{ n: 1 }, { n: 2 }] });
     expect(cut.cutPaths.sort()).toEqual(["answer.game.email", "answer.list[].secret", "answer.secret_key"]);
   });
 
@@ -208,9 +208,9 @@ describe("the rented share", () => {
   it("gives a shared room's cost by player: their own messages and connections, their part of the rest", () => {
     const use = { roomAwakeDurationSec: 1000, objectRequestCount: 0, bookkeepingWrittenRowCount: 0, roomCpuDurationMs: 0, startupCpuDurationMs: 0, gameServerSessionCount: 0, logFileCount: 0 };
     const awakeCents = 1000 * HOSTING_PRICES.awakeCentsPerSec;
-    expect(rentedShareOfRoomCents(use, { playFraction: 0, messageCount: 0, connectionCount: 0 })).toBe(0);
-    expect(rentedShareOfRoomCents(use, { playFraction: 0.25, messageCount: 0, connectionCount: 0 })).toBeCloseTo(awakeCents / 4);
-    expect(rentedShareOfRoomCents(use, { playFraction: 1, messageCount: 10, connectionCount: 2 })).toBeCloseTo(awakeCents + 10 * HOSTING_PRICES.inboundMessageCentsPerMessage + 2 * HOSTING_PRICES.roomConnectionCentsPerConnection);
+    expect(rentedShareOfRoomCents(use, { playShareNumber: 0, messageCount: 0, connectionCount: 0 })).toBe(0);
+    expect(rentedShareOfRoomCents(use, { playShareNumber: 0.25, messageCount: 0, connectionCount: 0 })).toBeCloseTo(awakeCents / 4);
+    expect(rentedShareOfRoomCents(use, { playShareNumber: 1, messageCount: 10, connectionCount: 2 })).toBeCloseTo(awakeCents + 10 * HOSTING_PRICES.inboundMessageCentsPerMessage + 2 * HOSTING_PRICES.roomConnectionCentsPerConnection);
   });
 
   it("counts requests and relayed data by its part, the database by its part of the play, and never a game's storage", () => {

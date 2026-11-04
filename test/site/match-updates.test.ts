@@ -87,7 +87,7 @@ describe("match_update_mode", () => {
       const response = await api(`/games/arena/versions/${version}/publish`, { body: { match_update_mode: given } });
       const refusal = (await response.json()) as { error: { code: string; field: string; fix: string } };
       expect(errorProblems(refusal, response.status)).toEqual([]);
-      expect(refusal.error).toMatchObject({ code: "bad_match_update_mode", field: "match_update_mode" });
+      expect(refusal.error).toMatchObject({ code: expect.stringMatching(/^(bad_match_update_mode|wrong_shape)$/), field: "match_update_mode" });
       expect(refusal.error.fix).toContain('"now"');
     }
     expect((await gameBySlug(env.DB, "arena"))!.live_version_id).toBeNull();

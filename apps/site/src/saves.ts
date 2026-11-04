@@ -1,4 +1,4 @@
-import { isPastLevel,
+import { isPastGameLimit, isPastLevel,
   SAVE_LIMIT_BYTES,
   accountById,
   addSaveCopy,
@@ -81,7 +81,7 @@ export async function handleSaves(request: Request, env: Env, slug: string, copi
     return withCookies(json({ tag, version_number: row.version_number, sha256: row.sha256, saved_at: iso(row.saved_at_ms), changed_by_kind: row.changed_by_kind, save_data: JSON.parse(text) }));
   }
 
-  if (await isPastLevel(env, "steady", "save", account.id)) return tooOften();
+  if ((await isPastLevel(env, "steady", "save", account.id)) || (await isPastGameLimit(env, env.DB, game.id, account.id))) return tooOften();
   const contentLengthBytes = Number(request.headers.get("content-length") ?? 0);
   if (contentLengthBytes > SAVE_LIMIT_BYTES * 2 + 1024) return json({ error: "This save is too big." }, 413);
   let body: { tag?: unknown; base_version_number?: unknown; save_json?: unknown; version_id?: unknown; replace?: unknown; keep?: unknown; played_at?: unknown };

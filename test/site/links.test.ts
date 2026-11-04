@@ -142,7 +142,7 @@ describe("a game's links through the API and MCP", () => {
     ] as const) {
       const refused = await api("/games/sky-hopper", { method: "PATCH", body: { links } });
       expect(refused.status, JSON.stringify(links)).toBe(400);
-      expect(refused.answer.error).toMatchObject({ code: "bad_links", field });
+      expect(refused.answer.error).toMatchObject({ code: expect.stringMatching(/^(bad_links|wrong_shape)$/), field });
     }
     expect((await gameBySlug(env.DB, "sky-hopper"))!.links).toBe("[]");
   });

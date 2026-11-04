@@ -479,6 +479,6 @@ describe("the API and MCP", () => {
     const { version, token, game } = await setUp("api-refuses", "private");
     const refused = await api(`/games/${game.slug}/versions/${version}/publish`, token, "POST", { publish_after_ai_review_enabled: "yes" });
     expect(refused.status).toBe(400);
-    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("bad_publish_after_ai_review_enabled");
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("wrong_shape");
   });
 });

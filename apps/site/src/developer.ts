@@ -9,7 +9,7 @@ import {
   bodyProblem,
   fieldsOf,
   gameData,
-  integer,
+  realNumber,
   isPastLevel,
   listOf,
   orNothing,
@@ -414,6 +414,10 @@ export async function handleDeveloper(request: Request, env: Env, path: string, 
 
 /** waitUntil: the Worker's ctx.waitUntil, set on the caller before the key's use is noted, so its security alerts run after the answer. */
 export async function authenticate(request: Request, env: Env, via: "api" | "mcp" = "api", waitUntil?: WaitUntil): Promise<Caller> {
+  // Before a key is read, an address counts, at the level a whole building clears (docs/DOORS.md).
+  if (await isPastLevel(env, "building", "api_address", connectionAddressOf(request) ?? "unknown")) {
+    throw new ApiError("slow_down", { message: "Too many calls from this address in the last minute.", fix: "Wait a minute, then carry on.", retryAfterSec: 60 });
+  }
   const header = request.headers.get("authorization");
   let accountId: string | null = null;
   let cookies: string[] = [];
@@ -678,7 +682,8 @@ const ID_INPUT = text(200);
 const URL_INPUT = text(4000);
 const TIME_INPUT = text(100);
 const LIST_OF_WORDS = listOf(text(100), 100);
-const COUNT_INPUT = integer(0, Number.MAX_SAFE_INTEGER);
+/** A number: whole or not, and how big, is the call's to say with its own fix. */
+const COUNT_INPUT = realNumber(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
 const nullable = orNothing;
 /**
  * Every input's shape, by its name: a name means one thing in every call (docs/NAMING.md), and a name with no shape here
@@ -847,7 +852,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "PUT", path: "/files/:sha256", answers: fieldsAnswer("sha256", "storage_status"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: "bytes" }),
   call({ method: "POST", path: "/files/:sha256/parts", answers: fieldsAnswer("sha256", "storage_status", "upload_id", "part_size_bytes", "part_count"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("size_bytes") } }),
   call({ method: "PUT", path: "/files/:sha256/parts/:part_number", answers: fieldsAnswer("part_number", "etag"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash", part_number: "plain" }, query: plainInputs("upload_id"), body: "bytes" }),
-  call({ method: "POST", path: "/files/:sha256/parts/done", answers: fieldsAnswer("sha256", "storage_status"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
+  call({ method: "POST", path: "/files/:sha256/parts/done", answers: fieldsAnswer("sha256", "storage_status", "size_bytes"), reaches: "account", access: needs("version_access", "upload"), isPublishing: true, pathParts: { sha256: "file_hash" }, body: { inputs: plainInputs("upload_id", "parts"), maximumSizeBytes: 1024 * 1024 } }),
   call({
     method: "POST",
     path: "/games/:slug/versions",
@@ -926,7 +931,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/saves/:player_id/copies", answers: fromTool("list_save_copies"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", answers: fromTool("get_save_copy"), reaches: "player_save", access: needs("save_access", "read"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" }, query: plainInputs("keys") }),
   call({ method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", answers: fromTool("restore_save_copy"), reaches: "player_save", access: needs("save_access", "write"), pathParts: { slug: "game", player_id: "in_game", save_copy_id: "in_game" } }),
-  call({ method: "GET", path: "/forum", answers: fromTool("search_forum"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
+  call({ method: "GET", path: "/forum", answers: fieldsAnswer("topics", "pinned_topics", "next_cursor", "total_topic_count", "tag_counts", "section_counts", "category_counts", "unread_topic_count", "person_count", "people"), reaches: "nothing_private", access: needs("forum_access", "read"), query: plainInputs("search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail") }),
   call({
     method: "POST",
     path: "/forum",

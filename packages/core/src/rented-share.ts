@@ -103,11 +103,11 @@ async function signed(secret: string, purpose: string, parts: string): Promise<s
 /** The parts a token signed for this purpose carries, or null for one that wasn't. */
 async function signedParts(secret: string, purpose: string, token: unknown): Promise<string[] | null> {
   if (typeof token !== "string" || token.length > 400) return null;
-  const cutAt = token.lastIndexOf(".");
-  if (cutAt < 1) return null;
-  const signature = fromBase64Url(token.slice(cutAt + 1));
+  const cutIndex = token.lastIndexOf(".");
+  if (cutIndex < 1) return null;
+  const signature = fromBase64Url(token.slice(cutIndex + 1));
   if (!signature) return null;
-  const parts = token.slice(0, cutAt);
+  const parts = token.slice(0, cutIndex);
   return (await crypto.subtle.verify("HMAC", await purposeKey(secret, purpose), signature, encoder.encode(parts))) ? parts.split(".") : null;
 }
 
@@ -167,11 +167,11 @@ export const isOnRentedShare = (isRentedNetwork: boolean, share: Pick<PlayShare,
 /** What a room's use since it last recorded it comes to for its players on the rented share: their own messages and connections, and their part of its time awake and game server, by their part of its play. */
 export function rentedShareOfRoomCents(
   use: Pick<HostingUse, "roomAwakeDurationSec" | "objectRequestCount" | "bookkeepingWrittenRowCount" | "roomCpuDurationMs" | "startupCpuDurationMs" | "gameServerSessionCount" | "logFileCount">,
-  rented: { playFraction: number; messageCount: number; connectionCount: number },
+  rented: { playShareNumber: number; messageCount: number; connectionCount: number },
 ): number {
   const shared = hostingCostCents({ ...noHostingUse(), ...use });
   const sharedCents = shared.kinds.rooms + shared.kinds.game_server;
-  return sharedCents * rented.playFraction + rented.messageCount * HOSTING_PRICES.inboundMessageCentsPerMessage + rented.connectionCount * HOSTING_PRICES.roomConnectionCentsPerConnection;
+  return sharedCents * rented.playShareNumber + rented.messageCount * HOSTING_PRICES.inboundMessageCentsPerMessage + rented.connectionCount * HOSTING_PRICES.roomConnectionCentsPerConnection;
 }
 
 /**
@@ -184,7 +184,7 @@ export function rentedShareUsedCents(kinds: Record<HostingKind, number>, use: Pi
   const relayedCents = rented.relayCredentialTotalCount > 0 ? kinds.relayed_data * Math.min(1, rented.relayCredentialCount / rented.relayCredentialTotalCount) : 0;
   const playedCents = kinds.rooms + kinds.requests + kinds.game_server;
   const databaseCents = Math.max(0, kinds.database - use.monthStoredSizeBytes * HOSTING_PRICES.storedCentsPerByteMonth);
-  const databaseShare = playedCents > 0 ? Math.min(1, (rented.roomUseCents + requestsCents) / playedCents) : 0;
-  return rented.roomUseCents + requestsCents + relayedCents + databaseCents * databaseShare;
+  const databaseShareNumber = playedCents > 0 ? Math.min(1, (rented.roomUseCents + requestsCents) / playedCents) : 0;
+  return rented.roomUseCents + requestsCents + relayedCents + databaseCents * databaseShareNumber;
 }
 

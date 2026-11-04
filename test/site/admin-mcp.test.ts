@@ -125,6 +125,7 @@ describe("admin MCP", () => {
       "unban_account",
       "list_ban_matches",
       "decide_ban_match",
+      "get_rented_network_share",
       "list_security_spikes",
       "list_blocked_scripts",
       "get_page_speed",

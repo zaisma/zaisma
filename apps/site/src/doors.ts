@@ -1,5 +1,5 @@
 import {
-  ACCOUNT_AREAS,
+  AREA_ACCESS_CHOICES,
   SOCIAL_SETTINGS,
   ANSWERS_EMPTY,
   ANSWERS_FILE,
@@ -12,8 +12,7 @@ import {
   answersJson,
   anyOf,
   doorPathPattern,
-  fieldsOf,
-  gameData,
+    gameData,
   integer,
   listOf,
   orNothing,
@@ -231,7 +230,7 @@ const PLAY_TAKES = json(
 
 // What each family of forms takes: one handler reads them, so they share a closed list of names.
 const WEBAUTHN_NAMES = ["passkey_id", "client_data_json", "authenticator_data", "signature", "user_handle"];
-const KEY_CHOICE_NAMES = ["access_level", "game_scope", "game_slugs", "ends_after_days", ...ACCOUNT_AREAS];
+const KEY_CHOICE_NAMES = ["access_level", "game_scope", "game_slugs", "ends_after_days", ...Object.keys(AREA_ACCESS_CHOICES)];
 const ACCOUNT_FORM = form([...SOCIAL_SETTINGS, "next", "turnstile_token", "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
 const JOINING_TAKES: DoorTakes = { ...ACCOUNT_FORM, query: query("next", "username", "with", "game", "code", "error", "welcome").query };
 const FRIEND_FORM = form(["invite_code", "is_appearing_offline", "next", "game_slug"]);
@@ -331,7 +330,7 @@ const admin = (methods: DoorRowFields["methods"], path: string, reaches: DoorRea
 const adminPage = (path: string, reaches: DoorReach) => admin(["GET"], path, reaches, "anywhere");
 const adminForm = (path: string, reaches: DoorReach) => admin(["POST"], path, reaches, "own_pages_if_sent", ADMIN_FORM);
 
-const RAW_CALLS = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: FILE_FORM_SIZE_BYTES } }, answers: ANSWERS_BYTES, limit: BY_ADDRESS } as const;
+const RAW_CALLS = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: FILE_FORM_SIZE_BYTES + 10 * 1024 * 1024 } }, answers: ANSWERS_BYTES, limit: { whyNoLimit: "counted_by_its_call" } } as const;
 const SIGNED_BODY = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: 1024 * 1024 } }, answers: ANSWERS_BYTES, limit: SIGNED } as const;
 // A caller a named function proves, from what's on the request.
 const proven = (methods: DoorRowFields["methods"], path: string, contract: DoorContract & { whoMayCall: DoorCallerProvenByFunction }): SiteDoor => ({ methods, path, origin: "anywhere", answersAs: "page", contract });
@@ -434,15 +433,15 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   open(["POST"], "/api/plays/:slug/entry", { reaches: "account", trusts: ["session"], origin: "own_pages_if_sent", takes: json({ then: text(2000) }, [], 4096), answersAs: "json", answers: fieldsAnswer("entry_url") }),
   open(["POST"], "/api/links/:slug", { trusts: ["session"], origin: "own_pages", takes: json({ link_name: text(100), path: text(4000), query_parameters: gameData(4096), tester_token: orNothing(text(40)) }, [], 8192), answersAs: "json", answers: fieldsAnswer("destination_url") }),
   signedIn(["GET"], "/api/me/played", statusOf(401, { error: "Signed out" }), { origin: "anywhere", ...jsonAnswer("played") }),
-  signedIn(["POST"], "/api/me/played", statusOf(401, { error: "Signed out" }), { takes: json({ played: listOf(fieldsOf({ slug: text(40), played_at_ms: realNumber(0, Number.MAX_SAFE_INTEGER) }), 1000) }, [], 256 * 1024), ...ownPagesJson("ok") }),
+  signedIn(["POST"], "/api/me/played", statusOf(401, { error: "Signed out" }), { takes: json({ played: listOf(gameData(1024), 1000) }, [], 256 * 1024), ...ownPagesJson("ok") }),
   signedIn(["POST"], "/api/me/played/:slug", statusOf(401, { error: "Signed out" }), { takes: json({}), ...ownPagesJson("ok") }),
-  signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("waiting_friend_request_count", "accepted_friend_request_count") }),
+  signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40), left_game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("waiting_friend_request_count", "accepted_friend_request_count") }),
   open(["GET"], "/api/announcements", { ...jsonAnswer("announcements", "announcement") }),
 
   // A player's saves: the game page writes them, on its own site.
   ...(["/api/saves/:slug", "/api/saves/:slug/copies", "/api/saves/:slug/copies/:save_copy_id"] as const).map((path) => signedIn(["GET"], path, SAVES_SIGN_IN, { reaches: "player_save", origin: "anywhere", takes: query("version"), ...SAVE_ANSWER })),
-  signedIn(["PUT"], "/api/saves/:slug", SAVES_SIGN_IN, { reaches: "player_save", origin: "own_pages", takes: json({ tag: text(100), base_version_number: orNothing(integer(0)), save_json: text(SAVE_LIMIT_BYTES * 2), version_id: orNothing(text(100)), replace: yesOrNo, keep: yesOrNo, played_at: orNothing(text(100)) }, [], SAVE_LIMIT_BYTES * 2 + 1024, false), ...SAVE_ANSWER }),
-  signedIn(["POST"], "/api/saves/:slug/copies/:save_copy_id/restore", SAVES_SIGN_IN, { reaches: "player_save", origin: "own_pages", takes: json({ tag: text(100) }, [], 4096, false), ...SAVE_ANSWER }),
+  signedIn(["PUT"], "/api/saves/:slug", SAVES_SIGN_IN, { reaches: "player_save", origin: "own_pages", takes: json({ tag: gameData(1024), base_version_number: gameData(64), save_json: gameData(SAVE_LIMIT_BYTES * 2 + 1024), version_id: gameData(1024), replace: gameData(64), keep: gameData(64), played_at: gameData(1024) }, [], SAVE_LIMIT_BYTES * 2 + 1024), ...SAVE_ANSWER }),
+  signedIn(["POST"], "/api/saves/:slug/copies/:save_copy_id/restore", SAVES_SIGN_IN, { reaches: "player_save", origin: "own_pages", takes: json({ tag: gameData(1024) }, [], 4096), ...SAVE_ANSWER }),
 
   // Buying.
   open(["POST"], "/api/buy/:slug/start", { reaches: "purchase", trusts: ["session"], takes: json(BUY_FIELDS), origin: "own_pages", answersAs: "json", answers: answersJson({ type: "object" }), limit: BY_ADDRESS }),

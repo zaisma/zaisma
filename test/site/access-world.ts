@@ -439,7 +439,8 @@ export const makeCall = (worker: SiteWorker, workerEnv = env) => async function 
   const response = await worker.fetch(
     new Request(`${SITE}/api/dev${path}${query}`, {
       method: apiRoute.method,
-      headers: { ...moreHeaders, ...(key ? { authorization: `Bearer ${key}` } : {}), ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
+      // Each call its own address, since rate limits are live and one file makes thousands.
+      headers: { "cf-connecting-ip": `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`, ...moreHeaders, ...(key ? { authorization: `Bearer ${key}` } : {}), ...(isJson ? { "content-type": "application/json" } : {}), ...(sample.bytes ? { "content-length": String(sample.bytes.byteLength) } : {}) },
       body: sample.bytes ?? (isJson ? JSON.stringify(sample.body) : undefined),
     }),
     workerEnv,

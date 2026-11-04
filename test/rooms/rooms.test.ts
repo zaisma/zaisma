@@ -602,7 +602,7 @@ describe("rooms", () => {
     for (let i = 0; i < 60; i++) expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "game_unavailable" }, closeCode: 4001 });
     // Past the limit it says busy, and its close code (1013) has the SDK try again later.
     expect(await refusal(await open("203.0.113.9"))).toMatchObject({ said: { type: "error", code: "busy" }, closeCode: 1013 });
-    expect(new Set(connectLimit.keys)).toEqual(new Set(["203.0.113.9"]));
+    expect(new Set(connectLimit.keys)).toEqual(new Set(["rooms:203.0.113.9", "/v1/rooms/:slug/:room_code:203.0.113.9"]));
     // Another address has its own count.
     expect(await refusal(await open("203.0.113.10"))).toMatchObject({ said: { code: "game_unavailable" }, closeCode: 4001 });
   });

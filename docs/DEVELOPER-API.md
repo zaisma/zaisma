@@ -58,8 +58,8 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `gone` | 410 | The call was removed, like the first feedback calls. |
 | `bad_json` | 400 | The body isn't a JSON object. |
 | `json_too_big` | 413 | The JSON body is over the call's size limit. |
-| `unknown_field` | 400 | A field, argument or query parameter the call doesn't take. |
 | `wrong_shape` | 400 | A field that isn't the type or size its call takes, refused before any of the call's own code runs. |
+| `unknown_field` | 400 | A field, argument or query parameter the call doesn't take. |
 | `missing_field` | 400 | A field the call needs wasn't sent. |
 | `wrong_id_kind` | 400 | An ID of another kind was sent, like an image ID as version_id. |
 | `internal_error` | 500 | Something broke on Zaisma's side. |
@@ -1042,6 +1042,7 @@ A room answers a refusal with `{ type: "error", code, message }`, then closes th
 | `kept_out` | The player was removed for the rest of the match. |
 | `refused` | The game server's `canJoin` turned the player away. |
 | `room_not_running` | The room isn't running, like one with nobody playing to watch. |
+| `rented_share_used` | This player is on a rented-server network, and the share of the game's hosting such traffic gets is used; everyone else plays on. Zaisma's page tells them to turn off their VPN or sign in. |
 | `hosting_paused` | The game's hosting is paused this month, or Zaisma's free room time ran out; new rooms open again when it resets or its developer adds credit and a budget. |
 | `account_needed` | The game needs a Zaisma account for multiplayer, and the player is a guest. |
 | `game_not_open_to_player` | The account is younger than the game's minimum age. |

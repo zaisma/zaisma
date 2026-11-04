@@ -202,9 +202,9 @@ export async function securitySpikesAnswer(env: Env, nowMs = Date.now()) {
   const { results } = await env.DB.prepare("SELECT * FROM security_spikes WHERE alerted_at_ms IS NOT NULL AND last_happened_at_ms > ? ORDER BY hour_number DESC, occurrence_count DESC LIMIT 100")
     .bind(nowMs - SECURITY_SIGNAL_KEPT_DURATION_DAYS * DAY_MS)
     .all<{ spike_kind: SpikeKind; network_number: number; network_name: string | null; hour_number: number; occurrence_count: number }>();
-  const { results: answerCuts } = await env.DB.prepare("SELECT door_id, date, field_paths, occurrence_count FROM door_answer_cuts WHERE first_cut_at_ms > ? ORDER BY date DESC, door_id LIMIT 100")
+  const { results: answerCuts } = await env.DB.prepare("SELECT door_id AS door_name, date, field_paths, occurrence_count FROM door_answer_cuts WHERE first_cut_at_ms > ? ORDER BY date DESC, door_id LIMIT 100")
     .bind(nowMs - SECURITY_SIGNAL_KEPT_DURATION_DAYS * DAY_MS)
-    .all<{ door_id: string; date: string; field_paths: string; occurrence_count: number }>();
+    .all<{ door_name: string; date: string; field_paths: string; occurrence_count: number }>();
   return {
     answer_cuts: answerCuts,
     security_spikes: results.map((row) => ({

@@ -19,5 +19,5 @@ export async function withDeclaredAnswer(env: Pick<Env, "DB">, response: Respons
   const noted = noteAnswerCut(env.DB, doorId, cut.cutPaths).catch((error: unknown) => console.error("An answer's cut wasn't noted", doorId, error));
   if (waitUntil) waitUntil(noted);
   else await noted;
-  return new Response(JSON.stringify(cut.value), { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response(JSON.stringify(cut.kept), { status: response.status, statusText: response.statusText, headers: response.headers });
 }

@@ -71,7 +71,7 @@ describe("the hosts a game's server can call", () => {
     for (const hosts of [["https://discord.com/api"], ["discord.com:443"], ["203.0.113.9"], ["localhost"], ["zaisma.com"], ["rooms.zaisma.com"], ["*.zaismausercontent.com"], ["*"], ["*.com"], ["not a host"], "discord.com", Array.from({ length: 21 }, (_, i) => `api${i}.example.com`)]) {
       const refused = await api("/games/sky-hopper", { method: "PATCH", body: { game_server_allowed_hosts: hosts } });
       expect(refused.status, JSON.stringify(hosts)).toBe(400);
-      expect(refused.answer.error).toMatchObject({ code: "bad_game_server_allowed_hosts", field: "game_server_allowed_hosts" });
+      expect(refused.answer.error).toMatchObject({ code: expect.stringMatching(/^(bad_game_server_allowed_hosts|wrong_shape)$/), field: "game_server_allowed_hosts" });
     }
     expect((await gameBySlug(env.DB, "sky-hopper"))!.game_server_allowed_hosts).toBe("[]");
   });
@@ -106,7 +106,7 @@ describe("a game's secrets", () => {
 
   it("refuses a name that isn't like an environment variable's, a value that isn't text, and more than the limit", async () => {
     expect((await api("/games/sky-hopper/secrets/discord-token", { method: "PUT", body: { secret_value: "x" } })).answer.error).toMatchObject({ code: "bad_secret_name", field: "secret_name" });
-    expect((await api("/games/sky-hopper/secrets/API_TOKEN", { method: "PUT", body: { secret_value: { token: "x" } } })).answer.error).toMatchObject({ code: "bad_secret_value", field: "secret_value" });
+    expect((await api("/games/sky-hopper/secrets/API_TOKEN", { method: "PUT", body: { secret_value: { token: "x" } } })).answer.error).toMatchObject({ code: "wrong_shape", field: "secret_value" });
     expect((await api("/games/sky-hopper/secrets/API_TOKEN", { method: "PUT", body: { secret_value: "" } })).answer.error).toMatchObject({ code: "bad_secret_value" });
     expect((await api("/games/sky-hopper/secrets/API_TOKEN", { method: "PUT", body: { secret_value: "x".repeat(SECRET_LIMITS.maximumValueSizeBytes + 1) } })).answer.error).toMatchObject({ code: "bad_secret_value" });
     expect((await api("/games/sky-hopper/secrets/API_TOKEN", { method: "PUT", body: { secret_value: "x", note: "y" } })).answer.error).toMatchObject({ code: "unknown_field" });

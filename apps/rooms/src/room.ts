@@ -1577,7 +1577,7 @@ export class Room extends DurableObject<Env> {
     // This record's part for the players on the rented share (rented-share.ts): by their part of the play, or of who's here when no play was counted since.
     const rentedShareRoomUseCents = rentedShareOfRoomCents(
       { roomAwakeDurationSec: awakeDurationSec, objectRequestCount: usage.objectRequestCount ?? 0, bookkeepingWrittenRowCount: writtenRowCount, roomCpuDurationMs: cpuDurationMs, startupCpuDurationMs: Math.round(usage.gameServerStartupCpuDurationMs ?? 0), gameServerSessionCount: usage.gameServerSessionCount ?? 0, logFileCount: usage.logFileCount ?? 0 },
-      { playFraction: this.rentedPlayFraction(usage), messageCount: usage.rentedShareMessageCount ?? 0, connectionCount: usage.rentedShareConnectionCount ?? 0 },
+      { playShareNumber: this.rentedPlayFraction(usage), messageCount: usage.rentedShareMessageCount ?? 0, connectionCount: usage.rentedShareConnectionCount ?? 0 },
     );
     // Written past the counting wrapper (this.db), since its rows are counted above.
     await this.env.DB.batch([

@@ -1,3 +1,4 @@
+import type { DoorLimitBinding } from "./doors.ts";
 /**
  * Hosting on one meter (docs/DECISIONS.md, "Hosting is priced with a margin, with a free tier, and prepaid above
  * it", and "Hosting is priced by value"): every charge Cloudflare bills Zaisma for a game, with no gaps, and the chat
@@ -80,7 +81,7 @@ const GAME_LIMIT_READ_INTERVAL_MS = 60_000;
  * subject, so a game with more real players has more room, by itself. Running matches never come here. A database that
  * can't answer lets the call through: this protects the database, and the call will find out for itself.
  */
-export async function isPastGameLimit(env: { GAME_LIMIT?: RateLimit }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
+export async function isPastGameLimit(env: { GAME_LIMIT?: DoorLimitBinding }, database: D1Database, gameId: string, subject: string, nowMs = Date.now()): Promise<boolean> {
   if (!env.GAME_LIMIT) return false;
   let known = gameRealPlayerCounts.get(gameId);
   if (!known || nowMs - known.readAtMs > GAME_LIMIT_READ_INTERVAL_MS) {
@@ -92,7 +93,8 @@ export async function isPastGameLimit(env: { GAME_LIMIT?: RateLimit }, database:
   let subjectHashNumber = 2166136261;
   for (let index = 0; index < subject.length; index++) subjectHashNumber = Math.imul(subjectHashNumber ^ subject.charCodeAt(index), 16777619);
   const shardIndex = (subjectHashNumber >>> 0) % gameLimitShardCount(known.realPlayerCount);
-  return !(await env.GAME_LIMIT.limit({ key: `${gameId}:${shardIndex}` })).success;
+  const answer = await env.GAME_LIMIT.limit({ key: `${gameId}:${shardIndex}` });
+  return !("success" in answer && answer.success === true);
 }
 
 /**

@@ -119,7 +119,7 @@ describe("counted plays", () => {
       const ticket = await issueTicket(env.DB, "g-standing", { first: null, last: null, cfirst: null, clast: null });
       await env.DB.prepare("UPDATE play_tickets SET issued_at_ms = issued_at_ms - 60000 WHERE id = ?").bind(ticket).run();
       const response = await SELF.fetch(`${SITE}/api/plays/standing-game`, { method: "POST", body: JSON.stringify({ ticket, counted: true }), headers: { "content-type": "text/plain", origin: SITE, ...(cookie ? { cookie } : {}) } });
-      expect(response.status).toBe(204);
+      expect(response.status).toBe(200);
     };
     await counted(null);
     expect((await env.DB.prepare("SELECT COUNT(*) AS row_count FROM game_returning_players").first<{ row_count: number }>())!.row_count).toBe(0);

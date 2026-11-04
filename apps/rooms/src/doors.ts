@@ -87,7 +87,7 @@ export const ROOM_ADDRESS_DOORS: readonly RoomAddressDoor[] = [
     { level: "busy", counts: "player" },
   ),
   proven("POST", "/v1/items/unhandled", "game_page", "answerPurchases", "purchase", ["game_origin", "player_pass"], jsonBody({ gameSlug: SLUG, pass: PASS }, ["gameSlug"]), answerOf({ purchases: JSON_LIST }), { level: "busy", counts: "player", group: "items" }),
-  proven("POST", "/v1/items/handled", "game_page", "answerPurchases", "purchase", ["game_origin", "player_pass"], jsonBody({ gameSlug: SLUG, pass: PASS, purchaseId: text(100) }, ["gameSlug"]), answerOf({ isHandled: JSON_FLAG }), { level: "busy", counts: "player", group: "items" }),
+  proven("POST", "/v1/items/handled", "game_page", "answerPurchases", "purchase", ["game_origin", "player_pass"], jsonBody({ gameSlug: SLUG, pass: PASS, purchaseId: gameData(4096) }, ["gameSlug"]), answerOf({ isHandled: JSON_FLAG }), { level: "busy", counts: "player", group: "items" }),
   proven(
     "POST",
     "/v1/pass",
