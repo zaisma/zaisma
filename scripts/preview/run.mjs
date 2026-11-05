@@ -148,6 +148,8 @@ const siteSettings = {
   ANTHROPIC_API_KEY: "preview", ANTHROPIC_BASE_URL: `http://localhost:${PORTS.ai}`,
   // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
   ARACHNID_SHIELD_KEY: "preview:preview", ARACHNID_SHIELD_URL: `http://localhost:${PORTS.shield}`,
+  // Reports to NCMEC go to a stand-in for its CyberTipline API on the same port (fake-shield.mjs): nothing leaves the machine.
+  NCMEC_USERNAME: "preview", NCMEC_PASSWORD: "preview", NCMEC_API_URL: `http://localhost:${PORTS.shield}/ispws`,
   // Registered links' sites are checked with a stand-in for Cloudflare's malware filter (fake-dns.mjs).
   LINK_CHECK_DNS_URL: `http://localhost:${PORTS.dns}/dns-query`,
   // Cloudflare's published test keys for its check on Play: invisible, and every browser passes. The
@@ -741,6 +743,17 @@ runSql(`UPDATE games SET country_blocks = '${countryBlock("US", "A court order n
 runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
      UPDATE accounts SET bio = 'Come find me, 12 Elm St', profile_check_status = 'passed' WHERE username = 'Loud_Lynx' AND bio IS NULL;
      UPDATE accounts SET who_can_chat = 'nobody', who_can_join = 'nobody', who_sees_playing_now = 'nobody', who_sees_played_games = 'nobody', who_sees_online = 'nobody', who_can_send_friend_requests = 'nobody', chat_stopped_reason = 'removed', social_stopped_at_ms = ${Date.now()}, social_stopped_reason = 'personal_details' WHERE username = 'Stopped_Fox' AND social_stopped_at_ms IS NULL`);
+// Reports to NCMEC beside the ones the image-matching test data sent by itself (/admin/ncmec), again this run: Paused_Maker is
+// paused with a match the daily brake stopped, a confirmed chat review from Chat_Owl waits ready for Send, and one failed. Their
+// files are none, so Send works against the stand-in. Preview_Studio's own pause from the test data is cleared, as a person would.
+runSql(`UPDATE accounts SET safety_paused_at_ms = COALESCE(safety_paused_at_ms, ${Date.now()}), chat_stopped_reason = COALESCE(chat_stopped_reason, 'in_review') WHERE username = 'Paused_Maker';
+     UPDATE accounts SET safety_paused_at_ms = NULL, chat_stopped_reason = CASE WHEN chat_stopped_reason = 'in_review' THEN NULL ELSE chat_stopped_reason END WHERE username = 'Preview_Studio';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, created_at_ms)
+       SELECT 'ncmec_report_previewbraked01', 'image_match', 'stopped_by_brake', id, '${ncmecDetails("Paused_Maker", "A known-image match in a cover image. Nobody at Zaisma viewed the files.")}', ${Date.now() - 3_600_000} FROM accounts WHERE username = 'Paused_Maker';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, created_at_ms)
+       SELECT 'ncmec_report_previewready001', 'chat_review', 'ready', id, '${ncmecDetails("Chat_Owl", "A chat message from an adult to a player aged 13 to 17, confirmed sexual toward a minor.")}', ${Date.now() - 7_200_000} FROM accounts WHERE username = 'Chat_Owl';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, send_attempt_count, last_error, created_at_ms)
+       SELECT 'ncmec_report_previewfailed01', 'player_report', 'failed', id, '${ncmecDetails("Loud_Lynx", "Players reported this account for child safety, and a person confirmed it.")}', 6, 'NCMEC answered /upload with 503', ${Date.now() - 86_400_000} FROM accounts WHERE username = 'Loud_Lynx'`);
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
 await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
@@ -976,6 +989,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
   Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
   Social side off ${SITE}/account#social and ${SITE}/friends  (as Stopped_Fox)
+  NCMEC reports   ${SITE}/admin/ncmec  (sent by themselves from the image-matching test data, one stopped by the daily brake, one ready, one failed: Send goes to a stand-in; Paused_Maker's Clear pause)
+  Paused account  ${SITE}/account  (as Paused_Maker: a person at Zaisma needs to look; ${SITE}/dashboard refuses Make a game)
   Review learns   ${SITE}/admin/review-precedents  (a drafted ruling, one being tested, one that failed its test, one in force),
                   ${SITE}/admin/games/<phrase-menu id from /admin>  (its held version: Teach the review, ticked, with the drafted ruling and test game; Approve saves it in the same click)
   Fix vs its hold ${SITE}/admin/games/<ember-keep id from /admin>  (v3's "Changed since" the gore hold, with files and findings new or seen before; v2 replaced),
@@ -1028,6 +1043,12 @@ async function drawOrReuseShader(address, screen, source) {
 }
 
 // --- Test data, made through the same pages and API that people use ---
+
+/** What a test report to NCMEC sent, as ncmec.ts keeps it, ready for SQL. */
+function ncmecDetails(username, additionalInfo) {
+  const details = { incident_at_ms: Date.now(), incident_url: null, account: { account_id: "", username, email: null }, connection_address: null, uploaded_at_ms: null, intended_recipient_username: null, is_account_paused: false, additional_info: additionalInfo, files: [] };
+  return JSON.stringify(details).replaceAll("'", "''");
+}
 
 /** A game folder with its game server beside it as zaisma-server.js (types stripped), like a developer would upload. */
 function withServer(example, name) {
@@ -1082,8 +1103,14 @@ async function seed() {
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
     const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "x-preview-seed": "1", ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    const res = await send();
-    const data = await res.json();
+    let res = await send();
+    let data = await res.json();
+    // The image-matching test data below pauses Preview_Studio, as a real match would (ncmec.ts): the seed clears it, as a person would on /admin/ncmec, and goes on.
+    if (data.error?.code === "account_paused") {
+      runSql("UPDATE accounts SET safety_paused_at_ms = NULL, chat_stopped_reason = CASE WHEN chat_stopped_reason = 'in_review' THEN NULL ELSE chat_stopped_reason END WHERE username = 'Preview_Studio'");
+      res = await send();
+      data = await res.json();
+    }
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
@@ -1354,6 +1381,8 @@ async function seed() {
   }
   // Stopped_Fox: a person turned off its social side after a report, so its account page and /friends say why.
   await signedIn({ name: "Stopped_Fox", email: "stopped@example.test", year: "1994" }, "198.51.100.231");
+  // Paused_Maker: a known-image match paused it (ncmec.ts), so its account page says a person needs to look.
+  await signedIn({ name: "Paused_Maker", email: "paused@example.test", year: "1990" }, "198.51.100.232");
   stepDone("reports");
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.

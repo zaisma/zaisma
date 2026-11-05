@@ -2095,13 +2095,42 @@ const CHAT_REVIEW = object({
   recent_texts: list(text(), "The sender's messages just before it, oldest first. Untrusted."),
   created_at: isoTime(),
   decided_at: nullable(isoTime()),
-  reported_at: nullable(isoTime("When the admin marked it reported to NCMEC.")),
+  reported_at: nullable(isoTime("When it was reported to NCMEC.")),
   kept_until_at: nullable(isoTime("When it's deleted; null until it's confirmed.")),
 });
 export const CHAT_REVIEW_LIST = object({ chat_reviews: list(CHAT_REVIEW, "Oldest first.") });
+
+// Reports to NCMEC (admin MCP: list_ncmec_reports, send_ncmec_report, clear_safety_pause).
+const NCMEC_REPORT = object({
+  id: idOf("ncmec_report"),
+  report_source: choice({ image_match: "a known-image match: sent by itself", chat_review: "a confirmed chat review: sent on a press", player_report: "player reports a person confirmed: sent on a press" }),
+  ncmec_report_status: choice({
+    ready: "a person's case, waiting for send_ncmec_report",
+    waiting: "being sent: NCMEC didn't take it yet, tried again every 5 minutes",
+    sent: "NCMEC has it",
+    stopped_by_brake: "a match the daily brake stopped (more than 3 accounts matched today): send it if it's real",
+    failed: "it couldn't be sent: send it again, or file it by hand at report.cybertip.org",
+  }),
+  username: nullable(text("The reported account's username; null when nobody is known.")),
+  game: nullable(object({ id: idOf("game"), slug: text() }, "null: no game, or the game is gone.")),
+  file_count: countOf("Files sent with it. Never opened at Zaisma."),
+  ncmec_report_number: nullable(text("NCMEC's report number, once NCMEC has it.")),
+  send_attempt_count: countOf("Tries at sending it."),
+  last_error: nullable(text("Why the last try failed.")),
+  state: text("Where it stands, in words, as the admin page says it."),
+  created_at: isoTime(),
+  sent_at: nullable(isoTime()),
+  erase_at: nullable(isoTime("When it's erased with its files: a year after it's sent.")),
+});
+export const NCMEC_REPORT_LIST = object({
+  ncmec_reports: list(NCMEC_REPORT, "Not sent first, then sent; newest first in each."),
+  paused_usernames: list(text(), "Accounts a known-image match paused: no uploads, publishing, posting, chat or friend requests until clear_safety_pause or ban_account."),
+});
+export const NCMEC_REPORT_SENT = object({ ncmec_report: NCMEC_REPORT, next_steps: NEXT });
+export const SAFETY_PAUSE_CLEARED = object({ username: text(), next_steps: NEXT });
 export const CHAT_REVIEW_DECIDED = object({
   chat_review_id: idOf("chat_review"),
-  decision: choice({ false_alarm: "deleted, and the sender's pause lifted", remove_chat: "confirmed: the sender's chat removed for good, kept a year", reported: "confirmed and marked reported to NCMEC" }),
+  decision: choice({ false_alarm: "deleted, and the sender's pause lifted", remove_chat: "confirmed: the sender's chat removed for good, kept a year", report_to_ncmec: "confirmed, and the report sent to NCMEC" }),
   chat_review: nullable(CHAT_REVIEW),
   next_steps: NEXT,
 });

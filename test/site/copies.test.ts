@@ -182,6 +182,8 @@ describe("an update scans only what changed", () => {
     flaggedPaths = ["art/bad.png"];
     const first = await push("dev-1", "hop", { "index.html": "<!doctype html>", "art/bad.png": picture("bad"), "art/ok.png": picture("ok") });
     expect(first.report.decision).toBe("held");
+    // The match paused the account (ncmec.ts); a person clears it, so the same files can be sent again.
+    await env.DB.prepare("UPDATE accounts SET safety_paused_at_ms = NULL WHERE id = 'dev-1'").run();
     sentPaths = [];
     const second = await push("dev-1", "hop", { "index.html": "<!doctype html>", "art/bad.png": picture("bad"), "art/ok.png": picture("ok") });
     expect(sentPaths).toEqual(["art/bad.png"]);

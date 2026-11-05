@@ -73,6 +73,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `slug_taken` | 409 | Another game has that link name, or a deleted game had it. |
 | `too_many_games` | 403 | The account has as many games as it can have. |
 | `account_banned` | 403 | Zaisma banned the account's developer side, or the whole account: only get_access, list_games and export_game work, and for a whole-account ban nothing does. |
+| `account_paused` | 403 | A person at Zaisma needs to look at the account: until then it can't make, upload or publish games, or post on the forum. |
 | `publishing_not_open` | 403 | Until the beta, only accounts Zaisma adds can make, upload and publish games. |
 | `bad_title` | 400 | A game's, topic's or precedent's title is empty or too long. |
 | `title_names_zaisma` | 400 | A game's title holds the whole word Zaisma, which only Zaisma's own games can use. |

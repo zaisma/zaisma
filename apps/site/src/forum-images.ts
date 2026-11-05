@@ -1,6 +1,7 @@
 import { ApiError, KNOWN_IMAGE_CODE, type ImageMatcher } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
+import { reportMatch } from "./ncmec.ts";
 import { imageMatcher } from "./scan.ts";
 
 /**
@@ -15,8 +16,8 @@ export const forumHeldKey = (mediaId: string) => `forum-held/${mediaId}`;
 
 export type MatchOutcome = "clean" | "match" | "unmatched";
 
-/** Match one image's bytes. On a match the file is kept for reporting and Julius is alerted. */
-export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, contentType: string, uploaderId: string, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
+/** Match one image's bytes. On a match the file is kept, it's reported to NCMEC, the uploader is paused and Julius is alerted. */
+export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, contentType: string, uploaderId: string, matcher: ImageMatcher = imageMatcher(env), connectionAddress: string | null = null): Promise<MatchOutcome> {
   const checked = await matcher.check([{ path: "forum image", type: contentType, id: mediaId, body: async () => bytes }]).catch(() => null);
   if (!checked?.isConnected) return "unmatched";
   if (!checked.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) return "clean";
@@ -24,8 +25,10 @@ export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, 
   await sendAlert(
     env,
     "URGENT: known abuse material uploaded to the forum",
-    `Image matching found known abuse material in an image uploaded to the forum by account ${uploaderId}. It wasn't posted; the file is kept for reporting at ${forumHeldKey(mediaId)}. Report it to NCMEC and deal with the account.`,
+    `Image matching found known abuse material in an image uploaded to the forum by account ${uploaderId}. It wasn't posted; the file is kept at ${forumHeldKey(mediaId)}. It's reported to NCMEC by itself and the account is paused: another alert gives the report's number.`,
   );
+  const accountId = uploaderId === "unknown" ? null : uploaderId;
+  await reportMatch(env, { where: "a forum image", gameId: null, versionId: null, accountId, incidentUrl: `${env.SITE_ORIGIN}/forum`, connectionAddress, uploadedAtMs: Date.now(), media: [{ path: `forum image ${mediaId}`, contentType, matchMessage: null, isPubliclyAvailable: false, bytes }] });
   return "match";
 }
 

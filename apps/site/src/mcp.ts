@@ -1332,6 +1332,7 @@ export const TOOLS: Tool[] = [
       can_publish: yes("Whether this account can make, upload and publish games. Until the beta only accounts Zaisma adds can; false means create_game, upload_files and publish_version answer publishing_not_open."),
       banned_at: nullable(isoTime("When Zaisma banned this account; null when it isn't banned.")),
       ban_scope: nullable(choice({ developer: "its games are down, and only get_access, list_games and export_game work; playing still works", whole_account: "the account is closed" }, "How far the ban goes; null when it isn't banned.")),
+      safety_paused_at: nullable(isoTime("When the account was paused for a person at Zaisma to look at it: until then create_game, upload_files, publish_version and forum posts answer account_paused. null when it isn't paused.")),
       credit_balance_cents: nullable(countOf("The developer's hosting credit, in cents; null when the key can't read it (credit_access none, or a key limited to some games).")),
       plan: choice({ free: "storage and performance checks by the account's standing", pro: "Zaisma Pro: more storage and performance checks" }, "The developer's plan; get_pro has its limits."),
       standing: STANDING,

@@ -116,6 +116,9 @@ describe("admin MCP", () => {
       "get_review_counts",
       "list_chat_reviews",
       "decide_chat_review",
+      "list_ncmec_reports",
+      "send_ncmec_report",
+      "clear_safety_pause",
       "decide_notice",
       "decide_country_block",
       "list_publishing_accounts",
@@ -307,7 +310,7 @@ describe("admin MCP", () => {
   });
 
   it("lists chat the filter kept and decides it", async () => {
-    await env.DB.exec("DELETE FROM chat_reviews;");
+    await env.DB.exec("DELETE FROM chat_reviews; DELETE FROM ncmec_reports;");
     const game = (await env.DB.prepare("SELECT id FROM games WHERE slug = 'test-game'").first<{ id: string }>())!;
     const sender = await createAccount(env.DB, { id: "admin-mcp-chat-sender", username: "admin_mcp_chat_sender", ageBand: "18+" });
     const keep = (id: string, status: string, source = "rooms") =>
@@ -326,7 +329,13 @@ describe("admin MCP", () => {
     const removed = await data("decide_chat_review", { chat_review_id: "chat_review_unsure1", decision: "remove_chat" });
     expect(removed).toMatchObject({ chat_review_id: "chat_review_unsure1", decision: "remove_chat", chat_review: { chat_review_status: "confirmed", reported_at: null }, next_steps: [] });
     expect((await env.DB.prepare("SELECT chat_stopped_reason FROM accounts WHERE id = ?").bind(sender.id).first())!.chat_stopped_reason).toBe("removed");
-    expect((await data("decide_chat_review", { chat_review_id: "chat_review_unsure1", decision: "reported" })).chat_review.reported_at).not.toBeNull();
+    // Confirmed: ready for NCMEC until the admin sends it; with no NCMEC keys here, sending it fails, with why.
+    const [ready] = (await data("list_ncmec_reports")).ncmec_reports;
+    expect(ready).toMatchObject({ report_source: "chat_review", ncmec_report_status: "ready", username: "admin_mcp_chat_sender", file_count: 0, ncmec_report_number: null });
+    expect((await data("decide_chat_review", { chat_review_id: "chat_review_unsure1", decision: "report_to_ncmec" })).chat_review.reported_at).toBeNull();
+    expect((await data("send_ncmec_report", { ncmec_report_id: ready.id })).ncmec_report).toMatchObject({ ncmec_report_status: "failed", last_error: "NCMEC_USERNAME and NCMEC_PASSWORD aren't set" });
+    expect(await refusal("send_ncmec_report", { ncmec_report_id: "ncmec_report_nothere1" })).toMatchObject({ code: "no_ncmec_report", field: "ncmec_report_id" });
+    expect(await refusal("clear_safety_pause", { username: "admin_mcp_chat_sender" })).toMatchObject({ code: "not_paused", field: "username" });
     expect((await data("decide_chat_review", { chat_review_id: "chat_review_pending1", decision: "false_alarm" })).chat_review).toBeNull();
 
     expect(await refusal("decide_chat_review", { chat_review_id: "chat_review_nothere1", decision: "false_alarm" })).toMatchObject({ code: "no_chat_review", field: "chat_review_id" });
@@ -487,5 +496,7 @@ describe("admin MCP, reports about a player", () => {
     await data("decide_report_group", { report_group_id: groupId, decision: "stop_social", why: "Confirmed.", social_stopped_reason: "sexual" });
     spy.mockRestore();
     expect(alerts).toContain("[alert] URGENT: report to NCMEC: @Loud_Lynx_2");
+    // A report to NCMEC waits ready for the admin's press, never sent by itself.
+    expect(await env.DB.prepare("SELECT report_source, ncmec_report_status FROM ncmec_reports WHERE report_source = 'player_report' ORDER BY created_at_ms DESC LIMIT 1").first()).toEqual({ report_source: "player_report", ncmec_report_status: "ready" });
   });
 });

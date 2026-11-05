@@ -43,6 +43,7 @@ export const ERROR_CODES = {
   slug_taken: { httpStatus: 409, meaning: "Another game has that link name, or a deleted game had it.", messageForPeople: "Another game has that link name, or had it. Pick another." },
   too_many_games: { httpStatus: 403, meaning: "The account has as many games as it can have.", messageForPeople: "Your account has as many games as an account can. Delete one to make another." },
   account_banned: { httpStatus: 403, meaning: "Zaisma banned the account's developer side, or the whole account: only get_access, list_games and export_game work, and for a whole-account ban nothing does.", messageForPeople: "Zaisma banned this account's developer side for breaking Zaisma's rules. Export your games to keep them." },
+  account_paused: { httpStatus: 403, meaning: "A person at Zaisma needs to look at the account: until then it can't make, upload or publish games, or post on the forum.", messageForPeople: "A person at Zaisma needs to look at this account. Until then it can't upload, publish or post." },
   publishing_not_open: { httpStatus: 403, meaning: "Until the beta, only accounts Zaisma adds can make, upload and publish games.", messageForPeople: "Until the beta, only accounts Zaisma adds can make, upload and publish games." },
   bad_title: { httpStatus: 400, meaning: "A game's, topic's or precedent's title is empty or too long.", messageForPeople: "A title can't be empty or longer than the field allows. Write a shorter one." },
   title_names_zaisma: { httpStatus: 400, meaning: "A game's title holds the whole word Zaisma, which only Zaisma's own games can use.", messageForPeople: "A game's title can't use the word Zaisma. Name the game something of its own." },
@@ -374,6 +375,9 @@ export const ADMIN_ERROR_CODES = {
   // Bans
   already_banned: { httpStatus: 409, meaning: "The account is banned already at that scope or wider; only a developer ban widens to whole_account.", messageForPeople: "This account is banned already." },
   not_banned: { httpStatus: 409, meaning: "The account isn't banned, so there's nothing to lift.", messageForPeople: "This account isn't banned." },
+  no_ncmec_report: { httpStatus: 404, meaning: "There's no NCMEC report with that ID: list_ncmec_reports lists them.", messageForPeople: "There's no such NCMEC report." },
+  ncmec_report_not_sendable: { httpStatus: 409, meaning: "The NCMEC report is sent or being sent already: only one that's ready, stopped by the daily brake or failed can be sent.", messageForPeople: "That report is sent or being sent already." },
+  not_paused: { httpStatus: 409, meaning: "The account isn't paused.", messageForPeople: "That account isn't paused." },
   no_ban_match: { httpStatus: 404, meaning: "There's no ban match with that ID.", messageForPeople: "There's no such ban match." },
   ban_match_decided: { httpStatus: 409, meaning: "The ban match was decided already.", messageForPeople: "This ban match was decided already." },
   bad_ban_scope: { httpStatus: 400, meaning: "ban_scope isn't developer or whole_account.", messageForPeople: "A ban is of the developer side or the whole account." },

@@ -54,7 +54,8 @@
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [
     { "binding": "GAMES", "bucket_name": "zaisma-games" },
-    { "binding": "SAVES", "bucket_name": "zaisma-saves" }
+    { "binding": "SAVES", "bucket_name": "zaisma-saves" },
+    { "binding": "REPORTED", "bucket_name": "zaisma-reported" }
   ],
   // Share cards: each game picture made once into a JPEG chat apps take (apps/site/src/developer.ts, serveImage).
   "images": { "binding": "IMAGES" },

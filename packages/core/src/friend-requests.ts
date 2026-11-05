@@ -172,7 +172,8 @@ export async function sendFriendRequest(database: D1Database, sender: Account, r
   // looks waiting until it would have run out, like any turn-down.
   const pausedUntilMs = sender.friend_requests_paused_until_ms;
   const isPausedNow = !(pausedUntilMs !== null && pausedUntilMs > nowMs) && (await shouldPause(database, sender.id, pausedUntilMs, nowMs));
-  const isPaused = isPausedNow || (pausedUntilMs !== null && pausedUntilMs > nowMs);
+  // An account a known-image match paused sends nothing until a person clears it, looking the same to it.
+  const isPaused = isPausedNow || (pausedUntilMs !== null && pausedUntilMs > nowMs) || sender.safety_paused_at_ms !== null;
   // The count above is the quick answer; this insert counts again as it writes, so requests sent at the same moment can't pass the cap together.
   const inserted = await database
     .prepare(

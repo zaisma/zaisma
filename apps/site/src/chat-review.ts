@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CHAT_FILTER_LIMITS, addAiUsage, aiUsage, audit, type ChatReview } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
+import { readyChatReviewReport, sendByPerson } from "./ncmec.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -8,8 +9,8 @@ import type { Env } from "./env.ts";
  * "The text filter catches what matters and leaves the rest alone"). The rooms Worker keeps each one as a
  * chat_reviews row and pauses the sender's chat; every 5 minutes an AI (AI_REVIEW_MODEL) reviews them, not
  * a person. A false alarm is deleted and the pause lifted. A confirmed one from Zaisma's rooms removes the
- * sender's chat for good, is kept a year (what US law asks of what's reported) and alerts Julius, who
- * reports it to NCMEC. One the AI is unsure of, or that came from a developer's own server (which could
+ * sender's chat for good, is kept a year (what US law asks of what's reported), and waits ready for NCMEC
+ * until a person presses Report to NCMEC (ncmec.ts): a report names someone to the police, so it never goes by itself. One the AI is unsure of, or that came from a developer's own server (which could
  * make a message up to frame a player), waits for a person on /admin/chat-reviews.
  */
 
@@ -30,8 +31,8 @@ export const MAXIMUM_REVIEW_ATTEMPT_COUNT = 5;
 export const CHAT_REVIEW_ALERT = "URGENT: sexual message to a teen stopped in chat";
 
 /** What a person (or the AI, for rooms) decides about one kept message. */
-export type ChatReviewDecision = "false_alarm" | "remove_chat" | "reported";
-export const CHAT_REVIEW_DECISIONS: readonly ChatReviewDecision[] = ["false_alarm", "remove_chat", "reported"];
+export type ChatReviewDecision = "false_alarm" | "remove_chat" | "report_to_ncmec";
+export const CHAT_REVIEW_DECISIONS: readonly ChatReviewDecision[] = ["false_alarm", "remove_chat", "report_to_ncmec"];
 
 /** The 5-minute run: answers how many it decided. With no key or no budget, they wait and their senders stay paused. */
 export async function reviewChatMessages(env: Env, deps: ChatReviewDeps = { ai: aiChatReview }): Promise<number> {
@@ -56,7 +57,7 @@ export async function reviewChatMessages(env: Env, deps: ChatReviewDeps = { ai: 
     } else if (answer.verdict === "sexual_toward_minor" && review.source === "rooms") {
       await env.DB.prepare("UPDATE chat_reviews SET ai_reason = ? WHERE id = ?").bind(answer.reason, review.id).run();
       await decideChatReview(env, review, "remove_chat", "ai");
-      await sendAlert(env, CHAT_REVIEW_ALERT, `${reviewAlertText(env)}\n\nThe AI confirmed it and removed the sender's chat: ${answer.reason}\n\nReport it to NCMEC's CyberTipline (report.cybertip.org), then mark it reported.`);
+      await sendAlert(env, CHAT_REVIEW_ALERT, `${reviewAlertText(env)}\n\nThe AI confirmed it and removed the sender's chat: ${answer.reason}\n\nIt's ready for NCMEC: press Report to NCMEC on it to send it.`);
     } else {
       // A person decides: the AI was unsure, or the message came from a developer's own server.
       await env.DB.prepare("UPDATE chat_reviews SET chat_review_status = 'needs_person', ai_reason = ? WHERE id = ?").bind(answer.reason, review.id).run();
@@ -84,11 +85,18 @@ export async function decideChatReview(env: Env, review: ChatReview, decision: C
     ]);
   } else {
     await env.DB.batch([
-      env.DB.prepare(`UPDATE chat_reviews SET chat_review_status = 'confirmed', decided_at_ms = COALESCE(decided_at_ms, ?), kept_until_ms = ?${decision === "reported" ? ", reported_at_ms = COALESCE(reported_at_ms, ?)" : ""} WHERE id = ?`).bind(...[nowMs, nowMs + CHAT_FILTER_LIMITS.reviewKeptMs, ...(decision === "reported" ? [nowMs] : []), review.id]),
+      env.DB.prepare("UPDATE chat_reviews SET chat_review_status = 'confirmed', decided_at_ms = COALESCE(decided_at_ms, ?), kept_until_ms = ? WHERE id = ?").bind(nowMs, nowMs + CHAT_FILTER_LIMITS.reviewKeptMs, review.id),
       env.DB.prepare("UPDATE accounts SET chat_stopped_reason = 'removed', chat_stopped_until_ms = NULL WHERE id = ?").bind(review.sender_account_id),
     ]);
   }
   await audit(env.DB, review.game_id, `chat-review-${decision.replace(/_/g, "-")}`, review.id, actor);
+  if (decision === "false_alarm") {
+    await env.DB.prepare("DELETE FROM ncmec_reports WHERE chat_review_id = ? AND ncmec_report_status = 'ready'").bind(review.id).run();
+    return;
+  }
+  // Confirmed: ready for NCMEC, and sent only on a person's press.
+  const ready = await readyChatReviewReport(env, review.id, nowMs);
+  if (decision === "report_to_ncmec" && ready) await sendByPerson(env, ready.id, actor);
 }
 
 /** Untrusted text can't close the block it sits in. */

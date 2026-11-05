@@ -3,6 +3,8 @@
 // the marker below (harmless test pictures made by run.mjs); everything else is clean. The second
 // marker only matches once a "shield-knows-later" file is in the preview folder: a picture Shield
 // learns about after the game passed.
+// It also stands in for NCMEC's CyberTipline API under /ispws (apps/site/src/ncmec.ts), so the preview's matches are
+// "reported" with a made-up number and nothing leaves the machine.
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -19,6 +21,7 @@ export function startFakeShield(port, state) {
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
         const body = Buffer.concat(chunks);
+        if (req.url?.startsWith("/ispws/")) return answerAsNcmec(req, res);
         if (req.method !== "POST" || req.url !== "/v1/media/") {
           res.writeHead(404, { "content-type": "application/json" });
           return res.end(JSON.stringify({ detail: "Not found." }));
@@ -44,6 +47,22 @@ export function startFakeShield(port, state) {
     server.on("error", reject);
     server.listen(port, () => resolve(server));
   });
+}
+
+let ncmecReportNumber = 900000;
+let ncmecFileNumber = 0;
+/** NCMEC's CyberTipline API, answering as its documentation shows: every report opens, takes its files and finishes. */
+function answerAsNcmec(req, res) {
+  const xml = (text, status = 200) => {
+    res.writeHead(status, { "content-type": "text/xml" });
+    res.end(text);
+  };
+  if (req.method !== "POST" || !req.headers.authorization?.startsWith("Basic ")) return xml("<reportResponse><responseCode>2000</responseCode><responseDescription>Not authorized</responseDescription></reportResponse>", 401);
+  const path = req.url.slice("/ispws".length);
+  if (path === "/submit") return xml(`<reportResponse><responseCode>0</responseCode><responseDescription>Success</responseDescription><reportId>${++ncmecReportNumber}</reportId></reportResponse>`);
+  if (path === "/upload") return xml(`<reportResponse><responseCode>0</responseCode><responseDescription>Success</responseDescription><reportId>${ncmecReportNumber}</reportId><fileId>preview${++ncmecFileNumber}</fileId><hash>0</hash></reportResponse>`);
+  if (path === "/finish") return xml(`<reportDoneResponse><responseCode>0</responseCode><reportId>${ncmecReportNumber}</reportId><files /></reportDoneResponse>`);
+  return xml(`<reportResponse><responseCode>0</responseCode><responseDescription>Success</responseDescription><reportId>${ncmecReportNumber}</reportId></reportResponse>`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await startFakeShield(Number(process.argv[2]), process.argv[3]);

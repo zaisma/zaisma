@@ -39,6 +39,7 @@ const STEEL_PAGE_LIST = [
   { name: "Admin, audit log", path: "/admin/audit" },
   { name: "Admin, profiles", path: "/admin/profiles" },
   { name: "Admin, chat reviews", path: "/admin/chat-reviews" },
+  { name: "Admin, NCMEC reports", path: "/admin/ncmec" },
   { name: "Admin, publishing", path: "/admin/publishing" },
   { name: "Admin, reports", path: "/admin/reports" },
   { name: "Admin, precedents", path: "/admin/precedents" },
