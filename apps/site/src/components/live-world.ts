@@ -274,7 +274,7 @@ const LIVE_WORLD_STYLES = `
 /* The count: the page's one line, on the sky, a link to what people are playing. */
 .world-count { position: absolute; z-index: 0; top: var(--header-room); left: max(var(--pad-pane), calc((100% - 1240px) / 2)); max-width: calc(100% - 2 * var(--pad-pane)); min-height: var(--control-height-regular); display: flex; align-items: center; font: var(--type-heading); color: var(--ink); text-decoration: none; }
 .world-page .world-count { position: fixed; }
-@media (max-width: 760px) { .world-page .world-count { min-height: 0; font: var(--type-section); } }
+@media (max-width: 760px) { .world-page .world-count { top: calc(var(--header-room) - var(--gap-words-control)); font: var(--type-section); } }
 .world-frame .world-count { top: var(--pad-inner-pane); left: var(--pad-inner-pane); }
 
 /* A pane on the world: glass in front, never resting in the scene. On a wide screen it's a form's width (460px) on the right,
@@ -314,7 +314,7 @@ html:has(.world-page) { height: 100%; }
   html:has(.world-page), body:has(> .world-page) { height: 100dvh; min-height: 0; overflow: hidden; }
   .world-page { display: block; min-height: 100dvh; padding-bottom: 0; }
   .world-page header.top { top: var(--pad-frame); left: max(var(--pad-frame), var(--safe-left)); width: max-content; transform: none; }
-  .world-page .world-count { top: calc(var(--pad-frame) + var(--header-height) + var(--gap-words-control)); left: var(--pad-pane); min-height: 0; font: var(--type-section); }
+  .world-page .world-count { top: calc(var(--pad-frame) + var(--header-height) + var(--gap-control-row)); left: var(--pad-pane); font: var(--type-section); }
   .world-page .world-pane { position: fixed; top: var(--pad-frame); bottom: auto; right: max(var(--pad-frame), var(--safe-right)); width: min(var(--size-pane-beside), 100%); max-height: calc(100svh - 2 * var(--pad-frame)); margin: 0; }
   .world-page .world-pane > .glass-pane > .pane-in { overflow: hidden auto; }
 }

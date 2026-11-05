@@ -177,6 +177,7 @@ export const BENCH_PLACES: BenchPlace[] = [
 
 /** What's on a page and has no button, each with why: a list a field opens, a menu that's part of another. */
 export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
+  { idPattern: "^join-birthday-pick$", reason: "the Birthday wheels button opens it by pressing its field, so it's placed as a player sees it" },
   { idPattern: "-list$", reason: "a field's own list: it opens as you type or press that field, and the same press happens on every screen" },
   { idPattern: "^zaisma-button$", reason: "the Zaisma button: always over a running game" },
   { idPattern: "^top-menu$", reason: "the account menu's popover: its button presses it open" },
