@@ -217,7 +217,7 @@ const PLAIN_GLASS = `(() => {
  * What measuring doesn't draw, from before the page's scripts run: its WebGL is gone (getContext answers null for "webgl" and "webgl2",
  * as a browser without it does), and every canvas is paused as it's added, so the backdrop never starts.
  */
-const MEASURE_ONLY = `(() => {
+export const MEASURE_ONLY = `(() => {
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return /^webgl2?$/.test(kind) ? null : getContext.call(this, kind, ...rest); };
   const pause = (node) => { if (node.nodeType !== 1) return; if (node.tagName === "CANVAS") node.setAttribute("data-backdrop-paused", ""); node.querySelectorAll?.("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", "")); };
@@ -661,7 +661,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
-        found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
+        found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (every page names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
       // Tab round the page, on a screen without touch: before the gallery's panes and the presses, which move focus.
       if (!size.hasTouch) found.push(...(await checkKeyboardReach(send, options.maximumArrivedControlCount)));

@@ -1,9 +1,12 @@
-import { CHECKED_PAGES, type CheckedPageName } from "../../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES } from "../../../apps/site/src/components/checked-pages.ts";
+import { STEEL_PAGES, type PageName } from "../../../apps/site/src/steel-pages.ts";
 
 /*
- * The Screens bench's places and their states: every state a page can show gets a button, both what arrives by itself and what a press
- * reaches. The layout check holds this to the pages (a sheet, menu or card on a page with no button fails it), and test/node/screens-bench.test.ts
- * holds its limits. A local tool: only the preview's entry loads this.
+ * The Screens bench's places and their states: every screen is one press away, or says why not. Every page names its screen (layout's
+ * checkedPage, html.ts), test/node/screens-bench.test.ts fails a name with no button of its own and no reason, the layout check fails a sheet,
+ * menu or card on a page with no button, and each night scripts/bench-press-check.mjs presses every button and sees it arrive. None of them
+ * catch a screen that only the data makes (an alert only some games have) or a branch inside one page that names one screen (a form's error).
+ * A local tool: only the preview's entry loads this.
  */
 
 export const MAXIMUM_BUTTONS_IN_A_PLACE = 50;
@@ -17,13 +20,13 @@ interface BenchStateBase {
   label: string;
   stateKind: StateKind;
   seenBy: Viewer;
-  /** Who it needs, a test account or "guest": it's listed for everyone, and pressing it switches to them. */
+  /** Who it needs, a test account or "guest". Pressing it switches to them; with none, a state seenBy one kind of person switches only someone of the other kind (readyStates). */
   profile?: string;
   /** Words a game would have filled in, by element id. */
   words?: Record<string, string>;
 }
-/** How a state comes in: an element shown by its id (idPattern, when each of a kind has its own id: the first one on the page); a real control pressed; or an entry on the checks' list, with its address, account, steps and setUp. */
-export type BenchState = BenchStateBase & ({ opens: string; idPattern?: string; path?: string } | { presses: string } | { checkedPage: CheckedPageName } | { path: string });
+/** How a state comes in: an element shown by its id (idPattern, when each of a kind has its own id: the first one on the page); a real control pressed; or a named screen, with its address, account, steps and setUp. */
+export type BenchState = BenchStateBase & ({ opens: string; idPattern?: string; path?: string } | { presses: string } | { checkedPage: PageName } | { path: string });
 
 export interface BenchPlace {
   placeValue: string;
@@ -42,11 +45,26 @@ const hasMenu = (id: string) => `[aria-controls="${id}"]`;
 const ACCOUNT_MENU: BenchState = { stateValue: "account-menu", label: "Account menu", stateKind: "opened", seenBy: "signed_in", presses: hasMenu("top-menu") };
 
 export const BENCH_PLACES: BenchPlace[] = [
-  { placeValue: "home", name: "Home", path: "/", pathPattern: "^/$", seenBy: "both", states: [ACCOUNT_MENU] },
+  {
+    placeValue: "home", name: "Home", path: "/", pathPattern: "^/$", seenBy: "both",
+    states: [
+      ACCOUNT_MENU,
+      { stateValue: "home-guest", label: "As a guest", stateKind: "opened", seenBy: "guest", checkedPage: "Home" },
+      { stateValue: "home-signed-in", label: "Signed in", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, signed in" },
+      { stateValue: "home-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, long names" },
+      { stateValue: "home-empty", label: "Empty", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, empty" },
+      { stateValue: "home-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, full" },
+    ],
+  },
   {
     placeValue: "games", name: "Games", path: "/games", pathPattern: "^/games", seenBy: "both",
     states: [
       { ...ACCOUNT_MENU, stateValue: "games-account-menu" },
+      { stateValue: "games-guest", label: "As a guest", stateKind: "opened", seenBy: "guest", checkedPage: "Games" },
+      { stateValue: "games-signed-in", label: "Signed in", stateKind: "opened", seenBy: "signed_in", checkedPage: "Games, signed in" },
+      { stateValue: "games-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Games, long names" },
+      { stateValue: "games-empty", label: "Empty", stateKind: "opened", seenBy: "signed_in", checkedPage: "Games, empty" },
+      { stateValue: "games-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Games, full" },
       { stateValue: "filter", label: "Filter menu", stateKind: "opened", seenBy: "both", presses: hasMenu("browse-filter") },
       { stateValue: "one-genre", label: "One genre", stateKind: "opened", seenBy: "both", checkedPage: "Games, one genre" },
       { stateValue: "multiplayer", label: "Multiplayer", stateKind: "opened", seenBy: "both", checkedPage: "Games, multiplayer" },
@@ -58,17 +76,17 @@ export const BENCH_PLACES: BenchPlace[] = [
     ],
   },
   {
-    placeValue: "game-page", name: "Game page", path: "/g/cave-crew", pathPattern: "^/(g/[^/?]+($|\\?(?!play))|t/)", seenBy: "both",
+    placeValue: "game-page", name: "Game page", path: "/g/cave-crew", pathPattern: "^/(g/[^/?]+(/report)?($|\\?(?!play))|t/)", seenBy: "both",
     states: [
+      { stateValue: "rooms", label: "Rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },
+      { stateValue: "game-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Game page, long names" },
       { stateValue: "no-rooms", label: "No rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page, no rooms" },
       { stateValue: "for-sale", label: "For sale", stateKind: "opened", seenBy: "both", checkedPage: "Game page, for sale" },
       { stateValue: "tester-link", label: "Tester link", stateKind: "opened", seenBy: "both", checkedPage: "Tester link" },
       { stateValue: "screenshots", label: "Screenshots", stateKind: "opened", seenBy: "both", opens: "screenshots-viewer" },
       { stateValue: "rooms-sort", label: "Sort rooms", stateKind: "opened", seenBy: "both", presses: "#rooms-order" },
-      { stateValue: "make-a-room", label: "Make a room", stateKind: "opened", seenBy: "both", opens: "room-dialog" },
       { stateValue: "share", label: "Share", stateKind: "opened", seenBy: "both", opens: "share-dialog" },
       { stateValue: "share-qr", label: "Share, QR code", stateKind: "opened", seenBy: "both", opens: "share-qr-box" },
-      { stateValue: "report-sheet", label: "Report sheet", stateKind: "opened", seenBy: "both", opens: "report", path: "/g/shard-dodge" },
       { stateValue: "report-page", label: "Report a game", stateKind: "opened", seenBy: "both", checkedPage: "Report a game" },
     ],
   },
@@ -112,11 +130,13 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "buy-signed-out", label: "Signed out", stateKind: "arrives", seenBy: "both", opens: "buy-signed-out" },
       { stateValue: "buy-unreachable", label: "Can't reach Stripe", stateKind: "arrives", seenBy: "both", opens: "buy-unreachable" },
       { stateValue: "buy-window", label: "Buy window", stateKind: "opened", seenBy: "both", checkedPage: "Buy window" },
+      { stateValue: "both-sign-in-cards", label: "Both sign-in cards", stateKind: "arrives", seenBy: "both", checkedPage: "Playing a game, asked to sign in" },
     ],
   },
   {
     placeValue: "sign-in", name: "Sign in", path: "/signin", pathPattern: "^/signin", seenBy: "guest",
     states: [
+      { stateValue: "sign-in-page", label: "Sign in", stateKind: "opened", seenBy: "guest", checkedPage: "Sign in" },
       { stateValue: "wrong-password", label: "Wrong password", stateKind: "opened", seenBy: "guest", checkedPage: "Sign in, wrong password" },
       { stateValue: "forgot-password", label: "Forgot password", stateKind: "opened", seenBy: "guest", checkedPage: "Forgot your password" },
       { stateValue: "forgot-no-email", label: "Forgot, no email", stateKind: "opened", seenBy: "guest", checkedPage: "Forgot your password, no email" },
@@ -126,8 +146,9 @@ export const BENCH_PLACES: BenchPlace[] = [
     ],
   },
   {
-    placeValue: "make-an-account", name: "Make an account", path: "/join", pathPattern: "^/(join|account/kept)", seenBy: "both",
+    placeValue: "make-an-account", name: "Make an account", path: "/join", pathPattern: "^/(join|account/kept)", seenBy: "guest",
     states: [
+      { stateValue: "birthday", label: "Your birthday", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "Make an account" },
       { stateValue: "no-birthday", label: "No birthday", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "New account, no birthday" },
       { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", profile: "guest", presses: "#join-birthday .wheel-button" },
       { stateValue: "how-sign-in", label: "How you sign in", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "How will you sign in" },
@@ -141,18 +162,29 @@ export const BENCH_PLACES: BenchPlace[] = [
     placeValue: "dashboard", name: "Dashboard", path: "/dashboard", pathPattern: "^/dashboard(?!/settings)", seenBy: "signed_in", profile: "Preview_Studio",
     states: [
       { ...ACCOUNT_MENU, stateValue: "dashboard-account-menu" },
-      { stateValue: "a-game", label: "A game", stateKind: "opened", seenBy: "signed_in", path: "/dashboard/tiny-farm" },
+      { stateValue: "your-games", label: "Your games", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games" },
+      { stateValue: "your-games-banned", label: "Banned", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games, banned" },
+      { stateValue: "game-not-found", label: "No such game", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game not found" },
+      { stateValue: "a-game", label: "Overview", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game's overview" },
+      { stateValue: "game-versions", label: "Versions", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game's versions" },
+      { stateValue: "game-details", label: "Details", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game's details" },
+      { stateValue: "game-players", label: "Players", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game's players" },
+      { stateValue: "game-database", label: "Database", stateKind: "opened", seenBy: "signed_in", checkedPage: "A game's database" },
     ],
   },
   {
     placeValue: "settings", name: "Settings", path: "/dashboard/settings", pathPattern: "^/dashboard/settings", seenBy: "signed_in", profile: "Preview_Studio",
     states: [
       { ...ACCOUNT_MENU, stateValue: "settings-account-menu" },
+      { stateValue: "settings-page", label: "With games", stateKind: "opened", seenBy: "signed_in", checkedPage: "Developer settings" },
+      { stateValue: "settings-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Developer settings, long names" },
+      { stateValue: "settings-empty", label: "Empty", stateKind: "opened", seenBy: "signed_in", checkedPage: "Developer settings, empty" },
+      { stateValue: "settings-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Developer settings, full" },
       { stateValue: "spending-request", label: "Spending request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a spending request" },
       { stateValue: "game-deletion-request", label: "Deletion request", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a game deletion request" },
       { stateValue: "kept-world-erase-request", label: "Erase a world", stateKind: "arrives", seenBy: "signed_in", profile: "Preview_Studio", checkedPage: "Developer settings, a request to erase a kept world" },
       { stateValue: "settings-places", label: "Settings' places", stateKind: "opened", seenBy: "signed_in", opens: "settings-places-sheet" },
-      { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", opens: "plan-start" },
+      { stateValue: "start-plan", label: "Start a plan", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "plan-start" },
       { stateValue: "storage-budget", label: "Storage budget", stateKind: "opened", seenBy: "signed_in", opens: "storage-budget" },
       { stateValue: "add-credit", label: "Add credit", stateKind: "opened", seenBy: "signed_in", opens: "add-credit" },
       { stateValue: "game-budget", label: "A game's budget", stateKind: "opened", seenBy: "signed_in", profile: "Preview_Studio", opens: "budget-arena", idPattern: "^budget-[a-z0-9-]+$" },
@@ -171,6 +203,58 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "add-app", label: "Add a sign-in app", stateKind: "opened", seenBy: "signed_in", opens: "app-add" },
       { stateValue: "add-key", label: "Add an API key", stateKind: "opened", seenBy: "signed_in", opens: "key-add" },
       { stateValue: "settings-confirm", label: "Confirm it's you", stateKind: "opened", seenBy: "signed_in", opens: "settings-confirm" },
+    ],
+  },
+  {
+    placeValue: "account", name: "Account", path: "/account", pathPattern: "^/(account|friends|@)", seenBy: "signed_in", profile: "Moss_Runner",
+    states: [
+      { stateValue: "your-account", label: "Your account", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your account" },
+      { stateValue: "friends", label: "Friends", stateKind: "opened", seenBy: "signed_in", checkedPage: "Friends" },
+      { stateValue: "friend-invite", label: "A friend invite", stateKind: "opened", seenBy: "both", checkedPage: "A friend invite" },
+      { stateValue: "profile", label: "A player's profile", stateKind: "opened", seenBy: "both", checkedPage: "A player's profile" },
+      { stateValue: "report-player", label: "Report a player", stateKind: "opened", seenBy: "signed_in", checkedPage: "Report a player" },
+    ],
+  },
+  {
+    placeValue: "forum", name: "Forum", path: "/forum", pathPattern: "^/forum", seenBy: "both",
+    states: [
+      { stateValue: "forum-list", label: "Topics", stateKind: "opened", seenBy: "both", checkedPage: "Forum" },
+      { stateValue: "forum-new-topic", label: "New topic", stateKind: "opened", seenBy: "signed_in", checkedPage: "Forum, new topic" },
+      { stateValue: "forum-message", label: "Message Zaisma", stateKind: "opened", seenBy: "signed_in", checkedPage: "Forum, message Zaisma" },
+      { stateValue: "forum-leaving", label: "Leaving Zaisma", stateKind: "opened", seenBy: "both", checkedPage: "Forum, leaving Zaisma" },
+      { stateValue: "forum-not-a-link", label: "Not a link", stateKind: "opened", seenBy: "both", checkedPage: "Forum, not a link" },
+      { stateValue: "forum-not-found", label: "No such topic", stateKind: "opened", seenBy: "both", checkedPage: "Forum, not found" },
+    ],
+  },
+  {
+    placeValue: "reading", name: "Reading pages", path: "/legal/terms", pathPattern: "^/(legal|developers/|design/example|oauth/authorize|no-such-page)", seenBy: "both",
+    states: [
+      { stateValue: "terms-of-service", label: "Terms of service", stateKind: "opened", seenBy: "both", checkedPage: "Terms of service" },
+      { stateValue: "privacy-policy", label: "Privacy policy", stateKind: "opened", seenBy: "both", checkedPage: "Privacy policy" },
+      { stateValue: "content-rules", label: "Content rules", stateKind: "opened", seenBy: "both", checkedPage: "Content rules" },
+      { stateValue: "security", label: "Security", stateKind: "opened", seenBy: "both", checkedPage: "Security" },
+      { stateValue: "dmca-notices", label: "DMCA notices", stateKind: "opened", seenBy: "both", checkedPage: "DMCA notices" },
+      { stateValue: "defamation-notices", label: "Defamation notices", stateKind: "opened", seenBy: "both", checkedPage: "Defamation notices" },
+      { stateValue: "background-guide", label: "Background guide", stateKind: "opened", seenBy: "both", checkedPage: "Background guide" },
+      { stateValue: "cover-guide", label: "Cover guide", stateKind: "opened", seenBy: "both", checkedPage: "Cover guide" },
+      { stateValue: "example-page", label: "Example page", stateKind: "opened", seenBy: "both", checkedPage: "Example page" },
+      { stateValue: "a-message", label: "A message", stateKind: "opened", seenBy: "both", checkedPage: "A message" },
+      { stateValue: "a-message-in-the-old-look", label: "Old-look message", stateKind: "opened", seenBy: "both", checkedPage: "A message, in the old look" },
+    ],
+  },
+  {
+    placeValue: "admin", name: "Admin", path: "/admin", pathPattern: "^/admin", seenBy: "both",
+    states: [
+      { stateValue: "admin-home", label: "Admin home", stateKind: "opened", seenBy: "both", checkedPage: "Admin" },
+      { stateValue: "admin-game", label: "A game", stateKind: "opened", seenBy: "both", checkedPage: "Admin, a game" },
+      { stateValue: "admin-audit", label: "Audit log", stateKind: "opened", seenBy: "both", checkedPage: "Admin, audit log" },
+      { stateValue: "admin-profiles", label: "Profiles", stateKind: "opened", seenBy: "both", checkedPage: "Admin, profiles" },
+      { stateValue: "admin-chat", label: "Chat reviews", stateKind: "opened", seenBy: "both", checkedPage: "Admin, chat reviews" },
+      { stateValue: "admin-publishing", label: "Publishing", stateKind: "opened", seenBy: "both", checkedPage: "Admin, publishing" },
+      { stateValue: "admin-reports", label: "Reports", stateKind: "opened", seenBy: "both", checkedPage: "Admin, reports" },
+      { stateValue: "admin-precedents", label: "Precedents", stateKind: "opened", seenBy: "both", checkedPage: "Admin, precedents" },
+      { stateValue: "admin-review-precedents", label: "Review precedents", stateKind: "opened", seenBy: "both", checkedPage: "Admin, review precedents" },
+      { stateValue: "admin-feedback", label: "Feedback", stateKind: "opened", seenBy: "both", checkedPage: "Admin, feedback" },
     ],
   },
 ];
@@ -192,9 +276,14 @@ export const NOT_A_STATE: readonly { idPattern: string; reason: string }[] = [
   { idPattern: "^budget-[a-z0-9-]+-off$", reason: "a game's budget turned off, a step of A game's budget" },
 ];
 
-/** Checked states with no button, each with why. */
-export const CHECKED_PAGES_NOT_ON_THE_BENCH: readonly { name: CheckedPageName; reason: string }[] = [
-  ...(["Background guide", "Content rules", "Terms of service", "Privacy policy", "Security", "Example page", "A message"] as const).map((name) => ({ name, reason: "a page of its own with no states: the find box's address reaches it" })),
+/** Named screens with no button, each with why. */
+export const PAGES_NOT_ON_THE_BENCH: readonly { name: PageName; reason: string }[] = [
+  { name: "Connect an app", reason: "only a developer's stand-in site sends a player there, and a screen's frame stays on Zaisma's own address: open the preview's sign-in site" },
+  { name: "Sign in with Zaisma", reason: "only a developer's stand-in site sends a player there, and a screen's frame stays on Zaisma's own address: open the preview's sign-in site" },
+  { name: "Check your email, in the old look", reason: "only a form on Your account reaches it, after a passkey or a code: Your account's button is one press from it" },
+  { name: "A forum topic", reason: "its address holds an id the preview makes new on each start: press a topic in Topics" },
+  { name: "Forum, report a post", reason: "its address holds an id the preview makes new on each start: press Report on a post in a topic" },
+  { name: "Admin, a feedback note", reason: "its address holds an id made as feedback is sent: press a note in Feedback" },
 ];
 
 /** Who a button or a choice is for: short, since the menus hold them on one line. Each of the preview's test accounts has one. */
@@ -206,16 +295,22 @@ export const PROFILE_WORDS: Record<string, string> = {
   Longest_Names_Here: "the longest names", Empty_Handed: "nothing yet", Many_Things: "a great many things",
 };
 
-const entryOf = (name: CheckedPageName) => CHECKED_PAGES.find((page) => page.name === name)!;
+const entryOf = (name: PageName): (typeof CHECKED_PAGES)[number] => [...CHECKED_PAGES, ...STEEL_PAGES].find((page) => page.name === name) as (typeof CHECKED_PAGES)[number];
+/** Who a place or state seen only signed in opens as, when no one's named and the bench's person is a guest. */
+const SIGNED_IN_BY_DEFAULT = "Moss_Runner";
 
-/** A state as the screens take it: where it is, who sees it, and what's done there. */
+/** A state as the screens take it: where it is, who it needs, and what's done there. It's listed for everyone: there's no saying who can't see it, only who a press switches to. */
 export interface ReadyState {
   placeValue: string;
   stateValue: string;
   label: string;
   stateKind: StateKind;
-  seenBy: Viewer;
+  /** Who a press always switches to, a test account or "guest". */
   profile?: string;
+  /** Who a press switches a guest to, when any signed-in person will do. */
+  signedInProfile?: string;
+  /** The screen the page says it is once it's there (layout's checkedPage), for the press check. */
+  shownPageName?: string;
   path: string;
   words?: Record<string, string>;
   opens?: string;
@@ -228,11 +323,10 @@ export interface ReadyState {
 
 export function readyStates(): ReadyState[] {
   return BENCH_PLACES.flatMap((place) => place.states.map((state) => {
-    const shared = { placeValue: place.placeValue, stateValue: state.stateValue, label: state.label, stateKind: state.stateKind, seenBy: state.seenBy, profile: state.profile, words: state.words };
-    if ("checkedPage" in state) {
-      const entry = entryOf(state.checkedPage) as (typeof CHECKED_PAGES)[number] & { setUp?: string; stepsToTake?: unknown };
-      return { ...shared, profile: state.profile ?? entry.account, path: entry.path, stepsToTake: entry.stepsToTake, setUpName: entry.setUp ? entry.name : undefined, isOwnPage: !entry.setUp };
-    }
+    const entry = "checkedPage" in state ? entryOf(state.checkedPage) : null;
+    const profile = state.profile ?? entry?.account ?? (state.seenBy === "guest" ? "guest" : undefined);
+    const shared = { placeValue: place.placeValue, stateValue: state.stateValue, label: state.label, stateKind: state.stateKind, profile, signedInProfile: !profile && state.seenBy === "signed_in" ? place.profile ?? SIGNED_IN_BY_DEFAULT : undefined, words: state.words };
+    if ("checkedPage" in state) return { ...shared, path: entry!.path, shownPageName: entry!.stateBeforeSetUp ?? entry!.shownStateName ?? entry!.name, stepsToTake: entry!.stepsToTake, setUpName: entry!.setUp ? entry!.name : undefined, isOwnPage: !entry!.setUp };
     if ("opens" in state) return { ...shared, path: state.path ?? place.path, opens: state.opens, isOwnPage: false };
     if ("path" in state) return { ...shared, path: state.path, isOwnPage: true };
     return { ...shared, path: place.path, presses: state.presses, isOwnPage: false };

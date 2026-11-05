@@ -309,6 +309,7 @@ async function queue(env: Env, status: string): Promise<Response> {
   const full = new Map((await Promise.all(rows.map((row) => topicById(env, row.id)))).filter((topic): topic is ForumTopic => topic !== null).map((topic) => [topic.id, topic]));
   return adminPage(
     env,
+    "Admin, feedback",
     "Feedback",
     html`<h1>Feedback</h1>
 <p class="lead">${rows.length ? `${rows.length} ${filter === "new" ? "waiting" : filter === "all" ? "topics and known issues" : STATUS_NAMES[filter]!.toLowerCase()}, most serious first.` : filter === "new" ? "Nothing waiting." : "Nothing here."}${filter === "new" && sorting?.topic_count ? ` ${sorting.topic_count} still being sorted.` : ""}</p>
@@ -397,6 +398,7 @@ async function itemPage(env: Env, id: string, error: string): Promise<Response> 
   const checkLabel = (checkStatus: string | null, heldReason: string | null) => (checkStatus === "held" ? `held: ${heldReason ?? ""}` : checkStatus === "pending" ? "not checked yet" : null);
   return adminPage(
     env,
+    "Admin, a feedback note",
     details.title,
     html`<p><a href="/admin/feedback">Feedback</a></p>
 <h1>${details.known_issue?.title ?? details.title}</h1>

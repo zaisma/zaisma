@@ -118,6 +118,7 @@ import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { html, layout, message, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { liveWorldPane, liveWorldStage, WORLD_PANE_SCRIPT, LIVE_WORLD_SCRIPT } from "./components/live-world.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
+import type { SteelPageName } from "./steel-pages.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
@@ -822,8 +823,8 @@ function joinBirthDate(request: Request, env: Env): string | undefined {
 
 const COLOR_THEME_LABELS: Record<ColorTheme, string> = { system: "System", light: "Light", dark: "Dark" };
 
-function page(env: Env, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false, account?: Account | null): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck, viewer: account === undefined ? undefined : { account } });
+function page(env: Env, checkedPage: SteelPageName, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false, account?: Account | null): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, checkedPage, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck, viewer: account === undefined ? undefined : { account } });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
@@ -1149,6 +1150,7 @@ ${primaryButton("Continue", { isFullWidth: true, isBig: true })}
   }
   return page(
     env,
+    "Check your email, in the old look",
     "Check your email",
     html`<h1>Check your email</h1>
 <p class="lead">${lead}</p>
@@ -1859,6 +1861,7 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   const confirmWithCode = html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`;
   return page(
     env,
+    "Your account",
     "Your account",
     html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.username}.</p>${scriptTags(JOINED_SCRIPT)}` : ""}
 <h1>${account.username}</h1>
