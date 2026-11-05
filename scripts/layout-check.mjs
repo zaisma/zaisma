@@ -77,6 +77,11 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
+/**
+ * The one screen of the sweep the press check runs on: a laptop (the sweep's screens are the measured ones, and Laptop is measured only at 200%
+ * text, so it is never plainly "Laptop" there). test/node/press-check-screen.test.ts holds that exactly one sweep screen is this one.
+ */
+export const PRESS_CHECK_SCREEN_NAME = `Laptop at ${TEXT_PERCENTS[0]}% text`;
 /** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
@@ -731,9 +736,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
-      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once (a press changes the page),
-      // in the sweep: pressing every button is most of a page's time.
-      if (options.tiers.includes("sweep") && size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
+      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop at 200% text (the sweep's laptop), once
+      // (a press changes the page), in the sweep: pressing every button is most of a page's time.
+      if (options.tiers.includes("sweep") && size.name === PRESS_CHECK_SCREEN_NAME && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }
