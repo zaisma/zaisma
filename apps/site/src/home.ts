@@ -7,11 +7,9 @@ import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { grid, leadAndSide, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
-import { backdropWords, banner, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
+import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
 import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards } from "./whats-on.ts";
-import { currentAnnouncement } from "./announcements.ts";
-import { shownAddress } from "./markup.ts";
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
@@ -22,7 +20,7 @@ import { viewerDeviceKind } from "./device-kind.ts";
 /**
  * The home page and what it needs, in two panes by what they're for, over Zaisma's own world, with no game's world. First what's for the player tonight: their
  * game beside What's on, or on a first visit one line flat on the backdrop and What's on alone. Then what else is here: friends playing, what people
- * are playing now, Never played, Popular, Trending, New and the kinds of game. An event's art runs across the top while one's on, and Zaisma's news under it.
+ * are playing now, Never played, Popular, Trending, New and the kinds of game. An event's art runs across the top while one's on.
  * Which opening shows comes from an account's list or what this device played (PLAYED_COOKIE), from the first paint.
  */
 
@@ -303,24 +301,18 @@ export async function home(env: Env, request: Request): Promise<Response> {
   };
   // Every read the page needs starts at once, one wave to the database: the shelves take the games only to pick from, once their own reads are back.
   const gamesRead = showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
-  const [isProtectionOffered, games, { popular, trending, fresh, gamesOnShelves }, news, accountPlayed, whatsOn, friendsNow] = await Promise.all([
+  const [isProtectionOffered, games, { popular, trending, fresh, gamesOnShelves }, accountPlayed, whatsOn, friendsNow] = await Promise.all([
     account ? protectionOffer(account) : false,
     gamesRead,
     shelves(env, gamesRead, viewer.ageFloorYears),
-    currentAnnouncement(env),
     // An account's Continue playing, in its place from the first paint; a guest's comes with the request (PLAYED_COOKIE), below.
     account ? recentlyPlayed(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve([]),
     currentWhatsOn(env),
     account ? friendsNowOf(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve(null),
   ]);
   const ownedGameIds = await paidGamesOwnedBy(env, account, games);
-  // Zaisma's news and event, until they end or this device closes them (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint.
+  // Zaisma's event, until it ends or this device closes it (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint.
   const closedNewsIds = (readCookie(request, env, CLOSED_NEWS_COOKIE) ?? "").split(",");
-  const isNewsShown = Boolean(news && !closedNewsIds.includes(news.id));
-  const newsLink = news ? shownAddress(news.link_url) : null;
-  const newsBanner: LayoutItem[] = news
-    ? [{ kind: "block", id: "home-news", isHidden: !isNewsShown, markup: html`<div data-announcement-id="${news.id}">${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>` }]
-    : [];
   // An account's from the server; a guest's from the slugs this device sends, kept nowhere. The home's script adds this device's to an account's.
   const guestPlayedSlugs = account ? [] : (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").filter((slug) => /^[a-z0-9-]{1,64}$/.test(slug)).slice(0, KEPT_PLAYED_GAME_COUNT);
   const playedSlugs = account ? accountPlayed.map((entry) => entry.slug) : guestPlayedSlugs;
@@ -390,11 +382,10 @@ export async function home(env: Env, request: Request): Promise<Response> {
           ...eventStrip,
           ...(isReturning ? [] : [{ kind: "block" as const, id: "home-first-visit", markup: backdropWords({ line: FIRST_VISIT_LINE, smallerLine: FIRST_VISIT_SMALLER_LINE }) }]),
           { kind: "block", markup: forTonight },
-          ...newsBanner,
           { kind: "block", markup: whatElse },
         ],
       })}</div>`
-    : stack({ items: [...eventStrip, ...newsBanner, { kind: "block", markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) }) }] });
+    : stack({ items: [...eventStrip, { kind: "block", markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) }) }] });
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
     // Filtered for a signed-in viewer's age, or showing what this device played or closed, so no shared cache keeps it.

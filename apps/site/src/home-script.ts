@@ -20,7 +20,7 @@ export const KEEP_PLAYED_COOKIE_SOURCE = `function keepPlayedCookie(list) {
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
 const $ = (id) => document.getElementById(id);
 const CLOSED_KEY = "zaisma:closed-news";
-/* ---- Zaisma's news and event: shown as they are from the first paint; closing one keeps it closed on this device, in the cookie and here. ---- */
+/* ---- Zaisma's event: shown as it is from the first paint; closing it keeps it closed on this device, in the cookie and here. ---- */
 let closed = [];
 try { closed = JSON.parse(localStorage.getItem(CLOSED_KEY) || "[]"); } catch {}
 const remember = (id) => {
@@ -28,8 +28,8 @@ const remember = (id) => {
   try { localStorage.setItem(CLOSED_KEY, JSON.stringify(closed)); } catch {}
   document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(CLOSED_NEWS_COOKIE)} + "=" + closed.join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
 };
-for (const part of [$("home-news"), $("home-event")]) {
-  if (!part) continue;
+const part = $("home-event");
+if (part) {
   const id = part.querySelector("[data-announcement-id]").dataset.announcementId;
   // Closed on this device before the cookie kept it: closed again, and kept there from now on.
   if (!part.hidden && closed.includes(id)) { part.hidden = true; remember(id); }
