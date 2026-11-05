@@ -37,8 +37,8 @@ import type { ShownPicture } from "./components/foundations.ts";
 /**
  * Your games (/your-games): the games the player chose, not everything they've played (docs/DECISIONS.md, "Your games is your games").
  * Favorites first, one of them the lead, twice the rest; then Recently played, with All you've played (/your-games/played) at its
- * heading's end; then For you, from plain rules; then the page ends, with Browse after it. A cover opens the game's page; on a computer
- * a small Play starts it from the cover. A guest's page is this device's played games (PLAYED_COOKIE), kept nowhere on Zaisma's side.
+ * heading's end; then For you, from plain rules; then the page ends, with Browse after it. A cover starts the game, as a console's
+ * library does; Details on its More opens the game's page. A guest's page is this device's played games (PLAYED_COOKIE), kept nowhere on Zaisma's side.
  */
 
 /** How many games Recently played shows before All you've played. */
@@ -120,13 +120,16 @@ function card(options: CardOptions): LayoutItem {
     : options.removeBy === "device"
       ? { ...action("remove"), isButton: true, dataAttributes: { "remove-from-device": game.slug } }
       : null;
+  // Details opens the game's page; a game gone for now has no page to open.
+  const menuItems: DropdownItem[] = [...(game.is_gone ? [] : [{ label: "Details", href: `/g/${game.slug}` }]), ...(removeItem ? [removeItem] : [])];
   const playerCount = game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined;
   return {
     kind: "block",
     markup: html`<div class="your-game" data-slug="${game.slug}" data-title="${game.title.toLowerCase()}">${gameCard({
       title: game.title,
       picture: game.cover_picture,
-      href: `/g/${game.slug}`,
+      // The cover plays the game: Your games is the one list that starts a game at a press; every other list opens its page.
+      href: `/g/${game.slug}?play`,
       tintColor: game.glass_tint_color,
       facts: {
         playerCount: game.is_gone ? undefined : playerCount,
@@ -135,9 +138,8 @@ function card(options: CardOptions): LayoutItem {
         reasonText: options.reasonText,
         priceText: game.full_game_price ? coverPriceText({ id: game.id, full_game_price: game.full_game_price }, options.ownedGameIds) : undefined,
       },
-      quickPlayHref: game.is_gone ? undefined : `/g/${game.slug}?play`,
       isGone: game.is_gone,
-      menu: removeItem ? { id: `${options.menuIdPrefix}-${game.slug}-more`, label: game.title, items: [removeItem] } : undefined,
+      menu: menuItems.length ? { id: `${options.menuIdPrefix}-${game.slug}-more`, label: game.title, items: menuItems } : undefined,
       isEager: options.isEager,
       hasHighPriority: options.isEager,
     })}</div>`,

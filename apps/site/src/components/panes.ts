@@ -132,12 +132,6 @@ export interface GameCardOptions {
   hasHighPriority?: boolean;
   /** Pointed at or pressed: the gallery's still copies. */
   state?: "is-pointed" | "is-pressed";
-  /**
-   * Where a small Play starts the game straight from the card (Your games): it shows on the art, low in its middle and clear of every
-   * corner's fact, only while a computer's pointer is over the card or it has focus; a touch screen never shows it, so a tap opens the
-   * game's page. The rest of the card still opens the page.
-   */
-  quickPlayHref?: string;
   /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available right now" on the line a reason takes, and no link. */
   isGone?: boolean;
   /** A small More at the end of its line under the art, opening a short menu (Your games' Remove). id: the menu's, unique on the page. */
@@ -178,13 +172,12 @@ export function gameCard(options: GameCardOptions): Raw {
   const well = options.isGone
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square aria-label="${cardLabel(options)}" role="img">${CUT_LINE}${art}${marks}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a>`;
-  const quickPlay = options.quickPlayHref && !options.isGone ? html`<span class="cover-quick-play">${primaryButton(action("play"), { href: options.quickPlayHref, isSmall: true })}</span>` : "";
   const fact = options.isGone ? "" : playerCountMarkup;
   const reasonText = options.isGone ? "Not available right now" : facts.reasonText;
   const menu = options.menu
     ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
     : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-well">${well}${quickPlay}</div><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${fact}${menu}</div>${reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-well">${well}</div><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${fact}${menu}</div>${reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : ""}</div>`;
 }
 
 /**
@@ -617,14 +610,8 @@ const COVER_STYLES = `
 /* Small (smallGameCard): the art alone, 64px across, in a row that says the rest and is the link (a search's games). */
 /* Its art is its whole width: no words margin, since it has no words under it. */
 .cover.is-small { flex: none; width: 64px; padding-inline: 0; }
-/* The well: the art and, on a computer, Play over it (quickPlayHref). */
+/* The well: the art, and what a page keeps over it. */
 .cover-well { position: relative; display: block; min-width: 0; }
-/* Play from the card: small, low in the art's middle, clear of the corners' facts; there only while a computer's pointer is over the
-   card or something in it has focus. Never on a touch screen: a tap there opens the game's page. */
-.cover-quick-play { position: absolute; z-index: 3; left: 50%; bottom: var(--pad-frame-compact); transform: translateX(-50%); display: inline-flex; opacity: 0; pointer-events: none; transition: opacity var(--motion-state) var(--ease-standard); }
-@media (hover: hover) and (pointer: fine) { .cover-well:is(:hover, :focus-within) > .cover-quick-play { opacity: 1; pointer-events: auto; } }
-.cover.is-pointed .cover-quick-play { opacity: 1; pointer-events: auto; }
-@media (prefers-reduced-motion: reduce) { .cover-quick-play { transition: none; } }
 /* Gone for now (made private, or being deleted): the art greyed and still, no light, its line saying so. */
 .cover.is-gone .cover-picture { filter: grayscale(1) brightness(0.7); }
 .cover.is-gone .cover-name { color: var(--ink-2); }
@@ -1072,8 +1059,6 @@ component({
     { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
-    { label: "Play from the card, on a computer: pointed at, a small Play low in the art's middle", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }] }, quickPlayHref: "#game-card", state: "is-pointed" }), isStill: true },
-    { label: "Play from the card, at rest: nothing shows until it's pointed at", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, quickPlayHref: "#game-card" }) },
     { label: "Gone for now: greyed, with no link", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: {}, isGone: true, menu: { id: "example-card-gone-more", label: "Hollow Tide", items: [{ ...action("remove"), action: "#game-card" }] } }) },
     { label: "Why it was chosen: a line of its own under the title (For you)", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 1730, reasonText: "Because you played Ashen Crown" } }) },
     { label: "With its More: Remove, in a menu", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, menu: { id: "example-card-more", label: "Verdant", items: [{ ...action("remove"), action: "#game-card" }] } }) },
