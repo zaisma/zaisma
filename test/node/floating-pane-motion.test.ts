@@ -11,11 +11,11 @@ const paneStyles = COMPONENTS().find((component) => component.slug === "floating
 
 describe("a floating pane's motion", () => {
   it("fades its edge light with it, which the light's own transition would otherwise replace", () => {
-    expect(paneStyles).toMatch(/\.floating-pane > \.edge-light \{ transition: opacity var\(--motion-state\), var\(--edge-light-glide\); \}/);
+    expect(paneStyles).toMatch(/\.floating-pane > \.edge-light \{ transition: opacity var\(--motion-float\), var\(--edge-light-glide\); \}/);
   });
 
   it("casts a shadow that fades at its glass's pace, takes its move and stays until they're done", () => {
-    expect(paneStyles).toMatch(/\.floating-cast \{ transition: opacity var\(--motion-state\), transform var\(--motion-arrive\) var\(--ease-glide\), display var\(--motion-arrive\) allow-discrete; \}/);
+    expect(paneStyles).toMatch(/\.floating-cast \{ transition: opacity var\(--motion-float\), transform var\(--motion-float\) var\(--ease-glide\), display var\(--motion-float\) allow-discrete; \}/);
     expect(paneStyles).toMatch(/\.floating-cast:is\(\[hidden\], \.is-arriving, \.is-leaving\) \{ opacity: 0; transform: var\(--away-move\); \}/);
     expect(paneStyles).toMatch(/@starting-style \{ \.floating-cast \{ opacity: 0; transform: var\(--away-move\); \} \}/);
   });

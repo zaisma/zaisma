@@ -967,7 +967,7 @@ const FIELD_STYLES = `
 .field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Words over or under a field that slants at its start keep lining up with the words in it. */
-.cut-field:has(> [data-slanted~="start"]) > .words-margin { padding-inline-start: calc(var(--pad-words) + var(--control-slant) / 2); }
+.cut-field:has(> [data-slanted~="start"]) > .words-margin { --words-slant: calc(var(--control-slant) / 2); }
 .field-error { margin: 0; font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
@@ -1212,7 +1212,7 @@ component({
 /* A row is as wide as it is picked, in bold (its label again, unseen and unheard, holds that width), with the room words get inside a
    control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. It's exactly the groove's
    row tall, its words centered, so they lie in the middle of the lit slab. */
-.wheel [role="option"] { --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); height: var(--wheel-row); min-height: 0; padding-block: 0; gap: 0; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
+.wheel [role="option"] { --row-height: var(--wheel-row); --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); padding-block: 0; gap: 0; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
   clip-path: none; white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color var(--motion-state), font-size var(--motion-state); }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }

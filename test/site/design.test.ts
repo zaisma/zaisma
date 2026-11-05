@@ -177,7 +177,7 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
+    const VARIANTS: Record<string, string> = { gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
     // Not markup: an action's words and icon, and styles shared by what shows an icon alone.
     const NOT_MARKUP = new Set(["action", "iconAloneFace", "tabIconsAlone"]);
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
@@ -635,7 +635,7 @@ describe("components", () => {
     // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
     expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
     // The box that scrolls round it, never itself: a table capped in height scrolls inside itself, and sits where it sits.
-    expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll")');
+    expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll, .scrolls")');
     // The scroller's offsets are read with the rest of a pass's measures, before anything is drawn (scrollOf).
     expect(glassScriptSource).toContain("top: p.top - scrolled.scrollTop");
     expect(glassScriptSource).toContain("bottom: p.bottom + scrolled.scrollHeight - scrolled.clientHeight - scrolled.scrollTop");
@@ -643,9 +643,16 @@ describe("components", () => {
     expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
   });
 
+  it("stops a page at a phone's notch, and only asks for the whole screen where a game plays", async () => {
+    const { text } = await page("/signin");
+    expect(text).toContain('<meta name="viewport" content="width=device-width,initial-scale=1">');
+    expect(text).not.toContain("viewport-fit=cover");
+    expect(text).not.toContain("black-translucent");
+  });
+
   it("draws nothing in the backdrop for the glass, so nothing trails a pane on a scroll", () => {
     // The browser moves glass ahead of anything a page can draw: a backdrop only runs its shader, and asks for no frame when glass moves.
-    expect(BACKDROP_SCRIPT).not.toContain("iGlassPanes");
+    expect(backdropScriptSource).not.toContain("iGlassPanes");
     expect(BACKDROP_SCRIPT).not.toContain("zaismaWatch.scroll");
     expect(BACKDROP_SCRIPT).toContain("mainImage(color, gl_FragCoord.xy + zaismaViewOffset)");
     // What a developer's shader can read stays: it still builds, with no glass told to it.

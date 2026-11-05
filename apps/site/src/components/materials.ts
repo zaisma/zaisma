@@ -142,7 +142,7 @@ tbody.hairlines > tr:hover > :is(td:not(.table-placeholder), th) { --face-color:
 span.hairline { flex: 1; border-top: var(--divider); }
 
 /* Words on the glass keep its margin (--pad-words), however they sit; beside controls, they line up with the controls' center line. */
-.words-margin { padding-inline: var(--pad-words); }
+.words-margin { padding-inline: calc(var(--pad-words) + var(--words-slant, 0px)) var(--pad-words); }
 /* Words with a control on one side keep the margin only at the pane's edge: at their start (a toggle's words, before its slot), or their end
    (a check's words, after its box; a slider's number). */
 .words-margin.at-start { padding-inline: var(--pad-words) 0; }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE, COMPONENT_STYLES, FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE, FIRST_PAINT_PIECES, HEADER_SCRIPT, LOOK_SCRIPT, LOOK_SCRIPT_SOURCE } from "../../apps/site/src/components/index.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, minifiedModuleSource } from "../../scripts/minify-components.mjs";
+import { SIDEBAR_SCRIPT } from "../../apps/site/src/components/navigation.ts";
 
 /**
  * The components' script is served minified (scripts/minify-components.mjs writes it as a generated module), so pages download
@@ -47,8 +48,17 @@ describe("the components' script", () => {
     expect(COMPONENT_SCRIPT_SOURCE).toContain(`clear.closest(".find").querySelector('input[type="search"]')`);
   });
 
+  it("lets an open floating pane take its own presses, wherever it's moved to", () => {
+    expect(COMPONENT_STYLES()).toContain(".floating-pane:popover-open { pointer-events: auto; }");
+  });
+
+  it("keeps a wheel's row exactly the groove's row, and a regular floating pane's frame gap its padding", () => {
+    expect(COMPONENT_STYLES()).toContain('.wheel [role="option"] { --row-height: var(--wheel-row); --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); padding-block: 0; gap: 0;');
+    expect(COMPONENT_STYLES()).toContain(".floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); --rail-inset: var(--pad-frame); }");
+  });
+
   it("ends a sidebar's last fold when it's pressed again, so the page never drops into its column", () => {
-    expect(COMPONENT_SCRIPT_SOURCE).toContain("cancelAnimationFrame(nav.foldFrame); clearTimeout(nav.foldTimer); clearTimeout(nav.slideTimer);");
+    expect(SIDEBAR_SCRIPT).toContain("cancelAnimationFrame(nav.foldFrame); clearTimeout(nav.foldTimer); clearTimeout(nav.slideTimer);");
   });
 
   it("empties a search's list only once it has faded, so it never shrinks as it goes", () => {

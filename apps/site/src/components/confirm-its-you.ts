@@ -30,7 +30,7 @@ export interface ConfirmItsYouOptions {
 const PIN_DIGIT_COUNT = PURCHASE_PIN_LIMITS.pinDigitCount;
 const METHODS: ConfirmMethod[] = ["purchase_pin", "password", "passkey"];
 /** Each way's button at the foot, and the mark its face shows while it's the way asked for. */
-const METHOD_ACTIONS: Record<ConfirmMethod, ActionName> = { purchase_pin: "purchasePin", password: "password", passkey: "passkey" };
+const METHOD_ACTIONS = { purchase_pin: "purchasePin", password: "password", passkey: "passkey" } as const satisfies Record<ConfirmMethod, ActionName>;
 
 /**
  * Confirm it's you: a small glass dialog that opens over anything (the store panel's Buy, the account page's changes, a key's Make) and asks the player to prove it's

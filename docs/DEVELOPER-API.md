@@ -1590,7 +1590,7 @@ What reads well under the glass, each line with why, and live worlds whose sourc
 Every pass reads `iResolution` (the canvas in pixels, a `vec3`), `iTime` and `iTimeDelta` (seconds), `iFrame` (frames since it started, an `int`), `iChannel0` to `iChannel3` with `iChannelResolution` (each one's size), and two of Zaisma's own:
 
 - `iQuality`: `0` for phones and slow devices, `1`, and `2` for desktops. One shader serves every device: do less where it's lower (fewer steps, octaves or lights). A device that can't keep up steps down a level by itself, then draws fewer pixels, then holds a still.
-- `iGlassPanes` and `iGlassPaneCount`: where Zaisma's glass sits, up to 16 rectangles (left, bottom, right, top in the shader's own pixels from its bottom left), to soften or light the world around them. None in the check.
+- `iGlassPanes` and `iGlassPaneCount`: a shader that reads them still builds, but they always say none. Zaisma's glass sits on top of a background and tells it nothing.
 
 No mouse, sound or video. Players' browsers draw every background at fewer pixels and sharpen it as it scales up, at most 30 frames a second.
 
