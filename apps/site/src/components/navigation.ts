@@ -1236,8 +1236,8 @@ export interface ShelfOptions {
 }
 
 /**
- * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers in a well carved across the pane,
- * flush with its edges, a track that scrolls sideways on its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
+ * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers in a well carved into the pane,
+ * a track that scrolls sideways on its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
  * (a phone), the sort goes under the heading and fills that line.
  */
 export function shelf(options: ShelfOptions): Raw {
@@ -1262,7 +1262,7 @@ export function shelf(options: ShelfOptions): Raw {
           : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: carving({ kind: "shelf-well", cornerCutPx: 0, body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
+        : { kind: "block", markup: carving({ kind: "shelf-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
   })}</section>`;
 }
@@ -1278,11 +1278,14 @@ component({
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
-/* Its covers rest in a well carved straight across the pane, flush with the pane's edges, square where it meets them, the frame gap from the
-   well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
-.shelf-well { margin-inline: calc(-1 * var(--pad-frame)); padding-block: var(--pad-frame); }
+/* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
+   from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
+.shelf-well { padding-block: var(--pad-frame); }
 .shelf-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
-.shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
+.shelf-well > .track-holder > .layout-track, .shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: 0; margin-block: 0; }
+/* Its rail runs inside the well, the frame gap from its sides and from the covers above it. */
+.shelf-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: var(--pad-frame); }
+.shelf-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
 .shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
