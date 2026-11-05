@@ -60,12 +60,35 @@ export function chromeFlags({ isDrawingOnCpu = false } = {}) {
 
 /**
  * Headless Chrome at path, without the machine's GPU (chromeFlags), and a DevTools connection to it: send(method, parameters, sessionId),
- * listen(sessionId, onEvent) and close().
+ * listen(sessionId, onEvent) and close(). A Chrome that doesn't answer is started again (startWithinTries), and then fails by name.
  */
-export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, ...others } = {}) {
+export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, startLimitMs = CHROME_START_LIMIT_MS, ...others } = {}) {
   const unknownOptions = Object.keys(others);
-  if (unknownOptions.length) throw new Error(`openChrome has no option ${unknownOptions.join(", ")}: its only option is isDrawingOnCpu, and every Chrome runs without the machine's GPU.`);
+  if (unknownOptions.length) throw new Error(`openChrome has no option ${unknownOptions.join(", ")}: its options are isDrawingOnCpu and startLimitMs, and every Chrome runs without the machine's GPU.`);
   await sweepOrphans();
+  return startWithinTries(() => startChrome(path, profilePrefix, isDrawingOnCpu, startLimitMs));
+}
+
+/** How long a Chrome may take to answer on its DevTools connection. It takes seconds; on GitHub's runners one in ten takes 40 or more, and one now and then never answers. */
+export const CHROME_START_LIMIT_MS = 60_000;
+const CHROME_START_TRY_COUNT = 3;
+
+/** A Chrome that never answered, which says nothing about what it was started to look at. */
+export class ChromeStartStalled extends Error {}
+
+/** What startOnce answers, starting it again when it stalled, and saying so: the last try's stall, or any other failure, is thrown. */
+export async function startWithinTries(startOnce, say = (line) => process.stderr.write(`${line}\n`)) {
+  for (let tryNumber = 1; ; tryNumber++) {
+    try {
+      return await startOnce();
+    } catch (error) {
+      if (!(error instanceof ChromeStartStalled) || tryNumber === CHROME_START_TRY_COUNT) throw error;
+      say(`${process.env.GITHUB_ACTIONS ? "::warning::" : ""}${error.message} It's started again.`);
+    }
+  }
+}
+
+async function startChrome(path, profilePrefix, isDrawingOnCpu, startLimitMs) {
   // A folder for each Chrome: OWNER_FILE, which says whose it is, and Chrome's profile inside, removed before the folder so a profile
   // that can't be removed yet keeps its owner for the next sweep.
   const folder = mkdtempSync(join(tmpdir(), profilePrefix));
@@ -89,8 +112,12 @@ export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, 
     letGo(running);
     throw error;
   };
-  const address = await new Promise((resolve, reject) => {
-    let output = "";
+  let output = "";
+  let limitTimer;
+  const stalled = new Promise((_, reject) => {
+    limitTimer = setTimeout(() => reject(new ChromeStartStalled(`Chrome didn't answer within ${startLimitMs / 1000} s. It said: ${output.slice(-500) || "nothing"}.`)), startLimitMs);
+  });
+  const address = await Promise.race([stalled, new Promise((resolve, reject) => {
     child.stderr.on("data", (chunk) => {
       output += chunk;
       const match = output.match(/DevTools listening on (ws:\/\/\S+)/);
@@ -98,9 +125,9 @@ export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, 
     });
     child.on("error", (error) => reject(error));
     child.on("exit", (code) => reject(new Error(`Chrome stopped (${code}): ${output.slice(-500)}`)));
-  }).catch(giveUp);
+  })]).catch(giveUp);
   const socket = new WebSocket(address);
-  await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject))).catch(giveUp);
+  await Promise.race([stalled, new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject)))]).catch(giveUp);
   let nextMessageNumber = 1;
   const waiting = new Map();
   const listeners = new Set();
@@ -113,13 +140,20 @@ export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, 
       else resolve(message.result);
     } else if (message.method) for (const listener of listeners) listener(message);
   };
+  const send = (method, parameters = {}, sessionId) =>
+    new Promise((resolve, reject) => {
+      const id = nextMessageNumber++;
+      waiting.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params: parameters, ...(sessionId ? { sessionId } : {}) }));
+    });
+  // Its first answer: only then is it up.
+  await Promise.race([stalled, send("Browser.getVersion")]).catch((error) => {
+    socket.close();
+    giveUp(error);
+  });
+  clearTimeout(limitTimer);
   return {
-    send: (method, parameters = {}, sessionId) =>
-      new Promise((resolve, reject) => {
-        const id = nextMessageNumber++;
-        waiting.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ id, method, params: parameters, ...(sessionId ? { sessionId } : {}) }));
-      }),
+    send,
     listen: (sessionId, onEvent) => {
       const listener = (message) => message.sessionId === sessionId && onEvent(message.method, message.params);
       listeners.add(listener);

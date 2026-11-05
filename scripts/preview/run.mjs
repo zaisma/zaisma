@@ -22,7 +22,7 @@ import { startFakeSite } from "./fake-site.mjs";
 import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
 import { finishTurn, HANDED_OVER_FILE, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
-import { restoreSnapshot, saveSnapshot } from "./seed-snapshot.mjs";
+import { keptMigratedDatabase, migrationsIn, restoreSnapshot, saveSnapshot } from "./seed-snapshot.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -536,10 +536,15 @@ const isEmptyDatabase = fresh && !existsSync(databaseFolder);
 console.log("Applying database updates…");
 if (isEmptyDatabase && existsSync(migratedDatabase)) cpSync(migratedDatabase, databaseFolder, { recursive: true });
 else {
+  // A change that adds a migration starts from the database made before it, so only the new ones are applied.
+  const migrations = migrationsIn(join(ROOT, "migrations"));
+  const startingPoint = isEmptyDatabase ? keptMigratedDatabase(MIGRATED_DATABASES, migrations) : null;
+  if (startingPoint) cpSync(startingPoint, databaseFolder, { recursive: true });
   spawnSync(...wrangler(["d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
   if (isEmptyDatabase && existsSync(databaseFolder)) {
     rmSync(MIGRATED_DATABASES, { recursive: true, force: true });
     cpSync(databaseFolder, migratedDatabase, { recursive: true });
+    writeFileSync(`${migratedDatabase}.json`, JSON.stringify(migrations));
   }
 }
 if (!fresh) givePasswords();
