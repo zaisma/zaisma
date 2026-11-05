@@ -1,5 +1,5 @@
 import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MAXIMUM_GAME_STORAGE_SIZE_BYTES, issueRoomKey, listRooms } from "@zaisma/core";
 import { REMOVED_CLOSE_CODE } from "@zaisma/game-server";
 import type { Env } from "../../apps/rooms/src/index.ts";
@@ -74,14 +74,15 @@ async function join(game: string, code: string) {
 }
 
 /** Wait until a check passes, a few seconds at most. */
-async function until<T>(check: () => Promise<T | null | undefined | false>): Promise<T> {
-  for (let tries = 0; tries < 100; tries++) {
-    const found = await check();
-    if (found) return found;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error("Timed out");
-}
+const until = <T>(check: () => Promise<T | null | undefined | false>): Promise<T> =>
+  vi.waitFor(
+    async () => {
+      const found = await check();
+      if (!found) throw new Error("Not yet");
+      return found;
+    },
+    { timeout: 4000, interval: 50 },
+  );
 
 /** A survival world: kept from its first player on, saving every second. */
 const WORLD = `
