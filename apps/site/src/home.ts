@@ -388,9 +388,9 @@ export async function home(env: Env, request: Request): Promise<Response> {
     ? html`<div id="home-games">${isReturning ? html`<h1 class="sr">Games on Zaisma</h1>` : ""}${stack({
         items: [
           ...eventStrip,
-          ...newsBanner,
           ...(isReturning ? [] : [{ kind: "block" as const, id: "home-first-visit", markup: backdropWords({ line: FIRST_VISIT_LINE, smallerLine: FIRST_VISIT_SMALLER_LINE }) }]),
           { kind: "block", markup: forTonight },
+          ...newsBanner,
           { kind: "block", markup: whatElse },
         ],
       })}</div>`

@@ -479,11 +479,11 @@ describe("waiting", () => {
 
 /** Every picture a component shows is a Picture (foundations.ts, picture): its box holds its placeholder, so its place is never empty. */
 describe("pictures", () => {
-  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code and the icon drawn in it, a file the player is choosing and an event's art", () => {
+  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code and the icon drawn in it, and a file the player is choosing", () => {
     const bare = COMPONENTS().flatMap((component) =>
       component.examples.flatMap((example) =>
         [...example.markup.html.matchAll(/<img\b[^>]*>/g)]
-          .filter((img) => !/class="[^"]*\b(reveals|qr-picture|qr-icon|file-drop-view|event-banner-picture)\b/.test(img[0]))
+          .filter((img) => !/class="[^"]*\b(reveals|qr-picture|qr-icon|file-drop-view)\b/.test(img[0]))
           .map((img) => `${component.slug}, ${example.label}: ${img[0].slice(0, 80)}`),
       ),
     );

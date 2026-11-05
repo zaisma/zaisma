@@ -584,7 +584,7 @@ export const LEAD_AND_SIDE_STYLES = `
 .lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
 .lead-and-side-lead, .lead-and-side-side { min-width: 0; }
 .lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); }
-@container lead-and-side (min-width: 560px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lead-and-side (min-width: 440px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container lead-and-side (min-width: 800px) {
   .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
   .lead-and-side-side .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }

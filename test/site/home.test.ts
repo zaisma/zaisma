@@ -122,7 +122,7 @@ describe("the home page", () => {
     const now = Date.now();
     await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_homeevent', 'event', 'Zombie weekend', 'k', '/games', ?, ?, ?, 'test')").bind(now - 1000, now + DAY_MS, now).run();
     const { text } = await homePage();
-    expect(text).toMatch(/id="home-event"[\s\S]*?<img class="event-banner-picture" src="\/whats-on-art\/whats_on_entry_homeevent\/wide" alt="Zombie weekend">/);
+    expect(text).toMatch(/id="home-event"[\s\S]*?<img class="reveals" src="\/whats-on-art\/whats_on_entry_homeevent\/wide"[^>]*alt="Zombie weekend"/);
     expect(text).toContain("Go play");
     expect((await homePage({ [CLOSED_NEWS_COOKIE]: "whats_on_entry_homeevent" })).text).not.toContain('id="home-event"');
     await env.DB.prepare("DELETE FROM whats_on_entries WHERE id = 'whats_on_entry_homeevent'").run();

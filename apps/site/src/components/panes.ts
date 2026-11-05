@@ -154,7 +154,7 @@ const cardLabel = (options: GameCardOptions): string =>
 
 /** Play and Details under a game card (gameCard's playHref): a page script that builds a card takes this, with its two addresses set. */
 export function gameCardActions(playHref: string, detailsHref: string): Raw {
-  return html`<div class="cover-actions">${row({ widths: "lead-fills", items: [control(primaryButton(action("play"), { href: playHref, isFullWidth: true })), control(secondaryButton(action("details"), { href: detailsHref, isLabelHidden: true }))] })}</div>`;
+  return html`<div class="cover-actions">${row({ widths: "lead-fills", items: [control(primaryButton(action("play"), { href: playHref, isFullWidth: true })), control(secondaryButton(action("details"), { href: detailsHref }))] })}</div>`;
 }
 
 /**
@@ -2045,8 +2045,9 @@ export interface EventBannerOptions {
  * one button and its Close, at its end. All of it opens the event; where the strip is narrow only the art and Close show.
  */
 export function eventBanner(options: EventBannerOptions): Raw {
-  const pictureMarkup = html`<picture>${options.narrowPicture ? html`<source media="(max-width: 560px)" srcset="${options.narrowPicture}">` : ""}<img class="event-banner-picture" src="${options.widePicture}" alt="${options.title}"></picture>`;
-  return html`<div class="event-banner"><a class="event-banner-art carving holds-art" data-cut-line="0" href="${options.action.href}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${pictureMarkup}</span></a><div class="event-banner-controls">${row({ widths: "fit", alignment: "end", items: [control(secondaryButton(options.action.label, { href: options.action.href })), control(tertiaryButton(action("close", options.closeLabel), { type: "button", name: "banner_close", isLabelHidden: true }))] })}</div></div>`;
+  const artAt = (imageUrl: string, side: "is-wide" | "is-narrow") => picture({ imageUrl, widthPx: 2400, heightPx: 88, placeholderDataUrl: null }, { label: options.title, className: `event-banner-picture ${side}`, isEager: true });
+  const pictureMarkup = html`${artAt(options.widePicture, "is-wide")}${options.narrowPicture ? artAt(options.narrowPicture, "is-narrow") : ""}`;
+  return html`<div class="event-banner"><a class="event-banner-art carving holds-art" data-cut-line="0" href="${options.action.href}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${pictureMarkup}</span></a><div class="event-banner-controls">${row({ widths: "fit", alignment: "end", items: [control(secondaryButton(options.action.label, { href: options.action.href })), control(secondaryButton(action("close", options.closeLabel), { type: "button", name: "banner_close", isLabelHidden: true, staysSecondaryBecause: "Close has to read on any event's art, so it keeps its glass" }))] })}</div></div>`;
 }
 
 component({
@@ -2059,7 +2060,9 @@ component({
 /* The strip: as slim as a control and its frame, wherever it is, so an event never turns into a poster. */
 .event-banner { position: relative; width: 100%; min-width: 0; height: calc(var(--control-height-regular) + 2 * var(--pad-frame-compact)); container-type: inline-size; }
 .event-banner-art { position: absolute; inset: 0; display: block; }
-.event-banner-picture { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left center; }
+.event-banner-picture img { object-position: left center; }
+.event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: none; }
+@container (max-width: 559px) { .event-banner-art:has(.is-narrow) .event-banner-picture.is-wide { display: none; } .event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: block; } }
 .event-banner-controls { position: absolute; inset-block: 0; inset-inline-end: var(--pad-frame-compact); display: flex; align-items: center; }
 @container (max-width: 559px) { .event-banner-controls .row-cell:first-child { display: none; } }
 `,
