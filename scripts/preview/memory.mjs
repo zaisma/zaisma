@@ -13,8 +13,8 @@
 //   A test run never waits: GitHub's check runs its tests anyway (Julius, Nov 2, 2026). vitest.config.ts asks before anything runs,
 //   and a run takes as many files at once as fit, up to what it asked for (TEST_WORKER_COUNT), or ends at once with
 //   no_room_for_tests when not even one does or a preview is ahead of it in line, which scripts/check.mjs reads to leave those files
-//   to GitHub. Only one Workers test run goes at a time on the machine, whatever the cap (Julius, Oct 26, 2026: the Workers tests run
-//   on GitHub, and a build runs only its own new ones here).
+//   to GitHub. Only one Workers test run goes at a time on the machine, whatever the cap (the Workers tests run
+//   here one run at a time, under the budget in scripts/check-budget.mjs).
 //   One preview or test run may always run on its own, even over the cap. A start that waits costs the line nothing (its alive
 //   process isn't counted).
 //   PREVIEW_MEMORY_CAP_BYTES sets the cap for one shell, memory_cap_bytes in LINE_DIRECTORY/settings.json for the machine,
@@ -22,7 +22,7 @@
 //   check, one preview a runner) there's no cap and no line.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir, totalmem } from "node:os";
+import { homedir, setPriority, totalmem } from "node:os";
 import { join } from "node:path";
 
 export const LINE_DIRECTORY = join(homedir(), ".zaisma/previews");
@@ -64,6 +64,7 @@ const AWAKE_NOTE_STALE_MS = 45_000;
 // How a start that gave up in line says so, in its log (background.mjs answers with that line), and a test run that didn't fit.
 export const NO_ROOM_LINE_START = "No room for it";
 export const NO_ROOM_FOR_TESTS = "no_room_for_tests";
+const LOW_PRIORITY_NICE_LEVEL = 10;
 
 /** The cap in bytes and where it came from: "environment", "settings_file", "default" or "not_macos" (0 is no cap). */
 export function memoryCap({ env = process.env, directory = LINE_DIRECTORY, platform = process.platform, totalMemoryBytes = totalmem() } = {}) {
@@ -393,11 +394,20 @@ function lookAtLine({ kind, offset, folder, requestedWorkerCount, isNodeOnly, ca
   };
 }
 
+/** This process and everything it starts run behind everything else on the machine, as every local check does. GitHub's runners have nothing to yield to. */
+export function runAtLowPriority({ env = process.env } = {}) {
+  if (env.CI) return;
+  try {
+    setPriority(0, LOW_PRIORITY_NICE_LEVEL);
+  } catch {}
+}
+
 /**
  * A test run's turn (vitest.config.ts, before anything runs): answers how many files it may run at once, or throws no_room_for_tests
  * and never waits. requestedWorkerCount is what it asks for; isNodeOnly, that it runs only node files, which take less.
  */
 export function waitForTestTurn({ requestedWorkerCount, isNodeOnly = false, folder = process.cwd(), directory = LINE_DIRECTORY }) {
+  runAtLowPriority();
   return waitForTurn({ kind: "test", folder, requestedWorkerCount, isNodeOnly, directory });
 }
 
@@ -496,7 +506,7 @@ function processTable() {
  * seconds). It refuses the whole call when one is gone, so that one is left out and it's asked again. Without footprint, ps's
  * resident memory.
  */
-function footprintBytes(pids) {
+export function footprintBytes(pids) {
   const sizes = new Map();
   let asked = [...new Set(pids)];
   for (let tryNumber = 0; asked.length && tryNumber < 5; tryNumber++) {
