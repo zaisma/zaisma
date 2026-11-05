@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
@@ -20,7 +21,7 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *        the finding fixed: its map cases fixed with that test as evidence, verify, export, the finding's
  *        status line, the item it came from done, its queue lines gone, then commit and push
  *   node scripts/security-map/private-repo.mjs remove-queue-line <text>    queue.md lines holding <text> gone, then commit and push
- *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the hash of what the page shows now, then commit and push
+ *   node scripts/security-map/private-repo.mjs page-shown        the README's "Map page shows:" line set to the hash of what the page shows now, then commit and push; an uncommitted change that doesn't alter the page stays as it is, one that does is refused
  *   node scripts/security-map/private-repo.mjs commit --message <text> [--path <path>]    commit and push what's changed in the clone (after cli.mjs or a verdict), or only under each --path
  *   node scripts/security-map/private-repo.mjs items             pull, then where every item stands, as JSON
  *   node scripts/security-map/private-repo.mjs item <item_id>    pull, then one item whole, as JSON
@@ -31,7 +32,8 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security), --dry (say
  * what a change would do, change nothing), --date <YYYY-MM-DD> (mark-fixed, default today in UTC).
- * Each change starts from a pulled, clean clone and pushes to main; nothing here touches the public repo.
+ * Each change starts from a pulled, clean clone (page-shown: one whose uncommitted changes leave the page
+ * as it is) and pushes to main; nothing here touches the public repo.
  */
 
 const REPO_ROOT = join(import.meta.dirname, "../..");
@@ -176,7 +178,7 @@ export function commitAndPush(mapDir, { message, paths = [] }) {
     run("git", ["push", "--quiet", "origin", "HEAD:main"], mapDir);
   } catch {
     try {
-      run("git", ["pull", "--rebase", "--quiet", "origin", "main"], mapDir);
+      run("git", ["pull", "--rebase", "--autostash", "--quiet", "origin", "main"], mapDir);
       run("git", ["push", "--quiet", "origin", "HEAD:main"], mapDir);
     } catch (error) {
       throw new Error(`Committed in ${mapDir} but couldn't push to ${SECURITY_REPO}'s main: ${error.stderr?.trim() || error.message}. Run \`node scripts/security-map/private-repo.mjs commit --message <text>\` again once main is reachable.`);
@@ -259,9 +261,31 @@ function removeQueueLine(mapDir, { matchText, isDry }) {
   return { removed_lines: queue.removed_lines, ...commitAndPush(mapDir, { message: "Queue line handled", paths: ["queue.md"] }) };
 }
 
-function pageShown(mapDir, { isDry }) {
+/** The page's hash from the clone's last commit, as if nothing were uncommitted, or null while that commit has no promises. */
+function committedPageDataHashOf(mapDir) {
+  const temporaryDir = mkdtempSync(join(tmpdir(), "security-map-committed-"));
+  try {
+    const archivePath = join(temporaryDir, "head.tar");
+    const treeDir = join(temporaryDir, "tree");
+    mkdirSync(treeDir);
+    run("git", ["archive", "--format=tar", "-o", archivePath, "HEAD"], mapDir);
+    run("tar", ["-xf", archivePath, "-C", treeDir], mapDir);
+    const pageData = pageDataOfMapDir(treeDir);
+    return pageData ? pageDataHashOf(pageData) : null;
+  } finally {
+    rmSync(temporaryDir, { recursive: true, force: true });
+  }
+}
+
+/** The README's "Map page shows:" line set to the page's hash. An uncommitted change that leaves the page as it is stays uncommitted; one that alters it is refused. */
+export function pageShown(mapDir, { isDry = false } = {}) {
   const { page_data_hash: dataHash } = readState(mapDir);
   if (!dataHash) throw new Error("The private repo has no promises yet, so the page has nothing to show.");
+  const changes = run("git", ["status", "--porcelain"], mapDir).split("\n").filter(Boolean).map((line) => line.trim());
+  if (dataHash !== committedPageDataHashOf(mapDir)) throw new Error(`An uncommitted change in the clone at ${mapDir} alters what the page shows (one of: ${changes.join(", ")}), so the record would say the page shows what no commit holds. Commit it with \`node scripts/security-map/private-repo.mjs commit --message <text>\`, or find who left it; then build, publish and run page-shown again.`);
+  const readmeChanges = run("git", ["status", "--porcelain", "--", "README.md"], mapDir);
+  const stagedPaths = run("git", ["diff", "--cached", "--name-only"], mapDir).split("\n").filter(Boolean);
+  if (readmeChanges || stagedPaths.length) throw new Error(`The clone at ${mapDir} has ${readmeChanges ? "an uncommitted change to README.md" : `staged files (${stagedPaths.join(", ")})`}, which this commit would carry. Commit it with \`node scripts/security-map/private-repo.mjs commit --message <text>\`, or find who left it, and run page-shown again.`);
   const readmePath = join(mapDir, "README.md");
   const next = withPageShows(readFileSync(readmePath, "utf8"), dataHash);
   if (isDry) return { map_page_shows_data_hash: dataHash, is_dry: true };
@@ -378,6 +402,8 @@ async function main() {
   if (command === "commit") {
     if (options.isDry) result = { changes: run("git", ["status", "--porcelain"], mapDir).split("\n").filter(Boolean), message: options.message, is_dry: true };
     else result = commitAndPush(mapDir, { message: options.message, paths: options.paths });
+  } else if (command === "page-shown") {
+    result = pageShown(mapDir, { isDry: options.isDry });
   } else {
     refuseDirtyClone(mapDir);
     if (command === "mark-fixed") result = await markFixed(mapDir, { findingId: options.positional[0], testPath: options.testPath, note: options.note, date: options.date, isDry: options.isDry });
@@ -386,7 +412,6 @@ async function main() {
     else if (command === "item-back") result = putItemBack(mapDir, { itemId: options.positional[0], isDry: options.isDry });
     else if (command === "item-settle") result = settleItemCalls(mapDir, { itemId: options.positional[0], answers: JSON.parse(readFileSync(options.fromPath, "utf8")), now: new Date().toISOString(), isDry: options.isDry });
     else if (command === "item-done") result = finishItem(mapDir, { itemId: options.positional[0], testPath: options.testPath, date: options.date, now: new Date().toISOString(), isDry: options.isDry });
-    else result = pageShown(mapDir, { isDry: options.isDry });
   }
   console.log(JSON.stringify(result, null, 2));
 }
