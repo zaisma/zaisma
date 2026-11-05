@@ -4,8 +4,11 @@
 // (LIMIT_BUSY, LIMIT_BUILDING) have no rate limit, so seeding the test data never waits on a 429, nor does a password's
 // (LIMIT_GUESS), since the layout check signs in as a closed account on every screen to measure its page, the Brotli
 // jobs it queues are noted (notingCompressJobs, below), every page gets the feedback overlay (withFeedback), and the Screens bench lives here (withBench,
-// ../bench/). Production keeps its limits and never has the overlay or the bench: this file is only the preview's entry.
+// ../bench/). The seed's shader checks draw beside the scan queue instead of holding it (withSeedShaderChecks, below). Production keeps its limits and
+// its one queue and never has the overlay or the bench: this file is only the preview's entry.
 import site from "../../../apps/site/src/index.ts";
+import { handlePerformanceBatch, runInChrome } from "../../../apps/site/src/performance-check.ts";
+import { runShaderCheck, shaderCheckDeps } from "../../../apps/site/src/shader-check.ts";
 import { environmentAt } from "./addresses.mjs";
 import { workerRetryingWhenLocked } from "./retry-when-locked.mjs";
 import { PASSWORD } from "../sign-ins.mjs";
@@ -97,10 +100,68 @@ async function withBench(request, environment, answerPage, answer) {
   return mark ? answerAsScreen({ request, mark, password: PASSWORD, answer, nowMs: Date.now() }) : answerPage();
 }
 
+// A shader check takes about 20 seconds, and the scan queue takes one message at a time, so while the seed adds its test data its shaders' checks
+// don't go on the queue, where every upload after them would wait behind them. Its calls say so with this header (SEED_HEADER), and it asks for each
+// check here instead, beside everything else (run.mjs, settleSentShaders). Every other shader, one sent to a running preview, goes on the queue as in production.
+const SEED_HEADER = "x-preview-seed";
+const DRAW_SHADER_CHECK_PATH = "/__preview/draw-shader-check";
+function withSeedShaderChecks(request, environment) {
+  if (!request.headers.has(SEED_HEADER)) return environment;
+  const queue = environment.SCAN_QUEUE;
+  return { ...environment, SCAN_QUEUE: { send: async (body, options) => ("shaderCheckId" in Object(body) ? undefined : queue.send(body, options)) } };
+}
+/** A drawing as text, for the seed to keep: its pictures are bytes. */
+const drawingAsText = (drawing) => JSON.stringify(drawing, (_, value) => (value instanceof Uint8Array ? { bytes_base64: btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join("")) } : value));
+const drawingFromText = (text) => JSON.parse(text, (_, value) => (typeof value?.bytes_base64 === "string" ? Uint8Array.from(atob(value.bytes_base64), (letter) => letter.charCodeAt(0)) : value));
+/**
+ * One shader's check, tried again as the queue would, at once: nothing else waits on it. The seed sends a drawing it kept from the same shader and the
+ * same check, and only the drawing is skipped; the rest of the check runs on it. Otherwise this answers the new drawing, for the seed to keep.
+ */
+async function drawShaderCheck(request, environment) {
+  const deps = shaderCheckDeps(environment);
+  if (!deps) return new Response(null, { status: 204 });
+  const kept = await request.text();
+  let drawing = kept ? drawingFromText(kept) : null;
+  let isNewDrawing = false;
+  const render = async (input) => {
+    if (!drawing) {
+      drawing = await deps.render(input);
+      isNewDrawing = true;
+    }
+    return drawing;
+  };
+  const shaderId = new URL(request.url).searchParams.get("shader_id");
+  for (let tryNumber = 1; tryNumber <= 3; tryNumber++) {
+    try {
+      await runShaderCheck(environment, shaderId, { ...deps, render });
+      break;
+    } catch (error) {
+      console.error("shader check failed", shaderId, error);
+    }
+  }
+  return new Response(isNewDrawing ? drawingAsText(drawing) : null);
+}
+
+/**
+ * While the seed adds its test data, a game's run in Chrome is the one it kept from the last time, or a new one it keeps: preview_chrome_runs, by the game's
+ * address, which only the seed makes and drops (run.mjs, SEED_CHROME_RUNS). These runs take the processor from everything else the seed does. Outside it, and
+ * in the Engine exports, whose runs are what they check, there's no such table and every run is real.
+ */
+const keptChromeRun = async (environment, pageUrl, gameBaseUrl) => {
+  const kept = await environment.DB.prepare("SELECT observations_json FROM preview_chrome_runs WHERE game_base_url = ?").bind(gameBaseUrl).first().catch(() => undefined);
+  if (kept) return JSON.parse(kept.observations_json);
+  const observations = await runInChrome(environment, pageUrl, gameBaseUrl);
+  if (kept === null) await environment.DB.prepare("INSERT OR REPLACE INTO preview_chrome_runs (game_base_url, observations_json) VALUES (?, ?)").bind(gameBaseUrl, JSON.stringify(observations)).run();
+  return observations;
+};
+
 export default workerRetryingWhenLocked({
   ...site,
+  queue: (batch, environment, context) => (batch.queue.startsWith("zaisma-performance") ? handlePerformanceBatch(batch, environment, keptChromeRun) : site.queue(batch, environment, context)),
   fetch: (request, environment, context) => {
-    const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(environmentAt(asked, environment)), context);
+    const pathname = new URL(request.url).pathname;
+    if (request.method === "POST" && pathname === DRAW_SHADER_CHECK_PATH) return drawShaderCheck(request, environmentAt(request, environment));
+    const answer = (asked) => site.fetch(asked, unlimitedDeveloperCalls(withSeedShaderChecks(asked, environmentAt(asked, environment))), context);
     return withFeedback(request, environment, () => withBench(request, environment, () => answer(request), answer), answer);
   },
 });

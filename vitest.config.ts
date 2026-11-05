@@ -249,7 +249,7 @@ export default defineConfig({
     // Files at once, across every project: what this run's turn in the line gave it (above). GitHub's runners have 4 cores and 16 GB.
     maxWorkers: workerCount,
     // ZAISMA_CONTRACT_GRID runs the grid and nothing else (scripts/contract-grid.mjs); no other run has its files.
-    projects: process.env.ZAISMA_CONTRACT_GRID ? [gridProject(siteProject, ["pages", "api", "mcp"]), gridProject(gamesProject, ["game-files"]), gridProject(gameServerProject, ["room-messages"]), gridProject(roomsProject, ["rooms"])] : [
+    projects: process.env.ZAISMA_CONTRACT_GRID ? [gridProject(siteProject, ["pages-*", "api", "mcp"]), gridProject(gamesProject, ["game-files"]), gridProject(gameServerProject, ["room-messages"]), gridProject(roomsProject, ["rooms"])] : [
       // The self-hosting runner runs on plain Node, outside the Workers runtime.
       // The site's modules load there too, to check its page scripts (test/node/strict-scripts.test.ts), with stand-ins for Workers' email and workers modules.
       { extends: true as const, resolve: { alias: { "cloudflare:email": new URL("test/node/cloudflare-email.ts", import.meta.url).pathname, "cloudflare:workers": new URL("test/node/cloudflare-workers.ts", import.meta.url).pathname } }, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"], sequence: { groupOrder: 2 } } },

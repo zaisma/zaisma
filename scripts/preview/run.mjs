@@ -28,6 +28,11 @@ import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
+const SHADER_DRAWINGS = join(ROOT, ".wrangler/preview-shader-drawings");
+const shaderCheckCode = ["packages/cli/shader-check.mjs", "apps/site/src/shader-check.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join();
+// The games' runs in Chrome the seed kept, the same way: a run takes the processor from everything else it does (site.mjs, keptChromeRun). An
+// engines-only start keeps none: its runs are what the Engine exports check, so each of those stays real.
+const SEED_CHROME_RUNS = join(ROOT, ".wrangler/preview-chrome-runs", `${createHash("sha256").update(["apps/site/src/performance-check.ts", "packages/core/src/performance.ts"].map((path) => readFileSync(join(ROOT, path), "utf8")).join()).digest("hex").slice(0, 16)}.json`);
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
 // servers is the one wrangler's own port, behind the site, games and rooms ports (forward(), below).
@@ -512,7 +517,7 @@ const routerConfig = writeConfig("router", {
   vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
-const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
+const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", process.env.CI && process.argv.includes("--reset") && !ENGINES_ONLY ? { PREVIEW_BROTLI_QUALITY: "4" } : {})];
 writeFileSync(join(STATE, "servers.log"), "");
 const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)].flat();
 process.on("exit", () => forwards.forEach((server) => server.close()));
@@ -522,7 +527,17 @@ await waitFor(GAMES);
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
+  if (!ENGINES_ONLY) {
+    const sqlText = (text) => `'${text.replaceAll("'", "''")}'`;
+    const keptRuns = existsSync(SEED_CHROME_RUNS) ? JSON.parse(readFileSync(SEED_CHROME_RUNS, "utf8")) : [];
+    runSql(`CREATE TABLE preview_chrome_runs (game_base_url TEXT PRIMARY KEY, observations_json TEXT NOT NULL); ${keptRuns.map((run) => `INSERT INTO preview_chrome_runs VALUES (${sqlText(run.game_base_url)}, ${sqlText(run.observations_json)});`).join("")}`);
+  }
   await seed();
+  if (!ENGINES_ONLY) {
+    mkdirSync(dirname(SEED_CHROME_RUNS), { recursive: true });
+    writeFileSync(SEED_CHROME_RUNS, JSON.stringify(querySql("SELECT game_base_url, observations_json FROM preview_chrome_runs")));
+    runSql("DROP TABLE preview_chrome_runs");
+  }
   await waitForBrotliCopies();
   stepDone("Brotli copies");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
@@ -938,6 +953,20 @@ function givePasswords() {
   console.log(`Gave ${ids.length} test accounts from older preview data the password "${PASSWORD}".`);
 }
 
+// A shader's drawing is the same every time for the same shader and the same check, and it's most of a fresh start's time on GitHub's runners, so
+// it's kept (by what makes it, in SHADER_DRAWINGS) and sent back at the next: the rest of the check runs on it as ever (site.mjs, drawShaderCheck).
+// GitHub's check keeps the folder between its runs (.github/workflows/check.yml).
+async function drawOrReuseShader(address, screen, source) {
+  const path = join(SHADER_DRAWINGS, `${createHash("sha256").update(screen).update(source).update(shaderCheckCode).digest("hex").slice(0, 16)}.json`);
+  const kept = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  const response = await globalThis.fetch(address, { method: "POST", body: kept });
+  const drawing = await response.text();
+  if (response.ok && drawing) {
+    mkdirSync(SHADER_DRAWINGS, { recursive: true });
+    writeFileSync(path, drawing);
+  }
+}
+
 // --- Test data, made through the same pages and API that people use ---
 
 /** A game folder with its game server beside it as zaisma-server.js (types stripped), like a developer would upload. */
@@ -992,7 +1021,7 @@ async function seed() {
   stepDone("account and key");
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
-    const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
+    const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "x-preview-seed": "1", ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
     const res = await send();
     const data = await res.json();
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
@@ -1082,7 +1111,8 @@ async function seed() {
   const sendShader = (slug, screen, source) => api("POST", `/games/${slug}/shaders`, { screen, image: { source } });
   const { shader: neonDrift } = await sendShader("shard-dodge", "phone", standInShader("neon-drift"));
   const { shader: neonDriftWide } = await sendShader("shard-dodge", "wide", standInShader("neon-drift"));
-  await sendShader("arena", "wide", readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8"));
+  const strobeSource = readFileSync(join(ROOT, "scripts/preview/shaders/strobe.glsl"), "utf8");
+  const { shader: strobe } = await sendShader("arena", "wide", strobeSource);
   // A test game's shader once its check has run. Without a local browser a person approves it, as on /admin (it then has no still or
   // frames); one the check refused on a slower or busier machine is approved the same way, saying why, so the test data is always whole.
   const settleTestShader = async (slug, shaderId) => {
@@ -1093,10 +1123,6 @@ async function seed() {
     if (settled?.review_status === "rejected") console.log(`  ${slug}'s shader was refused by the check here (${JSON.stringify(settled.review_reason ?? null)}); approving it as test data.`);
     await go(`/admin/shaders/${shaderId}/approve`, form({ reason: "Preview test data" }));
   };
-  await settleTestShader("shard-dodge", neonDrift.id);
-  await settleTestShader("shard-dodge", neonDriftWide.id);
-  await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
-  await api("PUT", "/games/shard-dodge/backgrounds/wide", { source: "shader", shader_id: neonDriftWide.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
   // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the stand-in Emberfall's shader and
   // Tiny Farm Verdant's (each on wide; phones follow). Arena and Night Drive keep Zaisma's own on wide screens.
@@ -1105,7 +1131,7 @@ async function seed() {
   await api("PUT", "/games/four-in-a-row/backgrounds/wide", { source: "image", image_id: boardWorld.id });
   const homeShaders = [["cave-crew", "emberfall"], ["tiny-farm", "verdant"]];
   const sentShaders = [];
-  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, "wide", (await sendShader(slug, "wide", standInShader(standIn))).shader]);
+  for (const [slug, standIn] of homeShaders) sentShaders.push([slug, "wide", (await sendShader(slug, "wide", standInShader(standIn))).shader, standInShader(standIn)]);
   // Arena's phone background has a buffer and a texture, sent from its folder (scripts/preview/shaders/trails, also a folder to try the
   // dashboard's folder upload with) as a developer's tools send one: the texture first, as a shader_texture picture, then the shader,
   // whose Buffer A keeps glowing trails from frame to frame and whose image pass reads them over a nebula from the noise.
@@ -1117,15 +1143,29 @@ async function seed() {
   // channels.json names a texture by its file in the folder; the API by the picture it became.
   const channelsOf = (passName) => wiring[passName].map(({ texture_file: textureFile, ...channel }) => (textureFile ? { ...channel, image_id: noise.id } : channel));
   const trailsPasses = { image: { source: readFileSync(join(trails, "image.glsl"), "utf8"), channels: channelsOf("image") }, buffers: [{ buffer_name: "a", source: readFileSync(join(trails, "buffer-a.glsl"), "utf8"), channels: channelsOf("buffer-a") }] };
-  sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader]);
-  for (const [slug, screen, shader] of sentShaders) {
-    await settleTestShader(slug, shader.id);
-    await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
-  }
+  sentShaders.push(["arena", "phone", (await api("POST", "/games/arena/shaders", { screen: "phone", ...trailsPasses })).shader, readdirSync(trails).sort().map((name) => readFileSync(join(trails, name)).toString("base64")).join()]);
+  // The checks draw beside the rest of the test data (site.mjs, withSeedShaderChecks), which needs none of them, and are waited for at the end:
+  // Chrome draws them on the processor, so a laptop draws one at a time and GitHub's four-core runners three.
+  const settleSentShaders = async () => {
+    const toDraw = [[strobe, "wide", strobeSource], [neonDrift, "phone", standInShader("neon-drift")], [neonDriftWide, "wide", standInShader("neon-drift")], ...sentShaders.map(([, screen, shader, source]) => [shader, screen, source])];
+    const drawNext = async () => {
+      while (toDraw.length) {
+        const [shader, screen, source] = toDraw.shift();
+        await drawOrReuseShader(`${SITE}/__preview/draw-shader-check?shader_id=${encodeURIComponent(shader.id)}`, screen, source);
+      }
+    };
+    await Promise.all(Array.from({ length: process.env.CI ? 3 : 1 }, drawNext));
+    for (const [slug, screen, shader] of [["shard-dodge", "phone", neonDrift], ["shard-dodge", "wide", neonDriftWide], ...sentShaders]) {
+      await settleTestShader(slug, shader.id);
+      await api("PUT", `/games/${slug}/backgrounds/${screen}`, { source: "shader", shader_id: shader.id });
+    }
+  };
+  const finishSentShaders = settleSentShaders();
+  // Held for the wait below, so a failure here stops the seed there rather than as an unhandled rejection.
+  finishSentShaders.catch(() => {});
   stepDone("backgrounds and shaders");
   fillPlaceholders(await Promise.all([
     ...querySql("SELECT id FROM game_images WHERE placeholder_data_url IS NULL AND review_status = 'approved' AND kind IN ('cover', 'square', 'share', 'screenshot', 'background', 'phone_background')").map(async ({ id }) => ({ table: "game_images", id, bytes: await fetchBytes(`${LOCAL_SITE}/img/${id}`) })),
-    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
   ]));
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
@@ -1313,6 +1353,11 @@ async function seed() {
   await finishEngineSamples();
   await finishStartedInChrome();
   stepDone("runs in Chrome still going");
+  await finishSentShaders;
+  fillPlaceholders(await Promise.all([
+    ...querySql("SELECT id FROM game_shaders WHERE placeholder_data_url IS NULL AND review_status = 'approved'").map(async ({ id }) => ({ table: "game_shaders", id, bytes: await fetchBytes(`${LOCAL_SITE}/shaders/${id}/still.png`) })),
+  ]));
+  stepDone("shader checks still going");
   // Enough more listed games for Browse to load a second page as you scroll: Night Drive's version under other names, a few each genre.
   // Last, since they count toward its developer's 50 games.
   runSql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60) INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres, devices, controls) SELECT 'game_browse' || i, 'browse-world-' || i, 'Browse World ' || i, '', 'live', live_version_id, owner_id, 'listed', entry_signing_key, created_at_ms, updated_at_ms, CASE i % 4 WHEN 0 THEN 'strategy' WHEN 1 THEN 'role_playing,adventure' WHEN 2 THEN 'horror' ELSE 'racing' END, CASE WHEN i % 10 = 0 THEN 'computer' ELSE '' END, CASE WHEN i % 10 = 0 THEN 'keyboard_mouse' ELSE '' END FROM games, n WHERE slug = 'night-drive'`);

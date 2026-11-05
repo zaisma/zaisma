@@ -58,17 +58,21 @@ describe("the preview checks' shares", () => {
       const shares = Array.from({ length: count }, (_, i) => engineSampleShard(engines, `${i + 1}/${count}`) as string[]);
       expect(shares.flat().sort()).toEqual([...engines].sort());
     }
-    expect(workflow).toContain("ENGINE_SAMPLE_SHARD: ${{ matrix.shard }}/3");
+    expect(workflow).toContain("ENGINE_SAMPLE_SHARD: ${{ matrix.shard }}/8");
     expect(() => engineSampleShard(engines, "4/3")).toThrow(/like 2\/3/);
   });
 
-  it("measure every page once: the nightly sweep's in four shares, a pull request's on one runner", () => {
+  it("measure every page once: the nightly sweep's in four shares, the merge queue's in six, a pull request's in eight", () => {
     const sweepPages: { name: string }[] = LAYOUT_CHECK_RUNS.sweep.pages;
     const shares = Array.from({ length: 4 }, (_, i) => layoutCheckShard(sweepPages, `${i + 1}/4`) as { name: string }[]);
     expect(shares.flat().map((page) => page.name).sort()).toEqual(sweepPages.map((page) => page.name).sort());
     expect(shares.every((share) => share.length > 0)).toBe(true);
     expect(nightly).toContain("npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4");
-    expect(workflow).not.toContain("LAYOUT_CHECK_SHARD");
-    expect(workflow.slice(workflow.indexOf("\n  layout:"), workflow.indexOf("\n  sweep:"))).not.toContain("matrix");
+    expect(workflow).toContain("--sweep --shard ${{ matrix.shard }}/6 --measured");
+    expect(workflow).toContain("LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/8");
+    const pullRequestPages: { name: string }[] = LAYOUT_CHECK_RUNS.pull_request.pages;
+    const firstHasLess = Array.from({ length: 4 }, (_, i) => layoutCheckShard(pullRequestPages, `${i + 1}/4`, { headStartSecByShare: [160] }) as { name: string }[]);
+    expect(firstHasLess.flat().map((page) => page.name).sort()).toEqual(pullRequestPages.map((page) => page.name).sort());
+    expect(firstHasLess[0]!.length).toBeLessThan(firstHasLess[1]!.length);
   });
 });
