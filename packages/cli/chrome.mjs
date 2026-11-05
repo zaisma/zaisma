@@ -50,7 +50,7 @@ function playwrightChromes() {
 
 /**
  * What Chrome starts with besides its profile. It never touches the machine's GPU: WebGL in software (SwiftShader, as on Zaisma's check and
- * on machines without a GPU), or with isDrawingOnCpu no WebGL and no GPU process's work at all (the layout check measures boxes, not pixels).
+ * on machines without a GPU), or with isDrawingOnCpu --disable-gpu, for the layout check, which measures boxes, not pixels (no WebGL on a Mac, SwiftShader on Linux).
  * test/node/chrome-no-gpu.test.ts holds this, and that nothing else starts a Chrome.
  */
 export function chromeFlags({ isDrawingOnCpu = false } = {}) {

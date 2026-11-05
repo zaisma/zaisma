@@ -44,7 +44,8 @@ describe("every local Chrome runs without the GPU", () => {
   const chromePath = findChrome([join(ROOT, ".wrangler/chrome"), join(ROOT, "chrome")]);
   it.skipIf(!chromePath || typeof WebSocket !== "function").each([
     ["WebGL in software", {}, /SwiftShader/],
-    ["no WebGL at all", { isDrawingOnCpu: true }, /^Disabled$/],
+    // Chrome on a Mac turns WebGL off here; on Linux it falls back to SwiftShader. Neither touches a GPU.
+    ["drawing on the CPU", { isDrawingOnCpu: true }, /^Disabled$|SwiftShader/],
   ])("really has %s when Chrome is asked what draws", async (_name, options, renderer) => {
     const chrome = await openChrome(chromePath!, `zaisma-no-gpu-test-${process.pid}-`, options);
     try {
