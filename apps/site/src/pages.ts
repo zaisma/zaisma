@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
@@ -633,14 +634,14 @@ export function legal(env: Env, page: string): Response | null {
   if (page === "terms") return layout(env, { title: "Terms of service · Zaisma", body: termsBody(), pageShape: "reading", checkedPage: "Terms of service" });
   if (page === "privacy") return layout(env, { title: "Privacy policy · Zaisma", body: privacyBody(), pageShape: "reading", checkedPage: "Privacy policy" });
   if (page === "security") return layout(env, { title: "Security · Zaisma", body: securityBody(), pageShape: "reading", checkedPage: "Security" });
-  const pages: Record<string, { title: string; body: string }> = {
-    dmca: { title: "Copyright and DMCA notices", body: DMCA },
-    defamation: { title: "Defamation notices", body: DEFAMATION },
-    trademark: { title: "Trademark notices", body: TRADEMARK },
+  const pages: Record<string, { title: string; body: string; checkedPage: SteelPageName }> = {
+    dmca: { title: "Copyright and DMCA notices", body: DMCA, checkedPage: "DMCA notices" },
+    defamation: { title: "Defamation notices", body: DEFAMATION, checkedPage: "Defamation notices" },
+    trademark: { title: "Trademark notices", body: TRADEMARK, checkedPage: "Trademark notices" },
   };
   const legalPage = pages[page];
   if (!legalPage) return null;
-  return layout(env, { title: `${legalPage.title} · Zaisma`, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
+  return layout(env, { title: `${legalPage.title} · Zaisma`, checkedPage: legalPage.checkedPage, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
 }
 
 // Settled by Julius on Oct 28, 2026 (docs/DECISIONS.md, "Terms of service"): the promises are the decisions' own, in plain words, with no lawyer review.

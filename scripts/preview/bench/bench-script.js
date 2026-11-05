@@ -33,6 +33,8 @@
   const load = (screen, path, profile, then) => {
     screen.pending = then ? [then] : [];
     screen.address = path;
+    // Said on the screen, for the press check (scripts/bench-press-check.mjs): the page it's leaving still says it's complete until the new one comes.
+    screen.figure.dataset.benchLoading = "";
     screen.frame.src = addressFor(screen, path, profile);
   };
   const followNote = (screen, isOn) => { if (screen.followNote) screen.followNote.hidden = !isOn; };
@@ -158,10 +160,13 @@
   }
   const unpress = (key) => { bench.pressed.delete(key); setPressed($(`[data-bench-state="${key}"]`), false); };
 
+  /** Who a press switches to: the person it needs, or someone signed in when the guest isn't. Null when the bench's person will do. */
+  const personFor = (state) => state.profile ?? (state.signedInProfile && (bench.profile === "guest" || !bench.isSignedIn) ? state.signedInProfile : null);
   // A press: enter it on every screen in play, on its page and as its person, then mark it seen.
   function arrive(state, then) {
     // As a guest again, too, when a sign-in on the way left the guest signed in here.
-    const profile = state.profile && (bench.profile !== state.profile || (state.profile === "guest" && bench.isSignedIn)) ? state.profile : null;
+    const person = personFor(state);
+    const profile = person && (bench.profile !== person || (person === "guest" && bench.isSignedIn)) ? person : null;
     const isOnPage = allScreens.every((screen) => isSameAddress(screen.address, state.path));
     if (big) { arriveBig(state, then); return; }
     if (profile) { bench.profile = profile; forgetOnce(profile); drawProfile(); }
@@ -179,8 +184,9 @@
   function arriveBig(state, then) {
     const screen = big.screen;
     big.isChanged = true;
-    if (state.isOwnPage || !isSameAddress(screen.address, state.path) || (state.profile && big.profile !== state.profile)) {
-      if (state.profile) big.profile = state.profile;
+    const person = state.profile ?? (state.signedInProfile && big.profile === "guest" ? state.signedInProfile : null);
+    if (state.isOwnPage || !isSameAddress(screen.address, state.path) || (person && big.profile !== person)) {
+      if (person) big.profile = person;
       load(screen, state.path, big.profile, () => {
         if (state.stepsToTake) stepThrough(screen, state.stepsToTake, () => then?.(screen));
         else enterOn(screen, state).then(() => then?.(screen));
@@ -210,7 +216,7 @@
   }
 
   // Seen marks: a state's look, kept against who saw it; green only while the piece still looks as it did.
-  const seenKey = (state) => `${state.placeValue}/${state.stateValue}/${bench.isSignedIn ? "signed_in" : "guest"}`;
+  const seenKey = (state) => `${state.placeValue}/${state.stateValue}/${state.profile === "guest" ? "guest" : state.profile || state.signedInProfile ? "signed_in" : bench.isSignedIn ? "signed_in" : "guest"}`;
   // Read on the phone screen, for one look whichever screen's open. A piece on the page counts as seen while it looks as it did; a state only a form reaches, while the rules for its classes do.
   const seenHere = new Set();
   const matchingLooks = new Set();
@@ -233,9 +239,8 @@
   }
   const isSeen = (state) => seenHere.has(seenKey(state)) || matchingLooks.has(seenKey(state));
 
-  const canSee = (state) => (Boolean(state.profile) || state.seenBy === "both" || state.seenBy === (bench.isSignedIn ? "signed_in" : "guest"));
   function drawRail() {
-    const shown = data.states.filter((state) => state.placeValue === bench.placeValue && canSee(state));
+    const shown = data.states.filter((state) => state.placeValue === bench.placeValue);
     let seenCount = 0;
     for (const button of $$("[data-bench-state]")) button.hidden = true;
     for (const state of shown) {
@@ -336,6 +341,7 @@
       const pending = screen.pending;
       screen.pending = [];
       pending.forEach((run) => run());
+      delete screen.figure.dataset.benchLoading;
       if (screen === screens.phone) { drawRail(); checkLooks(); }
     });
   }

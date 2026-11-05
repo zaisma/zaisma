@@ -183,7 +183,7 @@ ${view.mutual_friends.length
     : ""}
 </div>
 ${scriptTags(PROFILE_SCRIPT)}`;
-  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, steelStyles: [PROFILE_STYLE], isPrivate: true, viewer: { account: visitor } });
+  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, checkedPage: "A player's profile", body, steelStyles: [PROFILE_STYLE], isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: editState ? 400 : 200, headers: response.headers });
 }
 
@@ -255,7 +255,7 @@ function reportPage(env: Env, owner: Account, visitor: Account | null, error?: s
   <div class="row">${metalButton("Send report", { type: "submit" })}<a class="btn ghost" href="${profilePath(owner.username)}">Back</a></div>
 </form>
 </div>`;
-  const response = layout(env, { title: `Report @${owner.username} · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
+  const response = layout(env, { title: `Report @${owner.username} · Zaisma`, checkedPage: "Report a player", body, isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: error ? 400 : 200, headers: response.headers });
 }
 
