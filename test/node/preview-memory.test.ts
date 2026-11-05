@@ -273,7 +273,7 @@ describe("which preview sleeps to make room", () => {
     expect(wanted([awakeFor(0, 2)])).toBeNull();
     expect(wanted([awakeFor(0, 3)])).toBe(0);
     expect(wanted([handedOver(5)], NOW_MS)).toBeNull();
-    expect(pick([asked()], [handedOver(5)])).toBeNull();
+    expect(pick([asked()], [handedOver(2)])).toBeNull();
   });
   it("skips a preview that has stopped noting, which is asleep or gone", () => {
     expect(pick([asked()], [awakeFor(0, 40, 2), awakeFor(100, 11)])).toBe(100);
