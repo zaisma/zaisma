@@ -7,4 +7,5 @@ export interface ChromeConnection {
 }
 
 export function findChrome(downloadFolders?: string[]): string | null;
-export function openChrome(path: string, profilePrefix: string, options?: { isGpu?: boolean; isDrawingOnCpu?: boolean }): Promise<ChromeConnection>;
+export function chromeFlags(options?: { isDrawingOnCpu?: boolean }): string[];
+export function openChrome(path: string, profilePrefix: string, options?: { isDrawingOnCpu?: boolean }): Promise<ChromeConnection>;

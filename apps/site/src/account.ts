@@ -72,6 +72,7 @@ import { isPastLevel,
   type SocialMode,
   type SocialSetting,
   type SocialSettings,
+  formOf,
 } from "@zaisma/core";
 import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
 import { accountBanned } from "./developer.ts";
@@ -218,7 +219,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   const post = request.method === "POST";
   // Confirm it's you from the popup (components/confirm-its-you.ts) is JSON, not a form.
   if (path === "/api/account/confirm") return post ? confirmItsYou(request, env) : new Response("Method not allowed", { status: 405 });
-  const form = post ? await request.formData() : null;
+  const form = post ? await formOf(request) : null;
   const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
   // Passwords are taken as typed, spaces and all.
   const passwordField = (name = "password") => String(form?.get(name) ?? "").slice(0, MAXIMUM_PASSWORD_FIELD_CHARACTER_COUNT);

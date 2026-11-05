@@ -61,8 +61,8 @@ const EXAMPLES: Record<string, { caught: string[]; let_by: string[] }> = {
     let_by: ['const frame = document.createElement("iframe"); frame.setAttribute("sandbox", "allow-scripts");', 'const markup = html`<iframe sandbox="allow-scripts" src="${path}"></iframe>`;', 'const frame = document.createElement("div");'],
   },
   body_read_without_cap: {
-    caught: ["async function read(request: Request) { return request.json(); }", "async function read(request: Request) { return request.formData(); }"],
-    let_by: ['async function read(request: Request) { if (Number(request.headers.get("content-length")) > 10) throw new Error("big"); return request.json(); }', "async function read(answer: Response) { return answer.json(); }"],
+    caught: ["async function read(request: Request) { return request.json(); }", "async function read(request: Request) { return request.formData(); }", "async function read(request: Request) { return request.clone().text(); }", 'async function read(request: Request) { if (Number(request.headers.get("content-length")) > 10) throw new Error("big"); return request.json(); }'],
+    let_by: ["async function read(request: Request) { return readBodyText(request, 10); }", "async function read(answer: Response) { return answer.json(); }"],
   },
   pattern_from_a_value: {
     caught: ["export const fits = (given: string) => new RegExp(given);", "const pattern = new RegExp(`^${query.search}$`);"],
@@ -228,7 +228,8 @@ describe("Reviewed sites", () => {
       }
     }
     expect(entries.filter((site) => sites.get(name(site)) !== site.site_count).map((site) => `${name(site)}: ${sites.get(name(site)) ?? 0}, listed as ${site.site_count}`)).toEqual([]);
-  });
+    // It parses every listed file, about a second here and past 5 on a busy runner: the time says nothing about the code.
+  }, 60_000);
 });
 
 describe("Where it's written down", () => {

@@ -19,6 +19,7 @@ import {
   type Account,
   type ProfileReportReason,
   type ProfileViewer,
+  formOf,
 } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import { sendAlert } from "./email.ts";
@@ -65,7 +66,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
   if (sub === "/edit") {
     if (!isOwner) return done(redirect(profilePath(owner.username)));
     if (!post) return done(redirect(`${profilePath(owner.username)}?edit`));
-    const form = await request.formData();
+    const form = await formOf(request);
     const read = readProfileText({ display_name: form.get("display_name"), bio: form.get("bio"), link_urls: form.getAll("link_url").map(String) }, owner);
     if ("error" in read) return done(await profilePage(env, owner, visitor, { kind: "owner" }, query, requestCountryCode(request), { error: read.error, given: form }));
     if (await saveProfileText(env.DB, owner.id, read.profileText)) await checkProfile(env, owner.id);
@@ -76,7 +77,7 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
     if (!visitor) return done(redirect(`/signin?next=${encodeURIComponent(`${profilePath(owner.username)}/report`)}`));
     if (isOwner) return done(redirect(profilePath(owner.username)));
     if (!post) return done(reportPage(env, owner, visitor));
-    const form = await request.formData();
+    const form = await formOf(request);
     const reason = String(form.get("reason") ?? "");
     if (!(reason in PROFILE_REPORT_REASONS)) return done(reportPage(env, owner, visitor, "Choose what's wrong."));
     const details = String(form.get("details") ?? "").trim().slice(0, 1000);

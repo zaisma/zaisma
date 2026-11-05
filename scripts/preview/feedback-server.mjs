@@ -33,12 +33,27 @@ const PICTURE_KINDS = new Set(["seen", "live"]);
 mkdirSync(FEEDBACK_DIRECTORY, { recursive: true });
 writeFileSync(join(FEEDBACK_DIRECTORY, "server.json"), JSON.stringify({ site_origin: siteOrigin, feedback_port: Number(port) }));
 
+// Chrome is open only while pictures are being taken, and for a minute after: idle, it held about 300 MB of a preview's memory.
+const CHROME_IDLE_MS = 60_000;
 let pictureTaker = null;
+let takingCount = 0;
+let idleTimer = null;
 const pictures = () => (pictureTaker ??= openPictureTaker({ siteOrigin, directory: FEEDBACK_DIRECTORY }).catch((error) => ((pictureTaker = null), Promise.reject(error))));
+function closeChromeWhenIdle() {
+  clearTimeout(idleTimer);
+  if (takingCount || !pictureTaker) return;
+  idleTimer = setTimeout(async () => {
+    const taker = pictureTaker;
+    pictureTaker = null;
+    (await taker.catch(() => null))?.close().catch(() => {});
+  }, CHROME_IDLE_MS);
+}
 
 /** The comment's pictures it doesn't have yet, or all of them again with isRetake (the seen picture never changes): the seen one only
  *  when his device sent the SVG it copied instead of its drawing. */
 async function takePictures(comment, isRetake = false) {
+  takingCount++;
+  clearTimeout(idleTimer);
   try {
     const taker = await pictures();
     const isMissing = (kind) => !existsSync(pictureFile(FEEDBACK_DIRECTORY, comment.comment_id, kind));
@@ -49,6 +64,9 @@ async function takePictures(comment, isRetake = false) {
   } catch (error) {
     console.error(`Couldn't take the pictures for ${comment.comment_id}: ${error.message}`);
     return { error: { code: "pictures_failed", message: `Couldn't take the pictures: ${error.message}` } };
+  } finally {
+    takingCount--;
+    closeChromeWhenIdle();
   }
 }
 // The ones an earlier run didn't get to (it was stopped mid-way, or Chrome was missing).

@@ -49,22 +49,31 @@ function playwrightChromes() {
 }
 
 /**
- * Headless Chrome at path with WebGL in software (SwiftShader, as on Zaisma's check and on machines without a GPU), or on the machine's
- * own GPU with isGpu (scripts/city.mjs times and renders the city on it), or with no GPU and no WebGL at all with isDrawingOnCpu (the
- * layout check measures boxes, not pixels), and a DevTools connection to it: send(method, parameters,
- * sessionId), listen(sessionId, onEvent) and close().
+ * What Chrome starts with besides its profile. It never touches the machine's GPU: WebGL in software (SwiftShader, as on Zaisma's check and
+ * on machines without a GPU), or with isDrawingOnCpu --disable-gpu, for the layout check, which measures boxes, not pixels (no WebGL on a Mac, SwiftShader on Linux).
+ * test/node/chrome-no-gpu.test.ts holds this, and that nothing else starts a Chrome.
  */
-export async function openChrome(path, profilePrefix, { isGpu = false, isDrawingOnCpu = false } = {}) {
+export function chromeFlags({ isDrawingOnCpu = false } = {}) {
+  const drawing = isDrawingOnCpu ? ["--disable-gpu"] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+  return ["--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", ...drawing, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"];
+}
+
+/**
+ * Headless Chrome at path, without the machine's GPU (chromeFlags), and a DevTools connection to it: send(method, parameters, sessionId),
+ * listen(sessionId, onEvent) and close().
+ */
+export async function openChrome(path, profilePrefix, { isDrawingOnCpu = false, ...others } = {}) {
+  const unknownOptions = Object.keys(others);
+  if (unknownOptions.length) throw new Error(`openChrome has no option ${unknownOptions.join(", ")}: its only option is isDrawingOnCpu, and every Chrome runs without the machine's GPU.`);
   await sweepOrphans();
   // A folder for each Chrome: OWNER_FILE, which says whose it is, and Chrome's profile inside, removed before the folder so a profile
   // that can't be removed yet keeps its owner for the next sweep.
   const folder = mkdtempSync(join(tmpdir(), profilePrefix));
   const profile = join(folder, "profile");
   mkdirSync(profile);
-  const webgl = isDrawingOnCpu ? ["--disable-gpu"] : isGpu ? ["--enable-gpu", "--ignore-gpu-blocklist", ...(process.platform === "darwin" ? ["--use-angle=metal"] : [])] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
   let child;
   try {
-    child = spawn(path, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", ...webgl, "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+    child = spawn(path, [...chromeFlags({ isDrawingOnCpu }), `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   } catch (error) {
     rmSync(folder, { recursive: true, force: true });
     throw error;

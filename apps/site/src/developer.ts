@@ -212,6 +212,11 @@ import {
   CREDIT_LIMITS,
   isCreditLow,
   type DoorContract,
+  BodyPastCapError,
+  MAXIMUM_RAW_BODY_SIZE_BYTES,
+  NO_BODY_MAXIMUM_SIZE_BYTES,
+  readBodyBytes,
+  readBodyText,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
 import { bringBackGame, checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, eraseGameNow, reserveOrRefuse, storageRoute } from "./storage-api.ts";
@@ -1019,9 +1024,6 @@ export const apiRouteContract = (apiRoute: ApiRoute): DoorContract => ({
 
 const inputShapes = (inputs: Readonly<Record<string, ApiInput>>): Record<string, DoorShape> => Object.fromEntries(Object.keys(inputs).map((name) => [name, API_INPUT_SHAPES[name as ApiInputName]]));
 
-/** The most of a raw body any call reads: a file's part, or an image. */
-const MAXIMUM_RAW_BODY_SIZE_BYTES = 110 * 1024 * 1024;
-
 /** Each tool's outputSchema, by its name, which mcp.ts fills as it loads: a tool's answer is its call's. */
 export const TOOL_ANSWER_SCHEMAS = new Map<string, Readonly<Record<string, unknown>>>();
 
@@ -1486,10 +1488,9 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
       isTexture
         ? new ApiError("shader_texture_too_big", { message: `The texture is over ${maximumSizeBytes / 1048576} MB.`, field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels; a shader samples it with mipmaps) and send it again." })
         : new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
-    const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
-    if (declaredSizeBytes > maximumSizeBytes) throw tooBig();
-    const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > maximumSizeBytes) throw tooBig();
+    const bytes = await readBodyBytes(request, maximumSizeBytes).catch((error: unknown) => {
+      throw error instanceof BodyPastCapError ? tooBig() : error;
+    });
     const sniffed = sniffImage(bytes);
     if (!sniffed) throw new ApiError("not_an_image", { message: "That isn't a PNG, JPEG or WebP image.", field: "image_base64", fix: "Send a PNG, JPEG or WebP file (the image itself as the body in the API); SVG and other types aren't taken." });
     const { widthPx, heightPx } = sniffed;
@@ -3107,23 +3108,27 @@ export function accessJson(access: KeyAccess) {
 
 /** The JSON object a call was sent; with isOptional, a call sent with no body at all gets {}. */
 async function readJson(request: Request, maximumSizeBytes = 64 * 1024, isOptional = false): Promise<Record<string, unknown>> {
-  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) {
-    throw new ApiError("json_too_big", { message: `The JSON body is over ${maximumSizeBytes / 1024} KB, the most this call takes.`, fix: "Send less: big games go through the upload command (npx @zaisma/cli upload), and long text can be shortened." });
-  }
   try {
-    const text = await request.text();
+    const text = await readBodyText(request, maximumSizeBytes);
     if (isOptional && !text.trim()) return {};
     const body: unknown = JSON.parse(text);
     if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
-  } catch {}
+  } catch (error) {
+    if (error instanceof BodyPastCapError) {
+      throw new ApiError("json_too_big", { message: `The JSON body is over ${maximumSizeBytes / 1024} KB, the most this call takes.`, fix: "Send less: big games go through the upload command (npx @zaisma/cli upload), and long text can be shortened." });
+    }
+  }
   throw new ApiError("bad_json", { message: "The body isn't a JSON object.", fix: 'Send a JSON object, like { "title": "Sky Hopper" }, with Content-Type: application/json.' });
 }
 
 /** A call that takes no body refuses one: nothing, or {} (many clients send it by default), passes. */
 async function refuseBody(request: Request): Promise<void> {
   const fix = "This call takes no body; leave it out.";
-  if (Number(request.headers.get("content-length") ?? 0) > 64 * 1024) throw new ApiError("bad_json", { message: "This call takes no body, and one was sent.", fix });
-  const text = (await request.text()).trim();
+  const text = (
+    await readBodyText(request, NO_BODY_MAXIMUM_SIZE_BYTES).catch((error: unknown) => {
+      throw error instanceof BodyPastCapError ? new ApiError("bad_json", { message: "This call takes no body, and one was sent.", fix }) : error;
+    })
+  ).trim();
   if (!text) return;
   try {
     const body: unknown = JSON.parse(text);

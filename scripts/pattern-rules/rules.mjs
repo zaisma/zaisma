@@ -305,8 +305,8 @@ export const PATTERN_RULES = [
   {
     rule_id: "body_read_without_cap",
     goes_wrong: "Reading a whole body with no limit lets one request fill the Worker's memory, and takes every request sharing it down too.",
-    do_instead: "Read it through a helper that stops at a size, like readJson in developer.ts.",
-    isSite: (node) => ts.isCallExpression(node) && /^(request|req)\.(json|text|arrayBuffer|formData|blob)$/.test(textOf(node.expression)) && !/content-length|maximumSizeBytes|maximum\w*Bytes|\bcapped/i.test(textOf(enclosingFunction(node))),
+    do_instead: "Read it with readBodyText or readBodyBytes, which stop at a size. Behind a door's row, cappedRequest holds a read to the row's size: list it as a reviewed site.",
+    isSite: (node) => ts.isCallExpression(node) && /^(request|req)(\.clone\(\))?\.(json|text|arrayBuffer|formData|blob)$/.test(textOf(node.expression)),
   },
   {
     rule_id: "pattern_from_a_value",

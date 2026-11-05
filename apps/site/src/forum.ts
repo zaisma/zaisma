@@ -30,10 +30,12 @@ import {
   type TopicKind,
   type TopicStatus,
   type ErrorCode,
+  BodyPastCapError,
+  readBodyBytes,
 } from "@zaisma/core";
 import { closedBody, ownGame, type Caller, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { affectedDeveloperCounts, authorOf, decideTopic, hasNews, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicAddress, topicById, turnOffKeysIn, uploadDraftMedia } from "./forum-posts.ts";
+import { affectedDeveloperCounts, authorOf, decideTopic, hasNews, imageTooBig, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicAddress, topicById, turnOffKeysIn, uploadDraftMedia } from "./forum-posts.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
 import { hidePost } from "./forum-check.ts";
@@ -200,7 +202,9 @@ export async function forumRoute(request: Request, env: Env, apiPath: string, ca
   }
   if (apiPath === "/forum/similar") return [{ topics: await similarTopics(env, caller, queryParameters.get("search_text") ?? "") }];
   if (apiPath === "/forum/media") {
-    const bytes = new Uint8Array(await request.arrayBuffer());
+    const bytes = await readBodyBytes(request, FORUM_LIMITS.imageSizeBytes).catch((error: unknown) => {
+      throw error instanceof BodyPastCapError ? imageTooBig() : error;
+    });
     return [await uploadDraftMedia(env, caller, bytes), 201];
   }
   if (apiPath === "/forum/people") return [{ people: await forumPeople(env, queryParameters.get("name_prefix") ?? "", queryParameters.get("topic_id") || null, caller.accountId) }];
