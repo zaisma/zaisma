@@ -1,6 +1,5 @@
-// The preview runs the site, games and rooms Workers as three wrangler dev servers, each its own
-// workerd process, all on one local database file. Local D1 is SQLite with no busy wait, so when one
-// server writes while another reads or writes, the other's call fails straight away: "database is
+// The preview's Workers and its start script share one local database file. Local D1 is SQLite with no busy wait, so when one
+// writes while another reads or writes, the other's call fails straight away: "database is
 // locked: SQLITE_BUSY" (or _SNAPSHOT), or for a read "Failed to get session commit token". Press Play
 // while the scheduled job or a room writes, and the page or the game's frame showed a 500.
 // Production has one real D1 and never sees this, so only the preview wraps its Workers in this (see

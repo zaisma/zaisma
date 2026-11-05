@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { buildSync, transformSync } from "esbuild";
+import { buildSync, stop as stopEsbuild, transformSync } from "esbuild";
 import { engineSamples as engineSamplesToSeed } from "../engines/samples.mjs";
 import { startFakeAi } from "./fake-ai.mjs";
 import { startFakeAuth } from "./fake-auth.mjs";
@@ -22,6 +22,7 @@ import { startFakeSite } from "./fake-site.mjs";
 import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
 import { finishTurn, HANDED_OVER_FILE, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
+import { restoreSnapshot, saveSnapshot } from "./seed-snapshot.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -115,6 +116,8 @@ const isEnginesOnlyData = () => existsSync(SEEDED_MARKER) && readFileSync(SEEDED
 const HOST_MARKER = join(STATE, "phone-host");
 const isOtherHostData = () => existsSync(SEEDED_MARKER) && (existsSync(HOST_MARKER) ? readFileSync(HOST_MARKER, "utf8") : "") !== PHONE_HOST;
 if (process.argv.includes("--reset") || (!ENGINES_ONLY && isEnginesOnlyData()) || isOtherHostData()) rmSync(STATE, { recursive: true, force: true });
+// A start with no test data takes what another checkout added, when it came from the same seed files (seed-snapshot.mjs). --reset always adds it.
+const snapshotMadeAtMs = existsSync(SEEDED_MARKER) || ENGINES_ONLY || process.argv.includes("--reset") ? null : restoreSnapshot({ root: ROOT, phoneHost: PHONE_HOST, stateFolder: STATE });
 const fresh = !existsSync(SEEDED_MARKER);
 mkdirSync(STATE, { recursive: true });
 writeFileSync(HOST_MARKER, PHONE_HOST);
@@ -281,6 +284,24 @@ async function waitForBrotliCopies() {
   }
 }
 
+/**
+ * Until the AI reviews the test data started are over, or a minute: starting the servers again drops a review in the queue, and a game set
+ * listed or unlisted takes that only when its review ends. The seeded reviews that stay waiting (seedAiReviewStates) are left out, as are the
+ * ones whose batch was sent, which the scheduled job picks up after a start, and the ones waiting for a free review.
+ */
+async function waitForAiReviews() {
+  const running = () => querySql("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND id NOT LIKE 'version_preview%' AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id)");
+  const wait = (durationMs) => new Promise((r) => setTimeout(r, durationMs));
+  // A review asked for this moment can still be on its way into the database, seen from this process: none counts only when none shows twice.
+  let emptyLookCount = 0;
+  for (let lookCount = 0; emptyLookCount < 2 && lookCount < 120; lookCount++) {
+    emptyLookCount = running().length ? 0 : emptyLookCount + 1;
+    await wait(500);
+  }
+  const left = running();
+  if (left.length) console.log(`  Still in AI review after a minute: ${left.slice(0, 5).map((row) => row.id).join(", ")}`);
+}
+
 // How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
 let stepStartedMs = Date.now();
 function stepDone(label) {
@@ -292,6 +313,12 @@ function stepDone(label) {
 // Wrangler from this checkout, run by this Node: no npx and no wrangler launcher in between, each a process of its own.
 const WRANGLER = join(ROOT, "node_modules/wrangler/wrangler-dist/cli.js");
 const wrangler = (args) => [process.execPath, ["--no-warnings", WRANGLER, ...args]];
+// A Node that gives back what it's done with: a small young generation, and macOS's malloc without its cache of freed large blocks,
+// which kept hundreds of MB of what a start had loaded and let go (it does nothing elsewhere).
+const SMALL_NODE_FLAGS = ["--max-semi-space-size=2"];
+const SMALL_NODE_ENVIRONMENT = { MallocLargeCache: "0" };
+// --optimize-for-size only on a Mac, where the memory cap is: GitHub's runners have the memory, and a quicker layout check is worth more there.
+const V8_FLAGS = process.platform === "darwin" ? "--gc-global --optimize-for-size" : "--gc-global";
 
 /** A wrangler config of the preview's own in its folder: the app's wrangler.jsonc with its preview entry, these settings and absolute paths. */
 function previewConfig(app, settings) {
@@ -321,9 +348,9 @@ function writeConfig(name, config) {
 // ticks and test data), the servers and the feedback server stop, and only this process stays, holding the ports. The next
 // request wakes them: a page a browser opens gets a short "Waking the preview…" page that loads the real one once they're
 // up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps. While something waits in the line
-// for memory it's 10 minutes, for the preview nobody has looked at for longest (Julius, Nov 2, 2026; memory.mjs, previewToSleep), and
-// when a test run needs the room, 2 minutes for a preview its session has handed over to a person (HANDED_OVER_FILE).
-const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 30);
+// for memory it's 3 minutes, for the preview nobody has looked at for longest (Julius, Nov 2 and 5, 2026; memory.mjs, previewToSleep), and
+// when a test run needs the room, 2 minutes for a preview its session has handed over to a person (HANDED_OVER_FILE). A wake takes about a second.
+const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 10);
 let lastVisitAtMs = Date.now();
 let serversProcess = null;
 let feedbackProcess = null;
@@ -337,6 +364,9 @@ const wakingPage = () => `<!doctype html><meta charset="utf-8"><meta name="viewp
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#16191d;color:#eceef0;font:15px/1.5 system-ui,sans-serif">
 <div style="max-width:40em;padding:16px"><p>Waking the preview… it slept with nobody looking. The page opens by itself ${lineText ? "once it's awake" : "in a few seconds"}.</p>${lineText ? `<p>${lineText}</p>` : ""}</div>
 <script>(async()=>{for(;;){try{await fetch(location.href,{method:"HEAD",cache:"no-store"});break}catch{}await new Promise(r=>setTimeout(r,1000))}location.reload()})()</script>`;
+
+/** The servers: every Worker in one runtime (servers.mjs). */
+const spawnServers = (serversLog) => spawn(process.execPath, ["--no-warnings", ...SMALL_NODE_FLAGS, join(ROOT, "scripts/preview/servers.mjs"), ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--persist-to", STATE], { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, ...SMALL_NODE_ENVIRONMENT, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: V8_FLAGS } });
 
 /** Starts the servers (and the feedback server), and resolves once they answer. */
 function wake() {
@@ -358,26 +388,34 @@ function wake() {
 
 /** The servers and the feedback server, started; resolves once the servers answer. */
 async function startServers() {
-  // The site, games, rooms and compress Workers run in one wrangler dev: one Node, one bundler and one runtime for all
-  // four (and their queues, Durable Objects and service bindings stay inside it), instead of a wrangler, an esbuild and
-  // two runtimes each. Its output goes to servers.log, for when something doesn't start. Each checkout's preview finds
-  // its own Workers: wrangler's dev registry is machine-wide by default, so a service binding could reach another checkout's.
-  // Wrangler's local trace capture (X_LOCAL_OBSERVABILITY) stays off: it keeps every request, call and log line in a
-  // store inside the runtime, and each tick of a real-time room is a call into its game server's sandbox, so Arena's
-  // test rooms alone filled it at about 10 MB a minute. Nothing in the preview reads it; an older preview's store goes.
-  // And the runtime does a full garbage collection each time it does a small one (--gc-global): each of those calls leaves
-  // memory in the runtime that only a full one frees, and with heaps this small V8 hardly ever does one, so the runtime
-  // grew by about 50 MB a minute at first with Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core.
+  // The site, games, rooms and compress Workers run in one runtime (servers.mjs): one Node and one runtime for all four, and their queues,
+  // Durable Objects and service bindings stay inside it. Its output goes to servers.log, for when something doesn't start. Each checkout's
+  // preview finds its own Workers: the dev registry is machine-wide by default, so a service binding could reach another checkout's.
+  // The local trace capture (X_LOCAL_OBSERVABILITY) stays off: it keeps every request, call and log line in a store inside the runtime, and
+  // each tick of a real-time room is a call into its game server's sandbox, so Arena's test rooms alone filled it at about 10 MB a minute.
+  // Nothing in the preview reads it; an older preview's store goes.
+  // The runtime does a full garbage collection each time it does a small one (--gc-global): each of those calls leaves memory in the runtime
+  // that only a full one frees, and with heaps this small V8 hardly ever does one, so the runtime grew by about 50 MB a minute at first with
+  // Arena's test rooms on. With it, it stayed flat over 15 minutes, at about 2% of a core. --optimize-for-size takes it from about 323 MB to
+  // 236 MB with a page's layout check as quick.
   rmSync(join(STATE, "v3/observability"), { recursive: true, force: true });
   const serversLog = openSync(join(STATE, "servers.log"), "a");
-  serversProcess = spawn(...wrangler(["dev", ...configs.flatMap((config) => ["--config", config]), "--port", String(PORTS.servers), "--inspector-port", String(9340 + OFFSET), "--persist-to", STATE]), { cwd: ROOT, stdio: ["ignore", serversLog, serversLog], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry"), X_LOCAL_OBSERVABILITY: "false", MINIFLARE_WORKERD_V8_FLAGS: "--gc-global" } });
+  serversProcess = spawnServers(serversLog);
   // The feedback server has a process of its own, with its own log: it opens Chrome to take pictures of pages.
   const feedbackLog = openSync(join(STATE, "feedback.log"), "a");
-  feedbackProcess = spawn(process.execPath, [join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog] });
+  feedbackProcess = spawn(process.execPath, [...SMALL_NODE_FLAGS, join(ROOT, "scripts/preview/feedback-server.mjs"), String(PORTS.feedback), SITE], { stdio: ["ignore", feedbackLog, feedbackLog], env: { ...process.env, ...SMALL_NODE_ENVIRONMENT } });
   children.push(serversProcess, feedbackProcess);
   await waitFor(`http://localhost:${PORTS.servers}`);
   lastVisitAtMs = Date.now();
   testPlayers.isPaused = false;
+}
+
+/** The servers alone, started again. */
+async function startServersAgain() {
+  const serversLog = openSync(join(STATE, "servers.log"), "a");
+  serversProcess = spawnServers(serversLog);
+  children.push(serversProcess);
+  await waitFor(`http://localhost:${PORTS.servers}`);
 }
 
 /** Stops the servers and the feedback server, until the next request. */
@@ -402,13 +440,13 @@ function noteVisits() {
   const isVisited = text
     .slice(readLogSizeBytes)
     .split("\n")
-    .some((line) => /\[wrangler:info\] [A-Z]+ \//.test(line) && !/ \/__(scheduled|preview\/sql)\b/.test(line));
+    .some((line) => /\[mf:info\] [A-Z]+ \//.test(line) && !/ \/__(scheduled|preview\/sql)\b/.test(line));
   readLogSizeBytes = text.length;
   if (isVisited) lastVisitAtMs = Date.now();
 }
 
 /**
- * Sends every connection to this port on to the one wrangler's, which tells the Workers apart by the port it was sent to
+ * Sends every connection to this port on to the one runtime, which tells the Workers apart by the port it was sent to
  * (workers/router.mjs). Asleep, a connection wakes the servers first.
  */
 function forward(port) {
@@ -416,11 +454,16 @@ function forward(port) {
 }
 
 function forwardFrom(port, address) {
-  const onward = (socket) => {
+  // The servers are gone for a moment while new bundles load: a connection waits for them instead of failing.
+  const onward = (socket, tryNumber = 1) => {
     const servers = net.connect(PORTS.servers, "localhost");
-    socket.pipe(servers).pipe(socket);
-    socket.on("error", () => servers.destroy());
-    servers.on("error", () => socket.destroy());
+    servers.once("connect", () => socket.pipe(servers).pipe(socket));
+    socket.once("error", () => servers.destroy());
+    servers.on("error", (error) => {
+      if (error.code === "ECONNREFUSED" && tryNumber < 100 && !socket.destroyed) return void setTimeout(() => onward(socket, tryNumber + 1), 100);
+      socket.destroy();
+    });
+    servers.on("close", () => socket.destroy());
   };
   const server = net.createServer((socket) => {
     if (isAwake()) return onward(socket);
@@ -475,7 +518,7 @@ if (noRoomText) {
 // The line keeps its offset from previews started through it, not from anything else that took a port while it waited.
 if (waitedMs) {
   const isFree = (port, address) => new Promise((resolve) => net.createServer().once("error", () => resolve(false)).listen(port, address, function () { this.close(() => resolve(true)); }));
-  for (const port of [...Object.values(PORTS), 9340 + OFFSET]) {
+  for (const port of Object.values(PORTS)) {
     if ((await isFree(port, "127.0.0.1")) && (await isFree(port, "::1"))) continue;
     console.log(`Port ${port} was taken while it waited in line (by a preview started without the line, or something else), so it can't start here. npm run preview:start again picks free ports.`);
     process.exit(1);
@@ -510,7 +553,7 @@ if (!STRIPE_TEST_VARS) startFakeStripe(PORTS.stripe);
 // Sky Hopper is on this Mac only (its port isn't on the tailnet), so it signs in at localhost.
 startFakeSite(PORTS.signInSite, LOCAL_SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET, MCP_CLIENT_ID);
 writeFileSync(join(STATE, "feedback.log"), "");
-// workers/router.mjs comes first in the one wrangler dev and sends each port's requests to its Worker.
+// workers/router.mjs comes first in the one runtime and sends each port's requests to its Worker.
 const routerConfig = writeConfig("router", {
   name: "zaisma-preview-router",
   main: join(ROOT, "scripts/preview/workers/router.mjs"),
@@ -542,6 +585,17 @@ if (fresh) {
   await waitForBrotliCopies();
   stepDone("Brotli copies");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
+  stopEsbuild();
+  // Adding the test data leaves the runtime hundreds of MB bigger than it needs to be from then on, and it's the moment to keep the data for
+  // other checkouts: the servers are stopped, so the databases are whole. GitHub's runners have the memory, and their own snapshot.
+  if (!process.env.CI) {
+    await waitForAiReviews();
+    stepDone("AI reviews");
+    await new Promise((done) => (serversProcess.once("exit", done), serversProcess.kill()));
+    if (!ENGINES_ONLY) saveSnapshot({ root: ROOT, phoneHost: PHONE_HOST, stateFolder: STATE });
+    await startServersAgain();
+  }
+  stepDone("servers started again");
 }
 if (IDLE_MINUTES > 0)
   setInterval(() => {
@@ -932,7 +986,7 @@ Zaisma preview is running. Nothing here touches the live site.
 
 Sign in as Preview_Studio (it owns the test games) or any test account with the password "${PASSWORD}",
 or by email with the code from the mailbox (${MAIL}).
-Stop with Ctrl+C. Fresh data: npm run preview -- --reset
+${snapshotMadeAtMs ? `Its test data is the snapshot from ${new Date(snapshotMadeAtMs).toLocaleTimeString()}, made by a checkout with the same seed files: adding it through this checkout's Workers is npm run preview:start -- --reset.\n` : ""}Stop with Ctrl+C. Fresh data: npm run preview -- --reset
 `);
 // Up, so it leaves the line for memory: from now on it's measured like any running preview.
 await finishTurn();
