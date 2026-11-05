@@ -90,7 +90,7 @@ async function route(given: Request, env: Env, ctx: ExecutionContext): Promise<R
   try {
     response = await routeToDoor(request, env, ctx);
   } catch (error) {
-    if (typeof door !== "string" && error instanceof BodyPastCapError) return bodyTooBig(door);
+    if (typeof door !== "string" && error instanceof BodyPastCapError) return bodyTooBig(env, door);
     throw error;
   }
   return typeof door === "string" || door.contract.answers.kind !== "json" ? response : withDeclaredAnswer(env, response, door.contract.answers, `page:${request.method} ${door.path}`, (promise) => ctx.waitUntil(promise));

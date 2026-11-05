@@ -1,4 +1,4 @@
-import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing, formOf } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { APPEAL_EMAIL } from "./bans.ts";
 import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
@@ -229,7 +229,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
   if (moved) return done(redirect(`/forum/topic_${moved[1]}`));
   if (path === "/dashboard/new" && post) {
-    const form = await request.formData();
+    const form = await formOf(request);
     try {
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
@@ -264,7 +264,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     return done(await managerPage(env, call, account, slug, section.id, { done: DONE[url.searchParams.get("done") ?? ""] }));
   }
 
-  const form = await request.formData();
+  const form = await formOf(request);
   const field = (name: string) => String(form.get(name) ?? "").trim();
   // A change comes back to the section its form is in, which a form says when it's on more than one.
   const sectionOfAction: Section =

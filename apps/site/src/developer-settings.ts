@@ -1,6 +1,6 @@
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { guildSeal } from "./components/guild-seal.ts";
-import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game } from "@zaisma/core";
+import { ApiError, ERROR_CODES, gameHosting, CREDIT_LIMITS, PRO_PRICE_CENTS_PER_MONTH, PRO_REFUND_LIMITS, STORAGE_ALLOWANCES, STORAGE_PRICE_PER_GIGABYTE_MONTH_CENTS, storageSizeText, accountById, gameBySlug, hostingUseThisMonth, gameHostingMonth, apiKeysFor, createApiKey, checkKeyScope, revokeApiKey, passkeysFor, liveApiKeyCount, MAXIMUM_API_KEY_COUNT, ACCESS_AREAS, ACCESS_LEVELS, AREA_ACCESS_CHOICES, WEBHOOK_EVENT_KINDS, type Account, type ApiKey, type Game, formOf } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, keyMakingState, keyScopeFromForm, keyScopeText, keyStandingText, passkeyTapFromForm } from "./account.ts";
 import { apiCall, callerFor, hostingUseJson, type Caller } from "./developer.ts";
@@ -1113,7 +1113,7 @@ export async function handleDeveloperSettings(request: Request, env: Env, path: 
     });
   }
 
-  const form = await request.formData();
+  const form = await formOf(request);
   const field = (name: string, maximumCharacterCount?: number) => bodyField(form, name, maximumCharacterCount);
   const back = (done: string, hash: string) => redirect(`${PAGE}?done=${done}#${hash}`, session.cookies);
   const failed = (error: unknown) => {

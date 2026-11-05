@@ -79,6 +79,7 @@ import {
   type Triage,
   gameDeletionOf,
   cancelGameDeletionWait, queueGameDeletion,
+  formOf,
 } from "@zaisma/core";
 import { noteRulingOnGame } from "./standing.ts";
 import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
@@ -230,7 +231,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
   const wantsJson = path.startsWith("/admin/api/");
   if (path === "/admin/upload" || path === "/admin/api/games") {
     try {
-      const upload = await uploadGame(env, await request.formData(), actor);
+      const upload = await uploadGame(env, await formOf(request), actor);
       if (wantsJson) {
         return Response.json({ gameId: upload.game.id, slug: upload.game.slug, versionId: upload.versionId, files: upload.fileCount, status: "scanning", url: `${env.SITE_ORIGIN}/g/${upload.game.slug}` }, { status: 201 });
       }
@@ -242,7 +243,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     }
   }
 
-  return adminForm(env, path, await request.formData(), actor);
+  return adminForm(env, path, await formOf(request), actor);
 }
 
 /** Every admin form action. The admin MCP calls this too, so a decision there is exactly a click here. */

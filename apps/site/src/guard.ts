@@ -1,10 +1,10 @@
-import { banScopeOf, BodyPastCapError, bodyProblem, checkDoor, formProblem, isPastDoorLimit, NO_BODY_MAXIMUM_SIZE_BYTES, queryProblem, readBodyBytes, type DoorCaller } from "@zaisma/core";
+import { banScopeOf, BodyPastCapError, bodyProblem, checkDoor, formOf, formProblem, isPastDoorLimit, NO_BODY_MAXIMUM_SIZE_BYTES, queryProblem, readBodyBytes, type DoorCaller } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
 import { authConfigured, connectionAddressOf, currentSession } from "./auth.ts";
 import { safeNext } from "./account.ts";
 import { siteDoorAt, type SiteDoor, type WhenSignedOut } from "./doors.ts";
 import type { Env } from "./env.ts";
-import { message } from "./html.ts";
+import { glassMessage, message } from "./html.ts";
 
 const redirect = (to: string, cookies: readonly string[] = []) => {
   const response = new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
@@ -34,35 +34,44 @@ function answerAs(door: SiteDoor, httpStatus: number, code: string, words: strin
 
 const wrongShape = (door: SiteDoor, field: string) => answerAs(door, 400, "wrong_shape", `${field} isn't the right shape.`);
 const tooOften = (door: SiteDoor) => answerAs(door, 429, "slow_down", "Too many requests. Try again in a minute.");
-/** A body over what its door takes, from the guard or from the door's own read of it. */
-export const bodyTooBig = (door: SiteDoor) => answerAs(door, 413, "wrong_shape", "That's too big.");
 /** What a door's row lets it be sent: every read behind the door stops here. */
 export const doorBodyMaximumSizeBytes = (door: SiteDoor) => door.contract.takes.body?.maximumSizeBytes ?? NO_BODY_MAXIMUM_SIZE_BYTES;
+const sizeWords = (sizeBytes: number) => (sizeBytes < 1024 * 1024 ? `${Math.round(sizeBytes / 1024)} KB` : `${Math.round(sizeBytes / (1024 * 1024))} MB`);
+/** A body over what its door takes, from the guard or from the door's own read of it. A person sent a form from a page, so a page says how much it takes. */
+export function bodyTooBig(env: Env, door: SiteDoor): Response {
+  if (door.answersAs === "page" && door.contract.takes.body?.kind === "form") return glassMessage(env, "That's too big", `This form takes up to ${sizeWords(doorBodyMaximumSizeBytes(door))}.`, 413);
+  return answerAs(door, 413, "wrong_shape", "That's too big.");
+}
 
-/** A request that isn't its door's shape: its query's names, its body's size, then its fields. A body is read from a copy, on doors that take one. */
-async function refusedByShape(request: Request, door: SiteDoor): Promise<Response | null> {
+/** A request that isn't its door's shape: its query's names, its body's size, then its fields. A form is read once, and its door gets that read (formOf); a JSON body is read from a copy, within its row's size. */
+async function refusedByShape(request: Request, env: Env, door: SiteDoor): Promise<Response | null> {
   const { query, body } = door.contract.takes;
   const wrong = queryProblem(query, new URL(request.url).searchParams, true);
   if (wrong) return wrongShape(door, wrong.field);
   const { method } = request;
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return null;
   const maximumSizeBytes = doorBodyMaximumSizeBytes(door);
-  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) return bodyTooBig(door);
+  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) return bodyTooBig(env, door);
   if (!body || body.kind === "bytes") return null;
   const contentType = request.headers.get("content-type") ?? "";
-  if (body.kind === "form" && !contentType.includes("form")) return null;
+  if (body.kind === "form") {
+    if (!contentType.includes("form")) return null;
+    let form: FormData;
+    try {
+      form = await formOf(request);
+    } catch (error) {
+      if (error instanceof BodyPastCapError) return bodyTooBig(env, door);
+      return answerAs(door, 400, "wrong_shape", "That form can't be read.");
+    }
+    const problem = formProblem(body.fields, body.fileNames ?? [], form as unknown as Parameters<typeof formProblem>[2]);
+    return problem ? wrongShape(door, problem.field) : null;
+  }
   let bodyBytes: Uint8Array;
   try {
     bodyBytes = await readBodyBytes(request.clone(), maximumSizeBytes);
   } catch (error) {
-    if (error instanceof BodyPastCapError) return bodyTooBig(door);
+    if (error instanceof BodyPastCapError) return bodyTooBig(env, door);
     return answerAs(door, 400, "wrong_shape", "That body can't be read.");
-  }
-  if (body.kind === "form") {
-    const form = await new Response(bodyBytes, { headers: { "Content-Type": contentType } }).formData().catch(() => null);
-    if (!form) return answerAs(door, 400, "wrong_shape", "That form can't be read.");
-    const problem = formProblem(body.fields, body.fileNames ?? [], form as unknown as Parameters<typeof formProblem>[2]);
-    return problem ? wrongShape(door, problem.field) : null;
   }
   const bodyText = new TextDecoder().decode(bodyBytes);
   if (!bodyText.trim() && body.isOptional) return null;
@@ -96,8 +105,8 @@ async function signedOutAnswer(request: Request, path: string, whenSignedOut: Wh
       if (next === "here") return signInWith(path);
       if (next === "here_with_query") return signInWith(safeNext(path + url.search));
       if (next !== "next_field") return signInWith(next);
-      // A form sends where to go back to in its fields; a page in its query. Read from a copy, on this refusal only.
-      const form = request.method === "POST" ? await request.clone().formData().catch(() => null) : null;
+      // A form sends where to go back to in its fields; a page in its query.
+      const form = request.method === "POST" ? await formOf(request).catch(() => null) : null;
       return signInWith(safeNext(form ? String(form.get("next") ?? "").trim().slice(0, 2000) : url.searchParams.get("next")));
     }
   }
@@ -119,7 +128,7 @@ export async function guardSiteDoor(request: Request, env: Env, path: string): P
   // An address's limit first, where no player is known yet: it reads nothing. Then who, then what they sent, all before any of the door's own code.
   const { limit } = door.contract;
   if ("counts" in limit && limit.counts === "address" && (await isPastDoorLimit(env, limit, door.path, connectionAddressOf(request) ?? "unknown"))) return tooOften(door);
-  return (await whoIsRefused(request, env, path, door)) ?? refusedByShape(request, door);
+  return (await whoIsRefused(request, env, path, door)) ?? refusedByShape(request, env, door);
 }
 
 /** Who may call the door: its answer for anyone else. */

@@ -22,6 +22,7 @@ import { isPastLevel,
   socialStoppedNotice,
   type Account,
   type FriendInvite,
+  formOf,
 } from "@zaisma/core";
 import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -99,7 +100,7 @@ export async function handleFriends(request: Request, env: Env, path: string): P
 
   if (!session) return redirect(`/signin?next=${encodeURIComponent("/friends")}`);
   if (!account) return done(redirect("/join"));
-  const form = post ? await request.formData() : null;
+  const form = post ? await formOf(request) : null;
 
   // A code typed into the box: the invite's own page says who it's from before anything happens.
   if (path === "/friends/add" && post) {

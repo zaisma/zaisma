@@ -84,6 +84,18 @@ export async function readBodyBytes(request: Request, maximumSizeBytes: number):
   return bytes;
 }
 
+const FORMS_READ = new WeakMap<Request, Promise<FormData>>();
+
+/** A request's form, read once however many ask: the guard's read is the one its door then gets, so a form is only ever held once. */
+export function formOf(request: Request): Promise<FormData> {
+  let form = FORMS_READ.get(request);
+  if (!form) {
+    form = request.formData();
+    FORMS_READ.set(request, form);
+  }
+  return form;
+}
+
 /** The body as text, as readBodyBytes reads it. */
 export async function readBodyText(request: Request, maximumSizeBytes: number): Promise<string> {
   return new TextDecoder().decode(await readBodyBytes(request, maximumSizeBytes));
