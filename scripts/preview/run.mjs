@@ -517,7 +517,7 @@ const routerConfig = writeConfig("router", {
   vars: { SITE_PORT: String(PORTS.site), GAMES_PORT: String(PORTS.games), ROOMS_PORT: String(PORTS.rooms), PHONE_HOST },
   services: [{ binding: "SITE", service: "zaisma-site" }, { binding: "GAMES", service: "zaisma-games" }, { binding: "ROOMS", service: "zaisma-rooms" }],
 });
-const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", {})];
+const configs = [routerConfig, previewConfig("site", siteSettings), previewConfig("games", gamesSettings), previewConfig("rooms", roomsSettings), previewConfig("compress", process.env.CI && process.argv.includes("--reset") && !ENGINES_ONLY ? { PREVIEW_BROTLI_QUALITY: "4" } : {})];
 writeFileSync(join(STATE, "servers.log"), "");
 const forwards = [forward(PORTS.site), forward(PORTS.games), forward(PORTS.rooms)].flat();
 process.on("exit", () => forwards.forEach((server) => server.close()));
