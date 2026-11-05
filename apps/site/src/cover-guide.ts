@@ -102,7 +102,7 @@ ${figure("screenshot-not-fine.webp", "A caption, an arrow and a circle added aft
 <h2>What happens</h2>
 <p>Pictures and new words are checked in about a minute. A cover or title that breaks a line still shows on your game's page, and the game plays by its link, but home, All games, browse and search engines leave it out until it's fixed; it's back about a minute after. Your dashboard, and your AI through <code>get_game</code>, say what and how to fix it. A fake reward holds the game until a person looks. If the check got something wrong, message Zaisma from the dashboard, or <code>message_zaisma</code>, and a person looks.</p>
 </div>`;
-  const response = layout(env, { title: "Covers that show your game · Zaisma", head: STYLE, body, nav: "developer", viewer });
+  const response = layout(env, { title: "Covers that show your game · Zaisma", checkedPage: "Cover guide", head: STYLE, body, nav: "developer", viewer });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
 }

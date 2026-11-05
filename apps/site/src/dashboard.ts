@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { APPEAL_EMAIL } from "./bans.ts";
@@ -447,8 +448,8 @@ function withCookies(response: Response, cookies: string[]): Response {
   return withAll;
 }
 
-export function page(env: Env, title: string, body: Raw, httpStatus = 200, account?: Account | null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, steelStyles: [DASHBOARD_STYLE], isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
+function page(env: Env, checkedPage: SteelPageName, title: string, body: Raw, httpStatus = 200, account?: Account | null): Response {
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`${body}${scriptTags(LOCAL_TIMES_SCRIPT)}`, checkedPage, steelStyles: [DASHBOARD_STYLE], isPrivate: true, nav: "developer", viewer: account === undefined ? undefined : { account } });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 
@@ -485,6 +486,7 @@ ${metalButton("Make a game", { type: "submit" })}
   const settings = html`<a class="btn ghost" href="/dashboard/settings">Settings</a>`;
   return page(
     env,
+    "Your games",
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1><div class="dash-actions">${canPublish ? make : ""}${settings}</div></div>
 ${notice({ error })}
@@ -531,6 +533,7 @@ async function bannedGamesPage(env: Env, call: Call, account: Account | null, ba
   const { games } = (await call("GET", "/games")) as { games: GameJson[] };
   return page(
     env,
+    "Your games, banned",
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1></div>
 <div class="first note"><p><strong>${bannedText}</strong> Export your games to keep them: each export holds the game's files, details, database and players' saves.</p>
@@ -557,6 +560,8 @@ const SECTIONS: { id: Section; path: string; name: string }[] = [
   { id: "players", path: "players", name: "Players and stats" },
   { id: "database", path: "database", name: "Database" },
 ];
+/** Each section is a screen of its own on the Screens bench (layout's checkedPage). */
+const SECTION_PAGE_NAMES: Record<Section, SteelPageName> = { overview: "A game's overview", versions: "A game's versions", details: "A game's details", players: "A game's players", database: "A game's database" };
 const sectionPath = (slug: string, section: Section) => `/dashboard/${slug}${section === "overview" ? "" : `/${section}`}`;
 /** Sends a change back to the section its form is in, for forms that show on more than one. */
 const sectionField = (section: Section) => html`<input type="hidden" name="section" value="${section}">`;
@@ -604,7 +609,7 @@ async function managerPage(
   try {
     loaded = (await call("GET", `/games/${slug}`)) as Loaded;
   } catch (error) {
-    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, account);
+    if (error instanceof ApiError && error.httpStatus === 404) return page(env, "A game not found", "Game not found", html`<h1>Game not found</h1><p class="lead">${error.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404, account);
     throw error;
   }
   const { game, images } = loaded;
@@ -637,6 +642,7 @@ async function managerPage(
 
   return page(
     env,
+    SECTION_PAGE_NAMES[section],
     section === "overview" ? game.title : `${name} · ${game.title}`,
     html`<p class="crumbs"><a href="/dashboard">Your games</a></p>
 <div class="game-head">

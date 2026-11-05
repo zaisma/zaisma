@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHECKED_PAGES, STRESS_ACCOUNTS } from "../../apps/site/src/components/checked-pages.ts";
-import { BENCH_PLACES, CHECKED_PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
+import { CHECKED_PAGES } from "../../apps/site/src/components/checked-pages.ts";
+import { STEEL_PAGES } from "../../apps/site/src/steel-pages.ts";
+import { BENCH_PLACES, PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, jarKeyOf, makeMirror, markOf, parseMark, screenLocation, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -11,6 +12,8 @@ import { SAFE_AREA_PX, phoneMediaText, phoneSafeAreaText } from "../../scripts/p
 import { MAXIMUM_SEEN_LOOKS, seenAfter } from "../../scripts/preview/bench/bench-files.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { SIGN_INS } from "../../scripts/preview/sign-ins.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { arrivalProblems, comparableAddress, personBeforePress } from "../../scripts/bench-press-check.mjs";
 
 const filesUnder = (folder: string): string[] => readdirSync(folder).flatMap((name) => { const path = join(folder, name); return statSync(path).isDirectory() ? (name === "generated" || name === "node_modules" ? [] : filesUnder(path)) : [path]; });
 
@@ -45,18 +48,82 @@ describe("the bench's places and states", () => {
     for (const username of usernames) expect(PROFILE_WORDS[username], username).toBeTruthy();
     for (const username of Object.keys(PROFILE_WORDS)) expect(usernames, username).toContain(username);
   });
-  it("cover every page and state the layout check opens, or say why not", () => {
-    const named = new Set<string>(BENCH_PLACES.flatMap((place) => place.states.flatMap((state) => ("checkedPage" in state ? [state.checkedPage] : []))));
-    const placePaths = new Set(BENCH_PLACES.map((place) => place.path));
-    const reasons = new Set<string>(CHECKED_PAGES_NOT_ON_THE_BENCH.map((each) => each.name));
-    const stressAccounts = new Set<string>(STRESS_ACCOUNTS.map((each) => each.account));
-    const missing = CHECKED_PAGES.filter((page) => !("isGallery" in page) && !("isOnSignInSite" in page))
-      .filter((page) => !named.has(page.name) && !reasons.has(page.name) && !placePaths.has(page.path) && !("account" in page && stressAccounts.has(page.account as string)) && !("account" in page && page.path === "/games") && !/^Game page, long names$/.test(page.name));
-    expect(missing.map((page) => page.name)).toEqual([]);
+  const namedOnTheBench = BENCH_PLACES.flatMap((place) => place.states.flatMap((state) => ("checkedPage" in state ? [state.checkedPage as string] : [])));
+  const reasons = PAGES_NOT_ON_THE_BENCH.map((each) => each.name as string);
+  it("give every named screen a button of its own or a written reason: an address a place shares counts for nothing", () => {
+    // The gallery isn't on the bench: it has its own places in its own sidebar, and the bench's rail links to it.
+    const screens = [...CHECKED_PAGES.filter((page) => !page.isGallery), ...STEEL_PAGES];
+    expect(screens.map((page) => page.name).filter((name) => !namedOnTheBench.includes(name) && !reasons.includes(name))).toEqual([]);
+  });
+  it("hold a reason only where there's no button, and every reason to a screen that exists", () => {
+    const screens = [...CHECKED_PAGES, ...STEEL_PAGES].map((page) => page.name);
+    expect(reasons.filter((name) => namedOnTheBench.includes(name))).toEqual([]);
+    expect(reasons.filter((name) => !screens.includes(name))).toEqual([]);
+    for (const { reason } of PAGES_NOT_ON_THE_BENCH) expect(reason.length).toBeGreaterThan(0);
+  });
+  it("name each screen once, in one look", () => {
+    const names = [...CHECKED_PAGES, ...STEEL_PAGES].map((page) => page.name);
+    expect(names.length).toBe(new Set(names).size);
+  });
+  it("list every state for everyone, and say who a press switches to when it needs someone", () => {
+    const script = readFileSync("scripts/preview/bench/bench-script.js", "utf8");
+    expect(script).not.toContain("state.seenBy");
+    expect(script).not.toContain("canSee");
+    expect(states.some((state) => "seenBy" in state)).toBe(false);
+    const asPlaced = BENCH_PLACES.flatMap((place) => place.states.map((state) => ({ state, ready: states.find((each) => each.placeValue === place.placeValue && each.stateValue === state.stateValue)! })));
+    for (const { state, ready } of asPlaced) {
+      if (state.seenBy === "guest") expect(ready.profile, state.label).toBe("guest");
+      if (state.seenBy === "signed_in") { expect(ready.profile ?? ready.signedInProfile, state.label).toBeTruthy(); expect(ready.profile, state.label).not.toBe("guest"); }
+    }
   });
   it("fail a sheet with no button, and pass one with its own, a reason or a pattern", () => {
     expect(statesWithNoButton(["some-new-sheet"])).toEqual(["some-new-sheet"]);
     expect(statesWithNoButton(["still-there", "top-find-list", "webhook-webhook_anything-edit"])).toEqual([]);
+  });
+});
+
+describe("every page's name", () => {
+  it("is on a list, and every name on the list of pages in the old look is said by a page", () => {
+    const source = filesUnder("apps/site/src").filter((path) => !path.endsWith("steel-pages.ts")).map((path) => readFileSync(path, "utf8")).join("\n");
+    expect(STEEL_PAGES.map((page) => page.name).filter((name) => !source.includes(`"${name}"`))).toEqual([]);
+  });
+});
+
+describe("the press check", () => {
+  const state = { placeValue: "home", stateValue: "x", label: "X", stateKind: "opened", path: "/g/a?play" };
+  const seen = { isButtonShown: true, isPressed: true, isComplete: true, address: "/g/a?play=&bench_screen=main.phone.guest.still", pageName: "Home", markedProfile: "guest", isSignedIn: false, isOpen: true, isControlThere: true, isAnyLayerOpen: true };
+  it("passes a state that's there, however its address is written", () => {
+    expect(comparableAddress("/g/a?play&b=1")).toBe(comparableAddress("/g/a?b=1&play=&bench_screen=main.phone.guest.still"));
+    expect(arrivalProblems(state, seen)).toEqual([]);
+    expect(arrivalProblems({ ...state, shownPageName: "Home", profile: "guest", opens: "a-sheet" }, seen)).toEqual([]);
+  });
+  it("fails each way a press can miss, saying what it saw", () => {
+    const missed = (asked: object, given: object) => arrivalProblems({ ...state, ...asked }, { ...seen, ...given }).join();
+    expect(missed({}, { isButtonShown: false })).toContain("left the rail");
+    expect(missed({}, { isPressed: false })).toContain("came back up");
+    expect(missed({ shownPageName: "Games" }, {})).toContain(`"Home", not "Games"`);
+    expect(missed({ path: "/games" }, {})).toContain("not /games");
+    expect(missed({ path: "/games", stepsToTake: [{ path: "/x" }] }, {})).toBe("");
+    expect(missed({ profile: "Moss_Runner" }, {})).toContain("guest's, not Moss_Runner's");
+    expect(missed({ profile: "guest" }, { isSignedIn: true })).toContain("signed in");
+    expect(missed({ profile: "guest", stepsToTake: [{ path: "/signin/with/google" }] }, { isSignedIn: true })).toBe("");
+    expect(missed({ signedInProfile: "Moss_Runner" }, {})).toContain("a guest's");
+    expect(missed({ opens: "a-sheet" }, { isOpen: false })).toContain("#a-sheet isn't open");
+    expect(missed({ presses: "#a" }, { isControlThere: false })).toContain("no #a");
+    expect(missed({ setUpName: "A" }, { isAnyLayerOpen: false })).toContain("nothing opened");
+  });
+  it("presses a state as someone it doesn't need, so the press has to switch", () => {
+    expect(personBeforePress({ profile: "guest" })).toBe("Moss_Runner");
+    expect(personBeforePress({ profile: "Card_Keeper" })).toBe("guest");
+    expect(personBeforePress({ signedInProfile: "Moss_Runner" })).toBe("guest");
+    expect(personBeforePress({})).toBeNull();
+  });
+  it("runs at night and holds no ship, and not in a pull request", () => {
+    const nightly = readFileSync(".github/workflows/nightly.yml", "utf8");
+    const job = nightly.slice(nightly.indexOf("\n  bench-presses:"), nightly.indexOf("\n  # CI's warning line"));
+    expect(job).toContain("npm run bench:check");
+    expect(job).toContain("continue-on-error: true");
+    expect(readFileSync(".github/workflows/check.yml", "utf8")).not.toContain("bench:check");
   });
 });
 

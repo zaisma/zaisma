@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import { keepImagePlaceholder } from "./placeholders.ts";
 import {
   BUILT_IN_GAME_SERVERS,
@@ -184,12 +185,12 @@ function toldDeveloper(stored: string | null): Raw | string {
   return reason ? html`<p class="muted">The developer reads: <code>${reason.code}</code>${reason.content_rule ? html` · rule <code>${reason.content_rule}</code>` : ""} · “${reason.message}”</p>` : "";
 }
 
-export function adminPage(env: Env, title: string, body: Raw): Response {
-  return page(env, title, body);
+export function adminPage(env: Env, checkedPage: SteelPageName, title: string, body: Raw): Response {
+  return page(env, checkedPage, title, body);
 }
 
-function page(env: Env, title: string, body: Raw): Response {
-  return layout(env, { title: `${title} · Zaisma admin`, body, isAdmin: true });
+function page(env: Env, checkedPage: SteelPageName, title: string, body: Raw): Response {
+  return layout(env, { title: `${title} · Zaisma admin`, body, checkedPage, isAdmin: true });
 }
 
 function redirect(to: string): Response {
@@ -207,12 +208,12 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
 
   if (path === "/admin") return dashboard(env);
   if (path === "/admin/audit") return auditPage(env);
-  if (path === "/admin/profiles") return page(env, "Profiles", await adminProfilesPage(env));
-  if (path === "/admin/chat-reviews") return page(env, "Chat reviews", await adminChatReviewsPage(env));
-  if (path === "/admin/publishing") return page(env, "Publishing", await adminPublishingPage(env, new URL(request.url).searchParams.get("not_found")));
+  if (path === "/admin/profiles") return page(env, "Admin, profiles", "Profiles", await adminProfilesPage(env));
+  if (path === "/admin/chat-reviews") return page(env, "Admin, chat reviews", "Chat reviews", await adminChatReviewsPage(env));
+  if (path === "/admin/publishing") return page(env, "Admin, publishing", "Publishing", await adminPublishingPage(env, new URL(request.url).searchParams.get("not_found")));
   if (path === "/admin/reports") return reportQueue(env);
-  if (path === "/admin/precedents") return page(env, "Precedents", await precedentsPage(env));
-  if (path === "/admin/review-precedents") return page(env, "Review precedents", await reviewPrecedentsPage(env));
+  if (path === "/admin/precedents") return page(env, "Admin, precedents", "Precedents", await precedentsPage(env));
+  if (path === "/admin/review-precedents") return page(env, "Admin, review precedents", "Review precedents", await reviewPrecedentsPage(env));
   const feedback = path === "/admin/feedback" || path.startsWith("/admin/feedback/") ? await adminFeedbackPage(env, path, new URL(request.url)) : null;
   if (feedback) return feedback;
   const gameMatch = path.match(/^\/admin\/games\/([a-z0-9_]+)$/);
@@ -589,6 +590,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
   return page(
     env,
     "Admin",
+    "Admin",
     html`<h1>Admin</h1>
 ${spending?.limit_cents ? html`<p class="lead">Spending this month: $${(spending.spent_cents / 100).toFixed(2)} of $${(spending.limit_cents / 100).toFixed(2)}${spending.free_rooms_stopped_at_ms ? ", free rooms stopped" : ""}.</p>` : html`<p class="lead">The monthly spending limit isn't measured yet: its secrets aren't set, or the job hasn't run this month.</p>`}
 <p class="lead">AI this month: ${usage.scan_call_count} scans; reviews $${(usage.review_cost_cents / 100).toFixed(2)} of $${(Number(env.AI_REVIEW_MONTHLY_BUDGET_CENTS) / 100).toFixed(2)} (${usage.review_call_count} calls); ${usage.report_triage_call_count} reports and ${usage.forum_call_count} feedback items sorted, ${usage.input_token_count.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
@@ -695,6 +697,7 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
 
   return page(
     env,
+    "Admin, a game",
     game.title,
     html`<h1>${game.title} ${pill(game.review_status)}</h1>
 <p class="lead">${game.description}</p>
@@ -848,7 +851,7 @@ function auditTable(log: Awaited<ReturnType<typeof auditLog>>): Raw {
 }
 
 async function auditPage(env: Env): Promise<Response> {
-  return page(env, "Audit log", html`<h1>Audit log</h1>${auditTable(await auditLog(env.DB))}`);
+  return page(env, "Admin, audit log", "Audit log", html`<h1>Audit log</h1>${auditTable(await auditLog(env.DB))}`);
 }
 
 function imageReview(image: GameImage, fromGame = false): Raw {
@@ -971,6 +974,7 @@ async function reportQueue(env: Env): Promise<Response> {
   const waiting = open.filter((report) => !report.triaged_at_ms).length;
   return page(
     env,
+    "Admin, reports",
     "Reports",
     html`<h1>Reports</h1>
 <p class="lead">${groups.length ? `${open.length} open ${open.length === 1 ? "report" : "reports"} about ${groups.length} ${groups.length === 1 ? "problem" : "problems"}, most serious first.` : "No open reports."}${waiting ? ` ${waiting} still being sorted.` : ""}</p>
