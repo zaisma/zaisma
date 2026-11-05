@@ -32,13 +32,13 @@ const ZAISMA_ADDRESSES = [
   "_zaisma/warm-redirects.json",
 ] as const;
 
-/** A game's files are public once it's live, and Cloudflare caches them: a game's own query is the game's, so a file door reads no names of its own. */
-const FILES = { takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: { whyNoLimit: "cached_file" } } as const;
+const BY_ADDRESS: DoorLimit = { level: "building", counts: "address" };
+/** A game's files are public once it's live, and Cloudflare caches them: a game's own query is the game's, so a file door reads no names of its own. An address counts at the level a whole building clears. */
+const FILES = { takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: BY_ADDRESS } as const;
 const PUBLIC: DoorContract = { whoMayCall: "anyone", reaches: "nothing_private", trusts: [], ...FILES };
 const OPEN_THROUGH_LINK = { source_path: "apps/games/src/index.ts", symbol_name: "openThroughLink" };
 /** A link's grant and where to go after it. */
 const ENTERING: DoorTakes = { query: { grant: text(200), then: text(2000) }, body: null };
-const BY_ADDRESS: DoorLimit = { level: "building", counts: "address" };
 
 export const GAME_FILE_DOORS: Readonly<Record<GameFileDoorName, DoorContract>> = {
   file: { ...PUBLIC, takes: { query: { room: text(40) }, body: null } },
