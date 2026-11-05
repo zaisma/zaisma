@@ -173,7 +173,7 @@ describe("a look at the line", () => {
       expect(said[0]).toMatch(/a preview nobody is using is going to sleep/);
       expect(lineOnDisk().room_wanted_until_ms).toBeGreaterThan(Date.now());
     });
-    it("takes a handed-over preview after 2 minutes, where another takes 10", async () => {
+    it("takes a handed-over preview after 2 minutes, where another takes 3", async () => {
       awakeLine([idleFor(0, HANDED_OVER_IDLE_MS + 1000, true)]);
       let lookCount = 0;
       const measure = (entries: { pid: number }[]) => measuring(++lookCount === 1 ? FULL : [])(entries);
@@ -186,7 +186,7 @@ describe("a look at the line", () => {
     });
     it.each([
       ["someone looked at it just now", [idleFor(0, 60_000, true)], FULL],
-      ["it isn't handed over and hasn't reached 10 minutes", [idleFor(0, 5 * 60_000)], FULL],
+      ["it isn't handed over and hasn't reached 3 minutes", [idleFor(0, 2 * 60_000)], FULL],
       ["its sleep wouldn't make enough room", [idleFor(0, 12 * 60_000)], [{ offset: 0, sizeBytes: 100 * MB }, { offset: 100, sizeBytes: 2800 * MB }]],
     ])("ends at once when %s", async (_name, awakePreviews, previews) => {
       awakeLine(awakePreviews);
@@ -270,8 +270,8 @@ describe("which preview sleeps to make room", () => {
     expect(HANDED_OVER_IDLE_MS).toBe(2 * MINUTE_MS);
     expect(wanted([handedOver(2)])).toBe(0);
     expect(wanted([handedOver(1)])).toBeNull();
-    expect(wanted([awakeFor(0, 9)])).toBeNull();
-    expect(wanted([awakeFor(0, 10)])).toBe(0);
+    expect(wanted([awakeFor(0, 2)])).toBeNull();
+    expect(wanted([awakeFor(0, 3)])).toBe(0);
     expect(wanted([handedOver(5)], NOW_MS)).toBeNull();
     expect(pick([asked()], [handedOver(5)])).toBeNull();
   });
