@@ -137,7 +137,7 @@ function card(options: CardOptions): LayoutItem {
       },
       quickPlayHref: game.is_gone ? undefined : `/g/${game.slug}?play`,
       isGone: game.is_gone,
-      menu: removeItem ? { id: `${options.menuIdPrefix}-${game.slug}-menu`, label: game.title, items: [removeItem] } : undefined,
+      menu: removeItem ? { id: `${options.menuIdPrefix}-${game.slug}-more`, label: game.title, items: [removeItem] } : undefined,
       isEager: options.isEager,
       hasHighPriority: options.isEager,
     })}</div>`,
