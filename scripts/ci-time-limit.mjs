@@ -99,6 +99,18 @@ async function check() {
   if (verdict.is_over_ceiling) process.exitCode = 1;
 }
 
+/** The push to Julius when CI passes its warning line. */
+export const warningPush = (line) => ({ title: "CI is growing", message: line, priority: 0 });
+
+/** Runs the report and turns anything it throws into a warning: a failed run here would read as a failed sweep and stop npm run ship. */
+export async function reportWithoutFailing(runReport = report) {
+  try {
+    await runReport();
+  } catch (error) {
+    console.log(`::warning::The CI time report didn't finish: ${error.message}`);
+  }
+}
+
 async function report() {
   const { workflow_runs: runs } = await github(`actions/workflows/check.yml/runs?status=completed&per_page=100`);
   const durationsSec = [];
@@ -114,14 +126,14 @@ async function report() {
   if (verdict.is_over_warning && process.env.PUSHOVER_USER_KEY && process.env.PUSHOVER_APP_TOKEN) {
     // Loaded only here, so the required check's --check depends on nothing beyond this file.
     const { sendPushover } = await import("./watch-checks.mjs");
-    await sendPushover({ userKey: process.env.PUSHOVER_USER_KEY, appToken: process.env.PUSHOVER_APP_TOKEN }, { title: "CI is growing", message: verdict.line });
+    await sendPushover({ userKey: process.env.PUSHOVER_USER_KEY, appToken: process.env.PUSHOVER_APP_TOKEN }, warningPush(verdict.line));
   }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const flag = process.argv[2];
   if (flag === "--check") await check();
-  else if (flag === "--report") await report();
+  else if (flag === "--report") await reportWithoutFailing();
   else {
     console.error("Use: node scripts/ci-time-limit.mjs --check | --report");
     process.exit(2);
