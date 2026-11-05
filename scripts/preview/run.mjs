@@ -287,10 +287,10 @@ async function waitForBrotliCopies() {
 /**
  * Until the AI reviews the test data started are over, or a minute: starting the servers again drops a review in the queue, and a game set
  * listed or unlisted takes that only when its review ends. The seeded reviews that stay waiting (seedAiReviewStates) are left out, as are the
- * ones in a batch, which outlast the start, and the ones waiting for a free review.
+ * ones whose batch was sent, which the scheduled job picks up after a start, and the ones waiting for a free review.
  */
 async function waitForAiReviews() {
-  const running = () => querySql("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND ai_review_speed = 'at_once' AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND id NOT LIKE 'version_preview%'");
+  const running = () => querySql("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND id NOT LIKE 'version_preview%' AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id)");
   for (let lookCount = 0; running().length && lookCount < 120; lookCount++) await new Promise((r) => setTimeout(r, 500));
   const left = running();
   if (left.length) console.log(`  Still in AI review after a minute: ${left.slice(0, 5).map((row) => row.id).join(", ")}`);
