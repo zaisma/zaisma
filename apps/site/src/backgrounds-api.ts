@@ -61,7 +61,7 @@ import { countShaderCheck, runShaderDraft, shaderCheckAllowance, shaderCheckDeps
 const CANDIDATES_FIX = "get_game lists the game's background images (kinds background and phone_background) and shaders, each with its review_status.";
 
 /** The listing check's codes for a background: the shader was drawn and image matching cleared its pictures, only the listing check turned it down. */
-const BACKGROUND_LISTING_CODES: readonly string[] = ["text_on_background", "overlay_on_background", "famous_name_on_background"] satisfies ReviewCodeName[];
+const BACKGROUND_LISTING_CODES: readonly string[] = ["text_on_background", "overlay_on_background"] satisfies ReviewCodeName[];
 
 /** Whether the check saved a still and frames: it drew the shader and image matching cleared them. */
 const hasCheckPictures = (shader: GameShader) => shader.checked_at_ms !== null && (shader.review_status !== "rejected" || BACKGROUND_LISTING_CODES.includes(readReviewReason(shader.review_reason)?.code ?? ""));

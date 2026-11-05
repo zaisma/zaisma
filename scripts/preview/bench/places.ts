@@ -235,6 +235,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "security", label: "Security", stateKind: "opened", seenBy: "both", checkedPage: "Security" },
       { stateValue: "dmca-notices", label: "DMCA notices", stateKind: "opened", seenBy: "both", checkedPage: "DMCA notices" },
       { stateValue: "defamation-notices", label: "Defamation notices", stateKind: "opened", seenBy: "both", checkedPage: "Defamation notices" },
+      { stateValue: "trademark-notices", label: "Trademark notices", stateKind: "opened", seenBy: "both", checkedPage: "Trademark notices" },
       { stateValue: "background-guide", label: "Background guide", stateKind: "opened", seenBy: "both", checkedPage: "Background guide" },
       { stateValue: "cover-guide", label: "Cover guide", stateKind: "opened", seenBy: "both", checkedPage: "Cover guide" },
       { stateValue: "example-page", label: "Example page", stateKind: "opened", seenBy: "both", checkedPage: "Example page" },

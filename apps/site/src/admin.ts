@@ -132,7 +132,7 @@ function ruleSelect(options: { contentRule: string | null; isRequired: boolean }
 }
 
 /**
- * A copyright or defamation notice holds the game without Zaisma judging it. It shows again once a
+ * A copyright, defamation or trademark notice holds the game without Zaisma judging it. It shows again once a
  * person checks a fixed version (publishing one emails Zaisma), or 10 working days after a
  * counter-notice reached the sender, unless they say they've gone to court.
  */
@@ -431,7 +431,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!isNoticeKind(noticeKind) || !reason) return gameDetail(env, game.id, "Pick the kind of notice and say what it names. The developer reads it, and it goes in the audit log too.");
     if (game.review_status === "removed") return gameDetail(env, game.id, "The game is already taken down. Restore it first if the notice should hold it instead.");
     // Zaisma doesn't judge the notice: the game is held until a fixed version is checked or a counter-notice brings it back.
-    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : "defamation"} notice names this: ${reason}`);
+    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : noticeKind} notice names this: ${reason}`);
     await setReviewStatus(env.DB, game.id, "held", noticeReason);
     await recordRestoreEvent(env, { event_kind: "game_held", at_ms: Date.now(), game_id: game.id, review_reason: noticeReason });
     await audit(env.DB, game.id, "notice-held", reason, actor, noticeReason);

@@ -25,7 +25,7 @@ import { recordRestoreEvent } from "./restore-events.ts";
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const PLAYER_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
-/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright and defamation go to their notice pages. */
+/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright, defamation and trademarks go to their notice pages. */
 const GAME_WHYS: [ReportReason, string, string][] = [
   ["broken", "It's broken", "Won't load, crashes, or isn't really a game"],
   ["player", "A player", "Someone in a match is causing trouble"],
@@ -80,7 +80,7 @@ export function reportStep(game: Game, options: { isMultiplayer: boolean }): She
       {
         kind: "words",
         id: "report-notices",
-        markup: html`<p>Someone copied your work? ${textLink("Send a copyright notice", "/legal/dmca", { isNewTab: true })}<br>A game falsely says you committed a crime? ${textLink("Send a defamation notice", "/legal/defamation", { isNewTab: true })}</p>`,
+        markup: html`<p>Someone copied your work? ${textLink("Send a copyright notice", "/legal/dmca", { isNewTab: true })}<br>A game falsely says you committed a crime? ${textLink("Send a defamation notice", "/legal/defamation", { isNewTab: true })}<br>A game uses your trademark? ${textLink("Send a trademark notice", "/legal/trademark", { isNewTab: true })}</p>`,
       },
     ],
   });
@@ -302,7 +302,7 @@ export async function reportForm(env: Env, slug: string, error = "", httpStatus 
       { kind: "block", markup: longField({ id: "report-details", name: "details", label: "Details (optional)", rowCount: 3, maximumCharacterCount: 2000, placeholder: "What did you see, and where in the game?" }) },
       {
         kind: "words",
-        markup: html`<p>Copyright claims need a formal notice: see the ${textLink("DMCA page", "/legal/dmca")}. So does a game that falsely says you committed a crime: see ${textLink("Defamation notices", "/legal/defamation")}.</p>`,
+        markup: html`<p>Copyright claims need a formal notice: see the ${textLink("DMCA page", "/legal/dmca")}. So does a game that falsely says you committed a crime: see ${textLink("Defamation notices", "/legal/defamation")}. So does a game that uses your trademark: see ${textLink("Trademark notices", "/legal/trademark")}.</p>`,
       },
       { kind: "block", markup: row({ widths: "equal", items: [{ kind: "control", markup: primaryButton("Send report", { type: "submit" }) }, { kind: "control", markup: secondaryButton("Cancel", { href: `/g/${slug}` }) }] }) },
     ],

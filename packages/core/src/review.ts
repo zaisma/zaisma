@@ -21,6 +21,7 @@ export const CONTENT_RULES = {
   real_people: "Private details about real people, real threats, or calls for real violence.",
   copyright: "Other people's games, art, music or characters used without permission.",
   defamation: "False claims that a real private person committed a crime.",
+  trademark: "Other people's trademarks used so that players would think their owner made or backs the game.",
   personal_details:
     "Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site.",
   chat: "Typed chat between players outside Zaisma's chat hosting. In Zaisma rooms, chat goes through room.chat; on your own server, through canChat and checkChat. Preset phrases and emotes are always fine.",
@@ -84,6 +85,13 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
     fine: "satire, jokes and wild stories about politicians, celebrities and other public figures; crimes someone was publicly charged with or convicted of; made-up people.",
     notFine: "a game that names your neighbor Emma Clarke as the town's thief, or says a real classmate sells drugs.",
   },
+  trademark: {
+    title: "Trademark",
+    test: "Does the game's name, a picture of it or anything in it use someone else's registered trademark so that players would think its owner made or backs the game?",
+    explanation: "Zaisma acts on it only when the owner sends a notice (see Trademark notices); Zaisma does not judge it itself.",
+    fine: "a brand mentioned in a game's story or description, parody, and a common word that happens to be someone's trademark.",
+    notFine: "calling your game \"Minecraft Lava Parkour\", or a football club's crest as your game's logo.",
+  },
   personal_details: {
     title: "Personal details",
     test: "Does the game ask players for an email, real name, birthday, age, location, phone number or password?",
@@ -121,7 +129,7 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { title: string; test: st
  * them, since games borrow code and assets all the time and no file shows whether they may (Julius,
  * Oct 18, 2026), and whether a claim about a real person is true isn't Zaisma's to judge.
  */
-export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation"];
+export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation", "trademark"];
 /**
  * Rules Zaisma acts on only when someone reports the game: the review judges only what a stranger could prove from
  * a game's files alone (Julius, Nov 2, 2026), and no file shows whether a person is real. On a report, the files are
@@ -417,6 +425,13 @@ export const REVIEW_CODES = {
     fix: `Take out what the notice names and publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} If the claim is true or isn't about a private person, send a counter-notice to safety@zaisma.com instead; zaisma.com/legal/defamation says what to put in it.`,
     hasOwnMessage: true,
   },
+  trademark_notice: {
+    meaning: "The owner of a registered trademark sent a notice, so players can't open the game; the message says what it names.",
+    messageForPeople: "A trademark notice names something on or in the game, so players can't open it. Change it, and a person at Zaisma shows the game again, usually within a day. If you own the mark or may use it, send a counter-notice to dmca@zaisma.com.",
+    contentRule: "trademark",
+    fix: `Change what the notice names. In the game's files, publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} In the title or a picture, change it with update_game or add_image, then message_zaisma with the game_slug so a person shows the game again. If you own the mark or may use it, send a counter-notice to dmca@zaisma.com instead, with "Trademark notice" in the subject; zaisma.com/legal/trademark says what to put in it.`,
+    hasOwnMessage: true,
+  },
   country_law_notice: {
     meaning: "A notice says the game breaks a law of one country that US law allows, so players in that country can't open it, and everyone else still can; the message says which law and what it names.",
     messageForPeople: "A notice says the game breaks a law of one country, so players there can't open it; everyone else still can. Take out what it names and publish a fixed version, and a person at Zaisma lifts the block, usually within a day.",
@@ -440,7 +455,7 @@ export const REVIEW_CODES = {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",
     messageForPeople: "A person at Zaisma didn't approve this picture for the reason given. Send a different one in Add image: covers and screenshots show the game itself.",
     contentRule: null,
-    fix: "Send a different one with add_image. Covers and screenshots show the actual game, with no fake rewards and no characters or brands you don't own.",
+    fix: "Send a different one with add_image. Covers and screenshots show the actual game, with no fake rewards.",
     hasOwnMessage: true,
     isRulePicked: true,
   },
@@ -471,13 +486,6 @@ export const REVIEW_CODES = {
     messageForPeople: "Something is laid over the picture, like a button, badge or arrow. Send it without in Add image. The game plays by its link meanwhile, and is back in lists a minute after the fix.",
     contentRule: null,
     fix: `Send the picture without it with add_image. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
-    hasOwnMessage: true,
-  },
-  famous_name: {
-    meaning: "The cover, square cover, share picture or title shows a famous character, logo or name, from a film, show, game, brand or club, that the developer doesn't own; the message names it.",
-    messageForPeople: "A picture or the title shows a famous character, logo or name the game doesn't own. Use your own in Add image or the game's details. If you own it or have permission, message Zaisma.",
-    contentRule: null,
-    fix: `Use your own characters and name with add_image or update_game. Only obvious ones count, and the game itself may borrow (Zaisma acts on that only when the owner sends a notice). If you own it or have permission, message_zaisma with the game_slug. ${BACK_ON_LISTS} ${COVER_GUIDE}`,
     hasOwnMessage: true,
   },
   cover_not_from_game: {
@@ -527,13 +535,6 @@ export const REVIEW_CODES = {
     messageForPeople: "Something is laid over the background, like a button, badge or sticker. Send it without in Background.",
     contentRule: null,
     fix: `Send the background without it (add_image, or add_shader for a shader). ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
-    hasOwnMessage: true,
-  },
-  famous_name_on_background: {
-    meaning: "A background shows a famous character, logo or name, from a film, show, game, brand or club, so it doesn't show; the message names it.",
-    messageForPeople: "The background shows a famous character, logo or name. Send one of the game's own setting in Background. If you own it or have permission, message Zaisma.",
-    contentRule: null,
-    fix: `Send a background of your game's own world (add_image, or add_shader for a shader). Only obvious ones count. If you own it or have permission, message_zaisma with the game_slug. ${COVER_GUIDE}`,
     hasOwnMessage: true,
   },
   // The shader check (Backgrounds in docs/DEVELOPER-API.md): a shader is drawn before anyone sees it
@@ -603,6 +604,7 @@ export function decidedReason(code: ReviewCodeName, contentRule: ContentRule | n
 export const NOTICE_CODES = {
   copyright: { code: "copyright_notice", contentRule: "copyright" },
   defamation: { code: "defamation_notice", contentRule: "defamation" },
+  trademark: { code: "trademark_notice", contentRule: "trademark" },
 } as const satisfies Record<string, { code: ReviewCodeName; contentRule: ContentRule }>;
 export type NoticeKind = keyof typeof NOTICE_CODES;
 export const NOTICE_KINDS = Object.keys(NOTICE_CODES) as NoticeKind[];

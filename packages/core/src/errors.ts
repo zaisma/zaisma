@@ -335,7 +335,7 @@ export const ADMIN_ERROR_CODES = {
   bad_why: { httpStatus: 400, meaning: "why is blank or over 500 characters.", messageForPeople: "The reason is 1 to 500 characters." },
 
   // Notices
-  bad_notice_kind: { httpStatus: 400, meaning: "notice_kind isn't copyright or defamation.", messageForPeople: "A notice is about copyright or defamation." },
+  bad_notice_kind: { httpStatus: 400, meaning: "notice_kind isn't copyright, defamation or trademark.", messageForPeople: "A notice is about copyright, defamation or a trademark." },
   bad_country_code: { httpStatus: 400, meaning: "country_code isn't a country's two-letter code (ISO 3166-1 alpha-2), like GB.", messageForPeople: "A country is its two-letter code, like GB." },
 
   // Precedents

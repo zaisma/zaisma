@@ -585,7 +585,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
         throw new ApiError("missing_field", {
           message: "A takedown needs the content rule it broke.",
           field: "content_rule",
-          fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}. A copyright or defamation notice holds the game with decide_notice instead.`,
+          fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}. A copyright, defamation or trademark notice holds the game with decide_notice instead.`,
         });
       }
       const precedent = toolArguments.precedent as Record<string, unknown> | undefined;
@@ -943,9 +943,9 @@ export const ADMIN_TOOLS: AdminTool[] = [
   {
     name: "decide_notice",
     reaches: "any_game",
-    title: "Act on a copyright or defamation notice",
+    title: "Act on a copyright, defamation or trademark notice",
     description:
-      "A copyright (DMCA) or defamation notice that reached dmca@ or safety@zaisma.com: hold hides the game from players without judging the notice, and the developer reads why (what the notice names) with how to fix it; show_again puts a held game back. Show it again once the live version no longer has what the notice names (publishing one emails the admin), or 10 working days after a counter-notice reached the sender, unless they say they've gone to court. The same as the Notice form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
+      "A copyright (DMCA), defamation or trademark notice that reached dmca@ or safety@zaisma.com: hold hides the game from players without judging the notice, and the developer reads why (what the notice names) with how to fix it; show_again puts a held game back. Show it again once the live version no longer has what the notice names (publishing one emails the admin), or 10 working days after a counter-notice reached the sender, unless they say they've gone to court. The same as the Notice form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
       'Not: { "decision": "hold", "why": "…" } (a hold needs notice_kind too)\n' +
       'Not: { "decision": "show_again", "notice_kind": "copyright", "why": "…" } (show_again takes no notice_kind)',
     inputSchema: {
@@ -953,7 +953,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
         {
           slug: { type: "string", maxLength: 60, description: "The game's link name, as in zaisma.com/g/<slug>, from the link the notice gives." },
           decision: { enum: ["hold", "show_again"], description: "hold: hide the game on the notice; show_again: put a held game back." },
-          notice_kind: { enum: NOTICE_KINDS, description: "For hold (needed): copyright for a DMCA notice, defamation for a private person saying the game falsely accuses them of a crime." },
+          notice_kind: { enum: NOTICE_KINDS, description: "For hold (needed): copyright for a DMCA notice, defamation for a private person saying the game falsely accuses them of a crime, trademark for the owner of a registered trademark." },
           why: { type: "string", minLength: 1, maxLength: 500, description: "For hold, what the notice names (the words or scene), written for the developer, who reads it. For show_again, why, for the audit log." },
         },
         ["slug", "decision", "why"],

@@ -25,6 +25,7 @@ const STEEL_PAGE_LIST = [
   { name: "Cover guide", path: "/developers/covers" },
   { name: "DMCA notices", path: "/legal/dmca" },
   { name: "Defamation notices", path: "/legal/defamation" },
+  { name: "Trademark notices", path: "/legal/trademark" },
   { name: "Forum", path: "/forum" },
   { name: "A forum topic", path: "/forum" },
   { name: "Forum, not found", path: "/forum/topic_nosuchtopic" },
