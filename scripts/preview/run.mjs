@@ -21,7 +21,7 @@ import { LATER_MARKER, MATCH_MARKER, startFakeShield } from "./fake-shield.mjs";
 import { startFakeSite } from "./fake-site.mjs";
 import { startFakeStripe } from "./fake-stripe.mjs";
 import { startFakeTurnstile } from "./fake-turnstile.mjs";
-import { finishTurn, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
+import { finishTurn, HANDED_OVER_FILE, isTurnToSleep, noteMemoryFreed, START_WAIT_LIMIT_MS, waitForTurn } from "./memory.mjs";
 import { PASSWORD } from "./sign-ins.mjs";
 import { newSoftwarePasskey } from "./software-passkey.mjs";
 import { openTestRooms, pretendRoomsSql, testPlayers } from "./test-rooms.mjs";
@@ -321,7 +321,8 @@ function writeConfig(name, config) {
 // ticks and test data), the servers and the feedback server stop, and only this process stays, holding the ports. The next
 // request wakes them: a page a browser opens gets a short "Waking the preview…" page that loads the real one once they're
 // up, and anything else just waits for them. PREVIEW_IDLE_MINUTES changes the wait; 0 never sleeps. While something waits in the line
-// for memory it's 10 minutes, for the preview nobody has looked at for longest (Julius, Nov 2, 2026; memory.mjs, previewToSleep).
+// for memory it's 10 minutes, for the preview nobody has looked at for longest (Julius, Nov 2, 2026; memory.mjs, previewToSleep), and
+// when a test run needs the room, 2 minutes for a preview its session has handed over to a person (HANDED_OVER_FILE).
 const IDLE_MINUTES = Number(process.env.PREVIEW_IDLE_MINUTES ?? 30);
 let lastVisitAtMs = Date.now();
 let serversProcess = null;
@@ -381,7 +382,7 @@ async function startServers() {
 
 /** Stops the servers and the feedback server, until the next request. */
 async function sleep({ isMakingRoom = false } = {}) {
-  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${Math.round((Date.now() - lastVisitAtMs) / 60_000)} minutes${isMakingRoom ? ", and something waits in line for its memory" : ""}. Opening one wakes it.`);
+  console.log(`Asleep at ${new Date().toLocaleTimeString()}: nobody opened a page for ${Math.round((Date.now() - lastVisitAtMs) / 60_000)} minutes${isMakingRoom ? ", and something needs its memory" : ""}. Opening one wakes it.`);
   testPlayers.isPaused = true;
   const stopped = [serversProcess, feedbackProcess].map((child) => new Promise((done) => (child.exitCode !== null ? done() : (child.once("exit", done), child.kill()))));
   serversProcess = feedbackProcess = null;
@@ -547,7 +548,7 @@ if (IDLE_MINUTES > 0)
     if (!isAwake()) return;
     noteVisits();
     if (Date.now() - lastVisitAtMs > IDLE_MINUTES * 60_000) return void sleep();
-    isTurnToSleep({ offset: OFFSET, lastVisitAtMs }).then((isTurn) => isTurn && isAwake() && sleep({ isMakingRoom: true })).catch(() => {});
+    isTurnToSleep({ offset: OFFSET, lastVisitAtMs, isHandedOver: existsSync(join(ROOT, HANDED_OVER_FILE)) }).then((isTurn) => isTurn && isAwake() && sleep({ isMakingRoom: true })).catch(() => {});
   }, 15_000);
 if (ENGINES_ONLY) {
   const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
