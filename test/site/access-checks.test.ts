@@ -92,7 +92,7 @@ const isLogged = (apiRoute: ApiRoute) => (apiRoute.method !== "GET" && !(nameOf(
  * Path parts that name something inside the path's game or topic by its ID: from inside the stranger's own
  * game or topic, the developer's must be answered like nothing there.
  */
-const IDS_INSIDE = ["image_id", "shader_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id", "purchase_id", "scheduled_room_message_id"];
+const IDS_INSIDE = ["image_id", "shader_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "kept_room_restore_id", "kept_room_restore_batch_id", "post_id", "media_id", "purchase_id", "scheduled_room_message_id"];
 /** Path parts inside a game that aren't IDs of the developer's things, and why a stranger may use them in their own game. */
 const NAMES_INSIDE: Record<string, string> = {
   secret_name: "A name the developer picks: any game can have a secret of that name.",

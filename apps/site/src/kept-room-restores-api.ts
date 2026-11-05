@@ -7,6 +7,7 @@ import {
   isPastLevel,
   iso,
   keptRoomRestoreBatchById,
+  keptRoomRestoreById,
   newId,
   recentKeptRoomRestores,
   runningKeptRoomRestoreBatch,
@@ -78,6 +79,9 @@ const noAnswer = () => new ApiError("internal_error", { message: "The kept room 
 
 const noKeptRoom = (game: Game, code: string) => new ApiError("no_kept_room", { message: `${game.slug} has no kept room ${code} that isn't deleted.`, field: "room_code", fix: "list_kept_rooms gives this game's kept rooms and says which wait to be erased: bring_back_kept_room first." });
 
+const noRestore = (game: Game, code: string, keptRoomRestoreId: string) =>
+  new ApiError("no_kept_room_restore", { message: `Kept room ${code} of ${game.slug} has no restore ${keptRoomRestoreId} that can still be undone.`, field: "kept_room_restore_id", fix: `Use an id from list_kept_room_restores: an undo reaches back ${KEPT_ROOM_RESTORE_LIMITS.restorableDurationDays} days.` });
+
 const tooMany = () => new ApiError("slow_down", { message: "Too many restores of this world in the last minute.", fix: "Wait a minute: up to 5 restores and undos a minute per world.", retryAfterSec: 60 });
 
 /** One call, once the router (developer.ts, checkCall) has checked the key and the game. */
@@ -89,12 +93,13 @@ export async function keptRoomRestoresRoute(env: Env, game: Game, path: string, 
   const service = env.GAME_ROOMS;
   if (!service) throw unavailable();
   const undoId = path.endsWith("/undo") ? (checked.pathValues.kept_room_restore_id ?? "") : null;
+  if (undoId !== null && !(await keptRoomRestoreById(env.DB, game.id, code, undoId))) throw noRestore(game, code, undoId);
   const restoreToAtMs = undoId === null ? readRestoreToAtMs(game, checked.body.restore_to_at) : null;
   const outcome = (undoId === null
     ? await service.restoreKeptRoom({ gameId: game.id, slug: game.slug, roomCode: code, restoreToAtMs: restoreToAtMs! })
     : await service.undoKeptRoomRestore({ gameId: game.id, slug: game.slug, roomCode: code, keptRoomRestoreId: undoId })) as KeptRoomRestoreOutcome;
   if (outcome.outcome === "no_kept_room") throw noKeptRoom(game, code);
-  if (outcome.outcome === "no_kept_room_restore") throw new ApiError("no_kept_room_restore", { message: `Kept room ${code} of ${game.slug} has no restore ${undoId} that can still be undone.`, field: "kept_room_restore_id", fix: `Use an id from list_kept_room_restores: an undo reaches back ${KEPT_ROOM_RESTORE_LIMITS.restorableDurationDays} days.` });
+  if (outcome.outcome === "no_kept_room_restore") throw noRestore(game, code, undoId ?? "");
   if (outcome.outcome === "no_history") throw unavailable();
   if (outcome.outcome === "limited") throw tooMany();
   if (outcome.outcome === "bad_time") {
