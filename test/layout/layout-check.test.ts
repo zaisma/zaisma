@@ -15,7 +15,7 @@ import { MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../ap
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, PRESS_CHECK_SCREEN_NAME, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { openChrome } from "../../scripts/chrome.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -187,7 +187,7 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches a press that answers nothing within 400 ms, in the sweep", async () => {
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup: deaf };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.sweep.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: RUNS.sweep.sizes.filter((size) => (size as { name: string }).name === PRESS_CHECK_SCREEN_NAME), themes: ["light"], tiersOf: RUNS.sweep.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
     expect(failures.some((failure) => /no answer within 400 ms/.test(failure.check) && /Answers nothing/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(true);
   }, 300_000);
 

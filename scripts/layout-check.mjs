@@ -77,6 +77,11 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
+/**
+ * The one screen of the sweep the press check runs on: a laptop (the sweep's screens are the measured ones, and Laptop is measured only at 200%
+ * text, so it is never plainly "Laptop" there). test/node/press-check-screen.test.ts holds that exactly one sweep screen is this one.
+ */
+export const PRESS_CHECK_SCREEN_NAME = `Laptop at ${TEXT_PERCENTS[0]}% text`;
 /** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
@@ -162,7 +167,7 @@ const PAGE_COSTS_SEC = {
   "Report a game": 5,
 };
 const SWEEP_PAGE_COSTS_SEC = {
-  "Gallery: inputs fields": 74,
+  "Gallery: inputs fields": 87.3,
   "Gallery: data pictures": 70.5,
   "Gallery: navigation bars": 66.5,
   "Gallery: layout inside": 62.6,
@@ -171,7 +176,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Playing a game, asked to sign in": 48.8,
   "Gallery: the sidebar over the page": 45.1,
   "Gallery: panes sheets": 36.4,
-  "Gallery: inputs choices": 34.4,
+  "Gallery: inputs choices": 51.5,
   "Gallery: panes materials": 32.8,
   "Game page": 32.2,
   "Gallery: panes layers": 32,
@@ -180,10 +185,10 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Game page, no rooms": 23.7,
   "Games, signed in": 23.6,
   "Games, empty": 23.4,
-  "Home, signed in": 23.1,
+  "Home, signed in": 19.9,
   "Home, empty": 21.7,
   "Developer settings, a game deletion request": 21.5,
-  "Developer settings, full": 21.3,
+  "Developer settings, full": 58.6,
   Games: 21,
   "Gallery: over-a-game sheets": 20.9,
   "Games, long names": 20.2,
@@ -193,7 +198,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Gallery: inputs pickers": 18.9,
   "Gallery: data numbers": 17,
   Home: 16.7,
-  "Developer settings": 16.3,
+  "Developer settings": 102.9,
   "Gallery: foundations look": 16.2,
   "Games, one genre": 15.4,
   "Gallery: data reading": 15.1,
@@ -205,7 +210,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Home, full": 13.5,
   "Gallery: panes buying": 13.4,
   "Developer settings, a spending request": 13.1,
-  "Content rules": 13.1,
+  "Content rules": 21.3,
   "Buying, confirm with a PIN": 12.1,
 };
 const COSTS_BY_RUN = { pull_request: { page_costs_sec: PAGE_COSTS_SEC, unlisted_page_cost_sec: 4 }, sweep: { page_costs_sec: SWEEP_PAGE_COSTS_SEC, unlisted_page_cost_sec: 8 } };
@@ -360,6 +365,8 @@ const PRESS_EVERY_ANSWER = `(async () => {
     // A gallery still shows what a button opens laid in place (a menu, a wheel field's wheels, a search's list), open for good: pressing it
     // changes nothing, by design. A field typed into (a search with its list) answers its typing, not a press: a press only puts the caret in it.
     .filter((el) => !el.matches("input:not([type=button], [type=submit], [type=checkbox], [type=radio]), textarea"))
+    // The folder of a sidebar or switch you're in stays open and does nothing when pressed, by design (switch.ts: "pressing it does nothing").
+    .filter((el) => !el.matches(".switch-folder.is-held"))
     .filter((el) => !document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "")?.closest(".in-place"));
   const failures = [];
   const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
@@ -731,9 +738,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
-      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once (a press changes the page),
-      // in the sweep: pressing every button is most of a page's time.
-      if (options.tiers.includes("sweep") && size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
+      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop at 200% text (the sweep's laptop), once
+      // (a press changes the page), in the sweep: pressing every button is most of a page's time.
+      if (options.tiers.includes("sweep") && size.name === PRESS_CHECK_SCREEN_NAME && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }
