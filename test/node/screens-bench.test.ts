@@ -65,6 +65,10 @@ describe("the bench's places and states", () => {
     const names = [...CHECKED_PAGES, ...STEEL_PAGES].map((page) => page.name);
     expect(names.length).toBe(new Set(names).size);
   });
+  it("stop a page on a turned phone at the notch's bar alone, so its other side reaches the screen's edge", () => {
+    expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain("screen.frame.width = screen.widthPx - sideBarPx;");
+    expect(readFileSync("apps/site/src/components/screens.ts", "utf8")).toContain('width="${String(options.widthPx - (options.sideBarPx ?? 0))}"');
+  });
   it("list every state for everyone, and say who a press switches to when it needs someone", () => {
     const script = readFileSync("scripts/preview/bench/bench-script.js", "utf8");
     expect(script).not.toContain("state.seenBy");

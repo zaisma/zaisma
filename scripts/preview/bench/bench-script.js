@@ -295,8 +295,8 @@
       // What a state opened was closed in the page, by its own Close or Esc: its button comes back up.
       if (message.kind === "state-left") { if (screen === activeScreens()[0]) unpress(message.key); return; }
       if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
-      // A phone on its side: a page stops at its side bars, as in a browser, unless it fills the screen.
-      if (message.kind === "page-fill") { const sideBarPx = message.isFillingScreen ? 0 : Number(screen.figure.dataset.sideBarPx); screen.frame.width = screen.widthPx - 2 * sideBarPx; screen.frame.style.setProperty("--side-bar", `${sideBarPx}px`); return; }
+      // A phone on its side: a page stops at the notch's bar and runs to the other edge, unless it fills the screen.
+      if (message.kind === "page-fill") { const sideBarPx = message.isFillingScreen ? 0 : Number(screen.figure.dataset.sideBarPx); screen.frame.width = screen.widthPx - sideBarPx; screen.frame.style.setProperty("--side-bar", `${sideBarPx}px`); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
       if (big) { big.isChanged = true; if (message.kind === "click") big.lastDone = { kind: "click", message, address: screen.address }; return; }

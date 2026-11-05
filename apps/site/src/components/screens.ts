@@ -25,7 +25,7 @@ export interface BenchScreenOptions {
   heightPx: number;
   /** The status bar's height on a phone held upright: the page starts under it, as in a browser, and the Dynamic Island sits in it. */
   statusBarPx?: number;
-  /** The bar at each side of a phone on its side: a page stops at it, as in a browser, and the Dynamic Island sits in it. A page that fills the screen says so, and runs across it. */
+  /** The bar on the notch's side of a phone on its side: a page stops at it and the Dynamic Island sits in it, while the other side runs to the screen's edge. A page that fills the screen says so, and runs across it. */
   sideBarPx?: number;
   isPhone: boolean;
   scalePct: number;
@@ -37,7 +37,7 @@ export interface BenchScreenOptions {
 export function benchScreen(options: BenchScreenOptions): Raw {
   const scaleNumber = options.scalePct / 100;
   return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" data-side-bar-px="${String(options.sideBarPx ?? 0)}" style="--screen-scale: ${String(scaleNumber)}; --screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
-<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx - 2 * (options.sideBarPx ?? 0))}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; --side-bar: ${String(options.sideBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
+<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx - (options.sideBarPx ?? 0))}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; --side-bar: ${String(options.sideBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
 }
 
@@ -160,12 +160,11 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-body { width: 100%; height: 100%; box-sizing: border-box; }
 .bench-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); }
 .bench-view > iframe { position: absolute; left: calc(var(--side-bar) * var(--screen-scale)); top: calc(var(--status-bar) * var(--screen-scale)); border: 0; transform-origin: 0 0; background: var(--page); }
-/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar and on its side between its side bars, as in a browser, so nothing reaches behind the island, and the bars take the color the browser would (the screen's script says which). Only a page that fills the screen, where a game plays, runs across them, with a phone's safe areas. */
-.bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
-.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: calc(var(--phone-corner) + var(--bench-bezel)); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
-.bench-screen.is-phone .bench-view { background: var(--status-bar-color, var(--well)); }
-/* The screen's corners are the black body drawn over it, never a rounded clip on the view: a browser cutting a live frame to rounded corners leaves the frame's blurred glass square. */
-.bench-screen.is-phone .bench-view::before { content: ""; position: absolute; z-index: 1; inset: 0; border-radius: var(--phone-corner); box-shadow: 0 0 0 var(--phone-corner) #000; pointer-events: none; }
+/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar and on its side beside the notch's bar, so nothing reaches behind the island, while its other side runs to the screen's edge, and the bars take the color the browser would (the screen's script says which). Only a page that fills the screen, where a game plays, runs across them, with a phone's safe areas. */
+.bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-body-corner: calc(var(--phone-corner) + var(--bench-bezel)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
+.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: var(--phone-body-corner); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
+/* The screen is cut to its corners, so nothing in it reaches past the body. A clip path, never a border radius with overflow: a radius cut leaves a live frame's blurred glass square. */
+.bench-screen.is-phone .bench-view { clip-path: inset(0 round var(--phone-corner)); background: var(--status-bar-color, var(--well)); box-shadow: none; }
 .bench-screen.is-phone .bench-view::after { content: ""; position: absolute; z-index: 1; background: #000; border-radius: var(--phone-island-short); pointer-events: none; }
 .bench-screen.is-phone:not(.is-turned) .bench-view::after { top: var(--phone-island-inset); left: 50%; width: var(--phone-island-long); height: var(--phone-island-short); transform: translateX(-50%); }
 .bench-screen.is-turned .bench-view::after { left: var(--phone-island-inset); top: 50%; height: var(--phone-island-long); width: var(--phone-island-short); transform: translateY(-50%); }

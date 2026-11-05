@@ -1354,6 +1354,10 @@ describe("layout", () => {
 
   it("gives a bench screen its own bezel, so it draws with no bench round it", () => {
     expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
+    // A phone's screen is cut to its corners, with nothing painted over them, so it looks the same on any surface.
+    const screenStyles = COMPONENTS().find((each) => each.slug === "screens")!.styles!;
+    expect(screenStyles).toContain("clip-path: inset(0 round var(--phone-corner))");
+    expect(screenStyles).not.toContain(".bench-view::before");
   });
 
   it("keeps what's in a carving clear of its slant, wherever it's beside another control", () => {
