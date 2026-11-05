@@ -455,7 +455,8 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 .layout-row.alignment-between { justify-content: space-between; }
 /* A cell that takes more than its words (equal shares, or the lead) shares out what's left, and its control fills it. */
 .row-cell.fills { flex: 1 1 0; }
-.row-cell.fills > * { flex: 1 1 auto; }
+/* What's in it never runs past its cell, whatever its own words want (a font still arriving, a picker sized to its longest choice): a row too narrow for them is a stack instead, once it's measured (ROW_LAYOUT_SCRIPT). */
+.row-cell.fills > * { flex: 1 1 auto; min-width: 0; }
 .row-cell.fills > .shell { display: flex; }
 .row-cell.fills > .shell > .face { width: 100%; justify-content: center; }
 .row-cell:not(.fills) { flex: none; }

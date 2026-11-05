@@ -48,6 +48,10 @@ describe("the components' script", () => {
     expect(COMPONENT_SCRIPT_SOURCE).toContain(`clear.closest(".find").querySelector('input[type="search"]')`);
   });
 
+  it("keeps what fills a row's cell inside it, whatever its words want", () => {
+    expect(COMPONENT_STYLES()).toContain(".row-cell.fills > * { flex: 1 1 auto; min-width: 0; }");
+  });
+
   it("lets an open floating pane take its own presses, wherever it's moved to", () => {
     expect(COMPONENT_STYLES()).toContain(".floating-pane:popover-open { pointer-events: auto; }");
   });
