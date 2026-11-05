@@ -37,8 +37,10 @@ export const MATERIAL_STYLES = `
 /* Sleek: thick glass cut straight with no bevel, so its profile is one fine line: a hairline round it and the one light caught along its top
    edge. Thicker than the pane it lies on, it stands out from it with a shape of its own. It draws no rim of its own (no data-glass), so nothing in
    it sits inside a band; its edge lies over what it holds. */
-/* It lies just above the pane, so it casts a soft shadow on it (--sleek-cast), down from the one light. */
-.glass.sleek { --glass-tint: var(--glass-thick); box-shadow: var(--sleek-cast); }
+/* It lies just above the pane, so it casts a soft shadow on it (--sleek-cast), down from the one light. What holds it casts it (sleek-cast), as a
+   drop shadow of the glass's own shape: where the edge rule cuts the glass to a pane's corner, its shadow is cut the same, never clipped away. */
+.glass.sleek { --glass-tint: var(--glass-thick); box-shadow: inset 0 0 0 1px var(--edge-hair); }
+.sleek-cast { filter: var(--sleek-cast); }
 .glass.sleek::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
 .glass.sleek::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 0 1px var(--edge-hair), inset 0 1px 0 var(--edge-inner); }
 /* Its lighter blur and saturation are its own glass's, not passed on to glass that blurs inside it (a menu over a game's world). */

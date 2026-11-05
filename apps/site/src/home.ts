@@ -6,7 +6,6 @@ import { secondaryButton } from "./components/actions.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { grid, leadAndSide, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
-import { nameList } from "./components/data.ts";
 import { shelf } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
@@ -282,7 +281,7 @@ function friendsCard(playing: FriendsInGame, games: readonly ShowGame[]): Raw {
   const game = playing.game!, listed = games.find((each) => each.slug === game.slug);
   const coverPicture = listed?.cover_picture ?? (game.cover_image_id ? { imageUrl: `/img/${game.cover_image_id}`, widthPx: 1600, heightPx: 900, placeholderDataUrl: null } : null);
   const names = playing.friends.map((friend) => friend.name);
-  return gameCard({ title: game.title, picture: coverPicture, href: `/g/${game.slug}`, tintColor: listed?.glass_tint_color, joinHref: playing.join && !playing.join.refusal ? joinPath(game.slug, playing.join) : undefined, facts: { friends: names.map((username) => ({ username })), summary: nameList(names) } });
+  return gameCard({ title: game.title, picture: coverPicture, href: `/g/${game.slug}`, tintColor: listed?.glass_tint_color, joinHref: playing.join && !playing.join.refusal ? joinPath(game.slug, playing.join) : undefined, facts: { friends: names.map((username) => ({ username })) } });
 }
 
 /** A heading and what it heads, inside a pane. */

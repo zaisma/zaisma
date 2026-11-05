@@ -170,7 +170,8 @@ describe("the home's friends playing", () => {
     expect(friendsRow).toContain('href="/friends"');
     expect(coverSlugs(friendsRow)).toHaveLength(10);
     expect(coverSlugs(friendsRow)[0]).toBe("home-thirteen");
-    expect(friendsRow).toContain("Home_Friend_12 and Home_Friend_13");
+    // Who's in it shows as faces before the name, and in the card's label.
+    expect(friendsRow).toContain("Home_Friend_12, Home_Friend_13 playing");
   });
 });
 

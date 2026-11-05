@@ -5,7 +5,7 @@ import "./materials.ts";
 import { tokenValue } from "./tokens.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, leavesZaisma, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { gameKeyDetails, listRows, nameList, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
+import { gameKeyDetails, listRows, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
 import { action, cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton, type ListedIcon } from "./actions.ts";
 import { choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
@@ -106,13 +106,11 @@ export interface GameCardFacts {
   playerCount?: number;
   /** Why this card is here (Updated, New, Trending, Pick, Sponsored): a tag at the end of the title's line, in place of players now. */
   tagWords?: string;
-  /** A few words under the title that concern the player, like who's in it (Friends playing); never what kind of game it is, which its page says. */
-  summary?: string;
-  /** A paid game's price to play, for a viewer who doesn't own it: the line under the title. A free game shows nothing. */
+  /** A paid game's price to play, for a viewer who doesn't own it: at the end of the title's line, unless a tag or a control is there. A free game shows nothing. */
   priceText?: string;
-  /** Friends playing it now: their faces, the line under the title (three, and how many more). */
+  /** Friends playing it now: their faces before its name (three, and how many more). */
   friends?: FramedPerson[];
-  /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): the line under the title, the art dimmed. */
+  /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): its art dimmed, and these words in its label. */
   deviceNote?: string;
 }
 
@@ -138,9 +136,6 @@ export interface GameCardOptions {
   state?: "is-pointed" | "is-pressed";
 }
 
-/** The device note's icon: a gamepad for one that needs it, a phone for one best held a way or made for phones and tablets, else a computer. */
-const deviceIcon = (deviceNote: string): IconName => (/gamepad/i.test(deviceNote) ? "gamepad" : /phone|tablet|portrait|landscape/i.test(deviceNote) ? "phone" : "computer");
-
 /**
  * What a screen reader hears for a card: its title, then each fact on it, in the order of its corners.
  */
@@ -155,21 +150,20 @@ const cardLabel = (options: GameCardOptions): string =>
 
 
 /** A card's title line with a small Join at its end (gameCard's joinHref), in place of players now, so the card grows no taller than its title. */
-function gameCardJoin(title: string, joinHref: string): Raw {
-  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<span class="cover-name one-line">${title}</span>` }, control(secondaryButton("Join", { href: joinHref, isSmall: true }))] })}</div>`;
+function gameCardJoin(nameMarkup: Raw, joinHref: string): Raw {
+  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(secondaryButton("Join", { href: joinHref, isSmall: true }))] })}</div>`;
 }
 
 /** A card's title line with Play and Details at its end (gameCard's playHref), small, so the card grows no taller than its title: Details is its icon alone. */
-export function gameCardActions(title: string, playHref: string, detailsHref: string): Raw {
-  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<span class="cover-name one-line">${title}</span>` }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
+export function gameCardActions(nameMarkup: Raw, playHref: string, detailsHref: string): Raw {
+  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
 }
 
 /**
- * A game card: a game in a list, the studio's art in a carved well, and nothing of Zaisma's on it. Under it, its title with a tag or players
- * now on one line, and on the next what else concerns you about it: what kind of game, the price, friends playing and this device (needs
- * a keyboard, made for another), the art dimmed. Pointed at, the
- * well's foot catches the light (Edge light, the card the part it lights), in the game's tint, and the art brightens; in focus beside the
- * list, it stays lit.
+ * A game card: a game in a list, one piece of Sleek glass with the studio's art showing through its top and nothing of Zaisma's on it. Under
+ * the art, one line, the same height on every card: friends' faces when any are in it, its title, and one thing at its end (Play or Join,
+ * else a tag, else its price, else players now). What doesn't fit there is in its label and on its page; another device dims the art.
+ * Pointed at, the art's foot catches the light (Edge light), in the game's tint, and the art brightens; in focus beside the list, it stays lit.
  */
 export function gameCard(options: GameCardOptions): Raw {
   const facts = options.facts, isPlaceholder = options.picture === null;
@@ -177,11 +171,13 @@ export function gameCard(options: GameCardOptions): Raw {
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
   const tagAtEnd = facts.tagWords ? tag(facts.tagWords, /^(Updated|New)$/.test(facts.tagWords) ? "new" : "plain") : undefined;
-  const hasSecondLine = Boolean(facts.summary || facts.priceText || facts.friends?.length || facts.deviceNote);
-  const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
+  // One line, the same on every card: who's in it (friends' faces), its name, and one thing at its end: Play or Join, else why it's here (a tag),
+  // else its price, else players now. What doesn't fit is in its label for a screen reader and on its page; another device dims its art.
+  const nameMarkup = html`<span class="cover-name-line">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}<span class="cover-name one-line">${options.title}</span></span>`;
+  const endMarkup = tagAtEnd ?? (facts.priceText ? tag(facts.priceText, "plain") : undefined);
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className} glass sleek"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate">${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : options.joinHref ? gameCardJoin(options.title, options.joinHref) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}</div></div>`;
+  return html`<div class="${className} sleek-cast"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek"><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate">${options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}</div>`}</div></div></div>`;
 }
 
 /**
@@ -564,18 +560,22 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* A game card is a carved well cut into the glass, with the studio's art set inside it: nothing over the art. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
-   one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
+/* A game card is a piece of Sleek glass (cover-glass) with the studio's art showing through its top: nothing over the art. The edge rule cuts
+   it like everything edged, so a card near a pane's corner takes the pane's cut and one in the middle of it is square; the card (.cover) holds
+   it and casts its shadow, cut the same. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; }
+.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; min-width: 0; }
 /* A card is one piece of Sleek glass (materials.ts), one fine line round all of it: its art shows through the top of it, smooth, with no edge of
    its own, and the glass runs on under the art as the plate that holds its title and facts. */
-.cover.sleek > .cover-art.carving { box-shadow: none; }
-.cover.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
-.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--gap-words-words); min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --pad-words: 0px; }
+.cover-glass { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; min-width: 0; }
+.cover-glass.sleek > .cover-art.carving { box-shadow: none; }
+.cover-glass.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
+/* Its plate is one line, the same height on every card whatever it holds (a small control's, Play or Join), so every card is one shape. */
+.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --pad-words: 0px; }
+.cover-name-line { display: flex; align-items: center; gap: var(--gap-words-words); flex: 1 1 0; min-width: 0; }
+.cover-name-line > .picture-row { flex: none; }
 /* In a row of cards every card is one height, the tallest's (a track stretches its cards, a grid its cells), and the plate takes what's left,
    so a price or a friend under one title never makes its card taller than the rest. */
-.layout-track > .cover, .grid-cell > .cover { grid-template-rows: auto 1fr; }
 .grid-cell > .cover { height: 100%; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
@@ -610,7 +610,6 @@ const COVER_STYLES = `
 .cover.is-small { flex: none; width: 64px; padding-inline: 0; }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 /* In a row where some card has a control on its title line (Join), every title line there is as tall as that control, so the cards line up. */
-:is(.layout-track, .layout-grid):has(.cover-meta.has-actions) .cover-meta { min-height: var(--control-height-small); }
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta:not(.has-actions) .ico { width: 15px; height: 15px; stroke-width: 1.5; }
@@ -1027,11 +1026,12 @@ component({
   slug: "game-card",
   group: "panes",
   subgroup: "cards",
-  summary: "A game in a list of games (the home's shelves, Browse, More from a developer): the studio's art in a carved well with nothing over it. Under it, its title with a tag or players now on one line, and what else concerns you on the next: what kind of game, a price, friends playing bottom left, this device bottom right. Pointed at, its foot lights in the game's tint.",
+  summary: "A game in a list of games (the home's rows, Browse, More from a developer): one piece of Sleek glass, the studio's art showing through its top with nothing over it, and under it one line: friends' faces when any are in it, its name, and one thing at its end (Play or Join, else a tag, else its price, else players now). Every card is the same shape whatever it holds. Pointed at, its foot lights in the game's tint.",
   styles: COVER_STYLES,
   render: gameCard,
   examples: [
-    { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }], summary: nameList(["Liam", "Sofia"]) } }) }] }) },
+    { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }] } }) }] }) },
+    { label: "Every fact at once: the same shape as any card, its name cut short and one thing at its end", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCard({ title: "The Last Lighthouse Keeper: Tides of the Northern Reach", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#", facts: { playerCount: 412, tagWords: "Updated", priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }, { username: "Noah" }, { username: "Mia" }], deviceNote: "Needs a keyboard" } }) }] }) },
     {
       label: "In a list: every card the same shape, its facts in their corners",
       isWide: true,
