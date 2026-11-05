@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { CI_CEILING_SEC, CI_WARNING_SEC, ceilingVerdict, clockText, finishedRunSec, slowestJob, slowestTenthSec, warningVerdict } from "../../scripts/ci-time-limit.mjs";
+import { CI_CEILING_SEC, CI_WARNING_SEC, ceilingVerdict, clockText, finishedRunSec, reportWithoutFailing, slowestJob, slowestTenthSec, warningPush, warningVerdict } from "../../scripts/ci-time-limit.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { GRID_FILES_BY_PART } from "../../scripts/contract-grid.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -84,6 +84,16 @@ describe("the warning line", () => {
     const growing = warningVerdict([...seconds(40, 200), ...seconds(10, 250)]);
     expect(growing.is_over_warning).toBe(true);
     expect(growing.line).toContain("4:10");
+  });
+  it("pushes with a priority Pushover takes", () => {
+    expect(warningPush("The slowest tenth start at 7:35.")).toEqual({ title: "CI is growing", message: "The slowest tenth start at 7:35.", priority: 0 });
+  });
+  it("never fails the run, so a refused push can't read as a failed sweep and stop a ship", async () => {
+    await expect(
+      reportWithoutFailing(async () => {
+        throw new Error("Pushover answered 400");
+      }),
+    ).resolves.toBeUndefined();
   });
   it("runs each night, outside a re-check of failed pages", () => {
     const job = nightly.slice(nightly.indexOf("\n  ci-time:"));
