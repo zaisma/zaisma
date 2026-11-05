@@ -17,7 +17,7 @@ interface BenchStateBase {
   label: string;
   stateKind: StateKind;
   seenBy: Viewer;
-  /** Who it needs: pressing it switches to them. */
+  /** Who it needs, a test account or "guest": it's listed for everyone, and pressing it switches to them. */
   profile?: string;
   /** Words a game would have filled in, by element id. */
   words?: Record<string, string>;
@@ -128,10 +128,11 @@ export const BENCH_PLACES: BenchPlace[] = [
   {
     placeValue: "make-an-account", name: "Make an account", path: "/join", pathPattern: "^/(join|account/kept)", seenBy: "both",
     states: [
-      { stateValue: "no-birthday", label: "No birthday", stateKind: "opened", seenBy: "guest", checkedPage: "New account, no birthday" },
-      { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", presses: "#join-birthday .wheel-button" },
-      { stateValue: "how-sign-in", label: "How you sign in", stateKind: "opened", seenBy: "guest", checkedPage: "How will you sign in" },
-      { stateValue: "too-young", label: "Too young", stateKind: "opened", seenBy: "guest", checkedPage: "Make an account, too young" },
+      { stateValue: "no-birthday", label: "No birthday", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "New account, no birthday" },
+      { stateValue: "birthday-wheels", label: "Birthday wheels", stateKind: "opened", seenBy: "guest", profile: "guest", presses: "#join-birthday .wheel-button" },
+      { stateValue: "how-sign-in", label: "How you sign in", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "How will you sign in" },
+      { stateValue: "pick-username", label: "Pick a username", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "Pick a username" },
+      { stateValue: "too-young", label: "Too young", stateKind: "opened", seenBy: "guest", profile: "guest", checkedPage: "Make an account, too young" },
       { stateValue: "how-you-play", label: "How do you play", stateKind: "opened", seenBy: "signed_in", profile: "Moss_Runner", checkedPage: "How do you play" },
       { stateValue: "youre-in", label: "You're in", stateKind: "opened", seenBy: "signed_in", profile: "Moss_Runner", checkedPage: "You're in" },
     ],

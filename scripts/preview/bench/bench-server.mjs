@@ -27,6 +27,20 @@ export function parseMark(markText) {
   return found ? { groupName: found[1], screenName: found[2], profile: found[3], backgrounds: found[4], markText } : null;
 }
 
+/**
+ * Where a redirect sends a screen. On this site it keeps the screen's mark: a screen sent on by the bench has no marked page behind it to say
+ * whose it is. The stand-in Google or Discord, which answers at once, is asked here, since a screen's frame can't go to another address, and
+ * its way back taken as a redirect on this site. Any other address is as it was.
+ */
+export async function screenLocation(locationText, url, mark) {
+  const onward = new URL(locationText, url);
+  const isStandIn = onward.pathname.endsWith("/auth/v1/authorize");
+  if (!isStandIn && !locationText.startsWith("/")) return locationText;
+  const here = isStandIn ? new URL((await fetch(onward, { redirect: "manual" })).headers.get("location")) : onward;
+  here.searchParams.set(SCREEN_MARK_NAME, mark.markText);
+  return `${here.pathname}${here.search}${here.hash}`;
+}
+
 /** The mark a request carries: on its own address, or, from a page on a marked screen, on its Referer's. */
 export function markOf(url, refererText) {
   const own = url.searchParams.get(SCREEN_MARK_NAME);
@@ -142,6 +156,8 @@ export async function answerAsScreen({ request, mark, password, answer, nowMs })
     jars.set(jarKeyOf(url.origin, mark.profile), jarAfter(jars.get(jarKeyOf(url.origin, mark.profile)) ?? jar, lines, nowMs));
     const response = new Response(sentBack.body, sentBack);
     response.headers.delete("set-cookie");
+    const wayOut = sentBack.headers.get("location");
+    if (wayOut) response.headers.set("location", await screenLocation(wayOut, url, mark));
     for (const line of lines) if (/^(__Host-)?download_started=/.test(line)) response.headers.append("set-cookie", line);
     return response;
   };
