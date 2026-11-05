@@ -4,7 +4,10 @@ import { AREA_ACCESS_BY_LEVEL, createAccount, createApiKey, gameBySlug, gameStor
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { apiCall, callerFor } from "../../apps/site/src/developer.ts";
 import { answerGameDeletionRequest } from "../../apps/site/src/game-deletion-requests.ts";
-import { GAME_DELETION_REQUEST, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, KEPT_ROOMS, ROOM_ENDED } from "../../apps/site/src/schemas.ts";
+import { GAME_DELETION_REQUEST, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, KEPT_ROOM_RESTORE_BATCH_READ, KEPT_ROOM_RESTORE_BATCH_STARTED, KEPT_ROOM_RESTORED, KEPT_ROOM_RESTORES, KEPT_ROOMS, ROOM_ENDED } from "../../apps/site/src/schemas.ts";
+import { restoreKeptRoomPage, type KeptRoomRestorePagePart } from "../../apps/site/src/kept-room-restores-api.ts";
+import { bringBackFromCopy } from "../../apps/site/src/kept-room-copies.ts";
+import type { Env } from "../../apps/site/src/env.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -154,7 +157,7 @@ describe("deleting a kept room", () => {
     const deleted = await api("/games/frostbound/kept-rooms/K7Q2MX", { method: "DELETE" });
     expect(deleted.status).toBe(200);
     expect(schemaProblems(KEPT_ROOM_DELETED, deleted.answer)).toEqual([]);
-    expect(deleted.answer).toEqual({ is_deleted: true, erases_at: null, next_steps: [expect.objectContaining({ tool: "list_kept_rooms", arguments: { slug: "frostbound" } })] });
+    expect(deleted.answer).toEqual({ is_deleted: true, erases_at: null, next_steps: [expect.objectContaining({ tool: "bring_back_kept_room", arguments: { slug: "frostbound", room_code: "K7Q2MX" } }), expect.objectContaining({ tool: "list_kept_rooms", arguments: { slug: "frostbound" } })] });
     expect(await rooms().takeKeptRoomDeletes(true)).toEqual([{ gameId, slug: "frostbound", roomCode: "K7Q2MX" }]);
     expect(await keptCodes()).toEqual(["H4RB9T"]);
     expect((await api("/games/frostbound/kept-rooms")).answer.kept_rooms_size_bytes).toBe(500);
@@ -329,6 +332,146 @@ describe("a kept world in a game other people played", () => {
     expect((await api(`${K7}/bring-back`, { method: "POST", key })).answer.error.code).toBe("key_not_allowed");
     expect((await api(`${K7}/erase-now`, { method: "POST", key })).answer.error.code).toBe("key_not_allowed");
     expect(await erasesAtMs()).not.toBeNull();
+  });
+});
+
+describe("a kept room's world going back", () => {
+  beforeEach(async () => {
+    await env.DB.prepare("UPDATE games SET created_at_ms = ? WHERE id = ?").bind(Date.now() - 2 * 86_400_000, gameId).run();
+  });
+
+  const moment = () => new Date(Date.now() - 3_600_000).toISOString();
+
+  it("goes back to a moment, says what's next and shows in the game's history", async () => {
+    await keep("K7Q2MX", { savedSizeBytes: 100, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() - 86_400_000 });
+    await rooms().takeRoomReachCalls();
+    const restoreToAt = moment();
+    const restored = await api("/games/frostbound/kept-rooms/k7q2mx/restores", { method: "POST", body: { restore_to_at: restoreToAt } });
+    expect(restored.status).toBe(200);
+    expect(schemaProblems(KEPT_ROOM_RESTORED, restored.answer)).toEqual([]);
+    expect(restored.answer.kept_room_restore).toMatchObject({ id: "kept_room_restore_standin", room_code: "K7Q2MX", restore_to_at: restoreToAt });
+    expect(restored.answer.live_version_published_since).toBeNull();
+    expect(restored.answer.next_steps.map((step: { tool: string }) => step.tool)).toEqual(["undo_kept_room_restore", "list_kept_room_restores"]);
+    expect((await rooms().takeRoomReachCalls()).map((entry) => entry.call)).toEqual(["restoreKeptRoom"]);
+    const history = await api("/games/frostbound/history");
+    expect(history.answer.events.map((event: { description: string }) => event.description).join()).toContain("restored");
+  });
+
+  it("refuses a bad moment, a read-only key, an unknown world and a closed body", async () => {
+    await keep("K7Q2MX", { savedSizeBytes: 100, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() - 86_400_000 });
+    const path = "/games/frostbound/kept-rooms/K7Q2MX/restores";
+    expect((await api(path, { method: "POST", body: { restore_to_at: "an hour ago" } })).answer.error.code).toBe("bad_time");
+    expect((await api(path, { method: "POST", body: { restore_to_at: moment(), extra: true } })).status).toBe(400);
+    expect((await api(path, { method: "POST", key: await readKey(), body: { restore_to_at: moment() } })).status).toBe(403);
+    await rooms().takeRoomReachCalls({ restoreKeptRoom: { outcome: "no_kept_room" } });
+    expect((await api(path, { method: "POST", body: { restore_to_at: moment() } })).answer.error.code).toBe("no_kept_room");
+    await rooms().takeRoomReachCalls({ restoreKeptRoom: { outcome: "bad_time", earliestRestoreToAtMs: Date.now() - 1000 } });
+    expect((await api(path, { method: "POST", body: { restore_to_at: moment() } })).answer.error.code).toBe("bad_time");
+    await rooms().takeRoomReachCalls({ restoreKeptRoom: { outcome: "no_history" } });
+    expect((await api(path, { method: "POST", body: { restore_to_at: moment() } })).status).toBe(501);
+    await rooms().takeRoomReachCalls({ restoreKeptRoom: { outcome: "limited" } });
+    expect((await api(path, { method: "POST", body: { restore_to_at: moment() } })).answer.error.code).toBe("slow_down");
+    await rooms().takeRoomReachCalls();
+  });
+
+  it("warns when the live version went live after the moment, naming the version live then", async () => {
+    await keep("K7Q2MX", { savedSizeBytes: 100, lastPlayedAtMs: Date.now(), createdAtMs: Date.now() - 86_400_000 });
+    const nowMs = Date.now();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, published_at_ms) VALUES ('version_before', ?, 'x', 1, 0, 'approved', 0, ?), ('version_since', ?, 'y', 1, 0, 'approved', 0, ?)").bind(gameId, nowMs - 7_200_000, gameId, nowMs - 60_000).run();
+    await env.DB.prepare("UPDATE games SET live_version_id = 'version_since', live_version_published_at_ms = ? WHERE id = ?").bind(nowMs - 60_000, gameId).run();
+    const restored = await api("/games/frostbound/kept-rooms/K7Q2MX/restores", { method: "POST", body: { restore_to_at: moment() } });
+    expect(restored.answer.live_version_published_since).toMatchObject({ version_id: "version_since" });
+    expect(restored.answer.next_steps[0]).toMatchObject({ tool: "publish_version", arguments: { slug: "frostbound", version_id: "version_before" } });
+  });
+
+  it("lists how far back it can go, from when it was kept, and its restores, to a read-only key", async () => {
+    const createdAtMs = Date.now() - 3_600_000;
+    await keep("K7Q2MX", { savedSizeBytes: 100, lastPlayedAtMs: Date.now(), createdAtMs });
+    await env.DB.prepare("INSERT INTO kept_room_restores (id, game_id, room_code, restore_to_at_ms, undo_bookmark, restored_at_ms) VALUES ('kept_room_restore_one', ?, 'K7Q2MX', ?, 'undo', ?)").bind(gameId, createdAtMs, Date.now()).run();
+    const listed = await api("/games/frostbound/kept-rooms/K7Q2MX/restores", { key: await readKey() });
+    expect(schemaProblems(KEPT_ROOM_RESTORES, listed.answer)).toEqual([]);
+    expect(listed.answer.earliest_restore_to_at).toBe(new Date(createdAtMs).toISOString());
+    expect(listed.answer.restores.map((restore: { id: string }) => restore.id)).toEqual(["kept_room_restore_one"]);
+  });
+});
+
+describe("every kept room going back", () => {
+  beforeEach(async () => {
+    await env.DB.prepare("UPDATE games SET created_at_ms = ? WHERE id = ?").bind(Date.now() - 2 * 86_400_000, gameId).run();
+  });
+
+  /** A queue that runs nothing: the test runs each page. */
+  const pages: KeptRoomRestorePagePart[] = [];
+  const withQueue = () => ({ ...env, BACKUP_QUEUE: { send: async (body: KeptRoomRestorePagePart) => void pages.push(body) } }) as unknown as Env;
+
+  it("goes a page at a time, skipping waiting worlds and worlds kept since, and counts what happened", async () => {
+    pages.length = 0;
+    const atMs = Date.now() - 3_600_000;
+    await keep("AAAAAA", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: atMs - 1000 });
+    await keep("BBBBBB", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: atMs - 1000 });
+    await keep("CCCCCC", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: atMs + 1000 });
+    await keep("DDDDDD", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: atMs - 1000 });
+    await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ? WHERE room_code = 'DDDDDD'").bind(Date.now() + 60_000).run();
+    await env.DB.prepare("INSERT INTO kept_room_restore_batches (id, game_id, restore_to_at_ms, started_at_ms, kept_room_count) VALUES ('kept_room_restore_batch_one', ?, ?, ?, 4)").bind(gameId, atMs, Date.now()).run();
+    await rooms().takeRoomReachCalls({ restoreKeptRoom: { outcome: "failed" } });
+    // One world fails, by the stand-in's one answer for all: both named.
+    await restoreKeptRoomPage(withQueue(), { part_kind: "kept_room_restore_page", game_id: gameId, slug: "frostbound", kept_room_restore_batch_id: "kept_room_restore_batch_one", after_room_code: "" });
+    const calls = await rooms().takeRoomReachCalls();
+    expect(calls.map((entry) => entry.asked.roomCode).sort()).toEqual(["AAAAAA", "BBBBBB"]);
+    expect(calls[0]!.asked.batchId).toBe("kept_room_restore_batch_one");
+    const read = await api("/games/frostbound/kept-room-restores/kept_room_restore_batch_one");
+    expect(schemaProblems(KEPT_ROOM_RESTORE_BATCH_READ, read.answer)).toEqual([]);
+    expect(read.answer.kept_room_restore_batch).toMatchObject({ kept_room_count: 4, restored_room_count: 0, failed_room_count: 2, skipped_room_count: 2, failed_room_codes: ["AAAAAA", "BBBBBB"], finished_at: expect.any(String) });
+    expect(pages).toEqual([]);
+  });
+
+  it("names the database and version calls with the same time, and refuses a second while one runs", async () => {
+    await keep("AAAAAA", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: Date.now() - 86_400_000 });
+    const restoreToAt = new Date(Date.now() - 3_600_000).toISOString();
+    const started = await apiCall(withQueue(), (await callerFor(withQueue(), new Request(SITE), "dev-1"))!, "POST", "/games/frostbound/kept-room-restores", { restore_to_at: restoreToAt });
+    expect(schemaProblems(KEPT_ROOM_RESTORE_BATCH_STARTED, started)).toEqual([]);
+    expect((started as any).next_steps).toContainEqual(expect.objectContaining({ tool: "restore_database", arguments: { slug: "frostbound", restore_to_at: restoreToAt } }));
+    expect(pages.at(-1)).toMatchObject({ part_kind: "kept_room_restore_page", game_id: gameId, after_room_code: "" });
+    await expect(apiCall(withQueue(), (await callerFor(withQueue(), new Request(SITE), "dev-1"))!, "POST", "/games/frostbound/kept-room-restores", { restore_to_at: restoreToAt })).rejects.toMatchObject({ code: "kept_room_restore_batch_running" });
+  });
+});
+
+describe("a deleted world coming back", () => {
+  const remember = (roomCode: string, fields: { savedSizeBytes?: number; deletedAtMs?: number } = {}) =>
+    env.DB.prepare("INSERT INTO deleted_kept_rooms (game_id, room_code, name, saved_size_bytes, deleted_at_ms) VALUES (?, ?, 'Valhalla', ?, ?)").bind(gameId, roomCode, fields.savedSizeBytes ?? 100, fields.deletedAtMs ?? Date.now() - 86_400_000).run();
+
+  it("is listed until its copy goes, then isn't there to bring back", async () => {
+    await remember("K7Q2MX");
+    await remember("LDWRLD", { deletedAtMs: Date.now() - 29 * 86_400_000 });
+    const listed = await api("/games/frostbound/kept-rooms");
+    expect(schemaProblems(KEPT_ROOMS, listed.answer)).toEqual([]);
+    expect(listed.answer.deleted_kept_rooms).toMatchObject([{ room_code: "K7Q2MX", name: "Valhalla", bring_back_started_at: null, bring_back_failed_at: null }]);
+    expect(listed.answer.deleted_kept_room_count).toBe(1);
+    expect((await api("/games/frostbound/kept-rooms/LDWRLD/bring-back", { method: "POST" })).answer.error.code).toBe("no_kept_room");
+  });
+
+  it("says so on a Zaisma that can't read its copies, and won't undo a takedown", async () => {
+    await remember("K7Q2MX");
+    expect((await api("/games/frostbound/kept-rooms/K7Q2MX/bring-back", { method: "POST" })).answer.error.code).toBe("kept_room_copies_unavailable");
+    await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(gameId).run();
+    const caller = (await callerFor(env as unknown as Env, new Request(SITE), "dev-1"))!;
+    await expect(bringBackFromCopy(env as unknown as Env, { ...(await gameBySlug(env.DB, "frostbound"))!, review_status: "removed" }, "K7Q2MX", caller, Date.now())).rejects.toMatchObject({ code: "game_removed" });
+    await env.DB.prepare("UPDATE games SET review_status = 'live' WHERE id = ?").bind(gameId).run();
+  });
+
+  it("doesn't come back past the game's 10 GB, under a code in use or past the day's limit", async () => {
+    const copies = { ...env, KEPT_ROOM_COPY_KEY_ID: "id", KEPT_ROOM_COPY_KEY_SECRET: "secret", BACKUP_QUEUE: { send: async () => {} } } as unknown as Env;
+    const game = (await gameBySlug(env.DB, "frostbound"))!;
+    const caller = (await callerFor(copies, new Request(SITE), "dev-1"))!;
+    await remember("TBGWRD", { savedSizeBytes: 11 * 1024 ** 3 });
+    await expect(bringBackFromCopy(copies, game, "TBGWRD", caller, Date.now())).rejects.toMatchObject({ code: "game_storage_full" });
+    await keep("KEPTXN", { savedSizeBytes: 1, lastPlayedAtMs: null, createdAtMs: 0 });
+    await remember("KEPTXN");
+    await expect(bringBackFromCopy(copies, game, "KEPTXN", caller, Date.now())).rejects.toMatchObject({ code: "room_code_in_use" });
+    await env.DB.prepare("DELETE FROM kept_rooms WHERE room_code = 'KEPTXN'").run();
+    await env.DB.prepare("INSERT INTO deleted_kept_rooms (game_id, room_code, saved_size_bytes, deleted_at_ms, bring_back_started_at_ms) VALUES (?, 'BGNEXX', ?, 1, ?)").bind(gameId, 100 * 1024 ** 3, Date.now()).run();
+    await remember("LMTSXX");
+    await expect(bringBackFromCopy(copies, game, "LMTSXX", caller, Date.now())).rejects.toMatchObject({ code: "slow_down" });
   });
 });
 

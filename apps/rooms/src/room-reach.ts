@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { GameServerError, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, isRoomCode, type LiveRoom, type RoomMessage, type RoomMessageSenderKind, type RoomPlayer, type ServerRoomReach } from "@zaisma/game-server/internal";
-import { checkRoomMessage, isHostingPaused, isRoomLabels, listLiveRooms, liveRoomOf, type LiveRoomRecord } from "@zaisma/core";
+import { GameServerError, ROOM_LIMITS, ROOM_MESSAGE_LIMITS, isRoomCode, type KeptRoomRestore as ShownKeptRoomRestore, type KeptRoomRestoreAnswer, type KeptRoomRestoreList, type LiveRoom, type RoomMessage, type RoomMessageSenderKind, type RoomPlayer, type ServerRoomReach } from "@zaisma/game-server/internal";
+import { KEPT_ROOM_RESTORE_LIMITS, checkRoomMessage, earliestKeptRoomRestorableAtMs, isHostingPaused, isRoomLabels, listLiveRooms, liveRoomOf, type KeptRoomRestore, type LiveRoomRecord } from "@zaisma/core";
+import { listKeptRoomRestores, restoreKeptRoom, undoKeptRoomRestore, type KeptRoomRestoreOutcome } from "./kept-room-restores.ts";
 import type { Env } from "./index.ts";
 
 /**
@@ -13,6 +14,28 @@ import type { Env } from "./index.ts";
  * A room is asked only when live_rooms or kept_rooms has it, so a code that names nothing wakes no room. Each delivery
  * is one request to the room, on the game's meter with the room's own (room.ts counts its POSTs).
  */
+
+/** A restore as a game server hears it. */
+function keptRoomRestoreShown(restore: KeptRoomRestore): ShownKeptRoomRestore {
+  return {
+    id: restore.id,
+    roomCode: restore.room_code,
+    restoreToAt: new Date(restore.restore_to_at_ms).toISOString(),
+    restoredAt: new Date(restore.restored_at_ms).toISOString(),
+    undoesKeptRoomRestoreId: restore.undoes_kept_room_restore_id,
+    undoExpiresAt: new Date(restore.restored_at_ms + KEPT_ROOM_RESTORE_LIMITS.restorableDurationDays * 86_400_000).toISOString(),
+  };
+}
+
+function keptRoomRestoreAnswerOf(outcome: KeptRoomRestoreOutcome): KeptRoomRestoreAnswer {
+  if (outcome.outcome === "restored") return { keptRoomRestore: keptRoomRestoreShown(outcome.keptRoomRestore) };
+  if (outcome.outcome === "bad_time") return { refusal: "bad_time", earliestRestoreToAt: new Date(outcome.earliestRestoreToAtMs).toISOString() };
+  return { refusal: outcome.outcome };
+}
+
+function keptRoomRestoreListOf(listed: Awaited<ReturnType<typeof listKeptRoomRestores>>): KeptRoomRestoreList | null {
+  return listed && { earliestRestoreToAt: new Date(listed.earliestRestoreToAtMs).toISOString(), restores: listed.restores.map(keptRoomRestoreShown) };
+}
 
 /** A game as reaching its rooms needs it: its ID, and its slug, which names its rooms' objects. */
 export interface ReachedGame {
@@ -142,6 +165,9 @@ export function roomReachOf(env: Env, game: ReachedGame, fromRoomCode: string | 
     getRoom: (roomCode) => getRoom(env, game, roomCode),
     kickFromRoom: async (roomCode, playerId, message, isKeptOut) => ({ isDone: (await kickFromRoom(env, game, roomCode, { playerId, message, isKeptOut })) === "kicked" }),
     endRoom: async (roomCode, message) => ({ isDone: (await endRoom(env, game, roomCode, message ?? null)) === "ended" }),
+    restoreKeptRoom: async (roomCode, restoreToAtMs) => keptRoomRestoreAnswerOf(await restoreKeptRoom(env, game, roomCode, restoreToAtMs)),
+    undoKeptRoomRestore: async (roomCode, keptRoomRestoreId) => keptRoomRestoreAnswerOf(await undoKeptRoomRestore(env, game, roomCode, keptRoomRestoreId)),
+    listKeptRoomRestores: async (roomCode) => keptRoomRestoreListOf(await listKeptRoomRestores(env, game, roomCode)),
   };
 }
 
@@ -195,6 +221,26 @@ export class RoomReachBinding extends WorkerEntrypoint<Env, { gameId: string }> 
     const game = await this.game();
     if (!game || typeof roomCode !== "string") return { isDone: false };
     return { isDone: (await endRoom(this.env, game, roomCode, typeof message === "string" ? message.slice(0, ROOM_LIMITS.maximumKickMessageCharacterCount) : null)) === "ended" };
+  }
+
+  async restoreKeptRoom(roomCode: unknown, restoreToAtMs: unknown): Promise<KeptRoomRestoreAnswer> {
+    const game = await this.game();
+    if (!game || typeof roomCode !== "string" || !isRoomCode(roomCode)) return { refusal: "no_kept_room" };
+    if (typeof restoreToAtMs !== "number" || !Number.isFinite(restoreToAtMs)) return { refusal: "bad_time", earliestRestoreToAt: new Date(earliestKeptRoomRestorableAtMs()).toISOString() };
+    return keptRoomRestoreAnswerOf(await restoreKeptRoom(this.env, game, roomCode, restoreToAtMs));
+  }
+
+  async undoKeptRoomRestore(roomCode: unknown, keptRoomRestoreId: unknown): Promise<KeptRoomRestoreAnswer> {
+    const game = await this.game();
+    if (!game || typeof roomCode !== "string" || !isRoomCode(roomCode)) return { refusal: "no_kept_room" };
+    if (typeof keptRoomRestoreId !== "string") return { refusal: "no_kept_room_restore" };
+    return keptRoomRestoreAnswerOf(await undoKeptRoomRestore(this.env, game, roomCode, keptRoomRestoreId));
+  }
+
+  async listKeptRoomRestores(roomCode: unknown): Promise<KeptRoomRestoreList | null> {
+    const game = await this.game();
+    if (!game || typeof roomCode !== "string" || !isRoomCode(roomCode)) return null;
+    return keptRoomRestoreListOf(await listKeptRoomRestores(this.env, game, roomCode));
   }
 }
 

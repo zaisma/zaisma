@@ -112,6 +112,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "room_message_types.message_type", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "deleted_kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.labels", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // A send to every room scheduled for later: plain JSON the game server reads, never shown on a page; the API answers it as JSON.
   { stored: "scheduled_room_messages.room_message_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "checkRoomMessage"), saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -228,7 +229,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "account_watch_items.service_name", "account_watch_kinds.service_name", "account_watch_failures.service_name",
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, placeholders it drew, places Cloudflare names, its own keys and records, its own accounts' members and keys (account-watch.ts, told only to Julius, never on a page).
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
-  "game_images.average_color", "game_shaders.average_color", "game_images.placeholder_data_url", "game_shaders.placeholder_data_url", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
+  "kept_room_restores.undo_bookmark", "game_images.average_color", "game_shaders.average_color", "game_images.placeholder_data_url", "game_shaders.placeholder_data_url", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
   "domains.hostname", "alert_notices.alert_subject", "account_watch_items.item_label", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "webhooks.sealed_signing_secret", "tester_links.sealed_token", "tester_links.token_sha256", "backup_runs.failure_message", "backup_failed_keys.bucket_name", "backup_failed_keys.failure_message", "restore_runs.failure_message", "restore_kind_counts.key_kind", "stripe_connect_states.state",
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
   // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.
