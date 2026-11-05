@@ -54,11 +54,12 @@ const between = (text: string, fromId: string, toId: string) => text.slice(text.
 const coverSlugs = (markup: string) => [...markup.matchAll(/<a class="cover-art[^>]* href="\/g\/([a-z-]+)"/g)].map((found) => found[1]);
 
 describe("the home page", () => {
-  it("opens a first visit on the line flat on the backdrop, What's on alone, then what else is here, in two panes", async () => {
+  it("opens a first visit on the line flat on the backdrop, What's on alone, then each row of games on a pane of its own", async () => {
     const { text } = await homePage();
     expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-first-visit"><div class="backdrop-words"><h1>One place to play every kind of game\.<\/h1><p>Press Play, install nothing, bring your friends\.<\/p>/);
-    expect([...text.matchAll(/class="glass glass-pane /g)].length).toBe(2);
-    const whatsOn = text.slice(text.indexOf('id="home-first-visit"'), text.indexOf('aria-label="What else is here"'));
+    expect(text).toMatch(/<section class="glass glass-pane full"[^>]*aria-label="Playing now"><svg[\s\S]*?<section class="game-row" id="playing-now"/);
+    expect(text).toMatch(/<section class="glass glass-pane full"[^>]*aria-label="Popular"><svg[\s\S]*?<section class="game-row" id="popular"/);
+    const whatsOn = text.slice(text.indexOf('id="home-first-visit"'), text.indexOf('id="playing-now"'));
     expect(coverSlugs(whatsOn)).toHaveLength(3);
     expect(whatsOn).toContain("is-lead-wide");
     expect(text).not.toContain('id="never-played"');
@@ -81,7 +82,7 @@ describe("the home page", () => {
     // Play and Details' icon end the title's line, and no card says what kind of game it is.
     expect(lead).toMatch(/<div class="cover-meta has-actions">[\s\S]*?cover-name[\s\S]*?href="\/g\/home-three\?play"/);
     expect(text).not.toContain('class="cover-actions"><div class="layout-row');
-    const side = text.slice(text.indexOf('class="lead-and-side-side"'), text.indexOf('aria-label="What else is here"'));
+    const side = text.slice(text.indexOf('class="lead-and-side-side"'), text.indexOf('id="playing-now"'));
     expect(coverSlugs(side)).toHaveLength(2);
     expect(coverSlugs(side)).not.toContain("home-three");
     expect(text).toContain('id="never-played"');
@@ -89,7 +90,7 @@ describe("the home page", () => {
 
   it("leaves out a row whose games all showed higher up", async () => {
     const { text } = await homePage({ [PLAYED_COOKIE]: "home-one" });
-    const shelfIds = [...text.matchAll(/<h2 class="shelf-title" id="([a-z-]+)/g)].map((found) => found[1]);
+    const shelfIds = [...text.matchAll(/<h2 class="game-row-title" id="([a-z-]+)/g)].map((found) => found[1]);
     expect(new Set(shelfIds).size).toBe(shelfIds.length);
     expect(text).not.toMatch(/id="new-title"/);
   });
@@ -166,7 +167,7 @@ describe("the home's friends playing", () => {
     }
     const response = await SELF.fetch(`${SITE}/`, { headers: { cookie: `${await sessionCookie("home-viewer")}; __Host-zaisma_in=1` } });
     const text = await response.text();
-    const friendsRow = text.slice(text.indexOf('<section class="shelf" id="friends-playing"'), text.indexOf("</section>", text.indexOf('id="friends-playing"')));
+    const friendsRow = text.slice(text.indexOf('<section class="game-row" id="friends-playing"'), text.indexOf("</section>", text.indexOf('id="friends-playing"')));
     expect(friendsRow).toContain('href="/friends"');
     expect(coverSlugs(friendsRow)).toHaveLength(10);
     expect(coverSlugs(friendsRow)[0]).toBe("home-thirteen");

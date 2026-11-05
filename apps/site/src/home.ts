@@ -5,8 +5,8 @@ import type { Env } from "./env.ts";
 import { secondaryButton } from "./components/actions.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
-import { grid, leadAndSide, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
-import { shelf } from "./components/navigation.ts";
+import { grid, leadAndSide, stack, stackOfOne, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
+import { MAXIMUM_GAME_ROW_CARD_COUNT, gameRow } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
 import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards } from "./whats-on.ts";
@@ -271,11 +271,10 @@ const forDeviceFirst = (list: ShowGame[], deviceKind: DeviceKind) => {
   return [...list.filter(fits), ...list.filter((game) => !fits(game))];
 };
 
-function homeShelf(id: string, title: string, titleHref: string | undefined, list: ShowGame[], ownedGameIds: ReadonlySet<string>): LayoutItem {
-  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, seeAllHref: titleHref, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
+function homeGameRow(id: string, title: string, titleHref: string | undefined, list: ShowGame[], ownedGameIds: ReadonlySet<string>): LayoutItem {
+  return { kind: "block", markup: gameRow({ id, trackId: `track-${id}`, title, seeAllHref: titleHref, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
 }
 
-const control = (markup: ControlMarkup): LayoutItem => ({ kind: "control", markup });
 /** A game friends are in: who's there, and Join when it would let the player in. */
 function friendsCard(playing: FriendsInGame, games: readonly ShowGame[]): Raw {
   const game = playing.game!, listed = games.find((each) => each.slug === game.slug);
@@ -290,8 +289,6 @@ const section = (options: { title: string; body: LayoutMarkup }): LayoutMarkup =
 /** The first visit's words, flat on the backdrop, from what Zaisma is. */
 const FIRST_VISIT_LINE = "One place to play every kind of game.";
 const FIRST_VISIT_SMALLER_LINE = "Press Play, install nothing, bring your friends.";
-/** Games in a row, past which its See all opens the whole list (Browse sorted the same way, or /friends for everyone playing). */
-const MAXIMUM_SHELF_CARD_COUNT = 10;
 /** What's on's cards beside a player's own game; alone on a first visit it has MAXIMUM_WHATS_ON_CARD_COUNT. */
 const WHATS_ON_BESIDE_GAME_CARD_COUNT = 2;
 
@@ -352,8 +349,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   // What else is here. A row whose games all showed higher up would only repeat them, and leaves.
   const shownSlugs = new Set([...(yourGame ? [yourGame.slug] : []), ...whatsOnCards.map(({ game }) => game.slug)]);
-  const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, MAXIMUM_SHELF_CARD_COUNT);
-  const neverPlayed = gamesOnShelves.filter((game) => !playedSlugs.includes(game.slug)).slice(0, MAXIMUM_SHELF_CARD_COUNT);
+  const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
+  const neverPlayed = gamesOnShelves.filter((game) => !playedSlugs.includes(game.slug)).slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
   const rows = [
     { id: "playing-now", title: "Playing now", titleHref: undefined, list: playingNow, isShown: true },
     { id: "never-played", title: "Never played", titleHref: undefined, list: neverPlayed, isShown: isReturning },
@@ -368,22 +365,19 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   const friendsPlaying = (friendsNow?.playing ?? []).filter((playing) => playing.game);
   const friendsSection: LayoutItem[] = friendsPlaying.length
-    ? [{ kind: "block", markup: shelf({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAllHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_SHELF_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
+    ? [{ kind: "block", markup: gameRow({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAllHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
     : [];
   // Past the rows, the whole of Browse: every game, every kind.
-  const browseAll: LayoutItem = control(secondaryButton("Browse every game", { href: "/games", isFullWidth: true }));
-  const whatElse = glassPane({
-    paneWidth: "full",
-    label: "What else is here",
-    body: stack({ items: [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeShelf(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds)), browseAll] }),
-  });
+  const browseAll: LayoutItem = { kind: "block", markup: glassPane({ paneWidth: "full", isCompact: true, label: "Browse", body: stackOfOne(secondaryButton("Browse every game", { href: "/games", isFullWidth: true })) }) };
+  // What else is here: each kind of list on its own Game row, each its own pane.
+  const whatElse: LayoutItem[] = [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeGameRow(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds)), browseAll];
   const body = games.length >= MINIMUM_SHELF_GAME_COUNT
     ? html`<div id="home-games">${isReturning ? html`<h1 class="sr">Games on Zaisma</h1>` : ""}${stack({
         items: [
           ...eventStrip,
           ...(isReturning ? [] : [{ kind: "block" as const, id: "home-first-visit", markup: backdropWords({ line: FIRST_VISIT_LINE, smallerLine: FIRST_VISIT_SMALLER_LINE }) }]),
           { kind: "block", markup: forTonight },
-          { kind: "block", markup: whatElse },
+          ...whatElse,
         ],
       })}</div>`
     : stack({ items: [...eventStrip, { kind: "block", markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) }) }] });

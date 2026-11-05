@@ -146,13 +146,13 @@ export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-
 /**
  * Bare groups (docs/DESIGN.md, Spacing): a component whose words sit bare, with no edge of their own, is one unit, and the unit as a whole
  * keeps the words margin from a surface's edge on every side where it meets that edge, top and bottom included. Its parts line up with each
- * other inside it (a game card's cover, title and players now flush; a person's picture, name and line) and move together, so no part
+ * other inside it (a person's picture, name and line) and move together, so no part
  * is treated apart and a component never pads its own words. A row, a grid or a track of them is inset at its start, end and foot as one
- * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A cover always has its words under it (its title or players
- * now); a picture with none (a screenshot) has an edge all round and keeps the frame gap. A new bare group is added here and nowhere else;
+ * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A game card is one piece of glass, an edge all round its art
+ * and words, so like a picture (a screenshot) it keeps the frame gap. A new bare group is added here and nowhere else;
  * test/site/design.test.ts holds its padding.
  */
-export const BARE_GROUPS = [".cover", ".person"];
+export const BARE_GROUPS = [".person"];
 
 /** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. A select's list holds it (choices.ts). */
 export const LEAST_SCROLL_PX = 12;

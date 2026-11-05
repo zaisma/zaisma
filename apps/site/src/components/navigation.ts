@@ -1219,7 +1219,7 @@ component({
 
 /** Every stand-in game's cover, as a track's items. */
 const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
-export interface ShelfOptions {
+export interface GameRowOptions {
   /** Unique on the page: the shelf itself, for a page script (the home's Continue playing). */
   id: string;
   /** Its track's id, for a page script that fills it. */
@@ -1235,18 +1235,23 @@ export interface ShelfOptions {
   emptyText?: string;
 }
 
+/** The most games a Game row shows; past them its See all opens the whole list. */
+export const MAXIMUM_GAME_ROW_CARD_COUNT = 10;
+
 /**
- * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers in a well carved into the pane,
- * a track that scrolls sideways on its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
- * (a phone), the sort goes under the heading and fills that line.
+ * A game row: one kind of list of games (a sort, a category, friends playing), alone on a pane of its own: its heading, with its sort or See all
+ * at the heading's end, and its covers in a well carved into the pane, a track that scrolls sideways on its rail. It shows at most
+ * MAXIMUM_GAME_ROW_CARD_COUNT and ends in See all when there's a whole list. Where the heading and the sort don't fit side by side (a phone),
+ * the sort goes under the heading and fills that line.
  */
-export function shelf(options: ShelfOptions): Raw {
+export function gameRow(options: GameRowOptions): Raw {
   const titleId = `${options.id}-title`;
-  const title = html`<h2 class="shelf-title" id="${titleId}">${options.title}</h2>`;
+  const title = html`<h2 class="game-row-title" id="${titleId}">${options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
   const seeAll = options.seeAllHref ? tertiaryButton("See all", { href: options.seeAllHref, isSmall: true }) : undefined;
-  const items = options.seeAllHref && options.items.length ? [...options.items, { kind: "block" as const, markup: html`<div class="shelf-more">${secondaryButton("See all", { href: options.seeAllHref })}</div>` }] : options.items;
-  return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
+  const shown = options.items.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
+  const items = options.seeAllHref && shown.length ? [...shown, { kind: "block" as const, markup: html`<div class="game-row-more">${secondaryButton("See all", { href: options.seeAllHref })}</div>` }] : shown;
+  return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       options.sortTabs
         ? {
@@ -1262,14 +1267,14 @@ export function shelf(options: ShelfOptions): Raw {
           : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: carving({ kind: "shelf-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
+        : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
-  })}</section>`;
+  })}</section>`) });
 }
 
 component({
-  name: "Shelf",
-  slug: "shelf",
+  name: "Game row",
+  slug: "game-row",
   group: "navigation",
   subgroup: "scrolling",
   summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort or See all sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in, and end in See all when there's more.",
@@ -1277,66 +1282,57 @@ component({
 /* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
-.shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
+.game-row { container-type: inline-size; --game-row-words-inset: var(--pad-words); }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
-.shelf-well { padding-block: 0 var(--pad-frame); }
-.shelf-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
+.game-row-well { padding-block: 0 var(--pad-frame); }
+.game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
-.shelf-well > .track-holder > .layout-track, .shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
-.shelf-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
+.game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
+.game-row-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
 /* Its rail runs inside the well, the frame gap from its sides and from the covers above it. */
-.shelf-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
-.shelf-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
+.game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
+.game-row-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
-.shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
-.shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.game-row-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
+.game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
+.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
+.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
+.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
 /* With no games yet, a line in their place. */
 `,
-  render: shelf,
+  render: gameRow,
   examples: [
-    { label: "Popular, with See all for the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAllHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
+    { label: "Popular, with See all for the whole list", isWide: true, markup: gameRow({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAllHref: "#shelf", items: STAND_IN_COVER_ITEMS }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({
+      markup: gameRow({
           id: "example-shelf-continue",
           trackId: "example-shelf-continue-track",
           title: "Continue playing",
           sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(0, 5),
-        })),
       }),
     },
     {
       label: "A long title with its sort: on a phone the sort goes under it",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({
+      markup: gameRow({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
           seeAllHref: "#shelf",
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
-        })),
       }),
     },
     {
       label: "Empty: Continue playing before you've played anything",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." })),
-      }),
+      markup: gameRow({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." }),
     },
   ],
 });

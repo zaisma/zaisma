@@ -3,7 +3,7 @@ import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { copyField, cutField, searchField, selectField } from "./inputs.ts";
-import { shelf } from "./navigation.ts";
+import { gameRow } from "./navigation.ts";
 import { STAND_IN_COVERS, banner, gameCard } from "./panes.ts";
 import { gamePaneExample, keyDetails, table, stateNote } from "./data.ts";
 import { gameMedia } from "./game-media.ts";
@@ -199,7 +199,7 @@ component({
   render: track,
   examples: [
     { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
-    { label: "Under a heading: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
+    { label: "Under a heading: a Game row (Navigation)", isWide: true, markup: gameRow({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) },
     { label: "All in view: no rail, and nothing moves if one comes", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track-fits", itemSize: "cover", items: covers(["ashen-crown", "neon-drift"]) }) }) },
     { label: "With none: a State note in their place, words alone", markup: glassPane({ paneWidth: "fit", body: track({ whenEmpty: noFriendsPlaying, id: "example-track-empty", itemSize: "cover", items: [] }) }) },
     { label: "Pictures: a game's screenshots", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(gameMedia({ id: "example-track-pictures", gameTitle: "Ashen Crown", whenEmpty: stateNote({ stateKind: "empty", title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), items: ["hollow-tide", "verdant", "neon-drift", "ashen-crown", "iron-vigil"].map((slug) => ({ mediaKind: "picture" as const, picture: STAND_IN_COVER_PICTURES[slug]! })) })) }) },
