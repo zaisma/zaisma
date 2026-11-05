@@ -657,7 +657,7 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
   <label>Link name (zaisma.com/g/…). Leave empty to make one from the title. Reuse an existing one to upload a new version.
     <input name="slug" pattern="[a-z0-9-]{3,40}" maxlength="40"></label>
   <label>Short description <textarea name="description" maxlength="500"></textarea></label>
-  <label>Game zip (up to ${Math.round(ZIP_LIMITS.maximumZipSizeBytes / 1048576)} MB, index.html at the top) <input type="file" name="zip" accept=".zip,application/zip" required></label>
+  <label>Game zip (up to ${Math.round(ZIP_LIMITS.maximumZipSizeBytes / 1048576)} MB, index.html at the top) <input type="file" name="zip" accept=".zip,application/zip" data-maximum-size-bytes="${ZIP_LIMITS.maximumZipSizeBytes}" required></label>
   <div><button class="btn" type="submit">Upload and scan</button></div>
 </form>
 
