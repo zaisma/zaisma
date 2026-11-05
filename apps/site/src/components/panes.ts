@@ -5,7 +5,7 @@ import "./materials.ts";
 import { tokenValue } from "./tokens.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, leavesZaisma, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { gameKeyDetails, listRows, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
+import { gameKeyDetails, listRows, nameList, pictureFrame, pictureRow, type FramedPerson, stateNote } from "./data.ts";
 import { action, cardRow, secondaryButton, tertiaryButton, primaryButton, textLink, toggleButton, type ListedIcon } from "./actions.ts";
 import { choiceCards, copyField, cutField, longField, tabSwitch, wheelField } from "./inputs.ts";
 import { STAND_IN_GAME_ICON, STAND_IN_QR_CODE, qrCode } from "./qr-code.ts";
@@ -128,6 +128,8 @@ export interface GameCardOptions {
   isCurrent?: boolean;
   /** Where its Play goes: Play and Details show under it (the home's game of the moment). Left out, a card has neither. */
   playHref?: string;
+  /** Where Join goes: the one button under it, for a game the player's friends are in now. Left out, a card has none. */
+  joinHref?: string;
   /** Its art loads with the page, not once it nears the screen: for the cards a page opens with in view, like the home's first. */
   isEager?: boolean;
   /** Its art is fetched before the page's other pictures: for the one card likely the largest thing in the first view. */
@@ -174,7 +176,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>${secondLine}${options.playHref ? gameCardActions(options.playHref, options.href) : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>${secondLine}${options.playHref ? gameCardActions(options.playHref, options.href) : ""}${options.joinHref ? html`<div class="cover-actions">${stackOfOne(secondaryButton("Join", { href: options.joinHref, isFullWidth: true }))}</div>` : ""}</div>`;
 }
 
 /**
@@ -1011,6 +1013,7 @@ component({
   styles: COVER_STYLES,
   render: gameCard,
   examples: [
+    { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }], summary: nameList(["Liam", "Sofia"]) } }) }] }) },
     {
       label: "In a list: every card the same shape, its facts in their corners",
       isWide: true,

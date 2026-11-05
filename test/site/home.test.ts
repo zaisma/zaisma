@@ -4,6 +4,7 @@ import { createAccount, createGame, personOwner, setBackground } from "@zaisma/c
 import "../../apps/site/src/index.ts";
 import { HOME_SCRIPT, PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
 import { cookieName } from "../../apps/site/src/auth.ts";
+import { sessionCookie, useSessions } from "../grid/site-world.ts";
 
 /**
  * The home page (apps/site/src/home.ts): two panes over Zaisma's own world. First what's for the player tonight, then what else is here.
@@ -138,6 +139,35 @@ describe("the home page", () => {
   it("refuses to be framed by other sites, as every page does", async () => {
     const { response } = await homePage();
     expect(response.headers.get("Content-Security-Policy") ?? "").toContain("frame-ancestors");
+  });
+});
+
+describe("the home's friends playing", () => {
+  it("shows at most 12 games friends are in, most friends first, as game cards in one row whose title opens /friends", async () => {
+    await useSessions();
+    await createAccount(env.DB, { id: "home-viewer", username: "Home_Viewer", ageBand: "18+" });
+    const owner = await personOwner(env.DB, "home-dev");
+    const now = Date.now();
+    const slugs = [...LIVE_SLUGS, "home-eleven", "home-twelve", "home-thirteen"];
+    for (const slug of slugs.slice(LIVE_SLUGS.length)) {
+      const game = await createGame(env.DB, { slug, title: `Home ${slug}`, description: `About ${slug}.`, ownerId: owner.id, visibility: "listed" });
+      await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, patch_notes, published_at_ms, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', '', ?, 0)").bind(`v-home-${slug}`, game.id, `games/${slug}/v1`, now).run();
+      await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = ? WHERE id = ?").bind(`v-home-${slug}`, game.id).run();
+    }
+    // One friend in each of 13 games, and a second in home-thirteen, which so comes first.
+    const friends = [...slugs.map((slug) => ({ slug, id: `home-friend-${slug}` })), { slug: "home-thirteen", id: "home-friend-second" }];
+    for (const [index, friend] of friends.entries()) {
+      await createAccount(env.DB, { id: friend.id, username: `Home_Friend_${index}`, ageBand: "18+" });
+      await env.DB.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES ('home-viewer', ?, ?), (?, 'home-viewer', ?)").bind(friend.id, now, friend.id, now).run();
+      await env.DB.prepare("INSERT INTO presences (account_id, seen_at_ms, game_id, game_seen_at_ms) SELECT ?, ?, id, ? FROM games WHERE slug = ?").bind(friend.id, now, now, friend.slug).run();
+    }
+    const response = await SELF.fetch(`${SITE}/`, { headers: { cookie: `${await sessionCookie("home-viewer")}; __Host-zaisma_in=1` } });
+    const text = await response.text();
+    const friendsRow = text.slice(text.indexOf('<section class="shelf" id="friends-playing"'), text.indexOf("</section>", text.indexOf('id="friends-playing"')));
+    expect(friendsRow).toContain('href="/friends"');
+    expect(coverSlugs(friendsRow)).toHaveLength(12);
+    expect(coverSlugs(friendsRow)[0]).toBe("home-thirteen");
+    expect(friendsRow).toContain("Home_Friend_12 and Home_Friend_13");
   });
 });
 

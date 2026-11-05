@@ -1,4 +1,4 @@
-import { type DeviceKind, type Genre, GENRE_LABELS, friendsNowOf, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
+import { type DeviceKind, type Genre, GENRE_LABELS, friendsNowOf, type FriendsInGame, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -6,6 +6,7 @@ import { secondaryButton, tertiaryButton } from "./components/actions.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { grid, leadAndSide, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
+import { nameList } from "./components/data.ts";
 import { shelf } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
@@ -277,12 +278,22 @@ function homeShelf(id: string, title: string, titleHref: string | undefined, lis
 }
 
 const control = (markup: ControlMarkup): LayoutItem => ({ kind: "control", markup });
+/** A game friends are in: who's there, and Join when it would let the player in. */
+function friendsCard(playing: FriendsInGame, games: readonly ShowGame[]): Raw {
+  const game = playing.game!, listed = games.find((each) => each.slug === game.slug);
+  const coverPicture = listed?.cover_picture ?? (game.cover_image_id ? { imageUrl: `/img/${game.cover_image_id}`, widthPx: 1600, heightPx: 900, placeholderDataUrl: null } : null);
+  const names = playing.friends.map((friend) => friend.name);
+  return gameCard({ title: game.title, picture: coverPicture, href: `/g/${game.slug}`, tintColor: listed?.glass_tint_color, joinHref: playing.join && !playing.join.refusal ? joinPath(game.slug, playing.join) : undefined, facts: { friends: names.map((username) => ({ username })), summary: nameList(names) } });
+}
+
 /** A heading and what it heads, inside a pane. */
 const section = (options: { title: string; body: LayoutMarkup }): LayoutMarkup => stack({ items: [{ kind: "words", markup: html`<h2>${options.title}</h2>` }, { kind: "block", markup: options.body }] });
 
 /** The first visit's words, flat on the backdrop, from what Zaisma is. */
 const FIRST_VISIT_LINE = "One place to play every kind of game.";
 const FIRST_VISIT_SMALLER_LINE = "Press Play, install nothing, bring your friends.";
+/** Games in Friends playing, those with the most friends first: everyone is on /friends, which its title links to. */
+const MAXIMUM_FRIENDS_PLAYING_CARD_COUNT = 12;
 /** Kinds of game on the home: the most common among listed games. */
 const SHOWN_GENRE_COUNT = 5;
 /** What's on's cards beside a player's own game; alone on a first visit it has MAXIMUM_WHATS_ON_CARD_COUNT. */
@@ -361,7 +372,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   const friendsPlaying = (friendsNow?.playing ?? []).filter((playing) => playing.game);
   const friendsSection: LayoutItem[] = friendsPlaying.length
-    ? [{ kind: "block", markup: section({ title: "Friends playing", body: grid({ itemSize: "card", whenEmpty: NO_EMPTY_NOTE, items: friendsPlaying.map((playing) => ({ kind: "block" as const, markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<p>${playing.friends.map((friend) => friend.name).join(", ")} in ${playing.game!.title}</p>` }, ...(playing.join && !playing.join.refusal ? [control(secondaryButton("Join", { href: joinPath(playing.game!.slug, playing.join) }))] : [])] }) })) }) }) }]
+    ? [{ kind: "block", markup: shelf({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", titleHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_FRIENDS_PLAYING_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
     : [];
   const genreCounts = new Map<string, number>();
   for (const game of gamesOnShelves) for (const genre of game.genres) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);

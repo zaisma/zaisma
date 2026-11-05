@@ -354,6 +354,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line .cut-band, .slab.is-pressed > .cut-line .cut-band { transition-duration: var(--motion-press); }
 /* Press spring-back: what's on a slab goes down with it, a hair, quickly, and springs back up when it's let go. The slab itself never
    moves out of its place. A lit slab floats, so it moves as a whole instead (its button lifts and lands it). */
+/* A slab on a pane lets the pane's blur show through. Over art in a carving there's no blur under it, so it blurs the art itself. A shadow cast by the
+   shell would stop that, since a filter cuts what's inside it off from what's behind it, so this slab casts none. */
+.carving.holds-art .shell:has(> .slab:not(.lit)) { filter: none; }
+.carving.holds-art .slab:not(.lit) { -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .slab:not(.lit) > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)));
