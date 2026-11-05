@@ -610,7 +610,7 @@ export const GAME_SEARCH: HeaderSearch = { action: "/games", searchText: "", pla
 
 const ADMIN_TABS: [string, string][] = [
   ["Admin", "/admin"], ["Reports", "/admin/reports"], ["Feedback", "/admin/feedback"], ["Profiles", "/admin/profiles"], ["Publishing", "/admin/publishing"],
-  ["Chat reviews", "/admin/chat-reviews"], ["Precedents", "/admin/precedents"], ["Audit log", "/admin/audit"],
+  ["Chat reviews", "/admin/chat-reviews"], ["NCMEC reports", "/admin/ncmec"], ["Precedents", "/admin/precedents"], ["Audit log", "/admin/audit"],
 ];
 
 /**

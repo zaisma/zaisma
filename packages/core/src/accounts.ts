@@ -61,6 +61,8 @@ export interface Account extends SocialSettings {
   social_stopped_reason: ZaismaPlayerReportReason | null;
   /** Until when this account's friend requests go nowhere, after most of its recent ones were turned down or left (friend-requests.ts); null when they go. */
   friend_requests_paused_until_ms: number | null;
+  /** When a known-image match paused the account (ncmec.ts): no uploads, publishing, posting, chat or friend requests until a person clears it or bans it; null when it isn't paused. */
+  safety_paused_at_ms: number | null;
   /** When an account without an email pressed Skip on "Where should we tell you if someone else uses your account?" (security-alerts.ts); null while it hasn't. */
   email_ask_skipped_at_ms: number | null;
   /** When Zaisma banned the account (bans.ts), how far (developer: its games come down and it can't publish; whole_account: it can't sign in either), why in a sentence, and the content rule it broke; null when it isn't banned. */
@@ -360,6 +362,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     social_stopped_at_ms: null,
     social_stopped_reason: null,
     friend_requests_paused_until_ms: null,
+    safety_paused_at_ms: null,
     email_ask_skipped_at_ms: null,
     banned_at_ms: null,
     ban_scope: null,

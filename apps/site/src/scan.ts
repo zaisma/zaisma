@@ -82,6 +82,7 @@ import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 import { updateLiveMatches } from "./match-updates.ts";
 import { sendAlert } from "./email.ts";
+import { reportMatch, type MatchedMedia } from "./ncmec.ts";
 import { queuePerformanceCheck } from "./performance-check.ts";
 import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
@@ -633,7 +634,25 @@ async function isAnotherVersionWaitingForPerson(env: Env, version: Version): Pro
 
 /** What to do when image matching finds known abuse material, for the alert and the admin page. */
 export const KNOWN_IMAGE_ALERT =
-  "Image matching (Arachnid Shield or PhotoDNA, named on each finding) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
+  "Image matching (Arachnid Shield or PhotoDNA, named on each finding) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. It's reported to NCMEC's CyberTipline by itself and the account is paused: another alert gives the report's number, and /admin/ncmec shows it. Don't open the pictures and don't delete anything: the files must be kept.";
+
+/** A version's known-image match, reported to NCMEC with the matched pictures and videos (ncmec.ts). */
+async function reportVersionMatch(env: Env, game: Game, version: Version, files: StoredFile[], images: MediaMatchResult): Promise<void> {
+  const storedKeys = new Set(files.map((file) => file.key));
+  const messageOf = (path: string) => images.findings.filter((finding) => finding.code === KNOWN_IMAGE_CODE && finding.path === path).map((finding) => finding.message).join(" ") || null;
+  const isPubliclyAvailable = game.live_version_id === version.id && liveVersionReachesOthers(game);
+  const media: MatchedMedia[] = [];
+  for (const known of images.knownMedia ?? []) {
+    const common = { path: known.path, contentType: known.type, matchMessage: messageOf(known.path), isPubliclyAvailable, ...(known.sha256 ? { sha256: known.sha256 } : {}) };
+    if (storedKeys.has(known.id)) {
+      media.push({ ...common, gamesKey: known.id });
+      continue;
+    }
+    const body = await known.body();
+    media.push({ ...common, bytes: body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer()) });
+  }
+  await reportMatch(env, { where: `a version of ${game.slug}`, gameId: game.id, versionId: version.id, accountId: null, incidentUrl: `${env.SITE_ORIGIN}/g/${game.slug}`, media });
+}
 
 /** What the fixed checks found in a version's files, and what the review needs next. */
 interface FixedChecks {
@@ -682,6 +701,8 @@ async function fixedChecks(env: Env, version: Version, game: Game, deps: ScanDep
   const images = await matchMedia(env, files, texts, disguised, deps.images);
   findings.push(...images.findings);
   const hasKnownImage = images.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
+  // Reported to NCMEC by itself, before anything else happens to the version; a re-check finds it reported already.
+  if (hasKnownImage) await reportVersionMatch(env, game, version, files, images);
   return { files, texts, findings, staticResult, imageFiles, images, hasKnownImage, matchedGame };
 }
 
@@ -1059,7 +1080,8 @@ async function readTexts(env: Env, files: StoredFile[]): Promise<{ texts: { path
 }
 
 /** What image matching found, and how many pictures and videos it trusted from an earlier check instead of sending. */
-export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number };
+/** knownMedia: the pictures and videos a known-image finding names, to keep for the report to NCMEC (ncmec.ts). */
+export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number; knownMedia?: MediaForMatching[] };
 
 /**
  * Image matching on every picture and video in a version: by name, by their first bytes whatever they're
@@ -1138,11 +1160,13 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   await saveCheckedFiles(env, [], sniffedNotMedia, { provider: "", isConnected: true, checkedMediaCount: 0, findings: [] }, nowMs);
 
   const results: ImageMatchResult[] = [];
+  const sentMedia: MediaForMatching[] = [];
   const stopIfOutOfTime = () => {
     if (Date.now() >= stopsAtMs) throw new ScanContinues(`Matching carries on in another run.`);
   };
   /** Sends media a part at a time, saving what cleared after each. Answers false once a matcher stopped. */
   const matchInParts = async (sent: MediaForMatching[], clearedPackHash?: { path: string; sha256: string }): Promise<boolean> => {
+    sentMedia.push(...sent);
     for (let i = 0; i < sent.length || i === 0; i += MATCHED_MEDIA_COUNT_PER_SAVE) {
       const part = sent.slice(i, i + MATCHED_MEDIA_COUNT_PER_SAVE);
       const matchResult = await matcher.check(part);
@@ -1178,6 +1202,8 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
   }
   if (isInsideCapped) findings.push({ stage: "images", severity: "info", code: "too_many_pictures_inside_packs", message: `More than ${MAXIMUM_PACK_PICTURE_COUNT} pictures inside packs: the first ${MAXIMUM_PACK_PICTURE_COUNT} were matched.` });
   const last = results.at(-1)!;
+  const knownPaths = new Set(results.flatMap((each) => each.findings).filter((finding) => finding.code === KNOWN_IMAGE_CODE && finding.path).map((finding) => finding.path!));
+  const knownMedia = sentMedia.filter((sent) => knownPaths.has(sent.path));
   const uncheckedMediaCount = results.reduce((totalCount, each) => totalCount + (each.uncheckedMediaCount ?? 0), 0);
   return {
     provider: last.provider,
@@ -1186,6 +1212,7 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
     ...(uncheckedMediaCount ? { uncheckedMediaCount } : {}),
     findings: [...findings, ...results.flatMap((each) => each.findings)],
     reusedMediaCount,
+    ...(knownMedia.length ? { knownMedia } : {}),
   };
 }
 
@@ -1337,6 +1364,7 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
   const { texts, disguised, hasTooMuchCode } = await readTexts(env, files);
   const matchResult = await matchMedia(env, files, texts, disguised, deps.images);
   if (matchResult.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) {
+    await reportVersionMatch(env, game, version, files, matchResult);
     await holdKnownImages(env, game, version, matchResult, "Image matching on a version that passed before it was connected");
     return;
   }

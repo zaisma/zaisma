@@ -20,6 +20,7 @@ export const SIGN_INS = [
   { username: "Quiet_Builder", about: "no email, with an API key: security alerts wait on its account page and dashboard, and it's asked for an email" },
   { username: "Gone_Dev", about: "owns two games: delete the account to see them deleted with it" },
   { username: "Loud_Lynx", about: "reported in Arena for a real-life threat and following after a block" },
+  { username: "Paused_Maker", about: "a known-image match paused it: its account page says a person at Zaisma needs to look, and it can't make games or post" },
   { username: "Stopped_Fox", about: "its social side was turned off after a report: see /account#social and /friends" },
   { username: "Card_Keeper", about: "a saved Visa 4242 and owns Straw Hat (granted): Tiny Farm's shop buys Revive with one press (no confirm: no PIN, signed in just now, small spend), and Straw Hat says it's owned" },
   { username: "Pin_Keeper", about: "purchase PIN 246810 and no saved card: Tiny Farm's shop asks for the PIN on every buy once a card is saved, after adding a Test card" },

@@ -9,6 +9,7 @@ import { deleteOldLogs } from "./logs-api.ts";
 import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
+import { eraseOldReports } from "./ncmec.ts";
 import { deleteVersion, publishWithReview, routePublish } from "./scan.ts";
 import { judgeUnpaidStorage } from "./unpaid-storage.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -123,6 +124,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at_ms < ? AND NOT (is_kept = 1 AND player_count = 0)").bind(nowMs - ROOM_STALE_MS).run();
   await deleteStalePresences(env.DB, nowMs);
   await deleteOldFriendRequests(env.DB, nowMs);
+  // Reports to NCMEC a year after they were sent, with their files: what the law asks to keep.
+  await eraseOldReports(env, nowMs);
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();
   // So are its logs: days past the 30 kept (logs-api.ts).
