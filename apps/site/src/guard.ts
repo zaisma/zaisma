@@ -1,4 +1,4 @@
-import { banScopeOf, bodyProblem, checkDoor, formProblem, isPastDoorLimit, queryProblem, type DoorCaller } from "@zaisma/core";
+import { banScopeOf, BodyPastCapError, bodyProblem, checkDoor, formProblem, isPastDoorLimit, NO_BODY_MAXIMUM_SIZE_BYTES, queryProblem, readBodyBytes, type DoorCaller } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
 import { authConfigured, connectionAddressOf, currentSession } from "./auth.ts";
 import { safeNext } from "./account.ts";
@@ -34,6 +34,10 @@ function answerAs(door: SiteDoor, httpStatus: number, code: string, words: strin
 
 const wrongShape = (door: SiteDoor, field: string) => answerAs(door, 400, "wrong_shape", `${field} isn't the right shape.`);
 const tooOften = (door: SiteDoor) => answerAs(door, 429, "slow_down", "Too many requests. Try again in a minute.");
+/** A body over what its door takes, from the guard or from the door's own read of it. */
+export const bodyTooBig = (door: SiteDoor) => answerAs(door, 413, "wrong_shape", "That's too big.");
+/** What a door's row lets it be sent: every read behind the door stops here. */
+export const doorBodyMaximumSizeBytes = (door: SiteDoor) => door.contract.takes.body?.maximumSizeBytes ?? NO_BODY_MAXIMUM_SIZE_BYTES;
 
 /** A request that isn't its door's shape: its query's names, its body's size, then its fields. A body is read from a copy, on doors that take one. */
 async function refusedByShape(request: Request, door: SiteDoor): Promise<Response | null> {
@@ -42,19 +46,25 @@ async function refusedByShape(request: Request, door: SiteDoor): Promise<Respons
   if (wrong) return wrongShape(door, wrong.field);
   const { method } = request;
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return null;
-  const maximumSizeBytes = body?.maximumSizeBytes ?? NO_BODY_MAXIMUM_SIZE_BYTES;
-  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) return answerAs(door, 413, "wrong_shape", "That's too big.");
+  const maximumSizeBytes = doorBodyMaximumSizeBytes(door);
+  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) return bodyTooBig(door);
   if (!body || body.kind === "bytes") return null;
   const contentType = request.headers.get("content-type") ?? "";
+  if (body.kind === "form" && !contentType.includes("form")) return null;
+  let bodyBytes: Uint8Array;
+  try {
+    bodyBytes = await readBodyBytes(request.clone(), maximumSizeBytes);
+  } catch (error) {
+    if (error instanceof BodyPastCapError) return bodyTooBig(door);
+    return answerAs(door, 400, "wrong_shape", "That body can't be read.");
+  }
   if (body.kind === "form") {
-    if (!contentType.includes("form")) return null;
-    const form = await request.clone().formData().catch(() => null);
+    const form = await new Response(bodyBytes, { headers: { "Content-Type": contentType } }).formData().catch(() => null);
     if (!form) return answerAs(door, 400, "wrong_shape", "That form can't be read.");
     const problem = formProblem(body.fields, body.fileNames ?? [], form as unknown as Parameters<typeof formProblem>[2]);
     return problem ? wrongShape(door, problem.field) : null;
   }
-  const bodyText = await request.clone().text();
-  if (bodyText.length > maximumSizeBytes) return answerAs(door, 413, "wrong_shape", "That's too big.");
+  const bodyText = new TextDecoder().decode(bodyBytes);
   if (!bodyText.trim() && body.isOptional) return null;
   let given: unknown;
   try {
@@ -68,9 +78,6 @@ async function refusedByShape(request: Request, door: SiteDoor): Promise<Respons
   // A name it doesn't take is said as the API says it.
   return problem.field in body.fields || (body.required ?? []).includes(problem.field) ? wrongShape(door, problem.field) : answerAs(door, 400, "unknown_field", `${problem.field} isn't one of this door's fields.`);
 }
-
-/** A door that takes no body still gets asked: what's sent to one is never read, up to this. */
-const NO_BODY_MAXIMUM_SIZE_BYTES = 64 * 1024;
 
 async function signedOutAnswer(request: Request, path: string, whenSignedOut: WhenSignedOut): Promise<Response> {
   const url = new URL(request.url);

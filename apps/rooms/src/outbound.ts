@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { ZAISMA_DOMAINS, allowedHostsOf, isHostAllowed, unreachableHostReason } from "@zaisma/core";
+import { ZAISMA_DOMAINS, allowedHostsOf, isHostAllowed, unreachableHostReason, BodyPastCapError, readBodyBytes } from "@zaisma/core";
 import { OUTSIDE_CALL_LIMITS, OUTSIDE_CALL_REFUSAL_HEADER, type OutsideCallErrorCode, type OutsideCallRefusal } from "@zaisma/game-server/internal";
 import type { Env } from "./index.ts";
 
@@ -102,27 +102,12 @@ function refuse(code: OutsideCallErrorCode, message: string, fix: string): Respo
 /** The call's body, read up to the limit, or too_big. */
 async function cappedBody(request: Request): Promise<Uint8Array | null | "too_big"> {
   if (!request.body) return null;
-  if (Number(request.headers.get("content-length") ?? 0) > OUTSIDE_CALL_LIMITS.maximumBodySizeBytes) return "too_big";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let sizeBytes = 0;
-  for (;;) {
-    const { done: isDone, value: chunk } = await reader.read();
-    if (isDone) break;
-    sizeBytes += chunk.byteLength;
-    if (sizeBytes > OUTSIDE_CALL_LIMITS.maximumBodySizeBytes) {
-      await reader.cancel();
-      return "too_big";
-    }
-    chunks.push(chunk);
+  try {
+    return await readBodyBytes(request, OUTSIDE_CALL_LIMITS.maximumBodySizeBytes);
+  } catch (error) {
+    if (error instanceof BodyPastCapError) return "too_big";
+    throw error;
   }
-  const body = new Uint8Array(sizeBytes);
-  let filledSizeBytes = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, filledSizeBytes);
-    filledSizeBytes += chunk.byteLength;
-  }
-  return body;
 }
 
 /** Adds the calls waiting (in this isolate) to each game's room_usage for today, with its own row as one Zaisma wrote for the game; a write that fails keeps them for the next. */

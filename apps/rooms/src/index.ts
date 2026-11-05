@@ -1,4 +1,4 @@
-import { HOSTING_NETWORKS, RENTED_SHARE_TEXT, accountHasHistory, banScopeOf, checkDoor, gameHosting, isOnRentedShare, isPastDoorLimit, isPastGameLimit, isPastLevel, networkNumberOf, readPlayShare, sealPlayShare, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { HOSTING_NETWORKS, RENTED_SHARE_TEXT, accountHasHistory, banScopeOf, checkDoor, gameHosting, isOnRentedShare, isPastDoorLimit, isPastGameLimit, isPastLevel, networkNumberOf, readPlayShare, sealPlayShare, testerLinkToken, finishHandling, finishRefundHandling, unhandledFor, type PurchaseDelivery, CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, itemsOf, ownedItemNames, priceFor, priceText, PLAYER_REPORT_REASONS, accountById, checkChatText, isChatStopped, isStrangerChatWaiting, isBlockedInCountry, isOldEnoughFor, requestCountryCode, type AgeBand, gameAddress, accountUsernameOf, blockPlayerIdsOf, chatBandGroup, socialSettingsOf, friendPlayerIdsOf, friendsInGameOf, gameServerOf, isOwnServerUrl, ownServerUrlsOf, setOwnServerRoom, type AccountRequirement, type MultiplayerMode, createReport, REPORTED_CHAT_LIMITS, type ReportedChatMessage, isIdOf, iso, leaveOut, listRooms, newId, roomHostingOf, playerProfile, readLabelParameter, readLeftParameter, tidyChatText, tidyText, useRoomKey, type PlayerReportReason, type RoomList, NO_BODY_MAXIMUM_SIZE_BYTES, cappedRequest } from "@zaisma/core";
 import { BUSY_CLOSE_CODE, ERROR_TEXT, PassError, REMOVED_CLOSE_CODE, errorMessage, type RoomErrorCode, REQUEST_ERROR_HTTP_STATUS, REQUEST_LIMITS, PASS_VERSION_NUMBER, canChat, guestName, isRoomCode, jwks, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type PassClaims, type RequestErrorCode } from "@zaisma/game-server/internal";
 import { guardRoomDoor, roomAddressDoorAt } from "./doors.ts";
 import { usesRooms } from "./registry.ts";
@@ -525,13 +525,15 @@ function roomListForGame(list: Omit<RoomList, "changedAtMs">, inviteUrl: (code: 
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
-    const url = new URL(request.url);
-    const origin = request.headers.get("origin");
+  async fetch(given, env): Promise<Response> {
+    const url = new URL(given.url);
+    const origin = given.headers.get("origin");
 
     // The guard in front of every address (doors.ts): nothing below runs for one with no row.
-    const door = roomAddressDoorAt(url.pathname, request.method);
+    const door = roomAddressDoorAt(url.pathname, given.method);
     if (!door || !checkDoor(door.contract, [])) return new Response("Not found", { status: 404 });
+    // From here on no read of the body, the guard's or the door's, gets past what the door's row takes.
+    const request = cappedRequest(given, door.contract.takes.body?.maximumSizeBytes ?? NO_BODY_MAXIMUM_SIZE_BYTES);
     const refused = await guardRoomDoor(request, env, door);
     if (refused) return refusedAtDoor(refused, request, origin);
 
