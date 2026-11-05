@@ -21,6 +21,7 @@ import { isPastLevel,
   type Account,
   type KeyScope,
   type Passkey,
+  formOf,
 } from "@zaisma/core";
 import { AREA_LABELS, CHOICE_LABELS, LEVEL_LABELS, PASSKEY_TAP_FIELDS, ACCESS_CHOICES_SCRIPT, keyMakingState, keyScopeFromForm, passkeyTapFromForm, type PasskeyState } from "./account.ts";
 import { glassPane } from "./components/foundations.ts";
@@ -292,7 +293,7 @@ export async function authorizeMcp(request: Request, env: Env): Promise<Response
     const origin = request.headers.get("origin");
     if (origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
   }
-  const form = isPost ? await request.formData() : null;
+  const form = isPost ? await formOf(request) : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));
   if ("brokenLinkReason" in checked) return glassMessage(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Remove Zaisma from the app's connectors and add it again.`, 400);
@@ -545,7 +546,7 @@ export async function tokenMcp(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return tokenError("invalid_request", "The token call is a POST.", 405);
   let form: FormData;
   try {
-    form = await request.formData();
+    form = await formOf(request);
   } catch {
     return tokenError("invalid_request", "Send the token call as application/x-www-form-urlencoded.");
   }

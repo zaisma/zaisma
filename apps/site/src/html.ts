@@ -490,7 +490,9 @@ addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog"
 addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
-const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT);
+// A file past what its form takes says so when it's chosen, and the form won't send it: the browser would upload it only to be refused.
+const FILE_SIZE_SCRIPT = `addEventListener("change",e=>{const i=e.target;if(!i.matches||!i.matches("input[type=file][data-maximum-size-bytes]"))return;const most=+i.dataset.maximumSizeBytes,isTooBig=[...i.files].some(f=>f.size>most);i.setCustomValidity(isTooBig?"That file is over "+Math.round(most/1048576)+" MB. Save it smaller and choose it again.":"");if(isTooBig)i.reportValidity()});`;
+const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT + FILE_SIZE_SCRIPT);
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 

@@ -1,4 +1,4 @@
-import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { usualDurationWords, ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, REVIEW_CODES, type ReviewCodeName, CONTROLS, DEVICES, GENRE_LABELS, GENRES, LINK_LIMITS, MAXIMUM_GENRE_COUNT, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type Account, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing, formOf, IMAGE_LIMITS } from "@zaisma/core";
 import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
 import { APPEAL_EMAIL } from "./bans.ts";
 import { accountBanned, apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
@@ -229,7 +229,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
   if (moved) return done(redirect(`/forum/topic_${moved[1]}`));
   if (path === "/dashboard/new" && post) {
-    const form = await request.formData();
+    const form = await formOf(request);
     try {
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
@@ -264,7 +264,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     return done(await managerPage(env, call, account, slug, section.id, { done: DONE[url.searchParams.get("done") ?? ""] }));
   }
 
-  const form = await request.formData();
+  const form = await formOf(request);
   const field = (name: string) => String(form.get(name) ?? "").trim();
   // A change comes back to the section its form is in, which a form says when it's on more than one.
   const sectionOfAction: Section =
@@ -1276,7 +1276,7 @@ ${shown.length
       )}</div>`
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
-<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option><option value="share">Share picture</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
+<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option><option value="share">Share picture</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" data-maximum-size-bytes="${IMAGE_LIMITS.maximumSizeBytes}" required aria-label="Image"></div>
 <p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it, and nothing else: no other words, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. <a href="/developers/covers">See covers that pass</a>. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game, its own interface included, with nothing added. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
@@ -1326,7 +1326,7 @@ ${shader.review_reason ? html`<div class="note rejected-image">${reasonPanel(slu
 <div class="bg-now muted"><span>Shows now: <strong>${nowText}</strong></span>${background.source !== "zaisma" ? choose("zaisma", {}, "Use Zaisma's own") : ""}${screen === "phone" && background.source !== "wide" ? choose("wide", {}, "Same as wide screens") : ""}</div>
 ${candidates.length ? html`<div class="thumbs bg-candidates">${candidates}</div>` : ""}
 <form class="stack" method="post" action="/dashboard/${slug}/backgrounds" enctype="multipart/form-data"><input type="hidden" name="screen" value="${screen}">
-<div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
+<div class="row"><input type="file" name="file" accept="image/png,image/jpeg,image/webp,.glsl,.frag,text/plain" data-maximum-size-bytes="${IMAGE_LIMITS.maximumSizeBytes}" required aria-label="${SCREEN_NAMES[screen]} background: a picture or a shader" data-preview-file><button class="btn ghost" type="submit">Send</button></div></form>
 <div class="drop bg-folder" data-slug="${slug}" data-screen="${screen}">
 <p><strong>A shader with buffers or textures?</strong> Drop its folder here, or <label class="pick">choose it<input type="file" webkitdirectory multiple hidden aria-label="${SCREEN_NAMES[screen]} background: a shader folder" data-folder-input></label>.</p>
 <p class="bg-folder-summary" data-folder-summary hidden></p>

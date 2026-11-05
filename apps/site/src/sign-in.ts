@@ -12,6 +12,7 @@ import {
   useSignInGrant,
   type Account,
   type SignInApp,
+  formOf,
 } from "@zaisma/core";
 import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -224,7 +225,7 @@ export function authorizationServerMetadata(env: Env, forMcp: boolean): Record<s
 async function clientIdOf(request: Request, path: string): Promise<string> {
   if (request.method !== "POST") return new URL(request.url).searchParams.get("client_id") ?? "";
   try {
-    const credentials = clientCredentialsOf(request, await request.clone().formData());
+    const credentials = clientCredentialsOf(request, await formOf(request));
     return "clientId" in credentials ? credentials.clientId : "";
   } catch {
     return path === "/oauth/authorize" ? (new URL(request.url).searchParams.get("client_id") ?? "") : "";
@@ -302,7 +303,7 @@ export function redirect(to: string, cookies: string[] = []): Response {
 
 async function authorize(request: Request, env: Env): Promise<Response> {
   const isPost = request.method === "POST";
-  const form = isPost ? await request.formData() : null;
+  const form = isPost ? await formOf(request) : null;
   const query = new URL(request.url).searchParams;
   const checked = await checkAuthorize(env, (name) => (form ? (form.get(name) as string | null) : query.get(name)));
   if ("brokenLinkReason" in checked) return glassMessage(env, "This sign-in link doesn't work", `It can't be used because ${checked.brokenLinkReason}. Tell whoever runs the site you came from.`, 400);
@@ -427,7 +428,7 @@ async function token(request: Request, env: Env, key: SignInKey): Promise<Respon
   if (request.method !== "POST") return tokenError("invalid_request", "The token call is a POST.", 405);
   let form: FormData;
   try {
-    form = await request.formData();
+    form = await formOf(request);
   } catch {
     return tokenError("invalid_request", "Send the token call as application/x-www-form-urlencoded.");
   }
