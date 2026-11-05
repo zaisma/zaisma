@@ -13,6 +13,7 @@ import { RENTED_SHARE_VPN_TEXT,
   fullGameOwner,
   itemsOf,
   ownedItemNames,
+  isFavoriteGame,
   priceFor,
   priceText,
   purchaseLabelFor,
@@ -54,7 +55,7 @@ import { RENTED_SHARE_VPN_TEXT,
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, primaryButton, tertiaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
@@ -169,6 +170,8 @@ export interface GamePageView {
   items: GameItem[];
   /** The permanent items the viewer owns in it. */
   ownedItemNames: string[];
+  /** It's in the viewer's favorites: the heart is on. */
+  isFavorite?: boolean;
   /** Where the viewer is (CF-IPCountry), for the prices they pay; null when unknown. */
   countryCode: string | null;
   /** A paid game's free demo, still there for players; null for none. */
@@ -214,7 +217,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
   const code = roomCodeOf(url, isClosed || isForSale);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing] = await Promise.all([
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing, isFavorite] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -246,6 +249,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       : null,
     // What the developer's standing opens: links to other sites, and search engines (standing.ts).
     standingOf(env.DB, game.owner_id, Date.now()),
+    // The heart: whether it's in the viewer's favorites (Your games). Not on tester links, where the game isn't out.
+    viewer.account && !tester ? isFavoriteGame(env.DB, viewer.account.id, game.id) : false,
   ]);
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, otherGames.filter((otherGame) => otherGame.owner_id && otherGame.owner_id === game.owner_id));
   const response = gamePageResponse(env, {
@@ -274,6 +279,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     isFullGameOwner,
     items,
     ownedItemNames: ownedNames,
+    isFavorite,
     countryCode,
     demoGameSlug: demo?.slug ?? null,
     fullGameSlug: fullGame?.slug ?? null,
@@ -387,6 +393,12 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           items: [
             { kind: "control", markup: secondaryButton("Details", { href: "#about", isBig: true }) },
             ...(otherGameLink ? [{ kind: "control" as const, markup: otherGameLink }] : []),
+            // The heart, for Your games' Favorites: a guest is sent to sign in, and the game is favorited once they're back (?favorite).
+            ...(view.tester || isClosed
+              ? []
+              : [{ kind: "control" as const, markup: view.viewer.account
+                  ? toggleButton(action("favorite", view.isFavorite ? "Remove from favorites" : "Favorite"), { id: "favorite", type: "button", isLabelHidden: true, isPressed: Boolean(view.isFavorite) })
+                  : toggleButton(action("favorite"), { href: `/signin?next=${encodeURIComponent(`/g/${game.slug}?favorite`)}`, isLabelHidden: true, isPressed: false }) }]),
             { kind: "control", markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
             { kind: "control", markup: secondaryButton(action("report"), { href: reportHref, isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
           ],
@@ -1120,6 +1132,23 @@ function warmUp() {
 if (document.readyState === "complete") setTimeout(warmUp, 1000);
 else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
+// The heart: favorite or not, flipped at once and kept by the server; back from signing in with ?favorite, it's favorited.
+const heart = document.getElementById("favorite");
+function setFavorite(isFavorite) {
+  if (!heart) return;
+  heart.setAttribute("aria-pressed", String(isFavorite));
+  heart.setAttribute("aria-label", isFavorite ? "Remove from favorites" : "Favorite");
+  return fetch("/api/me/favorites/" + gamePage.slug + (isFavorite ? "" : "/remove"), { method: "POST", headers: { Accept: "application/json" } })
+    .then((response) => { if (!response.ok) heart.setAttribute("aria-pressed", String(!isFavorite)); })
+    .catch(() => heart.setAttribute("aria-pressed", String(!isFavorite)));
+}
+if (heart) heart.addEventListener("click", () => setFavorite(heart.getAttribute("aria-pressed") !== "true"));
+if (heart && new URL(location.href).searchParams.has("favorite") && heart.getAttribute("aria-pressed") !== "true") {
+  setFavorite(true);
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete("favorite");
+  history.replaceState(history.state, "", cleanUrl);
+}
 // Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 function remember() {

@@ -23,7 +23,7 @@ const LIST = {
   players: { words: "Players", icon: "people" },
   follow: { words: "Follow", icon: "bell" },
   like: { words: "Like", icon: "heart" },
-  favorite: { words: "Favorite", icon: "star" },
+  favorite: { words: "Favorite", icon: "heart" },
   report: { words: "Report", icon: "flag" },
   // Things to do to something.
   change: { words: "Change", icon: "pencil" },

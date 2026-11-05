@@ -721,6 +721,8 @@ if (process.env.PREVIEW_SPENDING_STOP) {
   runSql("UPDATE game_hosting_months SET real_player_count = CASE WHEN game_id = (SELECT id FROM games WHERE slug = 'harbor-lights') THEN 0 ELSE 500 END WHERE month_start_date = date('now', 'start of month')");
 }
 seedFriendsNow();
+// Your games, again this run: Moss_Runner's favorites, history and a game gone private.
+seedYourGames();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
 // The AI review's states, again this run, for the links under AI review below.
@@ -806,6 +808,9 @@ Zaisma preview is running. Nothing here touches the live site.
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
+  Your games      ${SITE}/your-games  (as Moss_Runner: Shard Dodge leads Favorites, updated since played; Four in a Row not played yet;
+                  Recently played with Quiet Harbor greyed, gone private; For you from the same genres; All you've played at
+                  ${SITE}/your-games/played; signed out, the games this device played)
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
   Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide and phones the Neon Drift
                   shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
@@ -2008,6 +2013,28 @@ async function seedProfiles(go, form, people) {
  * (some taking spectators, so Watch sits beside Join) and, last, matches in progress with Join grayed
  * ("In a match"), two of them with Watch live.
  */
+/**
+ * Your games (/your-games) for Moss_Runner: four favorites (Shard Dodge updated since it was last played, so it leads; Cave Crew;
+ * Tiny Farm; and Four in a Row, never played), 14 Browse games played over the last two weeks, one game played then made private
+ * (greyed, "Not available right now"), and three players who favorited Tiny Farm (its dashboard's count). Idempotent: on every run.
+ */
+function seedYourGames() {
+  const nowMs = Date.now();
+  const dayMs = 86_400_000;
+  const account = (name) => `(SELECT id FROM accounts WHERE username = '${name}')`;
+  const game = (slug) => `(SELECT id FROM games WHERE slug = '${slug}')`;
+  const ifMade = `WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Moss_Runner') AND EXISTS (SELECT 1 FROM games WHERE slug = 'shard-dodge')`;
+  runSql([
+    `UPDATE games SET big_update_at_ms = ${nowMs - dayMs} WHERE slug = 'shard-dodge' AND (big_update_at_ms IS NULL OR big_update_at_ms < ${nowMs - 2 * dayMs})`,
+    ...[["shard-dodge", 3], ["cave-crew", 0.1], ["tiny-farm", 1]].map(([slug, agoDays]) => `INSERT OR REPLACE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, ${game(slug)}, ${Math.round(nowMs - agoDays * dayMs)} ${ifMade}`),
+    ...["shard-dodge", "cave-crew", "tiny-farm", "four-in-a-row"].map((slug, favoriteIndex) => `INSERT OR IGNORE INTO favorite_games (account_id, game_id, favorited_at_ms) SELECT ${account("Moss_Runner")}, ${game(slug)}, ${nowMs - favoriteIndex * dayMs} ${ifMade} AND ${game(slug)} IS NOT NULL`),
+    `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, id, ${nowMs} - played_rank * ${dayMs} FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS played_rank FROM games WHERE id LIKE 'game_browse%' ORDER BY id LIMIT 14) ${ifMade}`,
+    `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres) SELECT 'game_your_games_private', 'quiet-harbor', 'Quiet Harbor', '', 'live', live_version_id, owner_id, 'private', entry_signing_key, created_at_ms, updated_at_ms, 'strategy' FROM games WHERE slug = 'shard-dodge'`,
+    `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, 'game_your_games_private', ${nowMs - 2 * dayMs} ${ifMade}`,
+    ...["Many_Friend_1", "Many_Friend_2", "Many_Friend_3"].map((name) => `INSERT OR IGNORE INTO favorite_games (account_id, game_id, favorited_at_ms) SELECT ${account(name)}, ${game("tiny-farm")}, ${nowMs} WHERE ${account(name)} IS NOT NULL AND ${game("tiny-farm")} IS NOT NULL`),
+  ].join(";\n"));
+}
+
 function seedFriendsNow() {
   const later = 4102444800000;
   const account = (name) => `(SELECT id FROM accounts WHERE username = '${name}')`;

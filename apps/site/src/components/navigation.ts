@@ -10,7 +10,7 @@ import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type 
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, stateNote } from "./data.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
-import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { grid, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
 
 /*
@@ -35,7 +35,7 @@ export interface HeaderOptions {
   isOnSignInPage?: boolean;
   /** Tabs of the page's own in place of Zaisma's (the admin pages'). */
   ownTabs?: SwitchTab[];
-  /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
+  /** Where Your games is: the tab shows, for guests too (their games on this device). */
   yourGamesHref?: string;
   /** The page shows its own runner (a game's Play, a form's Save), so Sign in is a secondary button: one runner in view. */
   hasPageRunner?: boolean;
@@ -71,7 +71,7 @@ export function header(options: HeaderOptions): Raw {
   const tabs = options.ownTabs ?? [
     { ...tab(action("home").label, "/", options.current === "home"), icon: action("home").icon },
     { ...tab(action("browse").label, "/games", options.current === "browse"), icon: action("browse").icon },
-    ...(account && options.yourGamesHref ? [{ ...tab(action("yourGames").label, options.yourGamesHref, options.current === "your-games"), icon: action("yourGames").icon }] : []),
+    ...(options.yourGamesHref ? [{ ...tab(action("yourGames").label, options.yourGamesHref, options.current === "your-games"), icon: action("yourGames").icon }] : []),
     { ...tab(action("developer").label, account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), icon: action("developer").icon },
     { ...tab(action("forum").label, "/forum", options.current === "forum", true, isOpen), icon: action("forum").icon },
   ];
@@ -1213,6 +1213,13 @@ export interface ShelfOptions {
   items: LayoutItem[];
   /** What it says while it has no covers (Continue playing before you've played anything), in place of its row. */
   emptyText?: string;
+  /**
+   * Its covers in lines down the page (a Grid) rather than a track that scrolls sideways: a shelf that's a part of a library (Your
+   * games). leadCell makes its first cover the one it's grounded on, twice the rest (Grid's hasLeadCell).
+   */
+  coversAs?: "track" | "grid" | "grid_with_lead_cell";
+  /** A link at the heading's end, to the whole of what the shelf shows part of (Recently played's All you've played). */
+  endLink?: { words: string; href: string };
 }
 
 /**
@@ -1234,10 +1241,14 @@ export function shelf(options: ShelfOptions): Raw {
               items: [{ kind: "words", markup: title }, { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] }) }],
             }),
           }
-        : { kind: "words", markup: title },
+        : options.endLink
+          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "words", markup: textLink(options.endLink.words, options.endLink.href) }] }) }
+          : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
+        : options.coversAs === "grid" || options.coversAs === "grid_with_lead_cell"
+          ? { kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", hasLeadCell: options.coversAs === "grid_with_lead_cell", items: options.items.filter((layoutItem): layoutItem is GridItem => layoutItem.kind !== "control") }) }
+          : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;
 }
@@ -1263,6 +1274,8 @@ component({
 `,
   render: shelf,
   examples: [
+    { label: "In lines down the page, its first cover the lead (Your games' Favorites)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-favorites", trackId: "example-shelf-favorites-grid", title: "Favorites", coversAs: "grid_with_lead_cell", items: STAND_IN_COVER_ITEMS })) }) },
+    { label: "In lines, with a link to the whole at the heading's end (Recently played)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-recent", trackId: "example-shelf-recent-grid", title: "Recently played", endLink: { words: "All you've played", href: "#shelf" }, coversAs: "grid", items: STAND_IN_COVER_ITEMS.slice(0, 5) })) }) },
     { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
     {
       label: "Continue playing, with its sort",

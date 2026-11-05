@@ -493,6 +493,7 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM games_ever_played WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM favorite_games WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM game_returning_players WHERE account_id = ?").bind(id),
     // Its connected apps' tokens and unswapped codes, before the keys that say whose they are.
     database.prepare("DELETE FROM connected_app_tokens WHERE api_key_id IN (SELECT id FROM api_keys WHERE account_id = ?)").bind(id),
@@ -605,17 +606,14 @@ export async function gamesOwnedBy(database: D1Database, accountId: string): Pro
   return results;
 }
 
-/** How many games Continue playing remembers. */
+/** How many games Continue playing shows, and a guest's device remembers. */
 export const KEPT_PLAYED_GAME_COUNT = 20;
 
-/** Remember that this account just played this game, keeping only the newest few for Continue playing and every one for deleting the account. */
+/** Remember that this account just played this game: in its history (Your games, Continue playing) and, for deleting the account, in games_ever_played. */
 export async function recordPlayed(database: D1Database, accountId: string, gameId: string, playedAtMs = Date.now()): Promise<void> {
   await database.batch([
     rememberEverPlayed(database, accountId, gameId, playedAtMs),
     database.prepare("INSERT INTO played (account_id, game_id, played_at_ms) VALUES (?, ?, ?) ON CONFLICT (account_id, game_id) DO UPDATE SET played_at_ms = excluded.played_at_ms").bind(accountId, gameId, playedAtMs),
-    database
-      .prepare("DELETE FROM played WHERE account_id = ? AND game_id NOT IN (SELECT game_id FROM played WHERE account_id = ? ORDER BY played_at_ms DESC LIMIT ?)")
-      .bind(accountId, accountId, KEPT_PLAYED_GAME_COUNT),
   ]);
 }
 
@@ -627,9 +625,6 @@ export async function mergePlayed(database: D1Database, accountId: string, playe
     ...played.map((playedGame) =>
       database.prepare("INSERT INTO played (account_id, game_id, played_at_ms) VALUES (?, ?, ?) ON CONFLICT (account_id, game_id) DO UPDATE SET played_at_ms = MAX(played_at_ms, excluded.played_at_ms)").bind(accountId, playedGame.gameId, playedGame.playedAtMs),
     ),
-    database
-      .prepare("DELETE FROM played WHERE account_id = ? AND game_id NOT IN (SELECT game_id FROM played WHERE account_id = ? ORDER BY played_at_ms DESC LIMIT ?)")
-      .bind(accountId, accountId, KEPT_PLAYED_GAME_COUNT),
   ]);
 }
 
@@ -663,6 +658,85 @@ export async function recentlyPlayed(database: D1Database, accountId: string, ma
     .bind(accountId, maximumMinimumAgeYears, KEPT_PLAYED_GAME_COUNT)
     .all<{ slug: string; played_at_ms: number }>();
   return results;
+}
+
+/** A game in an account's history, with what Your games needs to show it, or show it greyed. */
+export interface PlayedGame {
+  game_id: string;
+  slug: string;
+  title: string;
+  played_at_ms: number;
+  /** When the game last had a big update (its Updated tag), or null. */
+  big_update_at_ms: number | null;
+  /** The developer made it private or a draft, or is deleting it: greyed in Your games, back when the game is. */
+  is_gone: boolean;
+}
+
+/** A game an account can't open by its link right now, but whose developer didn't lose it to a takedown: shown greyed (SQL on games). */
+const GONE_GAME_SQL = "(games.visibility IN ('private', 'draft') OR games.live_version_id IS NULL OR games.review_status != 'live' OR EXISTS (SELECT 1 FROM game_deletions WHERE game_deletions.game_id = games.id))";
+
+/**
+ * Every game this account played, newest first: Your games' Recently played and All you've played. A game taken down
+ * (removed) and one for older players than maximumMinimumAgeYears are left out; one gone private or being deleted stays, is_gone.
+ */
+export async function playedHistory(database: D1Database, accountId: string, maximumMinimumAgeYears: number): Promise<PlayedGame[]> {
+  const { results } = await database
+    .prepare(
+      `SELECT games.id AS game_id, games.slug, games.title, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? AND games.review_status != 'removed' AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms DESC`,
+    )
+    .bind(accountId, maximumMinimumAgeYears)
+    .all<Omit<PlayedGame, "is_gone"> & { is_gone: number }>();
+  return results.map((row) => ({ ...row, is_gone: Boolean(row.is_gone) }));
+}
+
+/** Remove from Your games: off the history (and so off the profile); games_ever_played keeps it for deleting the account. Playing it again brings it back. */
+export async function forgetPlayed(database: D1Database, accountId: string, gameId: string): Promise<void> {
+  await database.prepare("DELETE FROM played WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).run();
+}
+
+/** The most favorites one account keeps: a library of real games never needs more, and it keeps one account's list bounded. */
+export const MAXIMUM_FAVORITE_GAME_COUNT = 1000;
+
+/** A favorite in Your games: played_at_ms is null for one not played yet. */
+export interface FavoriteGame extends Omit<PlayedGame, "played_at_ms"> {
+  favorited_at_ms: number;
+  played_at_ms: number | null;
+}
+
+/** Add a favorite: "already" when it is one, "too_many" past MAXIMUM_FAVORITE_GAME_COUNT. */
+export async function addFavoriteGame(database: D1Database, accountId: string, gameId: string, favoritedAtMs = Date.now()): Promise<"added" | "already" | "too_many"> {
+  if (await isFavoriteGame(database, accountId, gameId)) return "already";
+  const favoriteCount = await database.prepare("SELECT COUNT(*) AS favorite_count FROM favorite_games WHERE account_id = ?").bind(accountId).first<number>("favorite_count");
+  if ((favoriteCount ?? 0) >= MAXIMUM_FAVORITE_GAME_COUNT) return "too_many";
+  await database.prepare("INSERT INTO favorite_games (account_id, game_id, favorited_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(accountId, gameId, favoritedAtMs).run();
+  return "added";
+}
+
+export async function removeFavoriteGame(database: D1Database, accountId: string, gameId: string): Promise<void> {
+  await database.prepare("DELETE FROM favorite_games WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).run();
+}
+
+export async function isFavoriteGame(database: D1Database, accountId: string, gameId: string): Promise<boolean> {
+  return (await database.prepare("SELECT 1 AS is_favorite FROM favorite_games WHERE account_id = ? AND game_id = ?").bind(accountId, gameId).first("is_favorite")) !== null;
+}
+
+/**
+ * An account's favorites for Your games: played ones by when they were last played, then unplayed ones by when they were
+ * favorited, newest first. Left out and greyed as playedHistory does.
+ */
+export async function favoriteGames(database: D1Database, accountId: string, maximumMinimumAgeYears: number): Promise<FavoriteGame[]> {
+  const { results } = await database
+    .prepare(
+      `SELECT games.id AS game_id, games.slug, games.title, favorite_games.favorited_at_ms, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM favorite_games JOIN games ON games.id = favorite_games.game_id LEFT JOIN played ON played.account_id = favorite_games.account_id AND played.game_id = favorite_games.game_id WHERE favorite_games.account_id = ? AND games.review_status != 'removed' AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms IS NULL, played.played_at_ms DESC, favorite_games.favorited_at_ms DESC`,
+    )
+    .bind(accountId, maximumMinimumAgeYears)
+    .all<Omit<FavoriteGame, "is_gone"> & { is_gone: number }>();
+  return results.map((row) => ({ ...row, is_gone: Boolean(row.is_gone) }));
+}
+
+/** How many accounts have this game in their favorites now: the developer's stats, never who. */
+export async function favoriteCount(database: D1Database, gameId: string): Promise<number> {
+  return (await database.prepare("SELECT COUNT(*) AS favorite_count FROM favorite_games WHERE game_id = ?").bind(gameId).first<number>("favorite_count")) ?? 0;
 }
 
 /** Turns streamer mode on or off: game pages hide room codes until the player shows them. */

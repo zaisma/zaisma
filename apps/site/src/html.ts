@@ -592,7 +592,7 @@ export function firstPaintScriptTags(markup: string): Raw {
 }
 
 /** Where a page is in the header: Home, Browse, or the developer tabs, which open out of the end of the tabs on developer pages. */
-export type Nav = "home" | "browse" | "developer" | "forum";
+export type Nav = "home" | "browse" | "your-games" | "developer" | "forum";
 
 /** A page's search box in the header: where it sends, what's typed, and fields it keeps. */
 export interface HeaderSearch {
@@ -757,6 +757,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
     isSearchOnComputerOnly: isDeveloperNav && !options.search,
     account: account ? { username: account.username } : null,
     isOnDeveloperPage: !options.isAdmin && (options.nav === "developer" || options.nav === "forum"),
+    yourGamesHref: options.isAdmin ? undefined : "/your-games",
     // The page has a runner of its own (Play, Save): Sign in is a secondary button, so only one runner is ever in view.
     hasPageRunner: options.hasPageRunner,
     sidebarButton: options.sidebarButton,

@@ -202,6 +202,13 @@ const CHECKED_PAGE_LIST = [
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Games, ${nameEnding}` as const, area: "Playing" as const, path: "/games", account, shownStateName: "Games, signed in", mainActionShows: "nowhere" as const, isCoverAboveFold: true })),
+  // Your games: a signed-in player's favorites, history and For you; a guest's from this device (none here, so its empty state); nothing played.
+  { name: "Your games, signed in", area: "Playing", path: "/your-games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, long names", area: "Playing", path: "/your-games", account: "Longest_Names_Here", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, full", area: "Playing", path: "/your-games", account: "Many_Things", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, nothing played", area: "Playing", path: "/your-games", account: "Empty_Handed", mainActionShows: "nowhere" },
+  { name: "Your games, a guest", area: "Playing", path: "/your-games", shownStateName: "Your games, nothing played", mainActionShows: "nowhere" },
+  { name: "All you've played", area: "Playing", path: "/your-games/played", account: "Many_Things", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, one genre", area: "Playing", path: "/games?genre=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, multiplayer", area: "Playing", path: "/games?players=multiplayer", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, a search", area: "Playing", path: "/games?search_text=farm", mainActionShows: "nowhere", isCoverAboveFold: true },

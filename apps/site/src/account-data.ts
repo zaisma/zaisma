@@ -27,8 +27,9 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   blocks: { file_path: "friends.json", reason: "Blocks this account made; never who blocked it." },
   friend_requests: { file_path: "friends.json", reason: "Friend requests sent, and the ones sent to you with your answers; never how others answered yours." },
   room_visits: { file_path: "games-played.json", reason: "Rooms the account left in the last hour, for People I play with." },
-  played: { file_path: "games-played.json", reason: "Continue playing." },
+  played: { file_path: "games-played.json", reason: "Every game played and when last, for Your games and Continue playing." },
   games_ever_played: { file_path: "games-played.json", reason: "Every game played, kept so it can be told when the account is deleted." },
+  favorite_games: { file_path: "games-played.json", reason: "Favorite games, for Your games." },
   game_returning_players: { file_path: "games-played.json", reason: "The games whose plays counted, and on how many different days, toward their developers' standing." },
   presences: { file_path: "games-played.json", reason: "When the account was last seen online, and in which game." },
   room_players: { file_path: "games-played.json", reason: "The rooms the account is in right now." },
@@ -189,6 +190,7 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
 
   yield jsonFile("games-played.json", {
     continue_playing: await rows(env, "SELECT game.slug AS game_slug, game.title, played.played_at_ms FROM played JOIN games game ON game.id = played.game_id WHERE played.account_id = ? ORDER BY played.played_at_ms DESC", id),
+    favorites: await rows(env, "SELECT game.slug AS game_slug, game.title, favorite.favorited_at_ms FROM favorite_games favorite JOIN games game ON game.id = favorite.game_id WHERE favorite.account_id = ? ORDER BY favorite.favorited_at_ms", id),
     games_ever_played: await rows(env, "SELECT game.slug AS game_slug, game.title, ever.first_played_at_ms FROM games_ever_played ever JOIN games game ON game.id = ever.game_id WHERE ever.account_id = ? ORDER BY ever.first_played_at_ms", id),
     counted_plays: await rows(env, "SELECT game.slug AS game_slug, game.title, counted.first_counted_date, counted.last_counted_date, counted.counted_day_count FROM game_returning_players counted JOIN games game ON game.id = counted.game_id WHERE counted.account_id = ? ORDER BY counted.first_counted_date", id),
     last_seen: (await rows(env, "SELECT presence.seen_at_ms, game.slug AS game_slug, presence.game_seen_at_ms FROM presences presence LEFT JOIN games game ON game.id = presence.game_id WHERE presence.account_id = ?", id))[0] ?? null,

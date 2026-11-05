@@ -227,9 +227,10 @@ export type GridOptions = {
   /**
    * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
-   * three, two and then one across as they run out of a cover's least width.
+   * three, two and then one across as they run out of a cover's least width. hasLeadCell makes the first cover the one the list is
+   * grounded on (Your games' featured favorite): two cells wide and two lines tall where three or more fit across, the whole line at two.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; hasLeadCell?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -249,6 +250,7 @@ export function grid(options: GridOptions): LayoutMarkup {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
     return asLayout(html`<div class="grid-one-line">${gridMarkup(options, " is-one-line")}</div>`);
   }
+  if (options.itemSize === "cover" && options.hasLeadCell) return asLayout(html`<div class="grid-lead-cell">${gridMarkup(options, " has-lead-cell")}</div>`);
   return asLayout(gridMarkup(options, ""));
 }
 
@@ -568,6 +570,12 @@ export const GRID_STYLES = `
 @container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }
+/* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
+   more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
+.grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
+.layout-grid.has-lead-cell { grid-auto-flow: row dense; }
+.layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
+@container (max-width: ${3 * COVER_LEAST_PX + 2 * BLOCK_GAP_PX - 1}px) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
 `;
 
 export const TRACK_STYLES = `
