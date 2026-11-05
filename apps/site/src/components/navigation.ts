@@ -9,6 +9,7 @@ import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, 
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, stateNote } from "./data.ts";
+import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
@@ -1235,8 +1236,8 @@ export interface ShelfOptions {
 }
 
 /**
- * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers in a track that scrolls sideways on
- * its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
+ * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers in a well carved across the pane,
+ * flush with its edges, a track that scrolls sideways on its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
  * (a phone), the sort goes under the heading and fills that line.
  */
 export function shelf(options: ShelfOptions): Raw {
@@ -1261,7 +1262,7 @@ export function shelf(options: ShelfOptions): Raw {
           : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) },
+        : { kind: "block", markup: carving({ kind: "shelf-well", cornerCutPx: 0, body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
   })}</section>`;
 }
@@ -1277,6 +1278,10 @@ component({
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
+/* Its covers rest in a well carved straight across the pane, flush with the pane's edges, square where it meets them; the covers start in
+   line with the heading's words. */
+.shelf-well { margin-inline: calc(-1 * var(--pad-frame)); padding-block: var(--pad-frame); }
+.shelf-well > .track-holder > .layout-track { padding-inline: calc(var(--pad-frame) + var(--pad-words)); scroll-padding-inline: calc(var(--pad-frame) + var(--pad-words)); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
 .shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
