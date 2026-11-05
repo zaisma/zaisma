@@ -1285,7 +1285,7 @@ component({
 .game-row { container-type: inline-size; --game-row-words-inset: var(--pad-words); }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
-.game-row-well { padding-block: 0 var(--pad-frame); }
+.game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
 .game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
 .game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }

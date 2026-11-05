@@ -839,6 +839,25 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var panes = isEveryPaneDue ? Array.prototype.slice.call(document.querySelectorAll(PANE)) : Array.from(edgedPanes);
     isEveryPaneDue = false; edgedPanes.clear();
     runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
+    // A well's track that scrolls (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and
+    // again as it scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
+    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track").forEach(function (track) {
+      var pieces = [];
+      Array.prototype.forEach.call(track.children, function (cell) { var piece = edgedPieceOf(cell); if (piece) pieces.push(piece); });
+      track.edgedPieces = pieces;
+      runBatch(function () { pieces.forEach(cutEdged); });
+      if (track.isCutOnScroll) return;
+      track.isCutOnScroll = true;
+      track.addEventListener("scroll", function () { (track.edgedPieces || []).forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); }); }, { passive: true });
+    });
+  }
+  // The first edged piece in a track's cell, the cell itself or what's in it: never a control or glass of its own (cut already), nor words.
+  function edgedPieceOf(el) {
+    if (el instanceof SVGElement || el.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return null;
+    var css = getComputedStyle(el);
+    if (css.clipPath === "none" && hasEdge(el, css)) return el;
+    for (var i = 0; i < el.children.length; i += 1) { var found = edgedPieceOf(el.children[i]); if (found) return found; }
+    return null;
   }
   // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
   // { theme: "light" | "dark" | null } and { glass: { hueColor: "#rrggbb" | null } }, null going back to the default.
