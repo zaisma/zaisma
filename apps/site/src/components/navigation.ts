@@ -1278,10 +1278,11 @@ component({
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
-/* Its covers rest in a well carved straight across the pane, flush with the pane's edges, square where it meets them; the covers start in
-   line with the heading's words. */
+/* Its covers rest in a well carved straight across the pane, flush with the pane's edges, square where it meets them, the frame gap from the
+   well's edges on every side. A track that fits keeps no room for a rail it won't get. */
 .shelf-well { margin-inline: calc(-1 * var(--pad-frame)); padding-block: var(--pad-frame); }
-.shelf-well > .track-holder > .layout-track { padding-inline: calc(var(--pad-frame) + var(--pad-words)); scroll-padding-inline: calc(var(--pad-frame) + var(--pad-words)); }
+.shelf-well > .track-holder > .layout-track { padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
+.shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
 .shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
