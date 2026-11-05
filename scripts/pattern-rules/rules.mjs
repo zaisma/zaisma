@@ -305,7 +305,7 @@ export const PATTERN_RULES = [
   {
     rule_id: "body_read_without_cap",
     goes_wrong: "Reading a whole body with no limit lets one request fill the Worker's memory, and takes every request sharing it down too.",
-    do_instead: "Read it with readBodyText or readBodyBytes, which stop at a size. A header says nothing of what's sent, so checking one proves nothing. Behind a door's row, cappedRequest holds a read to the row's size: list it as a reviewed site.",
+    do_instead: "Read it with readBodyText or readBodyBytes, which stop at a size. Behind a door's row, cappedRequest holds a read to the row's size: list it as a reviewed site.",
     isSite: (node) => ts.isCallExpression(node) && /^(request|req)(\.clone\(\))?\.(json|text|arrayBuffer|formData|blob)$/.test(textOf(node.expression)),
   },
   {

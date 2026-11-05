@@ -1,7 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { BodyPastCapError, cappedRequest, createAccount, readBodyBytes, readBodyText } from "@zaisma/core";
+import { BodyPastCapError, cappedRequest, createAccount, createApiKey, readBodyBytes, readBodyText } from "@zaisma/core";
 import { guardSiteDoor } from "../../apps/site/src/guard.ts";
+import { letPublish } from "../helpers.ts";
 
 /**
  * No door on Zaisma reads more of a request's body than its own cap, whatever the request's headers say: the size is
@@ -29,12 +30,7 @@ function endlessBody(chunkBytes = new Uint8Array(CHUNK_SIZE_BYTES).fill(0x20)) {
   return { stream, read };
 }
 
-const requestWith = (body: BodyInit, headers: Record<string, string> = {}, path = "/csp-reports", method = "POST") => new Request(`${SITE}${path}`, { method, headers, body });
-
-async function gzipped(text: string): Promise<Uint8Array> {
-  const stream = new Response(text).body!.pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
+const requestWith = (body: BodyInit, headers: Record<string, string> = {}, path = "/csp-reports") => new Request(`${SITE}${path}`, { method: "POST", headers, body });
 
 describe("A body read up to a size", () => {
   it("reads a body within it whole", async () => {
@@ -85,7 +81,7 @@ describe("A request capped at its door", () => {
     expect(read.chunkCount).toBeLessThanOrEqual(2);
   });
 
-  it("counts an encoded body rather than go by the size it states", async () => {
+  it("counts an encoded body", async () => {
     const { stream, read } = endlessBody();
     const capped = cappedRequest(requestWith(stream, { "content-length": "10", "content-encoding": "gzip" }), 32 * 1024);
     await expect(capped.text()).rejects.toBeInstanceOf(BodyPastCapError);
@@ -117,25 +113,26 @@ describe("A request capped at its door", () => {
 });
 
 describe("The guard's own read", () => {
-  it.each(["/oauth/register", "/g/sky-hopper/report"])("stops at the row's size at %s", async (path) => {
+  it("stops at a form door's size, with no size stated", async () => {
+    const path = "/g/sky-hopper/report";
     const { stream, read } = endlessBody();
-    await guardSiteDoor(requestWith(stream, { "content-type": "application/x-www-form-urlencoded" }, path), env, path);
-    // What the row takes, in chunks: nothing is read to find a body too big but the first chunk past it.
-    expect(read.chunkCount * CHUNK_SIZE_BYTES).toBeLessThanOrEqual(5 * 1024 * 1024);
+    const refused = await guardSiteDoor(requestWith(stream, { "content-type": "application/x-www-form-urlencoded" }, path), env, path);
+    expect(refused?.status).toBe(413);
+    expect((read.chunkCount - 2) * CHUNK_SIZE_BYTES).toBeLessThanOrEqual(4 * 1024 * 1024);
   });
 
-  it("refuses a door's JSON past its size with no size stated", async () => {
-    const path = "/account/age";
+  it("stops at a JSON door's size, with no size stated", async () => {
+    const path = "/api/plays/sky-hopper/account";
     const { stream, read } = endlessBody();
-    const refused = await guardSiteDoor(requestWith(stream, { "content-type": "application/json", origin: SITE }, path), env, path);
-    expect(refused?.status === undefined || refused.status >= 300).toBe(true);
-    expect(read.chunkCount * CHUNK_SIZE_BYTES).toBeLessThanOrEqual(5 * 1024 * 1024);
+    const refused = await guardSiteDoor(requestWith(stream, { "content-type": "application/json" }, path), env, path);
+    expect(refused?.status).toBe(413);
+    expect(read.chunkCount).toBeLessThanOrEqual(3);
   });
 });
 
 describe("Every door, from outside", () => {
   /** Sent from outside the Worker with no size stated. */
-  const sent = (path: string, headers: Record<string, string> = {}, sizeBytes = 8 * 1024 * 1024) => {
+  const sent = (path: string, headers: Record<string, string>, sizeBytes: number) => {
     const chunk = new Uint8Array(CHUNK_SIZE_BYTES).fill(0x20);
     let sentSizeBytes = 0;
     const body = new ReadableStream<Uint8Array>({
@@ -147,27 +144,28 @@ describe("Every door, from outside", () => {
     });
     return SELF.fetch(`${SITE}${path}`, { method: "POST", headers: { origin: SITE, ...headers }, body });
   };
+  const bearer = async (accountId: string) => {
+    await createAccount(env.DB, { id: accountId, username: `Emma_${accountId.length}`, ageBand: "18+" });
+    await letPublish(env.DB, accountId);
+    return { authorization: `Bearer ${(await createApiKey(env.DB, accountId, "laptop")).token}`, "content-type": "application/json" };
+  };
 
-  it("answers a report door's body past its size as too big", async () => {
-    const answer = await sent("/g/sky-hopper/report", { "content-type": "application/x-www-form-urlencoded" });
+  it("answers a form door's body past its size as too big", async () => {
+    expect((await sent("/g/sky-hopper/report", { "content-type": "application/x-www-form-urlencoded" }, 5 * 1024 * 1024)).status).toBe(413);
+  });
+
+  it("answers a raw door's body past its size as too big", async () => {
+    const answer = await sent("/github/secret-scanning", { "github-public-key-identifier": "key", "github-public-key-signature": "signature" }, 2 * 1024 * 1024);
     expect(answer.status).toBe(413);
   });
 
-  it("answers a door's bytes past its size without taking them", async () => {
-    const answer = await sent("/csp-reports", { "content-type": "application/csp-report" }, 64 * 1024);
+  it("answers an API call's JSON past its own size with the API's code", async () => {
+    const answer = await sent("/api/dev/games", await bearer("body-cap-api"), 256 * 1024);
     expect(answer.status).toBe(413);
-  });
-
-  it("answers an API call's JSON past its own size, with the API's own code", async () => {
-    await createAccount(env.DB, { id: "body-cap-emma", username: "Emma_Caps", ageBand: "18+" });
-    const answer = await sent("/api/dev/games", { "content-type": "application/json", authorization: "Bearer not-a-key" });
-    expect(answer.status).toBeGreaterThanOrEqual(400);
-    expect(answer.status).toBeLessThan(500);
+    expect(((await answer.json()) as { error: { code: string } }).error.code).toBe("json_too_big");
   });
 
   it("answers an MCP message past its size as too big", async () => {
-    const answer = await sent("/mcp", { "content-type": "application/json", authorization: "Bearer not-a-key" }, 9 * 1024 * 1024);
-    expect(answer.status).toBeGreaterThanOrEqual(400);
-    expect(answer.status).toBeLessThan(500);
+    expect((await sent("/mcp", await bearer("body-cap-mcp-key"), 9 * 1024 * 1024)).status).toBe(413);
   });
 });

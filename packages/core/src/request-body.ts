@@ -1,7 +1,6 @@
 /**
- * A request's body, never read past a size. Bytes are counted as they're read, after any Content-Encoding is undone,
- * so a size holds whatever the request's headers say. A door's row names its size (docs/DOORS.md): cappedRequest
- * holds every reader behind the door to it, and the readers here hold a call that takes less to its own.
+ * A request's body, never read past a size, whatever its headers say. A door's row names its size (docs/DOORS.md):
+ * cappedRequest holds every reader behind the door to it, and the readers here hold a call that takes less to its own.
  */
 
 /** What a door with no body in its row is held to: what's sent to one is never read, up to this. */
@@ -32,7 +31,7 @@ function cappedReaderOf(body: ReadableStream<Uint8Array>, maximumSizeBytes: numb
   };
 }
 
-/** The size a request states and will be held to, or null when only counting can tell: none stated, or encoded, so its bytes come out more than were sent. */
+/** The size a request states and is held to, or null when its bytes are counted instead. */
 function statedSizeBytesOf(request: Request): number | null {
   const stated = request.headers.get("content-length");
   return stated !== null && /^\d{1,15}$/.test(stated) && !request.headers.has("content-encoding") ? Number(stated) : null;
