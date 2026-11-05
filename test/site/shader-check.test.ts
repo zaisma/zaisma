@@ -76,12 +76,12 @@ const renders = (render: ShaderRender, asked: ShaderRenderInput[] = []): ShaderR
   return render;
 };
 
-const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
+const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
 /** A judge answering every picture the same way. */
 const judgeSays =
   (picture: Partial<PictureAnswer> = {}): ListingJudge =>
   async (_apiKey, _model, brief) => ({
-    answer: { pictures: brief.pictures.map((_, index) => ({ ...NO, ...picture, number: index + 1 })), title_fake_reward: "", title_famous_name: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false },
+    answer: { pictures: brief.pictures.map((_, index) => ({ ...NO, ...picture, number: index + 1 })), title_fake_reward: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false },
     declinedAttemptCount: 0,
     costCents: 1,
   });

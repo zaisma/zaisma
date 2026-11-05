@@ -1,19 +1,19 @@
 {
-  "fingerprint_sha256": "a4707181760166501980d24475bfa85146478a137b89a1b623649f001f383fee",
-  "ran_at": "2026-11-02T18:22:35Z",
+  "fingerprint_sha256": "4f3d30c5d9ffbf3f46a071b021e59b3d11ca2ce21c9878910647a83fb95d91c1",
+  "ran_at": "2026-11-05T06:16:16Z",
   "model_vars": {
     "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
     "case_count": 27,
-    "honest_case_count": 13,
-    "slop_case_count": 14,
+    "honest_case_count": 14,
+    "slop_case_count": 13,
     "matched_case_count": 27,
     "missed_case_count": 0,
     "inconsistent_case_count": 0,
     "declined_attempt_count": 0,
-    "cost_cents": 38.4708,
+    "cost_cents": 36.10950000000001,
     "is_passing": true
   },
   "cases": [
@@ -36,6 +36,26 @@
         {
           "title": "fine",
           "background.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "borrowed-name-in-title",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
         }
       ],
       "outcome": "matched",
@@ -216,26 +236,6 @@
           "title": "fine",
           "cover.webp": "fake_reward",
           "screenshot.webp": "fine"
-        }
-      ],
-      "outcome": "matched",
-      "declined_attempt_count": 0
-    },
-    {
-      "name": "famous-name-in-title",
-      "is_honest": false,
-      "expected": {
-        "title": "famous_name"
-      },
-      "runs": [
-        {
-          "title": "famous_name"
-        },
-        {
-          "title": "famous_name"
-        },
-        {
-          "title": "famous_name"
         }
       ],
       "outcome": "matched",

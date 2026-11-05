@@ -440,7 +440,7 @@ export const REVIEW_CODES = {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",
     messageForPeople: "A person at Zaisma didn't approve this picture for the reason given. Send a different one in Add image: covers and screenshots show the game itself.",
     contentRule: null,
-    fix: "Send a different one with add_image. Covers and screenshots show the actual game, with no fake rewards and no characters or brands you don't own.",
+    fix: "Send a different one with add_image. Covers and screenshots show the actual game, with no fake rewards.",
     hasOwnMessage: true,
     isRulePicked: true,
   },
@@ -471,13 +471,6 @@ export const REVIEW_CODES = {
     messageForPeople: "Something is laid over the picture, like a button, badge or arrow. Send it without in Add image. The game plays by its link meanwhile, and is back in lists a minute after the fix.",
     contentRule: null,
     fix: `Send the picture without it with add_image. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
-    hasOwnMessage: true,
-  },
-  famous_name: {
-    meaning: "The cover, square cover, share picture or title shows a famous character, logo or name, from a film, show, game, brand or club, that the developer doesn't own; the message names it.",
-    messageForPeople: "A picture or the title shows a famous character, logo or name the game doesn't own. Use your own in Add image or the game's details. If you own it or have permission, message Zaisma.",
-    contentRule: null,
-    fix: `Use your own characters and name with add_image or update_game. Only obvious ones count, and the game itself may borrow (Zaisma acts on that only when the owner sends a notice). If you own it or have permission, message_zaisma with the game_slug. ${BACK_ON_LISTS} ${COVER_GUIDE}`,
     hasOwnMessage: true,
   },
   cover_not_from_game: {
@@ -527,13 +520,6 @@ export const REVIEW_CODES = {
     messageForPeople: "Something is laid over the background, like a button, badge or sticker. Send it without in Background.",
     contentRule: null,
     fix: `Send the background without it (add_image, or add_shader for a shader). ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
-    hasOwnMessage: true,
-  },
-  famous_name_on_background: {
-    meaning: "A background shows a famous character, logo or name, from a film, show, game, brand or club, so it doesn't show; the message names it.",
-    messageForPeople: "The background shows a famous character, logo or name. Send one of the game's own setting in Background. If you own it or have permission, message Zaisma.",
-    contentRule: null,
-    fix: `Send a background of your game's own world (add_image, or add_shader for a shader). Only obvious ones count. If you own it or have permission, message_zaisma with the game_slug. ${COVER_GUIDE}`,
     hasOwnMessage: true,
   },
   // The shader check (Backgrounds in docs/DEVELOPER-API.md): a shader is drawn before anyone sees it

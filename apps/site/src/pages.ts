@@ -801,7 +801,7 @@ function contentRulesBody(): Raw {
               {
                 title: "Covers and titles",
                 detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
-                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you do not own, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
+                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
               },
               {
                 title: "Names players give",

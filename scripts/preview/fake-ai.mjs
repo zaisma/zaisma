@@ -112,19 +112,18 @@ function draftRuling(text) {
 }
 
 // The listing check ("No slop"): pictures can't be read here, so they're all fine; the title gets a tag for
-// brackets, an emoji or NEW/UPDATE as a word, a fake reward for "robux", and a famous name for "minecraft".
+// brackets, an emoji or NEW/UPDATE as a word, and a fake reward for "robux".
 function checkListing(text) {
   const words = text.match(/<words>([\s\S]*?)<\/words>/)?.[1] ?? "";
   const title = words.match(/^Title(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
   const isTitleJudged = !/^Title \(not judged\)/m.test(words);
   const description = words.match(/^Description(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
   const judgedCount = [...text.matchAll(/^Picture (\d+): .+, JUDGE$/gm)].map((match) => Number(match[1]));
-  const no = { extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
+  const no = { extra_text: "", overlay: "", fake_reward: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
   const tag = title.match(/\[[^\]]*\]|\([^)]*\)|\p{Extended_Pictographic}|\b(?:NEW|UPDATE)\b/u)?.[0] ?? "";
   return {
     pictures: judgedCount.map((number) => ({ ...no, number })),
     title_fake_reward: isTitleJudged && /robux/i.test(title) ? title : "",
-    title_famous_name: isTitleJudged && /minecraft/i.test(title) ? "Minecraft" : "",
     title_tag: isTitleJudged ? tag : "",
     description_fake_reward: /robux/i.test(description) ? description : "",
     has_words_safety_concern: false,

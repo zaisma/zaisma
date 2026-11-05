@@ -1217,8 +1217,8 @@ ${reason.content_rule ? html`<p class="muted">${ruleLink(reason.content_rule)}</
 type FindingPlace = "images" | "background" | "details" | "message";
 /** Where on the dashboard a review code's people's text sends the developer, by the words it names: one link beside it. */
 const FINDING_PLACES: Partial<Record<ReviewCodeName, FindingPlace>> = {
-  image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", famous_name: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
-  text_on_background: "background", overlay_on_background: "background", famous_name_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
+  image_rejected: "images", extra_text_on_cover: "images", overlay_on_cover: "images", cover_not_from_game: "images", fake_reward: "images", screenshot_not_from_game: "images",
+  text_on_background: "background", overlay_on_background: "background", shader_does_not_compile: "background", shader_too_slow: "background", shader_flashes: "background",
   unregistered_link: "details", unlisted_address: "details", ai_lifelike_gore: "details", link_flagged: "details", details_rejected: "details", tag_in_title: "details", search_words_in_title: "details",
   matches_another_developers_game: "message", matches_banned_account_files: "message", antivirus_flag: "message", ai_malware: "message", ai_phishing_or_scam: "message", ai_data_collection: "message", ai_sexual_content: "message",
   ai_private_details_or_threats: "message", ai_protection_dodged: "message", ai_real_money_gambling: "message", ai_paid_random_rewards: "message", ai_coin_price_without_real_price: "message",
@@ -1277,7 +1277,7 @@ ${shown.length
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
 <div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option><option value="share">Share picture</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
-<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it, and nothing else: no other words, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. <a href="/developers/covers">See covers that pass</a>. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game, its own interface included, with nothing added. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
+<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it, and nothing else: no other words, nothing laid over the picture, no fake rewards, and built around something from the game. <a href="/developers/covers">See covers that pass</a>. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game, its own interface included, with nothing added. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
 }
