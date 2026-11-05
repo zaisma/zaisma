@@ -8,7 +8,7 @@ import { STAND_IN_COVERS, banner, gameCard } from "./panes.ts";
 import { gamePaneExample, keyDetails, table, stateNote } from "./data.ts";
 import { gameMedia } from "./game-media.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { CARVING_END_STYLES, FIRST_SCREEN_STYLES, GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, carvingEnd, columns, firstScreen, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
+import { CARVING_END_STYLES, GRID_STYLES, LEAD_AND_SIDE_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, carvingEnd, columns, leadAndSide, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -170,7 +170,6 @@ component({
     { label: "Where there's little room: one across, the cover and its long title whole", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [...covers(["ashen-crown", "neon-drift"]), block(gameCard({ title: "The Long and Winding Chronicles of the Ashen Crown", picture: STAND_IN_COVER_PICTURES["hollow-tide"] ?? null, href: "#grid", facts: { playerCount: 1204 } })), ...covers(["verdant"])] }) }) },
     { label: "Six covers on one line, then three, two and one across, as the room runs out", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
     { label: "On one line, stopping at two across however small the covers get", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant"]) }) }) },
-    { label: "In a new order each time the page opens", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isOrderShuffled: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
     { label: "One cover alone stays a cover's size", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: covers(["ashen-crown"]) }) }) },
     { label: "With none: a State note in their place, with what starts it", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [] }) }) },
     { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button", isFullWidth: true }) }] }) }))) }) }) },
@@ -178,15 +177,15 @@ component({
 });
 
 component({
-  name: "First screen",
-  slug: "first-screen",
+  name: "Lead and side",
+  slug: "lead-and-side",
   group: "layout",
   subgroup: "inside",
-  summary: "What a page opens on, held low on the first screen: the world behind open above it and what follows peeking in at the screen's foot. As tall as what it holds where that's taller than the screen. For a page that invites a look around (the home's first visit); a page with one task keeps its pane at the top.",
-  styles: FIRST_SCREEN_STYLES,
-  render: firstScreen,
+  summary: "What a page is about and what goes beside it: two thirds and a third, then half and half, then one under the other as the room runs out. Covers in the side stay whole and line up with the lead.",
+  styles: LEAD_AND_SIDE_STYLES,
+  render: leadAndSide,
   examples: [
-    { label: "Its part held low, with something at the top", isWide: true, isStill: true, markup: firstScreen({ top: [block(banner({ text: "Kept rooms are here.", icon: "megaphone", closeLabel: "Close" }))], low: block(glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) })) }) },
+    { label: "Your game and What's on", isWide: true, markup: glassPane({ paneWidth: "full", body: leadAndSide({ lead: block(covers(["ashen-crown"])[0]!.markup), side: block(grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["neon-drift", "hollow-tide"]) })) }) }) },
   ],
 });
 

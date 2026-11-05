@@ -361,13 +361,13 @@ describe("games", () => {
     const page = await SELF.fetch(`${SITE}/g/quiet-game`);
     expect(page.status).toBe(200);
     expect(page.headers.get("x-robots-tag")).toBe("noindex");
-    expect(await (await SELF.fetch(`${SITE}/`)).text()).not.toContain("Quiet Game");
+    expect(await (await SELF.fetch(`${SITE}/games`)).text()).not.toContain("Quiet Game");
 
     // A listed game needs a screenshot.
     expect((await api("/games/quiet-game", { method: "PATCH", body: { visibility: "listed" } })).status).toBe(409);
     await SELF.fetch(`${SITE}/api/dev/games/quiet-game/images?kind=screenshot`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: png(1280, 720) });
     await api("/games/quiet-game", { method: "PATCH", body: { visibility: "listed" } });
-    expect(await (await SELF.fetch(`${SITE}/`)).text()).toContain("Quiet Game");
+    expect(await (await SELF.fetch(`${SITE}/games`)).text()).toContain("Quiet Game");
     await api("/games/quiet-game", { method: "PATCH", body: { visibility: "private" } });
     expect((await SELF.fetch(`${SITE}/g/quiet-game`)).status).toBe(404);
   });

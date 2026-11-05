@@ -67,9 +67,12 @@ import { banAccount, decideBanMatch, unbanAccount, type BanMatch } from "./bans.
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
 import { MAXIMUM_PAGE_SPEED_DAY_COUNT, pageSpeedAnswer } from "./speed-reports.ts";
 import { changesSince } from "./scan.ts";
+import { MAXIMUM_ENTRY_DURATION_DAYS, MAXIMUM_EVENT_ART_SIZE_BYTES, MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, endEntry, entryAnswer, listEntries, postEvent, postPick } from "./whats-on.ts";
 import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
 import { RENTED_NETWORK_SHARE,
   ANNOUNCEMENT_CHANGED,
+  WHATS_ON_ENTRY_CHANGED,
+  WHATS_ON_ENTRY_LIST,
   ANNOUNCEMENT_LIST,
   CHAT_REVIEW_DECIDED,
   CHAT_REVIEW_LIST,
@@ -1337,6 +1340,75 @@ export const ADMIN_TOOLS: AdminTool[] = [
         next_steps: shownAnnouncementId ? [{ tool: "list_announcements", arguments: {}, after_sec: null, reason: "Another one is showing on the home now." }] : [],
       };
     },
+  },
+  {
+    name: "list_whats_on",
+    reaches: "zaisma_settings",
+    title: "What's on: what people added",
+    description: "The events and picks a person added to What's on at Zaisma: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. What's on fills itself around them.",
+    inputSchema: object({}),
+    outputSchema: WHATS_ON_ENTRY_LIST,
+    annotations: read,
+    run: async (_, { env }) => ({ entries: (await listEntries(env)).map((entry) => entryAnswer(entry)) }),
+  },
+  {
+    name: "post_whats_on_event",
+    reaches: "zaisma_settings",
+    title: "Post an event",
+    description:
+      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at or until the player closes it. The newest current event shows. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
+      'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
+    inputSchema: {
+      ...object(
+        {
+          title: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, description: "The event's name: what screen readers read, since the art shows it." },
+          wide_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "The strip's art, wide (about 27 times as wide as tall, like 2400 by 88): a PNG, WebP or JPEG, as base64." },
+          narrow_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "Art for a phone's strip (about 7 times as wide as tall, like 640 by 88); left out, phones show the wide art's start." },
+          link_url: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, format: "uri-reference", description: 'Where it goes: an https address, or a path on zaisma.com like "/games?genre=survival".' },
+          link_label: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, description: 'Its button\'s words; "Go play" when left out.' },
+          starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts, an ISO time from an hour ago to 90 days ahead; now when left out." },
+          ends_at: { type: "string", format: "date-time", maxLength: 40, description: "When it stops, an ISO time after now and starts_at, at most 60 days after starts_at." },
+        },
+        ["title", "wide_art_base64", "link_url", "ends_at"],
+      ),
+    },
+    outputSchema: WHATS_ON_ENTRY_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const optional = (name: string) => (toolArguments[name] === undefined ? undefined : String(toolArguments[name]));
+      const posted = await postEvent(env, { title: String(toolArguments.title), wideArtBase64: String(toolArguments.wide_art_base64), narrowArtBase64: optional("narrow_art_base64"), linkUrl: String(toolArguments.link_url), linkLabel: optional("link_label"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
+      return { entry: entryAnswer(posted), next_steps: [{ tool: "list_whats_on", arguments: {}, after_sec: null, reason: "What's showing now and what's coming." }] };
+    },
+  },
+  {
+    name: "post_whats_on_pick",
+    reaches: "zaisma_settings",
+    title: "Pick a game for What's on",
+    description: "Put one listed game among What's on's cards, tagged Pick, from starts_at until ends_at. Picks come first, the newest first.",
+    inputSchema: object(
+      {
+        game_slug: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 80, description: "The game's link name." },
+        starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts, an ISO time from an hour ago to 90 days ahead; now when left out." },
+        ends_at: { type: "string", format: "date-time", maxLength: 40, description: "When it stops, an ISO time after now and starts_at, at most 60 days after starts_at." },
+      },
+      ["game_slug", "ends_at"],
+    ),
+    outputSchema: WHATS_ON_ENTRY_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const posted = await postPick(env, { gameSlug: String(toolArguments.game_slug), startsAt: toolArguments.starts_at === undefined ? undefined : String(toolArguments.starts_at), endsAt: String(toolArguments.ends_at) }, actor);
+      return { entry: entryAnswer(posted), next_steps: [{ tool: "list_whats_on", arguments: {}, after_sec: null, reason: "What's showing now and what's coming." }] };
+    },
+  },
+  {
+    name: "end_whats_on_entry",
+    reaches: "zaisma_settings",
+    title: "End an event or a pick",
+    description: "End an event or a pick now, by its whats_on_entry_id: it leaves the home at once, and one that hadn't started never shows. Ask the admin first.",
+    inputSchema: object({ whats_on_entry_id: idInput("whats_on_entry", "An entry's ID from list_whats_on.") }, ["whats_on_entry_id"]),
+    outputSchema: WHATS_ON_ENTRY_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => ({ entry: entryAnswer(await endEntry(env, String(toolArguments.whats_on_entry_id), actor)), next_steps: [] }),
   },
 ];
 

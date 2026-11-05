@@ -102,15 +102,17 @@ export function dropdown(options: DropdownOptions): Raw {
 
 /** What a game card says about a game. Each kind of fact has its one place, the same on every card, so a list of them reads at a glance. */
 export interface GameCardFacts {
-  /** Players now: at the end of its line, after its title. Left out, the title has the line to itself. */
+  /** Players now: at the end of the title's line. Left out, or with a tag there, the line doesn't say it. */
   playerCount?: number;
-  /** A paid game's price to play, for a viewer who doesn't own it: the art's top right corner. A free game shows nothing. */
+  /** Why this card is here (Updated, New, Trending, Pick, Sponsored): a tag at the end of the title's line, in place of players now. */
+  tagWords?: string;
+  /** What kind of game and how it's played, in a few words: the line under the title. */
+  summary?: string;
+  /** A paid game's price to play, for a viewer who doesn't own it: the line under the title. A free game shows nothing. */
   priceText?: string;
-  /** It changed since the viewer last played it: Updated, the art's top left corner. */
-  isUpdated?: boolean;
-  /** Friends playing it now: their faces, the art's bottom left corner (three, and how many more). */
+  /** Friends playing it now: their faces, the line under the title (three, and how many more). */
   friends?: FramedPerson[];
-  /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): the art's bottom right corner, the art dimmed. */
+  /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): the line under the title, the art dimmed. */
   deviceNote?: string;
 }
 
@@ -122,9 +124,9 @@ export interface GameCardOptions {
   facts: GameCardFacts;
   /** The game's own glass tint (#rrggbb), which its lit edge takes; left out, the edge lights white. */
   tintColor?: string | null;
-  /** The one card lifted: the game in the pane beside the list, or the home's card in focus. Its edge stays lit, its art brightens and its Play and Details show. */
+  /** The one card lifted: the game in the pane beside the list. Its edge stays lit and its art brightens. */
   isCurrent?: boolean;
-  /** Where its Play goes: Play and Details lie under it, kept from sight until it's lifted (isCurrent) in room that's always theirs, so a lift moves nothing. Left out, a card has neither. */
+  /** Where its Play goes: Play and Details show under it (the home's game of the moment). Left out, a card has neither. */
   playHref?: string;
   /** Its art loads with the page, not once it nears the screen: for the cards a page opens with in view, like the home's first. */
   isEager?: boolean;
@@ -143,7 +145,7 @@ const deviceIcon = (deviceNote: string): IconName => (/gamepad/i.test(deviceNote
 const cardLabel = (options: GameCardOptions): string =>
   [
     options.title,
-    options.facts.isUpdated ? "updated" : "",
+    options.facts.tagWords?.toLowerCase() ?? "",
     options.facts.priceText ?? "",
     options.facts.friends?.length ? `${options.facts.friends.map((friend) => friend.username).join(", ")} playing` : "",
     options.facts.deviceNote ?? "",
@@ -156,9 +158,9 @@ export function gameCardActions(playHref: string, detailsHref: string): Raw {
 }
 
 /**
- * A game card: a game in a list, the studio's art in a carved well with its title and players now on one line under it. What else
- * concerns you about it lies in a corner of the art, each kind in its own corner on every card: news (Updated) top left, the price top
- * right, friends playing bottom left, this device (needs a keyboard, made for another) bottom right, the art dimmed. Pointed at, the
+ * A game card: a game in a list, the studio's art in a carved well, and nothing of Zaisma's on it. Under it, its title with a tag or players
+ * now on one line, and on the next what else concerns you about it: what kind of game, the price, friends playing and this device (needs
+ * a keyboard, made for another), the art dimmed. Pointed at, the
  * well's foot catches the light (Edge light, the card the part it lights), in the game's tint, and the art brightens; in focus beside the
  * list, it stays lit.
  */
@@ -167,10 +169,12 @@ export function gameCard(options: GameCardOptions): Raw {
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
-  const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends, "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
+  const tagAtEnd = facts.tagWords ? tag(facts.tagWords, /^(Updated|New)$/.test(facts.tagWords) ? "new" : "plain") : undefined;
+  const hasSecondLine = Boolean(facts.summary || facts.priceText || facts.friends?.length || facts.deviceNote);
+  const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div>${options.playHref ? gameCardActions(options.playHref, options.href) : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>${secondLine}${options.playHref ? gameCardActions(options.playHref, options.href) : ""}</div>`;
 }
 
 /**
@@ -553,30 +557,15 @@ const PANE_STYLES = `
 `;
 
 const COVER_STYLES = `
-/* A game card is a carved well cut into the glass, with the studio's art set inside it: no glass over the art, only the small marks in its
-   corners. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
+/* A game card is a carved well cut into the glass, with the studio's art set inside it: nothing over the art. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
    one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
-/* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner; the marks in its art's corners
-   sit the compact frame gap in, so the edge rule cuts them along its corners at that gap (--rail-inset). */
-.cover-art { --rail-inset: var(--pad-frame-compact); }
+/* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-/* Its corners: each kind of fact has one, the same on every card, a part's frame gap in from the rim. News top left, the price top right,
-   friends bottom left, this device bottom right. */
-.cover-mark { position: absolute; z-index: 2; display: inline-flex; pointer-events: none; }
-.cover-mark.at-news { top: var(--pad-frame-compact); left: var(--pad-frame-compact); }
-.cover-mark.at-price { top: var(--pad-frame-compact); right: var(--pad-frame-compact); }
-.cover-mark.at-friends { bottom: var(--pad-frame-compact); left: var(--pad-frame-compact); }
-.cover-mark.at-device { bottom: var(--pad-frame-compact); right: var(--pad-frame-compact); }
-/* Each is a sliver of glass over the art (Tag's glass tones), blurring the art under it and as thick as a pane's glass, so its words read
-   on any picture; news in the green new things have. */
-.cover-mark .tag.glass { --glass-tint: var(--glass-regular); }
-/* On a small card a device's words would crowd it: its icon alone says it (the screen reader still hears the words, in the card's label). */
-@container (max-width: 220px) { .cover-mark.at-device .tag > span { display: none; } .cover-mark.at-device .tag { padding-inline: 7px 6px; } }
 /* Made for another device: the art dimmed, its words quieter, still there to open and read about. */
 .cover.is-other-device .cover-picture { filter: grayscale(0.8) brightness(0.85); }
 .cover.is-other-device .cover-name { color: var(--ink-2); }
@@ -592,28 +581,28 @@ const COVER_STYLES = `
 .cover-art:is(.is-pointed, .is-pressed) > .edge-light::before, .cover-art:is(.is-pointed, .is-pressed) > .edge-light::after { opacity: 1; }
 .cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
 .cover:is(:hover, .is-pointed, [aria-current="true"]) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
-/* Play and Details under it: their room is always kept and they show only on the card lifted, so a lift moves nothing. With nothing to point
-   with, a tap opens the game's page, so no card lifts by touch and its room isn't kept. */
-.cover-actions { visibility: hidden; }
-.cover[aria-current="true"] > .cover-actions { visibility: visible; }
-@media (hover: none) { .cover:not([aria-current="true"]) > .cover-actions { display: none; } }
 /* Pressed, the art sinks into its well, its size kept: it drops a little toward the light and the well's rim casts its shade over it, deep
    along the top and lighter down the sides, so the walls show as it goes down; it darkens a touch, quickly. Let go, it springs back up.
-   Its corners' marks go down with it, and its foot stays lit. */
-.cover-art > :where(.cover-picture, .cover-mark) { transition: transform var(--motion-glide) var(--ease-spring); }
+   Its foot stays lit. */
+.cover-art > .cover-picture { transition: transform var(--motion-glide) var(--ease-spring); }
 .cover-picture::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 7px 9px -5px rgba(0, 0, 0, 0.55), inset 4px 0 6px -4px rgba(0, 0, 0, 0.3), inset -4px 0 6px -4px rgba(0, 0, 0, 0.3); transition: opacity var(--motion-glide) var(--ease-standard); }
-.cover-art:is(:active, .is-pressed) > :where(.cover-picture, .cover-mark), .cover.is-pressed .cover-art > :where(.cover-picture, .cover-mark) { transform: translateY(1.5px); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
+.cover-art:is(:active, .is-pressed) > .cover-picture, .cover.is-pressed .cover-art > .cover-picture { transform: translateY(1.5px); transition-duration: var(--motion-press); transition-timing-function: var(--ease-standard); }
 .cover-art:is(:active, .is-pressed) .cover-picture::after, .cover.is-pressed .cover-picture::after { opacity: 1; transition-duration: var(--motion-press); }
 .cover-art:is(:active, .is-pressed) .cover-picture img, .cover.is-pressed .cover-picture img { filter: brightness(0.93); transition-duration: var(--motion-press); }
 /* Small (smallGameCard): the art alone, 64px across, in a row that says the rest and is the link (a search's games). */
 /* Its art is its whole width: no words margin, since it has no words under it. */
 .cover.is-small { flex: none; width: 64px; padding-inline: 0; }
-/* Its line under the art: the title, cut to one line, and players now at its end. Nothing else is ever said there. */
+/* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-picture::after, .cover-art > :where(.cover-picture, .cover-mark) { transition: none; } }
+/* Play and Details under it take the card's width. */
+.cover-actions { min-width: 0; }
+/* Its next line: what else concerns you about it, quiet. */
+.cover-facts { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-words-words); min-width: 0; font: var(--type-facts); color: var(--ink-2); }
+.cover-facts > .one-line { flex: 1 1 0; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .cover-picture img, .cover-picture::after, .cover-art > .cover-picture { transition: none; } }
 `;
 
 const HOUR_MS = 3_600_000;
@@ -642,7 +631,7 @@ export const STAND_IN_COVERS: Record<string, Raw> = Object.fromEntries(
   STAND_IN_GAMES.map((game) => {
     // Updated since it was played: it changed more recently than the viewer last played it.
     const isUpdated = game.updatedAgoDurationMs !== undefined && game.playedAgoDurationMs !== undefined && game.updatedAgoDurationMs < game.playedAgoDurationMs;
-    const facts: GameCardFacts = { playerCount: game.playerCount, friends: game.friends, isUpdated };
+    const facts: GameCardFacts = { playerCount: game.playerCount, friends: game.friends, tagWords: isUpdated ? "Updated" : undefined };
     return [game.slug, gameCard({ title: game.title, picture: STAND_IN_COVER_PICTURES[game.slug] ?? null, href: `#${game.slug}`, facts })];
   }),
 );
@@ -1017,7 +1006,7 @@ component({
   slug: "game-card",
   group: "panes",
   subgroup: "cards",
-  summary: "A game in a list of games (the home's shelves, Browse, More from a developer): the studio's art in a carved well, its title and players now on one line under it. Everything else lies in a corner of the art, each kind always in its own: Updated top left, a price top right, friends playing bottom left, this device bottom right. Pointed at, its foot lights in the game's tint.",
+  summary: "A game in a list of games (the home's shelves, Browse, More from a developer): the studio's art in a carved well with nothing over it. Under it, its title with a tag or players now on one line, and what else concerns you on the next: what kind of game, a price, friends playing bottom left, this device bottom right. Pointed at, its foot lights in the game's tint.",
   styles: COVER_STYLES,
   render: gameCard,
   examples: [
@@ -1025,7 +1014,7 @@ component({
       label: "In a list: every card the same shape, its facts in their corners",
       isWide: true,
       markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [
-        { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 12480, isUpdated: true } }) },
+        { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 12480, tagWords: "Updated" } }) },
         { kind: "block", markup: gameCard({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, priceText: "$24.99" } }) },
         { kind: "block", markup: gameCard({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870, friends: [{ username: "Liam" }, { username: "Sofia" }] } }) },
         { kind: "block", markup: gameCard({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: {} }) },
@@ -1042,11 +1031,11 @@ component({
     { label: "No cover yet: Zaisma's mark", markup: cardSample({ title: "The Last Lighthouse Keeper", picture: null, href: "#game-card", facts: { playerCount: 38 } }) },
     { label: "Nobody playing now: its title alone", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: {} }) },
     { label: "A long title: cut to one line", markup: cardSample({ title: "Ashen Crown: The Long Night of the Iron Vigil", picture: STAND_IN_COVER_PICTURES["ashen-crown"]!, href: "#ashen-crown", facts: { playerCount: 7 } }) },
-    { label: "Everything at once: one in each corner", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, isUpdated: true, priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
+    { label: "Everything at once: all of it under the art", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: { playerCount: 412, tagWords: "Updated", priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }], deviceNote: "Needs a keyboard" } }) },
     { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
     { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
-    { label: "With Play and Details under it, kept from sight: their room stays, so a lift moves nothing", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", facts: { playerCount: 12480 } }), isStill: true },
+    { label: "With Play and Details under it", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", facts: { playerCount: 12480 } }), isStill: true },
     { label: "Lifted: its foot lit, its art brighter, Play and Details showing", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", isCurrent: true, facts: { playerCount: 12480 } }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
     { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp", placeholderDataUrl: STAND_IN_COVER_PICTURES["kestrel"]!.placeholderDataUrl }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
@@ -2037,6 +2026,79 @@ component({
       isWide: true,
       markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}<div class="banner-frame">${banner({ text: "Season 3 of Neon Drift starts Friday: new districts, and the leaderboards start over.", icon: "megaphone", action: { label: "See what's new", href: "#banner" }, closeLabel: "Close" })}</div></div>`,
     },
+  ],
+});
+
+export interface EventBannerOptions {
+  /** The event's name, which the art itself shows: what a screen reader hears. */
+  title: string;
+  /** The art, wide, with its title in the picture toward the start and its end quiet for the buttons. */
+  widePicture: string;
+  /** The art for a narrow strip; left out, the wide one, its start kept. */
+  narrowPicture?: string | null;
+  action: { label: string; href: string };
+  closeLabel: string;
+}
+
+/**
+ * An event banner: a slim strip of art across the top of a page for an event Zaisma runs. The art is the words: nothing is written over it but its
+ * one button and its Close, at its end. All of it opens the event; where the strip is narrow only the art and Close show.
+ */
+export function eventBanner(options: EventBannerOptions): Raw {
+  const pictureMarkup = html`<picture>${options.narrowPicture ? html`<source media="(max-width: 560px)" srcset="${options.narrowPicture}">` : ""}<img class="event-banner-picture" src="${options.widePicture}" alt="${options.title}"></picture>`;
+  return html`<div class="event-banner"><a class="event-banner-art carving holds-art" data-cut-line="0" href="${options.action.href}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${pictureMarkup}</span></a><div class="event-banner-controls">${row({ widths: "fit", alignment: "end", items: [control(secondaryButton(options.action.label, { href: options.action.href })), control(tertiaryButton(action("close", options.closeLabel), { type: "button", name: "banner_close", isLabelHidden: true }))] })}</div></div>`;
+}
+
+component({
+  name: "Event banner",
+  slug: "event-banner",
+  group: "panes",
+  subgroup: "layers",
+  summary: "A slim strip of art across the top of the home for an event Zaisma runs, like a themed weekend. The art carries the title; its one button and Close sit on its end. All of it opens the event, and where it's narrow only the art and Close show.",
+  styles: `
+/* The strip: as slim as a control and its frame, wherever it is, so an event never turns into a poster. */
+.event-banner { position: relative; width: 100%; min-width: 0; height: calc(var(--control-height-regular) + 2 * var(--pad-frame-compact)); container-type: inline-size; }
+.event-banner-art { position: absolute; inset: 0; display: block; }
+.event-banner-picture { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left center; }
+.event-banner-controls { position: absolute; inset-block: 0; inset-inline-end: var(--pad-frame-compact); display: flex; align-items: center; }
+@container (max-width: 559px) { .event-banner-controls .row-cell:first-child { display: none; } }
+`,
+  render: eventBanner,
+  examples: [
+    { label: "An event", isWide: true, markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" }, closeLabel: "Close" }) },
+    { label: "Where it's narrow: the art and Close", markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" }, closeLabel: "Close" }) },
+  ],
+});
+
+export interface BackdropWordsOptions {
+  /** The big line, the page's heading. */
+  line: string;
+  /** The smaller line under it. */
+  smallerLine?: string;
+}
+
+/**
+ * Words flat on the backdrop, on no pane: for what speaks for a whole page, not for any group on it. The only way words stand on the backdrop, so their
+ * ink is always the one checked against it (test/node/backdrop-words.test.ts).
+ */
+export function backdropWords(options: BackdropWordsOptions): Raw {
+  return html`<div class="backdrop-words"><h1>${options.line}</h1>${options.smallerLine ? html`<p>${options.smallerLine}</p>` : ""}</div>`;
+}
+
+component({
+  name: "Backdrop words",
+  slug: "backdrop-words",
+  group: "panes",
+  subgroup: "layers",
+  summary: "Words flat on the backdrop, on no pane: for what speaks for the whole page, like the home's first line to someone new. A big line and a smaller one, always in the ink checked against the backdrop.",
+  styles: `
+.backdrop-words { padding-block: var(--gap-block-block); padding-inline: var(--pad-pane); color: var(--backdrop-ink); }
+.backdrop-words h1 { margin: 0; font: var(--type-heading); text-wrap: balance; }
+.backdrop-words p { margin: var(--gap-words-words) 0 0; font: var(--type-words); }
+`,
+  render: backdropWords,
+  examples: [
+    { label: "On Zaisma's own backdrop", isWide: true, markup: html`<div class="backdrop-frame holds-menus">${backdrop({ isFramed: true })}${backdropWords({ line: "One place to play every kind of game.", smallerLine: "Press Play, install nothing, bring your friends." })}</div>` },
   ],
 });
 

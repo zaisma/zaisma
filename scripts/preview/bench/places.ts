@@ -51,6 +51,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       ACCOUNT_MENU,
       { stateValue: "home-guest", label: "As a guest", stateKind: "opened", seenBy: "guest", checkedPage: "Home" },
       { stateValue: "home-signed-in", label: "Signed in", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, signed in" },
+      { stateValue: "home-returning", label: "Returning", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, returning" },
       { stateValue: "home-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, long names" },
       { stateValue: "home-empty", label: "Empty", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, empty" },
       { stateValue: "home-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, full" },

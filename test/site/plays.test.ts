@@ -132,9 +132,6 @@ describe("counted plays", () => {
     expect(await home()).not.toContain("<b>2</b> playing now");
     await issueTicket(env.DB, "g-play", NEW);
     expect(await page()).toMatch(/id="playing-now">[\s\S]*?<dt>Playing now<\/dt><dd class="key-detail-value">3<\/dd>/);
-    // The home's covers show it from the same count (its script builds Continue playing's from this).
-    expect(await home()).toContain('"slug":"play-game"');
-    expect(await home()).toMatch(/"slug":"play-game"[^}]*"playing_now_player_count":3/);
   });
 
   it("only takes plays of games players can open, sent from Zaisma", async () => {

@@ -348,6 +348,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   open(["GET"], "/js/*", { limit: FROM_MEMORY }),
   open(["GET"], "/css/*", { limit: FROM_MEMORY }),
   open(["GET"], "/:rules_file", { limit: FROM_MEMORY }),
+  open(["GET"], "/whats-on-art/*", { limit: FILE_NO_LIMIT, answers: ANSWERS_FILE }),
   open(["GET"], "/img/*", { trusts: ["session"], limit: FILE_NO_LIMIT, answers: ANSWERS_FILE }),
   open(["GET"], "/shaders/*", { trusts: ["session"], limit: FILE_NO_LIMIT, answers: ANSWERS_FILE }),
   open(["GET"], "/shader-checks/*", { limit: FILE_NO_LIMIT, answers: ANSWERS_FILE }),

@@ -746,6 +746,8 @@ seedFriendRequests();
 seedSecurityLog();
 // An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
 seedAnnouncements();
+// An event across the top of the home and a pick among What's on's cards.
+seedWhatsOn();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
@@ -795,8 +797,8 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
-  Home            ${SITE}/  (a first visit: one line over six covers, new order each visit, Zaisma's world above; point at a cover to lift it with Play and Details.
-                  Played something, as a guest or as Many_Things: Continue playing first, the game played last lifted, then Popular)
+  Home            ${SITE}/  (a first visit: the line flat on the backdrop, What's on, then what else is here; an event's art across the top.
+                  Played something, as a guest or as Many_Things: their game beside What's on, then what else is here)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
@@ -2351,6 +2353,12 @@ function seedAnnouncements() {
   const nowMs = Date.now();
   const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
   runSql(sql);
+}
+
+/** What's on: an event with the gallery's example art (served from the site's own files by a stand-in key) and a pick, refreshed every run under the same IDs. */
+function seedWhatsOn() {
+  const nowMs = Date.now();
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewzombie01', 'event', 'Zombie weekend', 'whats-on-art/whats_on_entry_previewzombie01/wide', '/games?genre=survival', 'Go play', ${nowMs - 3600000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
 }
 
 /**

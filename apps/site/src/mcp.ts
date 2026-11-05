@@ -2,7 +2,7 @@ import { ApiError, cutUndeclared, noteAnswerCut, typeProblems, CONTROLS, DEVICES
 import { INTERNAL_ERROR, TOOL_ANSWER_SCHEMAS, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { WHATS_ON_FIELDS, ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -284,6 +284,15 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ playing_now_player_count: countOf("Everyone playing on Zaisma now."), busiest_games: list(object({ slug, title: { type: "string", description: "The game's name." }, cover_url: { type: ["string", "null"], description: "Its cover, or null." }, playing_now_player_count: { type: ["integer", "null"], description: "People playing it now, or null below 3." } }, ["slug", "title", "cover_url", "playing_now_player_count"])) }),
     annotations: read,
     run: (_, call) => call("GET", "/playing-now"),
+  },
+  {
+    name: "get_whats_on",
+    title: "See What's on at Zaisma",
+    description: "What the home's window shows right now: the event running, if any, and its cards, the same for everyone. It fills itself from new games, big updates and what's trending, and a person adds events and picks. It changes each week.",
+    inputSchema: object({}),
+    outputSchema: answer(WHATS_ON_FIELDS),
+    annotations: read,
+    run: (_, call) => call("GET", "/whats-on"),
   },
   {
     name: "create_game",

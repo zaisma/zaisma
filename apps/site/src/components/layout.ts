@@ -223,9 +223,9 @@ export type GridOptions = {
    * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
    * three, two and then one across as they run out of a cover's least width. isAtLeastTwoAcross stops at two, however small the covers get (the
-   * home's first screen on a phone). isOrderShuffled puts the cells in a new order each time the page opens, before it's painted.
+   * home's What's on on a phone). isLeadWideAtTwoAcross gives the first cell the whole line wherever it's two across, so three cells never leave one alone.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isOrderShuffled?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isLeadWideAtTwoAcross?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -243,41 +243,26 @@ const CONTROL_STACK_GAP_PX = 8;
 export function grid(options: GridOptions): LayoutMarkup {
   if (options.itemSize === "cover" && options.isAllOnOneLine) {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
-    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}`)}</div>`);
+    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}${options.isLeadWideAtTwoAcross ? " is-lead-wide" : ""}`)}</div>`);
   }
   return asLayout(gridMarkup(options, ""));
 }
 
 function gridMarkup(options: GridOptions, variantClass: string): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.itemSize === "cover" && options.isOrderShuffled ? raw(" data-order-shuffled") : ""}${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
+  return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
 }
 
-/** A grid whose order is new each time the page opens (isOrderShuffled): done as the grid arrives, so the page is painted in it. */
-export const SHUFFLED_GRID_SCRIPT = `/* shuffled grids */(function () {
-  window.zaismaWatch.each(".layout-grid[data-order-shuffled]", function (grid) {
-    var cells = Array.prototype.slice.call(grid.children);
-    for (var index = cells.length - 1; index > 0; index--) {
-      var pickedIndex = crypto.getRandomValues(new Uint32Array(1))[0] % (index + 1), picked = cells[pickedIndex];
-      cells[pickedIndex] = cells[index]; cells[index] = picked;
-    }
-    cells.forEach(function (cell) { grid.appendChild(cell); });
-  });
-})();
-`;
-
-export interface FirstScreenOptions {
-  /** What stays at the top of the page, over the world (Zaisma's news), each shown or hidden by its own isHidden. */
-  top: LayoutItem[];
-  /** What the page opens on, held low on the first screen. Hidden, the first screen is as tall as the rest of what it holds. */
-  low: LayoutItem;
+export interface LeadAndSideOptions {
+  lead: LayoutItem;
+  side: LayoutItem;
 }
 
 /**
- * A page's first screen: what it opens on held low, the world behind open above it, and what follows peeking in at the screen's foot. It's as
- * tall as what it holds where that's taller than the screen (a phone), so nothing is ever cut.
+ * The thing a page is about and what goes beside it: the lead two thirds of the width and the side a third; half and half with less room; one under
+ * the other with less still. A one-line grid in the side stacks while the side is a third, so its covers stay whole and line up with the lead.
  */
-export function firstScreen(options: FirstScreenOptions): LayoutMarkup {
-  return asLayout(html`<div class="first-screen">${stack({ items: [...options.top, options.low] })}</div>`);
+export function leadAndSide(options: LeadAndSideOptions): LayoutMarkup {
+  return asLayout(html`<div class="lead-and-side"><div class="lead-and-side-in"><div class="lead-and-side-lead">${options.lead.markup}</div><div class="lead-and-side-side">${options.side.markup}</div></div></div>`);
 }
 
 export interface TrackOptions {
@@ -591,16 +576,19 @@ export const GRID_STYLES = `
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 @container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } } }
 @container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
 `;
 
-export const FIRST_SCREEN_STYLES = `
-/* A first screen: at least as tall as the window less the header's room and what's left for the next thing to peek in (a block's gap and a heading),
-   its last part at its foot. With that part hidden, it takes only the room of what's left. */
-.first-screen { --first-screen-peek: calc(var(--gap-block-block) + var(--pad-pane) + 2rem); width: 100%; min-width: 0; }
-.first-screen > .layout-stack { min-height: calc(100svh - var(--header-room) - var(--first-screen-peek)); }
-.first-screen > .layout-stack > .stack-cell:last-child { margin-top: auto; }
-.first-screen > .layout-stack:has(> .stack-cell:last-child[hidden]) { min-height: 0; }
+export const LEAD_AND_SIDE_STYLES = `
+.lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
+.lead-and-side-lead, .lead-and-side-side { min-width: 0; }
+.lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); }
+@container lead-and-side (min-width: 560px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lead-and-side (min-width: 800px) {
+  .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .lead-and-side-side .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
+}
 `;
 
 export const TRACK_STYLES = `

@@ -15,7 +15,7 @@ export const NOTICE_STRIP_MEDIA = "(max-width: 760px), (orientation: landscape) 
 
 export const LIGHT_GLASS = `color-scheme: light;
   --glass-ground: #E7E4DF;
-  --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
+  --backdrop-ink: #14171C; --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
   --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.62); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
@@ -85,7 +85,7 @@ export const LIGHT_GLASS = `color-scheme: light;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --glass-ground: #121110;
-  --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
+  --backdrop-ink: #F7F9FC; --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.72); --glass-thick: rgba(14, 17, 24, 0.82); --glass-over-game: rgba(14, 17, 24, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);

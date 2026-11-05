@@ -134,6 +134,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `chat_review` | `chat_review_…` |
 | `mcp_client` (an AI app that connects to the MCP by signing in; one that uses a metadata document is named by its URL instead) | `mcp_client_…` |
 | `database_restore` (a restore of a game's database to a time, or the undo of one) | `database_restore_…` |
+| `whats_on_entry` (an event or a pick a person added to What's on at Zaisma) | `whats_on_entry_…` |
 | `announcement` (short news Zaisma posts for players, shown on zaisma.com's home) | `announcement_…` |
 | `top_up` (credit a developer bought on Stripe's page) | `top_up_…` |
 | `credit_entry` (any other change to a developer's credit: a game's hosting charge for a day, a refund, what Zaisma wrote off) | `credit_entry_…` |

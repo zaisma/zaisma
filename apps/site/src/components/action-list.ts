@@ -63,6 +63,7 @@ const LIST = {
   showPassword: { words: "Show", icon: "eye-off", pressedIcon: "eye" },
   // Signing in.
   signIn: { words: "Sign in", icon: "sign-in" },
+  installZaisma: { words: "Install Zaisma", icon: "download" },
   signOut: { words: "Sign out", icon: "sign-out" },
   purchasePin: { words: "Purchase PIN", icon: "keypad" },
   password: { words: "Password", icon: "lock" },

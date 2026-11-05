@@ -38,6 +38,10 @@ Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the
 | `list_announcements` | Announcements that are showing or still to start, and those that ended in the last 30 days, newest first: each with its `announcement_status` (`current`, `upcoming`, `ended`) and `is_shown`, whether it's the one players see now. |
 | `post_announcement` | Post short news for players: `text` (1 to 200 characters, one or two plain sentences), an optional `link_url` (https, or a path on zaisma.com like `/forum`) with its `link_label` (up to 30 characters; "Read more" when left out), `starts_at` (now when left out) and `ends_at` (at most 60 days after it). It shows at the top of zaisma.com's home for every player, signed in or not, until it ends or the player closes it. |
 | `end_announcement` | End an announcement now, by its `announcement_id`: it leaves the home at once (one that hadn't started never shows). |
+| `list_whats_on` | The events and picks a person added to What's on, current, upcoming and ended in the last 30 days, newest first. |
+| `post_whats_on_event` | Put an event across the top of the home: `title`, `wide_art_base64` (PNG, WebP or JPEG, up to 2 MB), optional `narrow_art_base64`, `link_url`, optional `link_label`, optional `starts_at`, `ends_at` (at most 60 days after the start). |
+| `post_whats_on_pick` | Put a listed game among What's on's cards, tagged Pick: `game_slug`, optional `starts_at`, `ends_at`. |
+| `end_whats_on_entry` | End an event or a pick now, by its `whats_on_entry_id`. |
 
 Child-safety reports come first. Triage never sorts them with AI, but here the admin is the person looking, so Claude can help read and decide them. Their pictures are never sent (a report triage only later found to be about child safety can carry one, and it could be abuse material itself), and they can't be passed to the developer. Decisions are recorded in the audit log under the service token's name. Player, game and forum text is untrusted; the MCP's instructions tell Claude not to follow it and to ask before deciding anything. Known-issue titles and workarounds are seen by every developer, so they're written without names, games or anything one developer said in private.
 
@@ -91,6 +95,10 @@ A refused call answers `{ "error": { code, message, field, fix, retry_after_sec 
 | `bad_username` | 400 | username isn't 1 to 30 characters. |
 | `bad_content_rule` | 400 | content_rule isn't one of the content rules. |
 | `unknown_username` | 404 | No account has that username. |
+| `no_whats_on_entry` | 404 | There's no What's on entry with that ID. |
+| `whats_on_entry_ended` | 409 | The What's on entry has ended already. |
+| `bad_event_title` | 400 | An event's title isn't 1 to 60 characters. |
+| `bad_art` | 400 | An event's art isn't a PNG, WebP or JPEG within the size cap. |
 | `no_announcement` | 404 | There's no announcement with that ID. |
 | `announcement_ended` | 409 | The announcement has ended already. |
 | `bad_text` | 400 | text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks. |

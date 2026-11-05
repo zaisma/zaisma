@@ -183,6 +183,10 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".qr-tile > .cut-line | *", "the white tile's own bevel"],
   [".qr-picture | background", "the code's white"],
   [".qr-icon | outline", "the white round the mark in the code's middle, so the code still reads"],
+  [".event-banner | height", "the strip stays as slim as a control and its frame, so an event never turns into a poster"],
+  [".backdrop-words | padding-block", "words on no pane keep the room a pane's frame would give them"],
+  [".backdrop-words | padding-inline", "words on no pane line up with what's in the panes under them"],
+  [".backdrop-words p | margin", "words on no pane: the gap between its two lines"],
   [".qr-code.is-large .qr-tile | padding", "a large code's wider quiet zone"],
   // A chart and a meter are drawn: their plot, marks, scale and the tip at a point.
   [".chart-scale | height", "the scale is the plot's height"],
@@ -277,7 +281,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".large-icon | padding-block", "a pane's key icon has a block's room above and below it"],
   [".floating-pane.dropdown .dropdown-head + .divider | margin-top", "a dropdown's head stands a control's gap from the rule under it"],
   [".floating-pane.dropdown[data-edge-light=\"left\"] > .edge-light::after | background", "a dropdown's edge light floods in from its left edge and fades"],
-  [".cover-mark.at-device .tag | padding-inline", "a device tag on a cover keeps its icon optically centered"],
   [".cover-picture::after | box-shadow", "a cover's art sits under the carving's rim, its inner shadow at the top and sides"],
   [".pane-parts:has(> .pane-body .confirm-body) > .pane-head | margin-bottom", "Confirm it's you's Close sits beside its key icon, so its head takes no room of its own"],
   [".confirm-body [id$=\"-reason\"] | margin-bottom", "Confirm it's you's reason stands a block's gap from the field under it"],
@@ -476,11 +479,11 @@ describe("waiting", () => {
 
 /** Every picture a component shows is a Picture (foundations.ts, picture): its box holds its placeholder, so its place is never empty. */
 describe("pictures", () => {
-  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code and the icon drawn in it, and a file the player is choosing", () => {
+  it("are all Pictures: no component's markup has an img outside a Picture's box, but a QR code's drawn code and the icon drawn in it, a file the player is choosing and an event's art", () => {
     const bare = COMPONENTS().flatMap((component) =>
       component.examples.flatMap((example) =>
         [...example.markup.html.matchAll(/<img\b[^>]*>/g)]
-          .filter((img) => !/class="[^"]*\b(reveals|qr-picture|qr-icon|file-drop-view)\b/.test(img[0]))
+          .filter((img) => !/class="[^"]*\b(reveals|qr-picture|qr-icon|file-drop-view|event-banner-picture)\b/.test(img[0]))
           .map((img) => `${component.slug}, ${example.label}: ${img[0].slice(0, 80)}`),
       ),
     );

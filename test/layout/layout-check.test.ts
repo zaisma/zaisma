@@ -150,26 +150,6 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures).toEqual([]);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home while its played list is on its way", async () => {
-    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
-    try {
-      const { browserContextId } = await chrome.send("Target.createBrowserContext");
-      await signIn(chrome, browserContextId, sites!.site, "Many_Things");
-      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
-      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
-      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
-      // The list is asked for after the shelf is first filled, and never answered here, so this is what a slow connection shows until it comes.
-      const isAsked = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") done(); }));
-      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
-      await send("Page.navigate", { url: `${sites!.site}/` });
-      await isAsked;
-      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-returning").hidden`, returnByValue: true });
-      expect(result.value).toBe(false);
-    } finally {
-      await chrome.close();
-    }
-  }, 300_000);
-
   it.skipIf(!isFirstShare)("catches a sheet on a page with no button on the Screens bench, and passes one with its own", async () => {
     const failures = await brokenOnLaptop(`<dialog class="sheet" id="sheet-with-no-button"></dialog><dialog class="sheet" id="share-dialog"></dialog>`);
     expect(failures.filter((failure) => failure.includes("no button on the Screens bench"))).toEqual([expect.stringContaining("#sheet-with-no-button")]);

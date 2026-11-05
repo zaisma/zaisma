@@ -98,6 +98,7 @@ function accountMenu(username: string, menuId: string, isOpen = false): Raw {
     { ...action("friends"), href: "/friends" },
     { ...action("developer"), href: "/dashboard" },
     { ...action("settings"), href: "/account" },
+    { ...action("installZaisma"), isButton: true, isHidden: true, dataAttributes: { "install-zaisma": "" } },
     { kind: "rule" },
     { ...action("signOut"), action: "/signout" },
   ];
@@ -241,6 +242,24 @@ ${signInIconAlone(".top.has-icon-sign-in .end > [data-sign-in-icon]")}
  * search becomes its button, then the tabs draw in, then they're icons, then Sign in is too. It runs as the header arrives, so the first paint is right, and again
  * as its room or what's in it changes. A phone on its side stands the header up (layout.ts): always its button, with its own rules for the rest.
  */
+/** Install Zaisma in the account menu: shown only once the browser says it can install, so never in the installed window; the browser's own install does the rest. */
+export const INSTALL_SCRIPT = `/* install */(function () {
+  var offer = null;
+  window.addEventListener("beforeinstallprompt", function (event) {
+    event.preventDefault();
+    offer = event;
+    document.querySelectorAll("[data-install-zaisma]").forEach(function (choice) { choice.hidden = false; });
+  });
+  document.addEventListener("click", function (event) {
+    var choice = event.target.closest && event.target.closest("[data-install-zaisma]");
+    if (!choice || !offer) return;
+    offer.prompt();
+    offer = null;
+    choice.hidden = true;
+  });
+})();
+`;
+
 export const HEADER_FIT_SCRIPT = `/* header fit */(function () {
   var railMedia = window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}), LAST_STEP = 4;
   function takeSteps(top, stepCount) { top.classList.toggle("has-search-button", stepCount > 0); top.classList.toggle("has-tight-tabs", stepCount > 1); top.classList.toggle("has-icon-tabs", stepCount > 2); top.classList.toggle("has-icon-sign-in", stepCount > 3); }

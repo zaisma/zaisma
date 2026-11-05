@@ -1674,6 +1674,21 @@ const ANNOUNCEMENT_FIELDS = {
 };
 export const PUBLIC_ANNOUNCEMENT_LIST = object({ announcements: list(object(ANNOUNCEMENT_FIELDS), "The ones showing now, the newest start first; the home shows the first. [] when none are.") });
 
+// --- What's on at Zaisma (GET /whats-on, whats-on.ts) ---
+
+const WHATS_ON_EVENT = object({
+  id: idOf("whats_on_entry"),
+  title: text("The event's name."),
+  wide_art_url: text("Its art, for a wide strip: an address on zaisma.com."),
+  narrow_art_url: nullable(text("Its art for a narrow strip; null when it has only the wide one.")),
+  link_url: text("Where its button goes: an https address, or a path on zaisma.com starting with /."),
+  link_label: text("Its button's words."),
+});
+export const WHATS_ON_FIELDS = {
+  event: nullable(WHATS_ON_EVENT),
+  cards: list(object({ slug: text("The game's link name."), title: text("The game's name."), cover_url: nullable(text("Its cover, or null with none.")), tag: nullable(choice({ Pick: "a person picked it", Updated: "a big update in the last 14 days", New: "first went live in the last 14 days", Trending: "more players than usual" })) }), "What's on's cards, up to 3, in order. They change with the week and are the same for everyone."),
+};
+
 // --- The admin MCP (docs/ADMIN-MCP.md) ---
 
 /** A precedent's ID. The first ones were named by hand, with hyphens: precedent_hard-or-boring. */
@@ -2173,3 +2188,22 @@ const ADMIN_ANNOUNCEMENT = object({
 });
 export const ANNOUNCEMENT_LIST = object({ announcements: list(ADMIN_ANNOUNCEMENT, "Current and upcoming ones, and those that ended in the last 30 days, the newest start first, up to 100.") });
 export const ANNOUNCEMENT_CHANGED = object({ announcement: ADMIN_ANNOUNCEMENT, next_steps: NEXT });
+
+/** What's on's entries as the admin sees them (admin MCP: list_whats_on, post_whats_on_event, post_whats_on_pick, end_whats_on_entry). */
+const ADMIN_WHATS_ON_ENTRY = object({
+  id: idOf("whats_on_entry"),
+  entry_kind: choice({ event: "art across the top of the home", pick: "one game among What's on's cards" }),
+  game_id: nullable(idOf("game")),
+  title: nullable(text("An event's name; null for a pick.")),
+  wide_art_url: nullable(text("An event's art; null for a pick.")),
+  narrow_art_url: nullable(text("An event's art for a narrow strip; null without one.")),
+  link_url: nullable(text("Where an event's button goes; null for a pick.")),
+  link_label: nullable(text("An event's button's words; null for a pick.")),
+  starts_at: isoTime(),
+  ends_at: isoTime(),
+  entry_status: choice({ current: "showing now", upcoming: "starts at starts_at", ended: "no longer shown" }),
+  created_at: isoTime(),
+  created_by: text("The admin who posted it."),
+});
+export const WHATS_ON_ENTRY_LIST = object({ entries: list(ADMIN_WHATS_ON_ENTRY, "Current and upcoming ones, and those that ended in the last 30 days, the newest start first, up to 100.") });
+export const WHATS_ON_ENTRY_CHANGED = object({ entry: ADMIN_WHATS_ON_ENTRY, next_steps: NEXT });

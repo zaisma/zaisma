@@ -55,7 +55,7 @@ async function liveGameWithPictures(slug: string) {
 }
 
 // Whether the home lists the game for the browser (its rows are its shelves; the home-data block has every listed game).
-const homeHas = async (slug: string) => (await (await SELF.fetch(`${SITE}/`)).text()).includes(`"slug":"${slug}"`);
+const homeHas = async (slug: string) => (await (await SELF.fetch(`${SITE}/games`)).text()).includes(`href="/g/${slug}"`);
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM ai_usage; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");

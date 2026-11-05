@@ -249,6 +249,7 @@ import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playingNowAnswer } from "./live-world.ts";
+import { whatsOnAnswer } from "./whats-on.ts";
 import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, aiReviewSpeedFor, holdForPerson, imageMatcher, passVersionsHeldForGore, publishFacts, publishRouteOf, publishWithReview, pruneVersions, replaceWaitingVersions, requestAiReview, routePublish, usualAiReviewDurations, type PublishFacts } from "./scan.ts";
@@ -836,6 +837,7 @@ const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "r
 export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/access", answers: fromTool("get_access"), reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/playing-now", answers: fromTool("get_playing_now"), reaches: "nothing_private", access: anyKey }),
+  call({ method: "GET", path: "/whats-on", answers: fromTool("get_whats_on"), reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/activity", answers: fromTool("get_activity"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/api-keys", answers: fromTool("list_api_keys"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
   call({ method: "GET", path: "/storage", answers: fromTool("get_storage"), reaches: "account", access: anyKey }),
@@ -1204,6 +1206,7 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
   const { game, pathValues } = checked;
 
   if (path === "/playing-now" && method === "GET") return answer(await playingNowAnswer(env));
+  if (path === "/whats-on" && method === "GET") return answer(await whatsOnAnswer(env));
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
