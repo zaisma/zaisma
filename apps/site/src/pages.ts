@@ -484,6 +484,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     head: view.head,
     checkedPage: tester ? "Tester link" : isForSale ? "Game page, for sale" : rooms ? "Game page" : "Game page, no rooms",
     pageShape: "full",
+    // Where the game plays: it gets the whole screen, past a phone's notch.
+    isFillingScreen: true,
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
