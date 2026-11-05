@@ -150,7 +150,7 @@ jobs:
       # looks for the artifact the pull request's Preview test data left: the same files made it, on a branch of this repository.
       - id: snapshot-name
         run: |
-          seed_hash="$(git ls-files -s -- scripts/preview examples review-set/listing-cases brand ':!scripts/preview/background.mjs' ':!scripts/preview/memory.mjs' ':!scripts/preview/feedback-*' ':!scripts/preview/bench' | sha256sum | cut -c1-16)"
+          seed_hash="$(git ls-files -s -- scripts/preview examples review-set/listing-cases brand ':!scripts/preview/background.mjs' ':!scripts/preview/memory.mjs' ':!scripts/preview/feedback-*' ':!scripts/preview/bench' ':!scripts/preview/servers.mjs' ':!scripts/preview/seed-snapshot.mjs' | sha256sum | cut -c1-16)"
           echo "prefix=preview-test-data-v1-$seed_hash-" >> "$GITHUB_OUTPUT"
           echo "artifact_name=preview-test-data-v1-$seed_hash" >> "$GITHUB_OUTPUT"
           echo "now_sec=$(date +%s)" >> "$GITHUB_OUTPUT"

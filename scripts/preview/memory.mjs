@@ -31,7 +31,7 @@ export const LINE_DIRECTORY = join(homedir(), ".zaisma/previews");
 export const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 const DEFAULT_CAP_SHARE = 3 / 8;
 // What an awake preview takes until one has been measured on this machine.
-export const DEFAULT_AWAKE_SIZE_BYTES = 1024 ** 3;
+export const DEFAULT_AWAKE_SIZE_BYTES = 600 * 1024 ** 2;
 // What a test run takes, measured on an 8 GB Mac (Oct 23, 2026): vitest, its bundler and npm, and a runtime for each file at once,
 // about 0.9 GB for a Workers file's (its own workerd) and much less for a node file's.
 export const TEST_RUN_SIZE_BYTES = 600 * 1024 ** 2;
@@ -51,12 +51,12 @@ const KEPT_DURATION_MS = 10 * 60_000;
 const LOCK_STALE_MS = 20_000;
 // A waiter says its place again when it changes, or this often.
 const PLACE_REPEAT_MS = 5 * 60_000;
-// An awake preview nobody has looked at for this long sleeps when something waits in line (30 minutes when nothing does, run.mjs's
-// IDLE_MINUTES). A start gives up a minute later, so a preview last looked at just as it asked still makes room in time (each
-// preview looks every 15 seconds, and stopping and measuring take seconds). PREVIEW_START_WAIT_MINUTES changes the limit for one shell.
-export const IDLE_WHILE_WAITED_FOR_MS = 10 * 60_000;
+// An awake preview nobody has looked at for this long sleeps when something waits in line (10 minutes when nothing does, run.mjs's
+// IDLE_MINUTES), and it wakes in about a second. A start gives up well after that, so a preview someone is still looking at has time to
+// go quiet. PREVIEW_START_WAIT_MINUTES changes the limit for one shell.
+export const IDLE_WHILE_WAITED_FOR_MS = 3 * 60_000;
 // A preview handed over to a person (HANDED_OVER_FILE) sleeps for a test run once nobody has opened a page for this long: long enough
-// that a person reading it isn't cut off, with no 10 minutes to sit out, since its session isn't using it.
+// that a person reading it isn't cut off, with no 3 minutes to sit out, since its session isn't using it.
 export const HANDED_OVER_IDLE_MS = 2 * 60_000;
 // In a checkout, while its session has handed its preview to a person and waits for their answer. The session's own tooling writes and removes it.
 export const HANDED_OVER_FILE = ".wrangler/preview-run/handed-over";
@@ -328,7 +328,7 @@ export function memoryHoldersText({ previews, testRuns, ownOffset = null }) {
  * their turn if they fit, and a test run while it wants room (roomWantedUntilMs), for which a preview handed over to a person sleeps
  * after only HANDED_OVER_IDLE_MS. One at a time, so a sleep that makes enough room stays the only one. entries: the line's, alive;
  * awakePreviews: [{ offset, last_visit_at_ms, noted_at_ms, is_handed_over }]. A preview's own jobs and a session's checks count as they do for its
- * 30 minutes: run.mjs's lastVisitAtMs is the same clock.
+ * 10 minutes: run.mjs's lastVisitAtMs is the same clock.
  */
 export function previewToSleep({ entries, awakePreviews, roomAskedAtMs = null, roomWantedUntilMs = null, nowMs = Date.now() }) {
   const isRoomWantedByTests = roomWantedUntilMs !== null && nowMs < roomWantedUntilMs;
