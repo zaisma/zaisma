@@ -303,6 +303,26 @@ async function main() {
   process.exit(result.status ?? 1);
 }
 
+/** How long one runner of "New tests ten times" spends on its runs, at most, in seconds: the job's time limit less its setting up. */
+const REPEAT_RUNNER_BUDGET_SEC = 150;
+const REPEAT_COUNT = 10;
+const CI_WORKER_COUNT = 4;
+/** What a run of vitest costs before its first file, and each file before its tests start (test/shards.ts: shardCostMs). */
+const VITEST_START_SEC = 8;
+const WORKERS_FILE_SETUP_SEC = 4.5;
+const NODE_FILE_SETUP_SEC = 0.5;
+
+/**
+ * "New tests ten times" on as many runners as keep each within its budget: { include: [{ runner, runner_count, run_count }] }, ten runs in all.
+ * A file's cost comes from test/shard-weights.json, as the test shards' does, and four files run at once.
+ */
+export function repeatRunnerPlan(changedTestFiles, durationMsByFile) {
+  const costsSec = changedTestFiles.map((path) => (durationMsByFile[path] ?? 300) / 1000 + (/^test\/(node|layout|load)\//.test(path) ? NODE_FILE_SETUP_SEC : WORKERS_FILE_SETUP_SEC));
+  const runSec = VITEST_START_SEC + Math.max(...costsSec, costsSec.reduce((sum, costSec) => sum + costSec, 0) / CI_WORKER_COUNT);
+  const runnerCount = Math.min(REPEAT_COUNT, Math.max(1, Math.ceil((runSec * REPEAT_COUNT) / REPEAT_RUNNER_BUDGET_SEC)));
+  return { include: Array.from({ length: runnerCount }, (_, index) => ({ runner: index + 1, runner_count: runnerCount, run_count: Math.floor(REPEAT_COUNT / runnerCount) + (index < REPEAT_COUNT % runnerCount ? 1 : 0) })) };
+}
+
 /**
  * What GitHub's check runs on a change: everything (is_full_suite) in the merge queue and on main, and on a pull request whose change
  * reaches every test; otherwise the test files it reaches (reached_test_files). And the test files it adds or changes
@@ -335,7 +355,7 @@ function github() {
   if (plan.changed_test_files.length) console.log(`Ten runs of the test files it adds or changes: ${plan.changed_test_files.join(" ")}.`);
   const isEnginesChanged = EVENT_NAME !== "pull_request" || affected.is_engine_exports_reached;
   console.log(isEnginesChanged ? `The Engine exports run${EVENT_NAME === "pull_request" ? ` (${affected.engine_exports_reached_by} changed)` : " on every push to main"}.` : "Nothing the Engine exports run changed: skipping them.");
-  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\nis_contract_grid_reached=${EVENT_NAME !== "pull_request" || affected.is_contract_grid_reached}\nis_full_suite=${plan.is_full_suite}\nreached_test_files=${plan.reached_test_files.join(" ")}\nchanged_test_files=${plan.changed_test_files.join(" ")}\n`);
+  if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `is_engines_changed=${isEnginesChanged}\nis_contract_grid_reached=${EVENT_NAME !== "pull_request" || affected.is_contract_grid_reached}\nis_full_suite=${plan.is_full_suite}\nreached_test_files=${plan.reached_test_files.join(" ")}\nchanged_test_files=${plan.changed_test_files.join(" ")}\nrepeat_runner_plan=${JSON.stringify(repeatRunnerPlan(plan.changed_test_files, JSON.parse(readFileSync(join(ROOT, "test/shard-weights.json"), "utf8"))))}\n`);
 }
 
 function stop(message) {

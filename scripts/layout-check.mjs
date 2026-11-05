@@ -96,40 +96,44 @@ const RUN_TIME_LIMIT_MS = 90_000;
 // On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
-// Each page's time in a tab on GitHub's runners, in seconds, from a pull request's run (a phone and a laptop, in light; measured Oct 26,
-// 2026: the Layout check job prints it as secondsByPage), by name: the nightly sweep deals the pages to its four runners by it
-// (layoutCheckShard), each page's share of the whole being about the same at every screen. A page that isn't here (under 10s) costs
-// UNLISTED_PAGE_COST_SEC.
+// Each page's time in a tab on GitHub's runners, in seconds, from a merge group's run (a phone and a laptop, in light; measured Nov 4,
+// 2026: the Layout check jobs print it as secondsByPage), by name: every run dealt across runners deals the pages by it (layoutCheckShard),
+// each page's share of the whole being about the same at every screen. A page that isn't here costs UNLISTED_PAGE_COST_SEC.
 const PAGE_COSTS_SEC = {
-  "Gallery: layout": 28.6,
+  "Gallery: inputs fields": 57.2,
+  "Gallery: data lists": 50.5,
+  "Gallery: the sidebar over the page": 49.2,
+  "Gallery: over-a-game zaisma-overlay": 49,
   Screens: 43.8,
-  Home: 16.7,
-  "Buying, confirm with a PIN": 14.1,
-  "Buying, declined": 13.1,
-  "Home, signed in": 12.2,
-  "Games, signed in": 11.7,
-  "Buying, can't be bought": 11.6,
-  "Developer settings, a spending request": 11.2,
-  "Game page": 11.1,
-  "Buying, one press": 11.1,
-  "Buying, a first card": 10.2,
-  "Playing a game, asked to sign in": 10,
-  // The gallery's pages, on every screen (measured Oct 29, 2026 on a Mac, scaled to two runs).
-  "Gallery: the sidebar over the page": 33.0,
-  "Gallery: inputs fields": 27.0,
-  "Gallery: panes menus": 24.1,
-  "Gallery: panes layers": 22.8,
-  "Gallery: navigation bars": 21.5,
-  "Gallery: actions buttons": 18.5,
-  "Gallery: inputs pickers": 16.7,
-  "Gallery: foundations look": 14.7,
-  "Gallery: inputs choices": 12.7,
-  "Gallery: panes cards": 12.4,
-  "Gallery: panes buying": 12.0,
-  "Gallery: navigation scrolling": 11.5,
-  "Gallery: data pictures": 11.4,
+  "Gallery: navigation bars": 41.1,
+  "Gallery: data pictures": 41.1,
+  "Gallery: panes layers": 30,
+  "Gallery: panes sheets": 23.2,
+  "Gallery: over-a-game sheets": 23.1,
+  "Gallery: inputs choices": 22.2,
+  "Gallery: over-a-game notices": 17.7,
+  "Gallery: panes materials": 17.2,
+  "Developer settings": 16.6,
+  "Game page": 16,
+  "Gallery: panes menus": 14.6,
+  "Gallery: inputs pickers": 14.1,
+  "Developer settings, a game deletion request": 13.6,
+  "Gallery: layout": 13.1,
+  "Developer settings, a spending request": 12.7,
+  "Gallery: data numbers": 12.5,
+  "Home, signed in": 11.1,
+  "Game page, no rooms": 10.8,
+  "Games, signed in": 10.7,
+  Home: 10.4,
+  "Gallery: foundations look": 10.4,
+  Games: 10.3,
+  "Games, a price range": 9.9,
+  "Gallery: navigation scrolling": 8.8,
+  "Game page, for sale": 8.7,
+  "Gallery: actions buttons": 8.7,
+  "Playing a game, the players sheet": 8.5,
 };
-const UNLISTED_PAGE_COST_SEC = 6;
+const UNLISTED_PAGE_COST_SEC = 4;
 
 // The check itself: a change to how it opens, settles or measures a page measures every page again.
 const CHECK_SOURCE = readFileSync(fileURLToPath(import.meta.url), "utf8");
@@ -161,13 +165,14 @@ export function pagesNamed(pages, names) {
 
 /**
  * The pages in one share ("index/count", from 1) of GitHub's Layout check runners: dealt by cost, the dearest first, each to the share
- * with the least so far, so the runners finish together. Every page is in exactly one share.
+ * with the least so far, so the runners finish together. Every page is in exactly one share. headStartSecByShare is other work a share
+ * does (the pages broken on purpose), so it takes fewer of these.
  */
-export function layoutCheckShard(pages, shard) {
+export function layoutCheckShard(pages, shard, { headStartSecByShare = [] } = {}) {
   const [index, count] = shard.split("/").map(Number);
   if (!Number.isInteger(index) || !Number.isInteger(count) || index < 1 || index > count) throw new Error(`LAYOUT_CHECK_SHARD is "${shard}": it takes a share and a count, like 2/3.`);
   const costOf = (page) => PAGE_COSTS_SEC[page.name] ?? UNLISTED_PAGE_COST_SEC;
-  const shares = Array.from({ length: count }, () => ({ costSec: 0, pages: [] }));
+  const shares = Array.from({ length: count }, (_, shareIndex) => ({ costSec: headStartSecByShare[shareIndex] ?? 0, pages: [] }));
   for (const page of [...pages].sort((a, b) => costOf(b) - costOf(a) || (a.name < b.name ? -1 : 1))) {
     const least = shares.reduce((lightest, share) => (share.costSec < lightest.costSec ? share : lightest));
     least.costSec += costOf(page);

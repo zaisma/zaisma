@@ -34,7 +34,7 @@ describe("the workflow and ship agree", () => {
   it("on the required check's name and the docs tests' name", () => {
     expect(workflow).toContain(`name: ${GITHUB_CHECK_NAME}\n`);
     expect(workflow).toContain(`name: ${DOCS_TESTS_CHECK_NAME}\n`);
-    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 3)\n`);
+    expect(workflow).toContain(`name: ${ENGINES_CHECK_NAME} (\${{ matrix.shard }} of 8)\n`);
   });
   it("on what the engine exports run, from the repository's graph", () => {
     expect(workflow).toContain("node scripts/affected-tests.mjs --github");
@@ -51,7 +51,7 @@ describe("the workflow and ship agree", () => {
     expect(workflow).toContain(`check-runs?check_name=${encodeURIComponent(GITHUB_CHECK_NAME)}&filter=all`);
     expect(workflow).toContain(`if [ "$IS_CHECKED_IN_QUEUE" = true ]; then echo "Checked in the merge queue: this commit passed there."; exit 0; fi`);
     // Every checking job steps aside for it; only the required check and main's caches run.
-    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check\n", "Every screen (", "Docs tests"]) {
+    for (const job of ["${{ needs.changes.outputs.is_full_suite == 'true' && 'Tests' || 'Reached tests' }} (", "Typecheck", "Engine exports (", "Preview test data", "Layout check (", "Every screen (", "Docs tests"]) {
       const section = workflow.slice(workflow.indexOf(`name: ${job}`), workflow.indexOf("runs-on:", workflow.indexOf(`name: ${job}`)));
       expect(section, job).toContain("needs.changes.outputs.is_checked_in_queue != 'true'");
     }
@@ -73,7 +73,7 @@ describe("the workflow and ship agree", () => {
   it("on the merge queue measuring every page its change reaches on every screen, and failing the required check when it fails", () => {
     const sweepJob = workflow.slice(workflow.indexOf("name: Every screen ("), workflow.indexOf("\n  docs-tests:"));
     expect(sweepJob).toContain("github.event_name == 'merge_group'");
-    expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/4 --measured .wrangler/layout-sweep-measured.json --changed-only");
+    expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/6 --measured .wrangler/layout-sweep-measured.json --changed-only");
     expect(sweepJob).toContain("restore-keys: layout-sweep-measured-");
     expect(sweepJob).toContain("name: layout-sweep-measured-${{ matrix.shard }}");
     expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, pattern-rules, engines, seed, layout, sweep, docs-tests]");

@@ -26,7 +26,7 @@ import { mergeMeasured, readMeasured } from "../../scripts/merge-measured.mjs";
  * (LAYOUT_CHECK_RUNS: a pull request's unless LAYOUT_CHECK_RUN says sweep), with nothing out of line; and pages made to break
  * each rule, which it must catch by name. GitHub's check runs it in its own job (Layout check, .github/workflows/check.yml) with
  * LAYOUT_CHECK=1, on the preview started from a snapshot of its test data. Elsewhere it runs only on a preview that's already up, and says
- * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first share also measures
+ * so when there's none. LAYOUT_CHECK_SHARD="2/4" measures the second of four shares (layoutCheckShard), and the first three shares also measure
  * the pages broken on purpose. A pull request's run skips each page that passed before as it is (PASSED_PATH); LAYOUT_CHECK_FRESH=1
  * measures every page, as the merge queue's and main's runs do.
  */
@@ -42,8 +42,12 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-const pages = (shard ? layoutCheckShard(layoutRun.pages, shard) : layoutRun.pages) as unknown[];
+/** The first three shares' other tests, in a tab's seconds (each about 45s on three tabs, Nov 4, 2026): they take that much fewer pages. */
+const BROKEN_ON_PURPOSE_COST_SEC = 135;
+const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: [BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC] }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
+const isSecondShare = !shard || shard.startsWith("2/");
+const isThirdShare = !shard || shard.startsWith("3/");
 /**
  * The pages a pull request's run passed before, by fingerprint (layout-check.mjs, pageFingerprint: the page's HTML, whose CSS and script
  * addresses carry their change, the run and the check's own code), which GitHub's Layout check keeps between a pull request's pushes
@@ -227,7 +231,7 @@ describe.skipIf(!sites)("the layout check", () => {
   }, 300_000);
 
   // On Desktop the whole of Browse fits its screen, More games and the footer on it; on a laptop they're a screen below it.
-  it.skipIf(!isFirstShare).each(["Desktop", "Laptop"] as const)("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
+  it.each((["Desktop", "Laptop"] as const).filter((screenName) => (screenName === "Desktop" ? isSecondShare : isThirdShare)))("leaves Browse as it first painted on %s until the player moves, and then loads as it nears the screen", async (screenName) => {
     const size = SCREEN_SIZES.find((each) => each.name === screenName)!;
     const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
     try {
@@ -281,33 +285,33 @@ describe.skipIf(!sites)("the layout check", () => {
     };
     const reachRules = (said: string[]) => said.filter((line) => /keyboard|focused control|couldn't measure/.test(line));
 
-    it.skipIf(!isFirstShare)("reaches what's past a list when its next page arrives ahead of focus, with Load more swapped for the next one", async () => {
+    it.skipIf(!isSecondShare)("reaches what's past a list when its next page arrives ahead of focus, with Load more swapped for the next one", async () => {
       const markup = '<button type="button" id="before-list">Before the list</button><div id="list"></div><div id="load-more"><a href="#old">Old Load more</a></div><button type="button">Past the list</button>';
       const said = await onTab(markup, `document.getElementById("before-list").addEventListener("focus", () => { addArrivals(20, "Arrived", document.getElementById("list")); document.getElementById("load-more").innerHTML = '<a href="#new">New Load more</a>'; }, { once: true })`);
       expect(reachRules(said), said.join("\n")).toEqual([]);
     }, 300_000);
 
-    it.skipIf(!isFirstShare)("catches one that arrives past a control that holds Tab", async () => {
+    it.skipIf(!isSecondShare)("catches one that arrives past a control that holds Tab", async () => {
       const markup = '<div id="holds-tab" tabindex="0">Holds Tab</div><div id="list"></div>';
       const said = await onTab(markup, `const hold = document.getElementById("holds-tab"); hold.addEventListener("keydown", (event) => { if (event.key === "Tab") event.preventDefault(); }); hold.addEventListener("focus", () => addArrivals(1, "Arrived past the hold", document.getElementById("list")), { once: true })`);
       expect(said.some((line) => /a control the keyboard doesn't reach/.test(line) && /Arrived past the hold/.test(line)), said.join("\n")).toBe(true);
     }, 300_000);
 
-    it.skipIf(!isFirstShare)("goes round again for what arrives behind focus, and holds it to the same look", async () => {
+    it.skipIf(!isSecondShare)("goes round again for what arrives behind focus, and holds it to the same look", async () => {
       // Its own cell, so its look at rest isn't read with the focused button beside it.
       const markup = '<div id="list" class="stack-cell"></div><button type="button" id="past-list">Past the list</button>';
       const said = await onTab(markup, `document.getElementById("past-list").addEventListener("focus", () => { const quiet = document.createElement("div"); quiet.tabIndex = 0; quiet.style.outline = "none"; quiet.textContent = "Quiet arrival"; document.getElementById("list").append(quiet); }, { once: true })`);
       expect(said.some((line) => /a focused control with no visible focus/.test(line) && /Quiet arrival/.test(line)), said.join("\n")).toBe(true);
     }, 300_000);
 
-    it.skipIf(!isFirstShare)("waits for a load on its way when focus is back where it began", async () => {
+    it.skipIf(!isSecondShare)("waits for a load on its way when focus is back where it began", async () => {
       // Nothing comes until focus has gone round: the answer is asked for only then, as a slow connection brings it after the walk.
       const markup = '<div id="list"></div><div data-loads-on-scroll><button type="button" id="load" aria-busy="true">Waiting load</button></div>';
       const said = await onTab(markup, `let first = null; document.addEventListener("focusin", (event) => { if (!first) { first = event.target; return; } if (event.target !== first) return; first = document.body; fetch(location.href).then(() => { const quiet = document.createElement("div"); quiet.tabIndex = 0; quiet.style.outline = "none"; quiet.textContent = "Late arrival"; document.getElementById("list").append(quiet); document.getElementById("load").removeAttribute("aria-busy"); }); })`);
       expect(said.some((line) => /a focused control with no visible focus/.test(line) && /Late arrival/.test(line)), said.join("\n")).toBe(true);
     }, 300_000);
 
-    it.skipIf(!isFirstShare)("says so when a page never stops adding controls, past the most it will count", async () => {
+    it.skipIf(!isSecondShare)("says so when a page never stops adding controls, past the most it will count", async () => {
       const markup = '<button type="button" id="seed">Seed</button><div id="list"></div>';
       const said = await onTab(markup, `const list = document.getElementById("list"); document.getElementById("seed").addEventListener("focus", () => addArrivals(1, "Endless", list), { once: true }); list.addEventListener("focusin", () => addArrivals(1, "Endless", list))`, { maximumArrivedControlCount: 12 });
       expect(said.some((line) => /the check couldn't measure the page/.test(line) && /kept adding controls/.test(line)), said.join("\n")).toBe(true);
