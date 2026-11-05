@@ -4,6 +4,7 @@ export * from "./mime.ts";
 export * from "./ids.ts";
 export * from "./time.ts";
 export * from "./zip.ts";
+export * from "./request-body.ts";
 export * from "./headers.ts";
 export * from "./db.ts";
 export * from "./sealed-secrets.ts";
