@@ -228,7 +228,8 @@ describe("Reviewed sites", () => {
       }
     }
     expect(entries.filter((site) => sites.get(name(site)) !== site.site_count).map((site) => `${name(site)}: ${sites.get(name(site)) ?? 0}, listed as ${site.site_count}`)).toEqual([]);
-  });
+    // It parses every listed file, about a second here and past 5 on a busy runner: the time says nothing about the code.
+  }, 60_000);
 });
 
 describe("Where it's written down", () => {

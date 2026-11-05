@@ -363,7 +363,7 @@ Admin pages (${site}/admin) need no sign-in here. Email codes: ${addressFor(8795
 
 Every test page and state, with what it shows: ${show(PAGES)}
 Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
-It sleeps after 10 minutes with nobody looking, or 3 when something waits in line for memory, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
+It sleeps after 10 minutes with nobody looking, or 3 when something waits in line for memory, or 2 when its session has handed it over and a test run needs the room, and the next page opened wakes it in about a second, data and sign-ins as they were.
 Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset   Every preview on this machine: npm run preview:list`);
 }
 
