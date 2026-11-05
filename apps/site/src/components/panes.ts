@@ -181,7 +181,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate glass" data-glass data-glass-corners="0 0 0 0">${EDGE}${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : options.joinHref ? gameCardJoin(options.title, options.joinHref) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}</div></div>`;
+  return html`<div class="${className} glass" data-glass data-glass-corners="0 0 0 0"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}>${EDGE}<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate">${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : options.joinHref ? gameCardJoin(options.title, options.joinHref) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}</div></div>`;
 }
 
 /**
@@ -568,11 +568,14 @@ const COVER_STYLES = `
    one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
 .cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; }
-/* Under the art, a plate of tray glass holds its title and facts, so the card is one piece: the art over it, its words on it, never loose on the pane.
-   The plate is the tray's thinnest glass, with one rim, square where it meets the art. */
-.cover-plate { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--gap-words-words); min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --glass-tint: var(--glass-tray); --pad-words: 0px; }
-.cover-plate::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
-.cover-plate > :not(.edge) { position: relative; z-index: 1; }
+/* A card is one piece of the tray's thin glass, with one rim round all of it: its art shows through the top of it, smooth, with no edge of its own,
+   and the glass runs on under the art as the plate that holds its title and facts. */
+.cover.glass { --glass-tint: var(--glass-tray); }
+.cover.glass::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
+.cover.glass > .edge { z-index: 3; }
+.cover.glass > .cover-art.carving { box-shadow: none; }
+.cover.glass > .cover-art.carving > .cut-line { visibility: hidden; }
+.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--gap-words-words); min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --pad-words: 0px; }
 /* In a row of cards the plates are one height, whatever each holds. */
 :is(.layout-track, .layout-grid) .cover { height: 100%; grid-template-rows: auto 1fr; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
