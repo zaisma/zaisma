@@ -28,7 +28,7 @@ describe("the preview's runtime memory", () => {
     const spawn = serversSpawn();
     expect(spawn).toContain('X_LOCAL_OBSERVABILITY: "false"');
     expect(spawn).toContain("MINIFLARE_WORKERD_V8_FLAGS: V8_FLAGS");
-    expect(readFileSync(join(ROOT, "scripts/preview/run.mjs"), "utf8")).toContain('const V8_FLAGS = "--gc-global --optimize-for-size";');
+    expect(readFileSync(join(ROOT, "scripts/preview/run.mjs"), "utf8")).toContain('const V8_FLAGS = process.platform === "darwin" ? "--gc-global --optimize-for-size" : "--gc-global";');
   });
 
   it("uses what servers.mjs needs from the installed wrangler and Miniflare", () => {

@@ -311,7 +311,8 @@ const wrangler = (args) => [process.execPath, ["--no-warnings", WRANGLER, ...arg
 // which kept hundreds of MB of what a start had loaded and let go (it does nothing elsewhere).
 const SMALL_NODE_FLAGS = ["--max-semi-space-size=2"];
 const SMALL_NODE_ENVIRONMENT = { MallocLargeCache: "0" };
-const V8_FLAGS = "--gc-global --optimize-for-size";
+// --optimize-for-size only on a Mac, where the memory cap is: GitHub's runners have the memory, and a quicker layout check is worth more there.
+const V8_FLAGS = process.platform === "darwin" ? "--gc-global --optimize-for-size" : "--gc-global";
 
 /** A wrangler config of the preview's own in its folder: the app's wrangler.jsonc with its preview entry, these settings and absolute paths. */
 function previewConfig(app, settings) {
