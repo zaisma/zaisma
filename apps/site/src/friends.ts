@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import { isPastLevel,
   FRIEND_INVITE_DURATION_DAYS,
   MAXIMUM_FRIEND_COUNT,
@@ -22,6 +23,7 @@ import { isPastLevel,
   socialStoppedNotice,
   type Account,
   type FriendInvite,
+  formOf,
 } from "@zaisma/core";
 import { authConfigured, currentSession, type Session } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -99,7 +101,7 @@ export async function handleFriends(request: Request, env: Env, path: string): P
 
   if (!session) return redirect(`/signin?next=${encodeURIComponent("/friends")}`);
   if (!account) return done(redirect("/join"));
-  const form = post ? await request.formData() : null;
+  const form = post ? await formOf(request) : null;
 
   // A code typed into the box: the invite's own page says who it's from before anything happens.
   if (path === "/friends/add" && post) {
@@ -172,6 +174,7 @@ async function friendsPage(env: Env, session: Session, account: Account, query: 
     env,
     account,
     "Friends",
+    "Friends",
     html`<h1>Friends</h1>
 ${added ? html`<p class="note" role="status">You and ${added.name} are friends now.</p>` : ""}
 ${query.has("removed") ? html`<p class="note" role="status">Removed. You're no longer friends on either side.</p>` : ""}
@@ -232,12 +235,12 @@ document.querySelectorAll("form[data-confirm]").forEach(f=>f.addEventListener("s
 
 const day = (atMs: number) => new Date(atMs).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-function page(env: Env, account: Account | null, title: string, body: Raw, httpStatus = 200): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true, viewer: { account } });
+function page(env: Env, account: Account | null, checkedPage: SteelPageName, title: string, body: Raw, httpStatus = 200): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, checkedPage, body: html`<div class="narrow">${body}</div>`, isPrivate: true, viewer: { account } });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
-const invitePage = (env: Env, account: Account | null, body: Raw, httpStatus = 200) => page(env, account, "Friend invite", body, httpStatus);
+const invitePage = (env: Env, account: Account | null, body: Raw, httpStatus = 200) => page(env, account, "A friend invite", "Friend invite", body, httpStatus);
 
 function redirect(to: string): Response {
   return new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });

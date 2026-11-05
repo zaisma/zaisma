@@ -85,9 +85,9 @@ review-set/listing-cases/<case-name>/
   cover.webp    the pictures (PNG, JPEG or WebP)
 ```
 
-`case.json` has exactly these keys: `title` and `description` (the game's words), `pictures` (a list of `{ "path", "kind" }`, `kind` one of `cover`, `square`, `share`, `screenshot`), `is_honest`, `expected` (each picture's path, and `title`, with `fine`, `person` or the code of the line it breaks: `extra_text_on_cover`, `overlay_on_cover`, `famous_name`, `cover_not_from_game`, `tag_in_title`, `fake_reward`, `screenshot_not_from_game`) and `why`.
+`case.json` has exactly these keys: `title` and `description` (the game's words), `pictures` (a list of `{ "path", "kind" }`, `kind` one of `cover`, `square`, `share`, `screenshot`), `is_honest`, `expected` (each picture's path, and `title`, with `fine`, `person` or the code of the line it breaks: `extra_text_on_cover`, `overlay_on_cover`, `cover_not_from_game`, `tag_in_title`, `fake_reward`, `screenshot_not_from_game`) and `why`.
 
-Honest cases sit at the edges: screenshots full of the game's own interface and shop screens, a loud cover with only its title, names like "+1 Speed Run" and "Wrangler 2x". Every picture is drawn by Zaisma or captured from its demo games: never a real developer's cover, and never a real famous character (famous names are tested in titles).
+Honest cases sit at the edges: screenshots full of the game's own interface and shop screens, a loud cover with only its title, names like "+1 Speed Run" and "Wrangler 2x". Every picture is drawn by Zaisma or captured from its demo games: never a real developer's cover, and never a real famous character.
 
 ```bash
 npm run listing-set

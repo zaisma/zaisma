@@ -21,7 +21,8 @@
 // Style isn't measured: the components hold it, and test/site/design.test.ts and test/node/materials.test.ts check them.
 // Each failure says the page, the size, the theme, the thing (its component and label) and what was measured against what's expected.
 //
-//   npm run layout:check                     against this checkout's preview (started first when it isn't running: a few minutes)
+//   npm run layout:check                     against this checkout's preview (started first when it isn't running: a few minutes). The whole site
+//                                            runs on GitHub's check: on a person's machine this refuses without --only or --pages (localRunRefusal)
 //   npm run layout:check -- --sweep          every page and state on the measured screens, in light, at 200% text, every rule (as each night)
 //   npm run layout:check -- --json           the same, as JSON
 //   npm run layout:check -- --only /signin   only the pages whose path has that in it
@@ -50,6 +51,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchChrome, findChrome, openChrome } from "./chrome.mjs";
 import { mergeMeasured, readMeasured } from "./merge-measured.mjs";
+import { runAtLowPriority } from "./preview/memory.mjs";
 import { PASSWORD } from "./preview/sign-ins.mjs";
 import { FIRST_PAINT_BROTLI_LEVEL, FIRST_PAINT_COMPARE_SOURCE, FIRST_PAINT_SIZE_LIMIT_BYTES, FIRST_PAINT_SNAPSHOT_SOURCE, FOCUSABLE_SELECTOR, LAYOUT_TIERS, MEASURE_LAYOUT_SOURCE } from "../apps/site/src/components/layout-measure.ts";
 import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
@@ -86,6 +88,17 @@ const isStressPage = (page) => STRESS_ACCOUNTS.some((stress) => stress.account =
  * pull_request is npm run layout:check without --sweep, as each pull request's Layout check runs it; sweep is --sweep, each night and in
  * the merge queue. Only light: dark changes only colours (design.test.ts holds it).
  */
+/** The most pages one run measures on a person's machine. More can't fit the budget a local check runs under (scripts/check-budget.mjs). */
+export const MOST_LOCAL_PAGE_COUNT = 20;
+
+/** Why this run can't go on a person's machine, or null: whole-site runs are GitHub's. */
+export function localRunRefusal({ isOnGithub, only, pagesAsked, shard, pageCount }) {
+  if (isOnGithub) return null;
+  if (only === null && pagesAsked === null && shard === null) return "The whole site runs on GitHub's check, never on a person's machine: pass --only <part of a page's path> for the pages you changed, push, and read npm run check -- --pr <number>.";
+  if (pageCount > MOST_LOCAL_PAGE_COUNT) return `That's ${pageCount} pages, past the ${MOST_LOCAL_PAGE_COUNT} a run measures on a person's machine: narrow --only to the pages you changed, and leave the rest to GitHub's check.`;
+  return null;
+}
+
 export const LAYOUT_CHECK_RUNS = {
   pull_request: { pages: CHECKED_PAGES.filter((page) => !isStressPage(page)), sizes: LAYOUT_CHECK_SIZES, themes: ["light"], tiersOf: () => ["page"] },
   sweep: { pages: CHECKED_PAGES, sizes: layoutCheckScreens("all"), themes: ["light"], tiersOf: () => [...LAYOUT_TIERS] },
@@ -204,7 +217,7 @@ const PLAIN_GLASS = `(() => {
  * What measuring doesn't draw, from before the page's scripts run: its WebGL is gone (getContext answers null for "webgl" and "webgl2",
  * as a browser without it does), and every canvas is paused as it's added, so the backdrop never starts.
  */
-const MEASURE_ONLY = `(() => {
+export const MEASURE_ONLY = `(() => {
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return /^webgl2?$/.test(kind) ? null : getContext.call(this, kind, ...rest); };
   const pause = (node) => { if (node.nodeType !== 1) return; if (node.tagName === "CANVAS") node.setAttribute("data-backdrop-paused", ""); node.querySelectorAll?.("canvas").forEach((canvas) => canvas.setAttribute("data-backdrop-paused", "")); };
@@ -648,7 +661,7 @@ async function checkPage(chrome, contextId, url, looks, options) {
       const state = await said();
       if (!options.markup && state !== (options.stateBeforeSetUp ?? options.shownStateName ?? options.name)) {
         const address = (await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })).result?.value;
-        found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (a page built in Zaisma's look names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
+        found.push({ check: "the page isn't the state it's listed as", element: "", said: `${state === null ? "it names no state (every page names one: html.ts, checkedPage)" : `it says it's "${state}"`}, at ${address}` });
       }
       // Tab round the page, on a screen without touch: before the gallery's panes and the presses, which move focus.
       if (!size.hasTouch) found.push(...(await checkKeyboardReach(send, options.maximumArrivedControlCount)));
@@ -896,6 +909,9 @@ async function main() {
     process.exit(0);
   }
   if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
+  const refusal = localRunRefusal({ isOnGithub: Boolean(process.env.CI), only, pagesAsked, shard, pageCount: pages.length });
+  if (refusal) stop(refusal, isJson, "whole_site_on_github");
+  runAtLowPriority();
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
   const startedMs = Date.now();
   // A contact sheet shows light over dark.

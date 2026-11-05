@@ -72,6 +72,7 @@ import { isPastLevel,
   type SocialMode,
   type SocialSetting,
   type SocialSettings,
+  formOf,
 } from "@zaisma/core";
 import { APPEAL_EMAIL, CONTENT_RULE_WORDS, emailBanned } from "./bans.ts";
 import { accountBanned } from "./developer.ts";
@@ -117,6 +118,7 @@ import { confirmItsYouSheet } from "./components/confirm-its-you.ts";
 import { html, layout, message, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { liveWorldPane, liveWorldStage, WORLD_PANE_SCRIPT, LIVE_WORLD_SCRIPT } from "./components/live-world.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
+import type { SteelPageName } from "./steel-pages.ts";
 import { row, stack, type LayoutItem } from "./components/layout.ts";
 import { type IconName } from "./components/foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
@@ -217,7 +219,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   const post = request.method === "POST";
   // Confirm it's you from the popup (components/confirm-its-you.ts) is JSON, not a form.
   if (path === "/api/account/confirm") return post ? confirmItsYou(request, env) : new Response("Method not allowed", { status: 405 });
-  const form = post ? await request.formData() : null;
+  const form = post ? await formOf(request) : null;
   const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
   // Passwords are taken as typed, spaces and all.
   const passwordField = (name = "password") => String(form?.get(name) ?? "").slice(0, MAXIMUM_PASSWORD_FIELD_CHARACTER_COUNT);
@@ -821,8 +823,8 @@ function joinBirthDate(request: Request, env: Env): string | undefined {
 
 const COLOR_THEME_LABELS: Record<ColorTheme, string> = { system: "System", light: "Light", dark: "Dark" };
 
-function page(env: Env, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false, account?: Account | null): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck, viewer: account === undefined ? undefined : { account } });
+function page(env: Env, checkedPage: SteelPageName, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false, account?: Account | null): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, checkedPage, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck, viewer: account === undefined ? undefined : { account } });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
@@ -1148,6 +1150,7 @@ ${primaryButton("Continue", { isFullWidth: true, isBig: true })}
   }
   return page(
     env,
+    "Check your email, in the old look",
     "Check your email",
     html`<h1>Check your email</h1>
 <p class="lead">${lead}</p>
@@ -1858,6 +1861,7 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   const confirmWithCode = html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`;
   return page(
     env,
+    "Your account",
     "Your account",
     html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.username}.</p>${scriptTags(JOINED_SCRIPT)}` : ""}
 <h1>${account.username}</h1>

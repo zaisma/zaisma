@@ -32,8 +32,8 @@ async function api(path: string, init: { method?: string; body?: unknown; raw?: 
   return response;
 }
 
-const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
-const CLEAN_WORDS = { title_fake_reward: "", title_famous_name: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false };
+const NO: PictureAnswer = { number: 0, extra_text: "", overlay: "", fake_reward: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", background_text: "", has_safety_concern: false };
+const CLEAN_WORDS = { title_fake_reward: "", title_tag: "", title_search_words: "", description_fake_reward: "", has_words_safety_concern: false };
 
 /** A stand-in judge: each picture's answer by its kind (covers and screenshots), the words' answer as given; it records what it was sent. */
 function judgeSays(byKind: Partial<Record<ImageKind, Partial<PictureAnswer>>>, words: Partial<ListingAnswer> = {}, briefs: ListingBrief[] = []): ListingJudge {
@@ -84,7 +84,6 @@ describe("the listing check's outcomes", () => {
 
   it("keep a cover off lists for each line, quoting what it found", () => {
     const cases: [Partial<PictureAnswer>, string, string][] = [
-      [{ famous_name: "Naruto" }, "famous_name", "The cover shows Naruto."],
       [{ extra_text: "NEW MECHAS / 100 WALLS!" }, "extra_text_on_cover", 'The cover has words besides the title: "NEW MECHAS", "100 WALLS!".'],
       [{ overlay: "a shop panel" }, "overlay_on_cover", "Something is laid over the cover: a shop panel."],
       [{ main_subject: "a giant robot", is_main_subject_in_screenshots: false }, "cover_not_from_game", "The cover is built around a giant robot, which isn't in any of the game's screenshots."],
@@ -101,19 +100,18 @@ describe("the listing check's outcomes", () => {
   it("reject a screenshot only for what was added after the capture", () => {
     expect(listingOutcomes(brief(["screenshot"]), answer([{ added_after_capture: "a caption and an arrow" }])).pictures["picture-0"]).toMatchObject({ outcome: "rejected", reason: { code: "screenshot_not_from_game" } });
     // Text on a screenshot is the game's own: only covers are held to the title-only line.
-    expect(listingOutcomes(brief(["screenshot"]), answer([{ extra_text: "Score 1,240", famous_name: "Mario" }])).pictures["picture-0"]).toEqual({ outcome: "fine" });
+    expect(listingOutcomes(brief(["screenshot"]), answer([{ extra_text: "Score 1,240" }])).pictures["picture-0"]).toEqual({ outcome: "fine" });
   });
 
-  it("keep a title off lists for a tag or a famous name, and leave it alone when it isn't judged", () => {
+  it("keep a title off lists for a tag or a list of what the game is, and leave it alone when it isn't judged", () => {
     expect(listingOutcomes(brief([]), answer([], { title_tag: "[UPDATE]" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "tag_in_title" } });
     expect(listingOutcomes(brief([]), answer([], { title_search_words: "Racing Drift Car Driving Simulator" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "search_words_in_title" } });
     expect(listingOutcomes(brief([], { isTitleJudged: false }), answer([], { title_search_words: "Racing Drift Car Driving Simulator" })).title).toEqual({ outcome: "fine" });
-    expect(listingOutcomes(brief([]), answer([], { title_famous_name: "Minecraft" })).title).toMatchObject({ outcome: "off_lists", reason: { code: "famous_name", message: 'The title names "Minecraft".' } });
     expect(listingOutcomes(brief([], { isTitleJudged: false }), answer([], { title_tag: "[UPDATE]" })).title).toEqual({ outcome: "fine" });
   });
 
   it("leave safety, and anything without an answer, to a person", () => {
-    const concern = listingOutcomes(brief(["cover"]), answer([{ has_safety_concern: true, famous_name: "Mario" }], { has_words_safety_concern: true }));
+    const concern = listingOutcomes(brief(["cover"]), answer([{ has_safety_concern: true, extra_text: "NEW" }], { has_words_safety_concern: true }));
     expect(concern.pictures["picture-0"]).toEqual({ outcome: "person" });
     expect(concern.isWordsClear).toBe(false);
     expect(concern.title).toEqual({ outcome: "person" });
@@ -207,14 +205,14 @@ describe("the listing check", () => {
 
   it("leaves a picture a person cleared alone, and still shows the judge screenshots to compare", async () => {
     const { game, cover, screenshot } = await liveGameWithPictures("lava-leap");
-    await runListingCheck(testEnv, game.id, judgeSays({ cover: { famous_name: "Mario" } }));
+    await runListingCheck(testEnv, game.id, judgeSays({ cover: { overlay: "a badge" } }));
     expect(await homeHas("lava-leap")).toBe(false);
     await SELF.fetch(`http://localhost/admin/images/${cover}/clear-listing`, { method: "POST", body: new URLSearchParams({}) });
     expect(await homeHas("lava-leap")).toBe(true);
 
     const briefs: ListingBrief[] = [];
     await env.DB.prepare("UPDATE games SET listing_check_requested_at_ms = ? WHERE id = ?").bind(Date.now() + 1000, game.id).run();
-    await runListingCheck(testEnv, game.id, judgeSays({ cover: { famous_name: "Mario" } }, {}, briefs));
+    await runListingCheck(testEnv, game.id, judgeSays({ cover: { overlay: "a badge" } }, {}, briefs));
     expect(briefs[0]!.pictures.map((picture) => [picture.id, picture.isJudged])).toEqual([[screenshot, true]]);
     expect(await homeHas("lava-leap")).toBe(true);
   });
@@ -263,19 +261,14 @@ describe("the listing check on backgrounds", () => {
     expect(listingOutcomes(brief("background"), answer({ extra_text: "LAVA LEAP", main_subject: "a dragon", is_main_subject_in_screenshots: false })).pictures.background).toEqual({ outcome: "fine" });
   });
 
-  it("reject a background with something laid over it, or a famous character, each with its own code", () => {
+  it("reject a background with something laid over it, with its own code", () => {
     expect(listingOutcomes(brief("phone_background"), answer({ overlay: "a Play button" })).pictures.background).toEqual({
       outcome: "rejected",
       reason: { code: "overlay_on_background", message: "Something is laid over the background: a Play button.", content_rule: null },
     });
-    expect(listingOutcomes(brief("background"), answer({ famous_name: "Pikachu" })).pictures.background).toEqual({
-      outcome: "rejected",
-      reason: { code: "famous_name_on_background", message: "The background shows Pikachu.", content_rule: null },
-    });
-    // The covers' order: a famous name, then words, then what's laid over; a fake reward before all of them.
-    expect(listingOutcomes(brief("background"), answer({ famous_name: "the Roblox logo", background_text: "PLAY", overlay: "a badge" })).pictures.background).toMatchObject({ reason: { code: "famous_name_on_background" } });
+    // The covers' order: words, then what's laid over; a fake reward before all of them.
     expect(listingOutcomes(brief("background"), answer({ background_text: "PLAY", overlay: "a badge" })).pictures.background).toMatchObject({ reason: { code: "text_on_background" } });
-    expect(listingOutcomes(brief("background"), answer({ fake_reward: "FREE ROBUX", famous_name: "Robux" })).pictures.background).toMatchObject({ outcome: "held", reason: { code: "fake_reward" } });
+    expect(listingOutcomes(brief("background"), answer({ fake_reward: "FREE ROBUX", background_text: "ROBUX" })).pictures.background).toMatchObject({ outcome: "held", reason: { code: "fake_reward" } });
   });
 
   it("hold the game for a fake reward on a background, and leave safety to a person", () => {

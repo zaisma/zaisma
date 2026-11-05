@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { temporaryFolder } from "../temporary-folder";
 // @ts-expect-error: a Node script with no types of its own.
-import { ERROR_LINE_COUNT, formatGithubResult, formatResult, judgeCheckRuns, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport, runTestsThatFit, splitTestFiles } from "../../scripts/check.mjs";
+import { ERROR_LINE_COUNT, EXTRA_FILES_UNTIL_SEC, estimatedDurationSec, formatGithubResult, formatResult, judgeCheckRuns, nextExtraBatch, pagesForChangedFiles, parseJobLog, parseTypecheck, parseVitestReport, rankExtraFiles, recordGithubRead, runTestsThatFit, splitTestFiles, testFileChecks } from "../../scripts/check.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { readFailures, readGithubReads } from "../../scripts/check-records.mjs";
+// @ts-expect-error: a Node script with no types of its own.
+import { MOST_LOCAL_PAGE_COUNT, localRunRefusal } from "../../scripts/layout-check.mjs";
 
 /** scripts/check.mjs: how it reads vitest's and tsc's output and what it prints. */
 
@@ -50,11 +55,11 @@ describe("pagesForChangedFiles", () => {
 describe("splitTestFiles", () => {
   const reached = ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts", "test/site/other.test.ts", "test/rooms/rooms.test.ts"];
   const changed = ["apps/site/src/x.ts", "test/site/own.test.ts", "test/node/a.test.ts"];
-  it("runs the Node files and the change's own Workers files here, and leaves the other Workers files to GitHub", () => {
-    expect(splitTestFiles(reached, changed)).toEqual({ here: ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts"], leftToGithub: ["test/site/other.test.ts", "test/rooms/rooms.test.ts"] });
+  it("runs the Node files and the change's own Workers files here, and the other Workers files only if they fit", () => {
+    expect(splitTestFiles(reached, changed)).toEqual({ here: ["test/node/a.test.ts", "test/contracts/b.test.ts", "test/site/own.test.ts"], extras: ["test/site/other.test.ts", "test/rooms/rooms.test.ts"], leftToGithub: ["test/site/other.test.ts", "test/rooms/rooms.test.ts"] });
   });
   it("leaves the Layout check's own tests, which measure every page, to GitHub", () => {
-    expect(splitTestFiles(["test/layout/layout-check.test.ts", "test/node/a.test.ts"], ["test/layout/layout-check.test.ts"])).toEqual({ here: ["test/node/a.test.ts"], leftToGithub: ["test/layout/layout-check.test.ts"] });
+    expect(splitTestFiles(["test/layout/layout-check.test.ts", "test/node/a.test.ts"], ["test/layout/layout-check.test.ts"])).toEqual({ here: ["test/node/a.test.ts"], extras: [], leftToGithub: ["test/layout/layout-check.test.ts"] });
   });
   it("leaves its own Workers files to GitHub too while another Workers run is going on this machine", () => {
     expect(splitTestFiles(reached, changed, { isWorkersRunGoing: true }).leftToGithub).toEqual(["test/site/own.test.ts", "test/site/other.test.ts", "test/rooms/rooms.test.ts"]);
@@ -75,39 +80,39 @@ describe("runTestsThatFit", () => {
   };
   it("runs what's here when it fits, leaving only the other Workers files", async () => {
     const { run, calls } = vitest({ output: "", report });
-    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
+    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toMatchObject({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
     expect(calls).toEqual([[NODE, OWN]]);
   });
   it("runs the Node files alone when its own Workers files have no room", async () => {
     const { run, calls } = vitest(refused, { output: "", report });
-    expect(await runTestsThatFit({ here: [NODE, CONTRACT, OWN], testFiles: [NODE, CONTRACT, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
+    expect(await runTestsThatFit({ here: [NODE, CONTRACT, OWN], testFiles: [NODE, CONTRACT, OWN, OTHER], runVitest: run })).toMatchObject({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
     expect(calls).toEqual([[NODE, CONTRACT, OWN], [NODE, CONTRACT]]);
   });
   it("runs no tests when the Node files have no room either, and names each of them, straight away", async () => {
     const { run, calls } = vitest(refused, refused);
-    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [NODE, OWN, OTHER], leftForMemory: [NODE, OWN] });
+    expect(await runTestsThatFit({ here: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toMatchObject({ failures: [], leftToGithub: [NODE, OWN, OTHER], leftForMemory: [NODE, OWN] });
     expect(calls).toHaveLength(2);
     const nodeOnly = vitest(refused);
-    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: nodeOnly.run })).toEqual({ failures: [], leftToGithub: [NODE], leftForMemory: [NODE] });
+    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: nodeOnly.run })).toMatchObject({ failures: [], leftToGithub: [NODE], leftForMemory: [NODE] });
     expect(nodeOnly.calls).toHaveLength(1);
   });
   it("never runs vitest with no files, which would run them all", async () => {
     const { run, calls } = vitest(refused);
-    expect(await runTestsThatFit({ here: [OWN], testFiles: [OWN], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN], leftForMemory: [OWN] });
+    expect(await runTestsThatFit({ here: [OWN], testFiles: [OWN], runVitest: run })).toMatchObject({ failures: [], leftToGithub: [OWN], leftForMemory: [OWN] });
     expect(calls).toHaveLength(1);
     const none = vitest();
-    expect(await runTestsThatFit({ here: [], testFiles: [OTHER], runVitest: none.run })).toEqual({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
+    expect(await runTestsThatFit({ here: [], testFiles: [OTHER], runVitest: none.run })).toMatchObject({ failures: [], leftToGithub: [OTHER], leftForMemory: [] });
     expect(none.calls).toEqual([]);
   });
   it("names its own Workers files as left for memory when another Workers run took the machine", async () => {
     const { run } = vitest({ output: "", report });
-    expect(await runTestsThatFit({ here: [NODE], normallyHere: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toEqual({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
+    expect(await runTestsThatFit({ here: [NODE], normallyHere: [NODE, OWN], testFiles: [NODE, OWN, OTHER], runVitest: run })).toMatchObject({ failures: [], leftToGithub: [OWN, OTHER], leftForMemory: [OWN] });
   });
   it("fails on a vitest that ended for any other reason, and on a test that prints those words but ran", async () => {
     const { run } = vitest({ output: "config broke", report: null });
     expect((await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: run })).failures).toEqual([{ file: "vitest", test_name: null, error: "config broke" }]);
     const printed = vitest({ output: "no_room_for_tests", report });
-    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: printed.run })).toEqual({ failures: [], leftToGithub: [], leftForMemory: [] });
+    expect(await runTestsThatFit({ here: [NODE], testFiles: [NODE], runVitest: printed.run })).toMatchObject({ failures: [], leftToGithub: [], leftForMemory: [] });
   });
 });
 
@@ -197,5 +202,97 @@ describe("formatGithubResult", () => {
       failed_jobs: [{ job_name: "Tests (2 of 4)", url: "https://github.com/run", test_failures: [{ file: "test/node/a.test.ts", test_name: "a refuses", error: "boom" }], typecheck_failures: [], step_lines: [] }],
     });
     expect(text).toBe("GitHub's check on 3bc3b5e (pull request 104)\nJOB Tests (2 of 4) https://github.com/run\nTEST test/node/a.test.ts > a refuses\n  boom\nFAIL");
+  });
+});
+
+describe("the budget's plan for the extra files", () => {
+  const localDurationsSec = new Map([["test/site/slow.test.ts", 100], ["test/site/quick.test.ts", 4]]);
+  it("goes by this machine's record of a file, or else GitHub's time made slower", () => {
+    expect(estimatedDurationSec("test/site/slow.test.ts", { localDurationsSec, githubDurationsMs: { "test/site/slow.test.ts": 1000 } })).toBe(100);
+    expect(estimatedDurationSec("test/site/other.test.ts", { localDurationsSec, githubDurationsMs: { "test/site/other.test.ts": 4000 } })).toBe(14);
+    expect(estimatedDurationSec("test/site/unknown.test.ts", {})).toBe(8);
+  });
+
+  it("takes a file named like a changed one first, then what has caught most, then the cheapest", () => {
+    const ranked = rankExtraFiles(["test/site/slow.test.ts", "test/site/quick.test.ts", "test/site/caught.test.ts", "test/site/forum.test.ts"], ["apps/site/src/forum.ts"], { localDurationsSec, catchCountByFile: new Map([["test/site/caught.test.ts", 2]]) });
+    expect(ranked).toEqual(["test/site/forum.test.ts", "test/site/caught.test.ts", "test/site/quick.test.ts", "test/site/slow.test.ts"]);
+  });
+
+  it("takes what fits the seconds left, at two files at once, and at most a batch", () => {
+    const quick = Array.from({ length: 20 }, (_, i) => `test/site/q${i}.test.ts`);
+    const durations = new Map(quick.map((path) => [path, 10]));
+    expect(nextExtraBatch(quick, { remainingSec: 1000, localDurationsSec: durations })).toHaveLength(8);
+    expect(nextExtraBatch(quick, { remainingSec: 8 + 15, localDurationsSec: durations })).toEqual(quick.slice(0, 3));
+    expect(nextExtraBatch(quick, { remainingSec: 5, localDurationsSec: durations })).toEqual([]);
+  });
+
+  it("ends under the warning line, with room for a batch going long", () => {
+    expect(EXTRA_FILES_UNTIL_SEC).toBeLessThan(240);
+  });
+
+  it("reads each test file's cost from vitest's report", () => {
+    expect(testFileChecks({ testResults: [{ name: "/repo/test/node/a.test.ts", status: "failed", startTime: 1000, endTime: 3500 }] }, { root: "/repo" })).toEqual([{ check_name: "test/node/a.test.ts", duration_sec: 2.5, check_status: "failed" }]);
+  });
+});
+
+describe("a run the budget stopped or handed on is never a pass", () => {
+  const empty = { base: "origin/main", changed_path_count: 0, test_file_count: 0, test_failures: [], typecheck_failures: [], pattern_failures: [], layout_failures: [], left_to_github: [], left_to_github_for_memory: [], notes: [] };
+  const budget = { duration_sec: 301, cpu_average_core_count: 1, memory_peak_size_bytes: 1024 ** 3, heat_peak_status: "nominal", memory_pressure_peak_status: "warn", warnings: [], hard_limits: [{ line: "duration_sec at 5:01, over the hard limit of 5:00" }] };
+
+  it("says OVER BUDGET, with its numbers", () => {
+    const lines = formatResult({ ...empty, is_pass: false, outcome: "over_budget", budget }).split("\n");
+    expect(lines[0]).toBe("Budget: 5:01 of 5:00, 1.0 cores of 3, 1.0 GB of 3.0 GB, heat nominal, memory pressure warn.");
+    expect(lines.at(-1)).toMatch(/^OVER BUDGET: duration_sec at 5:01, over the hard limit of 5:00\. It stopped there\. Not a pass/);
+  });
+
+  it("still says FAIL when it found a failure first", () => {
+    expect(formatResult({ ...empty, is_pass: false, outcome: "over_budget", budget, typecheck_failures: [{ file: "x.ts", line: 3, message: "TS2322: no" }] }).split("\n").at(-1)).toBe("FAIL, and over budget: duration_sec at 5:01, over the hard limit of 5:00");
+  });
+
+  it("says HANDED TO GITHUB when the Mac is busy", () => {
+    expect(formatResult({ ...empty, is_pass: false, outcome: "handed_to_github", busy_reason: "another local check is running" }).split("\n").at(-1)).toBe("HANDED TO GITHUB: another local check is running, so nothing ran here. Not a pass: push, and read npm run check -- --pr <number>.");
+  });
+
+  it("names warnings and the tasks they filed, and still passes", () => {
+    const text = formatResult({ ...empty, is_pass: true, outcome: "pass", budget: { ...budget, duration_sec: 241, hard_limits: [], warnings: [{ line: "duration_sec at 4:01, past the warning line of 4:00" }] }, filed_task_count: 1, open_task_count: 2 });
+    expect(text).toContain("Warning: duration_sec at 4:01, past the warning line of 4:00.");
+    expect(text).toContain("Filed 1 optimization task(s).");
+    expect(text).toContain("2 optimization task(s) open");
+    expect(text.split("\n").at(-1)).toBe("PASS");
+  });
+});
+
+describe("recordGithubRead", () => {
+  const job = { job_name: "Tests 1", conclusion: "failure", test_failures: [{ file: "test/site/a.test.ts", test_name: "x", error: "boom" }], typecheck_failures: [], step_lines: [] };
+  const read = { commit_sha: "abc", state: "fail", failed_jobs: [job] };
+
+  it("logs a commit's failures once, however often it's read, and each read", () => {
+    const directory = temporaryFolder("zaisma-check-read-test-");
+    const options = { directory, nowText: "2026-11-04T00:00:00Z", treeIdOf: () => "tree" };
+    recordGithubRead(read, options);
+    recordGithubRead(read, options);
+    expect(readFailures({ directory })).toEqual([{ logged_at: "2026-11-04T00:00:00Z", source: "github", commit_sha: "abc", tree_id: "tree", failure_kind: "assertion", check_name: "test/site/a.test.ts", detail: "x", job_name: "Tests 1" }]);
+    expect(readGithubReads({ directory }).map((line: { github_state: string }) => line.github_state)).toEqual(["fail", "fail"]);
+  });
+
+  it("writes nothing for a check still running", () => {
+    const directory = temporaryFolder("zaisma-check-read-test-");
+    recordGithubRead({ commit_sha: "abc", state: "pending", failed_jobs: [] }, { directory, treeIdOf: () => "tree" });
+    expect(readGithubReads({ directory })).toEqual([]);
+  });
+});
+
+describe("the whole site's Layout check stays on GitHub", () => {
+  const asked = { isOnGithub: false, only: null, pagesAsked: null, shard: null, pageCount: 60 };
+  it("refuses it on a person's machine", () => {
+    expect(localRunRefusal(asked)).toMatch(/^The whole site runs on GitHub's check/);
+  });
+  it("runs on GitHub", () => {
+    expect(localRunRefusal({ ...asked, isOnGithub: true })).toBeNull();
+  });
+  it("takes a person's changed pages, up to the most that fit", () => {
+    expect(localRunRefusal({ ...asked, only: "/signin", pageCount: 2 })).toBeNull();
+    expect(localRunRefusal({ ...asked, pagesAsked: '["Home"]', pageCount: 1 })).toBeNull();
+    expect(localRunRefusal({ ...asked, only: "/", pageCount: MOST_LOCAL_PAGE_COUNT + 1 })).toMatch(/narrow --only/);
   });
 });

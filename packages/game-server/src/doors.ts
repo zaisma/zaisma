@@ -92,7 +92,7 @@ export const fieldsOf = (properties: Readonly<Record<string, DoorShape>>, requir
 /** A game's own data, of any shape: its size only, in characters of its JSON. */
 export const gameData = (maximumSizeBytes: number): DoorShape => shapeOf({ isGameData: true, maximumSizeBytes });
 
-/** A door's body, when it takes one. maximumSizeBytes is checked before any of it is read; raw bytes go by size alone, and the door reads them itself. */
+/** A door's body, when it takes one. No read gets past maximumSizeBytes, whatever the request's headers say; raw bytes go by size alone, and the door reads them itself. */
 export type DoorBody =
   | { kind: "json"; fields: Readonly<Record<string, DoorShape>>; required?: readonly string[]; maximumSizeBytes: number; isOptional?: true }
   | { kind: "form"; fields: Readonly<Record<string, DoorShape>>; fileNames?: readonly string[]; maximumSizeBytes: number }

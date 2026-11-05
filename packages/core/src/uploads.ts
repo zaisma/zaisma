@@ -19,6 +19,9 @@ export const FILE_LIMITS = {
   maximumPatchNotesCharacterCount: 2000,
 };
 
+/** The most of a raw body any API call reads: a file sent whole or a file's part, or an image. */
+export const MAXIMUM_RAW_BODY_SIZE_BYTES = 110 * 1024 * 1024;
+
 /**
  * When an upload counts as a re-upload of another developer's game (docs/DECISIONS.md, "Copies never pay;
  * history does"): at least minimumMatchedFilePct of its distinct files were sent first by one other developer,

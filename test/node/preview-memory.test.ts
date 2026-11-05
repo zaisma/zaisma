@@ -3,7 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { IDLE_WHILE_WAITED_FOR_MS, isTurnToSleep, memoryCap, memoryHoldersText, nextTurn, placeText, previewToSleep, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
+import { HANDED_OVER_IDLE_MS, IDLE_WHILE_WAITED_FOR_MS, isTurnToSleep, memoryCap, memoryHoldersText, nextTurn, placeText, previewToSleep, sizeText, testRunSizeBytes, waitForTurn, waitingInOrder } from "../../scripts/preview/memory.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
@@ -157,6 +157,48 @@ describe("a look at the line", () => {
     await expect(asked).rejects.toThrow(/^no_room_for_tests: .*2\.7 GB of the 3\.0 GB memory cap.*GitHub's check runs them/);
     expect(lineOnDisk().entries).toEqual([]);
   });
+  describe("when a preview nobody is using could make room", () => {
+    const awakeLine = (awakePreviews: object[], extra: object = {}) => writeFileSync(join(directory, "line.json"), JSON.stringify({ entries: [], awake_previews: awakePreviews, ...extra }));
+    const idleFor = (offset: number, idleMs: number, isHandedOver = false) => ({ offset, pid: process.pid, last_visit_at_ms: Date.now() - idleMs, noted_at_ms: Date.now(), is_handed_over: isHandedOver });
+    const fast = { testLookIntervalMs: 1 };
+    const FULL = [{ offset: 0, sizeBytes: 2800 * MB }];
+
+    it("waits for it to sleep, then runs", async () => {
+      awakeLine([idleFor(0, 12 * 60_000)]);
+      let lookCount = 0;
+      const measure = (entries: { pid: number }[]) => measuring(++lookCount === 1 ? FULL : [])(entries);
+      const said: string[] = [];
+      const turn = await waitForTurn({ ...mac(), say: (text: string) => said.push(text), kind: "test", folder: "/checkout", isNodeOnly: true, measure, ...fast });
+      expect(turn.workerCount).toBeGreaterThanOrEqual(1);
+      expect(said[0]).toMatch(/a preview nobody is using is going to sleep/);
+      expect(lineOnDisk().room_wanted_until_ms).toBeGreaterThan(Date.now());
+    });
+    it("takes a handed-over preview after 2 minutes, where another takes 3", async () => {
+      awakeLine([idleFor(0, HANDED_OVER_IDLE_MS + 1000, true)]);
+      let lookCount = 0;
+      const measure = (entries: { pid: number }[]) => measuring(++lookCount === 1 ? FULL : [])(entries);
+      expect((await waitForTurn({ ...mac(), kind: "test", folder: "/checkout", isNodeOnly: true, measure, ...fast })).workerCount).toBeGreaterThanOrEqual(1);
+    });
+    it("gives up when the room doesn't come, leaving nothing in line", async () => {
+      awakeLine([idleFor(0, 12 * 60_000)]);
+      await expect(waitForTurn({ ...mac(), kind: "test", folder: "/checkout", isNodeOnly: true, measure: measuring(FULL), testRoomWaitMs: 0, ...fast })).rejects.toThrow(/^no_room_for_tests/);
+      expect(lineOnDisk().entries).toEqual([]);
+    });
+    it.each([
+      ["someone looked at it just now", [idleFor(0, 60_000, true)], FULL],
+      ["it isn't handed over and hasn't reached 3 minutes", [idleFor(0, 2 * 60_000)], FULL],
+      ["its sleep wouldn't make enough room", [idleFor(0, 12 * 60_000)], [{ offset: 0, sizeBytes: 100 * MB }, { offset: 100, sizeBytes: 2800 * MB }]],
+    ])("ends at once when %s", async (_name, awakePreviews, previews) => {
+      awakeLine(awakePreviews);
+      await expect(waitForTurn({ ...mac(), kind: "test", folder: "/checkout", isNodeOnly: true, measure: measuring(previews), ...fast })).rejects.toThrow(/no_room_for_tests/);
+      expect(lineOnDisk().room_wanted_until_ms).toBeNull();
+    });
+    it("ends at once when another Workers run is what holds it up", async () => {
+      awakeLine([idleFor(0, 12 * 60_000)], { entries: [{ ...entry(process.ppid, 0, "test", 1, Date.now()), offset: null, is_node_only: false, worker_count: 1, requested_worker_count: 1 }] });
+      await expect(waitForTurn({ ...mac(), kind: "test", folder: "/checkout", measure: measuring(FULL), ...fast })).rejects.toThrow(/no_room_for_tests/);
+      expect(lineOnDisk().room_wanted_until_ms).toBeNull();
+    });
+  });
   it("ends a Workers run at once beside an awake preview, and says node tests may still fit", async () => {
     const asked = waitForTurn({ ...mac(), kind: "test", folder: "/checkout", requestedWorkerCount: 2, measure: measuring([{ offset: 0, sizeBytes: 1700 * MB }]) });
     await expect(asked).rejects.toThrow(/^no_room_for_tests: .*Node tests may still fit here/);
@@ -204,15 +246,15 @@ describe("which preview sleeps to make room", () => {
   const asked = (kind = "start", minutesAgo = 5) => entry(11, 100, kind, NOW_MS - minutesAgo * MINUTE_MS);
   const pick = (entries: object[], awakePreviews: object[], roomAskedAtMs: number | null = null) => previewToSleep({ entries, awakePreviews, roomAskedAtMs, nowMs: NOW_MS });
 
-  it("is none with nothing in line, however long nobody has looked: the 30 minutes stays", () => {
+  it("is none with nothing in line, however long nobody has looked: the 10 minutes stays", () => {
     expect(pick([], [awakeFor(0, 29)])).toBeNull();
     expect(pick([entry(11, 100, "start", NOW_MS, NOW_MS)], [awakeFor(0, 29)])).toBeNull();
   });
-  it("is the one nobody has looked at for longest, once that's 10 minutes", () => {
-    expect(IDLE_WHILE_WAITED_FOR_MS).toBe(10 * MINUTE_MS);
-    expect(pick([asked()], [awakeFor(0, 12), awakeFor(100, 25), awakeFor(200, 3)])).toBe(100);
-    expect(pick([asked()], [awakeFor(0, 9), awakeFor(200, 3)])).toBeNull();
-    expect(pick([asked()], [awakeFor(0, 10)])).toBe(0);
+  it("is the one nobody has looked at for longest, once that's 3 minutes", () => {
+    expect(IDLE_WHILE_WAITED_FOR_MS).toBe(3 * MINUTE_MS);
+    expect(pick([asked()], [awakeFor(0, 5), awakeFor(100, 25), awakeFor(200, 1)])).toBe(100);
+    expect(pick([asked()], [awakeFor(0, 2), awakeFor(200, 1)])).toBeNull();
+    expect(pick([asked()], [awakeFor(0, 3)])).toBe(0);
   });
   it("counts a wake as waiting, and a test run never", () => {
     expect(pick([asked("wake")], [awakeFor(0, 12)])).toBe(0);
@@ -221,6 +263,17 @@ describe("which preview sleeps to make room", () => {
   it("waits until what's in line has had the time to get its turn if it fits", () => {
     expect(pick([entry(11, 100, "start", NOW_MS - 5000)], [awakeFor(0, 12)])).toBeNull();
     expect(pick([entry(11, 100, "start", NOW_MS - 30_000)], [awakeFor(0, 12)])).toBe(0);
+  });
+  it("takes a handed-over preview after 2 minutes only while a test run wants the room", () => {
+    const handedOver = (idleMinutes: number) => ({ ...awakeFor(0, idleMinutes), is_handed_over: true });
+    const wanted = (awakePreviews: object[], untilMs = NOW_MS + 1000) => previewToSleep({ entries: [], awakePreviews, roomWantedUntilMs: untilMs, nowMs: NOW_MS });
+    expect(HANDED_OVER_IDLE_MS).toBe(2 * MINUTE_MS);
+    expect(wanted([handedOver(2)])).toBe(0);
+    expect(wanted([handedOver(1)])).toBeNull();
+    expect(wanted([awakeFor(0, 2)])).toBeNull();
+    expect(wanted([awakeFor(0, 3)])).toBe(0);
+    expect(wanted([handedOver(5)], NOW_MS)).toBeNull();
+    expect(pick([asked()], [handedOver(2)])).toBeNull();
   });
   it("skips a preview that has stopped noting, which is asleep or gone", () => {
     expect(pick([asked()], [awakeFor(0, 40, 2), awakeFor(100, 11)])).toBe(100);

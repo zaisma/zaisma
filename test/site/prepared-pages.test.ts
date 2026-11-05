@@ -76,9 +76,9 @@ describe("a page prepared ahead", () => {
   });
 
   it("opens in its game's glass tint, from the server", async () => {
-    const page = await layout(env, { title: "Worlds on Zaisma", body: html`<p>Worlds</p>`, glassHue: "#12abef", stageColor: "#203040" }).text();
+    const page = await layout(env, { title: "Worlds on Zaisma", checkedPage: "A message, in the old look", body: html`<p>Worlds</p>`, glassHue: "#12abef", stageColor: "#203040" }).text();
     expect(page).toMatch(/<html [^>]*style="--backdrop-edge: #203040; --glass-hue: #12abef"/);
-    expect((await layout(env, { title: "Worlds", body: html`<p>Worlds</p>`, glassHue: "red" }).text()).match(/<html[^>]*>/)![0]).not.toContain("--glass-hue");
+    expect((await layout(env, { title: "Worlds", checkedPage: "A message, in the old look", body: html`<p>Worlds</p>`, glassHue: "red" }).text()).match(/<html[^>]*>/)![0]).not.toContain("--glass-hue");
   });
 });
 

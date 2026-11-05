@@ -145,6 +145,7 @@ export const CONTENT_RULE_WORDS: Record<ContentRule, string> = {
   real_people: "real people",
   copyright: "copyright",
   defamation: "defamation",
+  trademark: "trademark",
   personal_details: "personal details",
   chat: "chat",
   crypto: "cryptocurrency",

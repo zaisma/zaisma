@@ -946,6 +946,15 @@ describe("reports and takedowns", () => {
     return SELF.fetch(`${LOCAL}/admin/games/${gameId}/notice`, { method: "POST", body: form, redirect: "manual" });
   };
 
+  it("hides a game on a trademark notice with its own code and rule", async () => {
+    const { gameId } = await liveGame();
+    expect((await notice(gameId, "trademark", "The title uses Minecraft")).status).toBe(303);
+    expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
+    const held = await gameBySlug(env.DB, "test-game");
+    expect(held!.review_status).toBe("held");
+    expect(JSON.parse(held!.review_reason!)).toEqual({ code: "trademark_notice", message: "A trademark notice names this: The title uses Minecraft", content_rule: "trademark" });
+  });
+
   it("hides a game on a defamation notice until a fixed version is checked, and it can still get versions", async () => {
     const { gameId } = await liveGame();
     expect(await (await notice(gameId, "libel", "x")).text()).toContain("Pick the kind of notice");
@@ -1002,6 +1011,7 @@ describe("pages", () => {
   it("serves the legal pages and the logo", async () => {
     expect((await SELF.fetch(`${LOCAL}/legal/dmca`)).status).toBe(200);
     expect(await (await SELF.fetch(`${LOCAL}/legal/defamation`)).text()).toContain("mailto:safety@zaisma.com");
+    expect(await (await SELF.fetch(`${LOCAL}/legal/trademark`)).text()).toContain("mailto:dmca@zaisma.com");
     expect((await SELF.fetch(`${LOCAL}/legal/content-rules`)).status).toBe(200);
     expect((await SELF.fetch(`${LOCAL}/nope`)).status).toBe(404);
   });
@@ -1013,7 +1023,7 @@ describe("pages", () => {
     expect(await (await SELF.fetch(`${LOCAL}/forum`)).text()).toContain('<main class="steel" data-covers-backdrop>');
     expect(home).toContain('<header class="top bar-layout glass');
     const foot = home.slice(home.indexOf('<footer class="foot glass'));
-    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
+    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"], ["Trademark", "/legal/trademark"]] as const)
       expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&").replace(/ (?=[^ ]+$)/, " (?:<[^>]+>)?")}`));
     // Off a developer page the developer tabs are folded away, out of reach.
     expect(home).toContain('<a class="flush-row quiet foldable folded" data-lights href="/developers" tabindex="-1" aria-hidden="true">');

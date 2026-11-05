@@ -28,6 +28,10 @@ import {
   type DoorShape,
   type DoorTakes,
   type DoorTrust,
+  FORUM_LIMITS,
+  IMAGE_LIMITS,
+  MAXIMUM_RAW_BODY_SIZE_BYTES,
+  ZIP_LIMITS,
 } from "@zaisma/core";
 
 /**
@@ -139,17 +143,16 @@ const FILE_NO_LIMIT: DoorLimit = { whyNoLimit: "cached_file" };
 const FROM_MEMORY: DoorLimit = { whyNoLimit: "answers_from_memory" };
 const SIGNED: DoorLimit = { whyNoLimit: "signed_by_sender" };
 
-/** The most of a form with no files, and of one with files: a Worker reads no more than this. */
+/** The most of a form's fields: a Worker reads no more than this, and a form with files no more than its files besides. */
 const FORM_SIZE_BYTES = 256 * 1024;
-const FILE_FORM_SIZE_BYTES = 100 * 1024 * 1024;
 /** A form's field, as the outer wall: its handler keeps what it allows inside this. */
 const FORM_TEXT = text(FORM_SIZE_BYTES);
 const namesOf = (names: readonly string[], shape: DoorShape = FORM_TEXT): Record<string, DoorShape> => Object.fromEntries(names.map((name) => [name, anyTextOrList(shape)]));
 /** A form's checkboxes repeat a name, so any name may come more than once, up to this. */
 const anyTextOrList = (shape: DoorShape): DoorShape => anyOf(shape, listOf(shape, 100));
-const form = (names: readonly string[], fileNames: readonly string[] = []): DoorTakes => ({
+const form = (names: readonly string[], files: { fileNames: readonly string[]; maximumFilesSizeBytes: number } | null = null): DoorTakes => ({
   query: {},
-  body: { kind: "form", fields: namesOf(names), ...(fileNames.length ? { fileNames } : {}), maximumSizeBytes: fileNames.length ? FILE_FORM_SIZE_BYTES : FORM_SIZE_BYTES },
+  body: { kind: "form", fields: namesOf(names), ...(files ? { fileNames: files.fileNames } : {}), maximumSizeBytes: FORM_SIZE_BYTES + (files?.maximumFilesSizeBytes ?? 0) },
 });
 const json = (fields: Readonly<Record<string, DoorShape>>, required: readonly string[] = [], maximumSizeBytes = 16 * 1024, isOptional = true): DoorTakes => ({
   query: {},
@@ -236,29 +239,32 @@ const BOT_CHECK_FIELDS = ["turnstile_token", "cf-turnstile-response"] as const;
 const ACCOUNT_FORM = form([...SOCIAL_SETTINGS, "next", ...BOT_CHECK_FIELDS, "username", "password", "new_password", "current_password", "email", "code", "confirm", "with", "from", "kind", "birthday", "day", "month", "year", "today", "social_mode", "who_can_chat", "who_can_message", "color_theme", "is_streamer_mode_on", "where_used_from_enabled", "purchase_pin", "name", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
 const JOINING_TAKES: DoorTakes = { ...ACCOUNT_FORM, query: query("next", "username", "with", "game", "code", "error", "welcome").query };
 const FRIEND_FORM = form(["invite_code", "is_appearing_offline", "next", "game_slug"]);
-const FORUM_FORM = form(["title", "text_markdown", "category", "kind", "tags", "game_slug", "known_issue_topic_id", "reply_to_post_id", "post_id", "answer_post_id", "rating", "reason", "details", "reopen", "undo", "t", "u"], ["images", "file"]);
+const FORUM_FORM = form(["title", "text_markdown", "category", "kind", "tags", "game_slug", "known_issue_topic_id", "reply_to_post_id", "post_id", "answer_post_id", "rating", "reason", "details", "reopen", "undo", "t", "u"]);
+/** An image placed in a post while it's written, the one file the forum's pages send. */
+const FORUM_IMAGE_FORM = form([], { fileNames: ["file"], maximumFilesSizeBytes: FORUM_LIMITS.imageSizeBytes });
 const SETTINGS_FORM = form(["name", "kind", "amount_cents", "other_dollars", "monthly_budget_dollars", "monthly_storage_budget_dollars", "refill_level_dollars", "answer", "destination_kind", "endpoint_url", "event_kinds", "game_server_slug", "is_stripe_tax_used", "redirect_urls", ...WEBAUTHN_NAMES, ...KEY_CHOICE_NAMES]);
-const GAME_FORM = form(
-  [
-    "section", "title", "description", "devices", "controls", "genres", "screen_orientation", "cloud_saves", "account_offer", "deleted_account_erase", "room_browsing", "friend_joins", "friend_joins_shown", "account_requirement", "minimum_player_age_years", "multiplayer", "multiplayer_mode",
-    "single", "local", "online", ...["local", "online"].flatMap((mode) => [`${mode}_play_style`, `${mode}_minimum_player_count`, `${mode}_maximum_player_count`]),
-    ...Array.from({ length: LINK_LIMITS.maximumLinkCount }, (_, index) => [`link_name_${index}`, `destination_url_${index}`, `is_on_game_page_${index}`]).flat(),
-    ...Array.from({ length: OWN_SERVER_LIMITS.maximumServerCount }, (_, index) => `own_server_url_${index}`),
-    "visibility", "kind", "clear", "image_id", "shader_id", "source", "screen", "glass_tint_color", "confirm", "confirm_slug", "is_big_update", "match_update_mode", "patch_notes", "publish_after_ai_review_enabled", "at", "opens", "name", "notes", "details", "version_choice", "picked_version_id", "ends_at", "ends_after_days",
-  ],
-  ["file"],
-);
-const ADMIN_FORM = form(
-  [
-    "back", "reason", "content_rule", "precedent", "off", "game_server", "cloud_saves", "account_id", "notice_kind", "country_code", "social_stopped_reason", "username", "slug", "title", "description", "category", "status_filter", "is_known_issue", "known_issue_title", "merge_into_topic_id", "reply", "roadmap_item", "severity", "topic_status", "workaround", "group",
-    "p_alone", "p_decision", "p_replaces", "p_title", "p_when", "p_why", "review_precedent", "rp_case_description", "rp_case_html", "rp_case_title", "rp_group", "rp_id", "rp_replaces", "rp_rule", "rp_title", "rp_version", "rp_when", "rp_why",
-  ],
-  ["zip"],
-);
+const GAME_FORM_NAMES = [
+  "section", "title", "description", "devices", "controls", "genres", "screen_orientation", "cloud_saves", "account_offer", "deleted_account_erase", "room_browsing", "friend_joins", "friend_joins_shown", "account_requirement", "minimum_player_age_years", "multiplayer", "multiplayer_mode",
+  "single", "local", "online", ...["local", "online"].flatMap((mode) => [`${mode}_play_style`, `${mode}_minimum_player_count`, `${mode}_maximum_player_count`]),
+  ...Array.from({ length: LINK_LIMITS.maximumLinkCount }, (_, index) => [`link_name_${index}`, `destination_url_${index}`, `is_on_game_page_${index}`]).flat(),
+  ...Array.from({ length: OWN_SERVER_LIMITS.maximumServerCount }, (_, index) => `own_server_url_${index}`),
+  "visibility", "kind", "clear", "image_id", "shader_id", "source", "screen", "glass_tint_color", "confirm", "confirm_slug", "is_big_update", "match_update_mode", "patch_notes", "publish_after_ai_review_enabled", "at", "opens", "name", "notes", "details", "version_choice", "picked_version_id", "ends_at", "ends_after_days",
+];
+const GAME_FORM = form(GAME_FORM_NAMES);
+/** A cover, screenshot or background sent from the game's page: one picture, or a shader's text, which is smaller. A game's own files go through the API (RAW_CALLS). */
+const GAME_PICTURE_FORM = form(GAME_FORM_NAMES, { fileNames: ["file"], maximumFilesSizeBytes: IMAGE_LIMITS.maximumSizeBytes });
+const ADMIN_FORM_NAMES = [
+  "back", "reason", "content_rule", "precedent", "off", "game_server", "cloud_saves", "account_id", "notice_kind", "country_code", "social_stopped_reason", "username", "slug", "title", "description", "category", "status_filter", "is_known_issue", "known_issue_title", "merge_into_topic_id", "reply", "roadmap_item", "severity", "topic_status", "workaround", "group",
+  "p_alone", "p_decision", "p_replaces", "p_title", "p_when", "p_why", "review_precedent", "rp_case_description", "rp_case_html", "rp_case_title", "rp_group", "rp_id", "rp_replaces", "rp_rule", "rp_title", "rp_version", "rp_when", "rp_why",
+];
+const ADMIN_FORM = form(ADMIN_FORM_NAMES);
+const ADMIN_ZIP_FORM = form(ADMIN_FORM_NAMES, { fileNames: ["zip"], maximumFilesSizeBytes: ZIP_LIMITS.maximumZipSizeBytes });
 const PROFILE_FORM = form(["display_name", "bio", "link_url", "reason", "details"]);
+/** A report's words and its picture of the game, which report.ts takes up to 2.1 MB of text. */
+const REPORT_BODY_SIZE_BYTES = 4 * 1024 * 1024;
 const REPORT_FORM: DoorTakes = {
   query: query("room", "reported").query,
-  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", ...BOT_CHECK_FIELDS]) }, fileNames: ["picture"], maximumSizeBytes: FILE_FORM_SIZE_BYTES },
+  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", ...BOT_CHECK_FIELDS]) }, fileNames: ["picture"], maximumSizeBytes: REPORT_BODY_SIZE_BYTES },
 };
 const BUY_FIELDS: Readonly<Record<string, DoorShape>> = {
   item_name: text(40),
@@ -300,7 +306,7 @@ const BLOCK_SIGN_IN: WhenSignedOut = { kind: "form_or_status", next: "/friends",
 // The forum: a banned developer reads it but posts nothing.
 const FORUM_SIGN_IN = signIn("here_with_query");
 const FORUM_QUERY = query("search_text", "name_prefix", "topic_id", "to", "section", "category", "kind", "tag", "tab", "topic_status", "page_number", "known_issue_topic_id", "done", "reply_to_post_id", "post_id", "v");
-const forumPost = (path: string, whenSignedOut: WhenSignedOut = FORUM_SIGN_IN) => signedIn(["POST"], path, whenSignedOut, { reaches: "forum_topic", isClosedToBannedDeveloper: true, takes: FORUM_FORM });
+const forumPost = (path: string, whenSignedOut: WhenSignedOut = FORUM_SIGN_IN, takes: DoorTakes = FORUM_FORM) => signedIn(["POST"], path, whenSignedOut, { reaches: "forum_topic", isClosedToBannedDeveloper: true, takes });
 
 const DASHBOARD_READ = query("error", "done", "stripe", "spending_request", "game_deletion_request", "deliveries", "cursor", "section");
 // The dashboard: everything on a game goes through the API, whose router holds it to the caller's own games.
@@ -315,7 +321,7 @@ const developer = (methods: DoorRowFields["methods"], path: string, reaches: Doo
   ...(isOpenToBannedDeveloper ? { isOpenToBannedDeveloper: true as const } : {}),
 });
 const dashboard = (methods: DoorRowFields["methods"], path: string, isOpenToBannedDeveloper = false, takes: DoorTakes = DASHBOARD_READ) => developer(methods, path, "game", "/join?next=/dashboard", "here", isOpenToBannedDeveloper, takes);
-const gameForm = (action: string) => dashboard(["POST"], `/dashboard/:slug/${action}`, false, GAME_FORM);
+const gameForm = (action: string, takes: DoorTakes = GAME_FORM) => dashboard(["POST"], `/dashboard/:slug/${action}`, false, takes);
 const SETTINGS = "/dashboard/settings";
 const settings = (methods: DoorRowFields["methods"], path: string, takes: DoorTakes = DASHBOARD_READ) => developer(methods, path, "account", "/join?next=/dashboard/settings", SETTINGS, false, takes);
 const settingsForm = (sub: string) => settings(["POST"], `${SETTINGS}/${sub}`, SETTINGS_FORM);
@@ -330,9 +336,9 @@ const admin = (methods: DoorRowFields["methods"], path: string, reaches: DoorRea
   contract: { whoMayCall: "admin", reaches, trusts: ["admin_access"], takes, answers: ANSWERS_PAGE, limit: { whyNoLimit: "admin_only" } },
 });
 const adminPage = (path: string, reaches: DoorReach) => admin(["GET"], path, reaches, "anywhere");
-const adminForm = (path: string, reaches: DoorReach) => admin(["POST"], path, reaches, "own_pages_if_sent", ADMIN_FORM);
+const adminForm = (path: string, reaches: DoorReach, takes: DoorTakes = ADMIN_FORM) => admin(["POST"], path, reaches, "own_pages_if_sent", takes);
 
-const RAW_CALLS = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: FILE_FORM_SIZE_BYTES + 10 * 1024 * 1024 } }, answers: ANSWERS_BYTES, limit: { whyNoLimit: "counted_by_its_call" } } as const;
+const RAW_CALLS = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: MAXIMUM_RAW_BODY_SIZE_BYTES } }, answers: ANSWERS_BYTES, limit: { whyNoLimit: "counted_by_its_call" } } as const;
 const SIGNED_BODY = { takes: { query: {}, body: { kind: "bytes", maximumSizeBytes: 1024 * 1024 } }, answers: ANSWERS_BYTES, limit: SIGNED } as const;
 // A caller a named function proves, from what's on the request.
 const proven = (methods: DoorRowFields["methods"], path: string, contract: DoorContract & { whoMayCall: DoorCallerProvenByFunction }): SiteDoor => ({ methods, path, origin: "anywhere", answersAs: "page", contract });
@@ -489,7 +495,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   open(["GET"], "/forum/out", { takes: query("to") }),
   open(["GET"], "/forum/media/:media_id", { reaches: "forum_topic", trusts: ["session"], takes: query("v"), answers: ANSWERS_FILE }),
   signedIn(["GET"], "/forum/people", statusOf(401, []), { reaches: "forum_topic", origin: "anywhere", takes: FORUM_QUERY, answersAs: "json", answers: ANY_LIST }),
-  forumPost("/forum/media", statusOf(401, { error: "Sign in to add images." })),
+  forumPost("/forum/media", statusOf(401, { error: "Sign in to add images." }), FORUM_IMAGE_FORM),
   forumPost("/forum/preview", statusOf(401)),
   signedIn(["GET"], "/forum/new", FORUM_SIGN_IN, { reaches: "forum_topic", origin: "anywhere", takes: FORUM_QUERY }),
   forumPost("/forum/new"),
@@ -513,7 +519,8 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   dashboard(["GET"], "/dashboard/:slug/export.zip", true),
   dashboard(["GET"], "/dashboard/:slug"),
   dashboard(["GET"], "/dashboard/:slug/*"),
-  ...["details", "links", "own-servers", "visibility", "images", "images/:id/remove", "backgrounds", "backgrounds/:screen", "shaders/:id/remove", "glass-tint", "testers", "testers/:id/:tester_action", "delete", "bring-back", "erase-now", "versions/:id/end-previews", "versions/:id/:version_action"].map(gameForm),
+  ...["images", "backgrounds"].map((action) => gameForm(action, GAME_PICTURE_FORM)),
+  ...["details", "links", "own-servers", "visibility", "images/:id/remove", "backgrounds/:screen", "shaders/:id/remove", "glass-tint", "testers", "testers/:id/:tester_action", "delete", "bring-back", "erase-now", "versions/:id/end-previews", "versions/:id/:version_action"].map((action) => gameForm(action)),
 
   // Zaisma's own people.
   admin("any", "/admin/mcp", "zaisma_settings", "anywhere"),
@@ -532,8 +539,8 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   adminPage("/admin/images/:id", "any_game"),
   adminPage("/admin/shaders/:shader_id/:shader_picture", "any_game"),
   adminPage("/admin/reports/:id/picture", "any_game"),
-  adminForm("/admin/upload", "any_game"),
-  adminForm("/admin/api/games", "any_game"),
+  adminForm("/admin/upload", "any_game", ADMIN_ZIP_FORM),
+  adminForm("/admin/api/games", "any_game", ADMIN_ZIP_FORM),
   adminForm("/admin/versions/:id/:review_verb", "any_game"),
   adminForm("/admin/versions/:id/reject-copy", "any_game"),
   adminForm("/admin/images/:id/:review_verb", "any_game"),

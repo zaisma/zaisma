@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
@@ -27,6 +27,20 @@ function pathsIn(text: string): string[] {
 }
 
 const SITE_ROUTE_FILES = ["account", "passkeys", "sign-in", "mcp-sign-in", "dashboard", "developer-settings", "forum-pages", "friends", "friend-requests", "friends-now", "blocks", "players-sheet", "profiles", "plays", "home", "game-links", "admin", "admin-feedback", "admin-publishing", "admin-profiles", "admin-chat-reviews", "precedents", "review-precedents", "index", "buy", "announcements", "speed-reports"];
+
+describe("A form", () => {
+  it("says a file is past its size when it's chosen, on every page form that sends one", () => {
+    const inputs = ["apps/site/src/dashboard.ts", "apps/site/src/admin.ts"].flatMap((path) => [...read(path).matchAll(/<input type="file" name="[^>]*>/g)].map((match) => match[0]));
+    expect(inputs.length).toBe(3);
+    for (const input of inputs) expect(input).toContain("data-maximum-size-bytes=");
+  });
+
+  it("is read through formOf, so the guard's read is the one its door gets", () => {
+    const files = readdirSync(join(ROOT, "apps/site/src"), { recursive: true, encoding: "utf8" }).filter((path) => path.endsWith(".ts") && !path.includes("generated"));
+    const reads = files.filter((path) => /\brequest(?:\.clone\(\))?\.formData\(\)/.test(read(`apps/site/src/${path}`)));
+    expect(reads).toEqual([]);
+  });
+});
 
 describe("Every door has a contract", () => {
   let site: any;

@@ -34,7 +34,6 @@ export interface PictureAnswer {
   extra_text: string;
   overlay: string;
   fake_reward: string;
-  famous_name: string;
   main_subject: string;
   is_main_subject_in_screenshots: boolean;
   added_after_capture: string;
@@ -45,7 +44,6 @@ export interface PictureAnswer {
 export interface ListingAnswer {
   pictures: PictureAnswer[];
   title_fake_reward: string;
-  title_famous_name: string;
   title_tag: string;
   title_search_words: string;
   description_fake_reward: string;
@@ -120,11 +118,6 @@ const PICTURE_FIELDS = {
     description:
       "Any picture: words or images promising the player something of real value or another platform's currency: Robux, V-Bucks, gift cards, cash, a free phone. Quote the words exactly, or name the image. The game's own coins, gems or points, shown as gameplay, are not a reward promise. \"\" when there's none.",
   },
-  famous_name: {
-    type: "string",
-    description:
-      "Covers and backgrounds (\"\" for screenshots): a famous character, logo or name from a film, show, game, brand or sports club that a typical teenager would name at a glance, like Mario, Naruto, Goku, Lightning McQueen, the Batmobile, Pikachu, a football club's crest, the Roblox logo or Robux. Name it. Generic blocky, pixel or cartoon figures, and lookalikes nobody would name for sure, are not famous: when unsure, \"\". \"\" when there's none.",
-  },
   main_subject: {
     type: "string",
     description: "Covers only (\"\" for screenshots): the character, creature or vehicle the picture is built around, in a few words; \"\" when it's built around scenery, a crowd or the title alone.",
@@ -142,7 +135,7 @@ const PICTURE_FIELDS = {
   background_text: {
     type: "string",
     description:
-      "Backgrounds only (\"\" for covers and screenshots): every word, number, symbol or logo written on the picture, the game's own name and logo included, quoted exactly or named, separated by \" / \". Overlays go in overlay and famous characters, logos and names in famous_name. Words that are part of the scene (a sign on a building, a neon shop sign, writing on a shirt) don't count. \"\" when there's none.",
+      "Backgrounds only (\"\" for covers and screenshots): every word, number, symbol or logo written on the picture, the game's own name and logo included, quoted exactly or named, separated by \" / \". Overlays go in overlay. Words that are part of the scene (a sign on a building, a neon shop sign, writing on a shirt) don't count. \"\" when there's none.",
   },
   has_safety_concern: {
     type: "boolean",
@@ -153,7 +146,7 @@ const PICTURE_FIELDS = {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["pictures", "title_fake_reward", "title_famous_name", "title_tag", "title_search_words", "description_fake_reward", "has_words_safety_concern"],
+  required: ["pictures", "title_fake_reward", "title_tag", "title_search_words", "description_fake_reward", "has_words_safety_concern"],
   properties: {
     pictures: {
       type: "array",
@@ -161,11 +154,6 @@ const SCHEMA = {
       items: { type: "object", additionalProperties: false, required: Object.keys(PICTURE_FIELDS), properties: PICTURE_FIELDS },
     },
     title_fake_reward: { type: "string", description: "Words in the title promising something of real value or another platform's currency (Free Robux, V-Bucks), quoted; \"\" when none or when the title isn't judged." },
-    title_famous_name: {
-      type: "string",
-      description:
-        "A famous film, show, game, brand, club or character's name in the title that a typical teenager would recognize at a glance (Minecraft, Naruto, Fortnite, Blox Fruits, Natural Disaster Survival, Saiyan), quoted. Common words aren't names (Ninja, Obby, Rush, Simulator, Tycoon). \"\" when none or when the title isn't judged.",
-    },
     title_tag: {
       type: "string",
       description:
@@ -189,7 +177,6 @@ The lines:
 - A cover shows no text besides the game's name, a subtitle and the studio's name or logo. Captions, callouts, update banners ("NEW SKINS & UPDATES!"), feature lists ("TRAIN EVOLVE GET STRONGER"), counts ("100 WALLS!", "12 DISASTERS"), prices and stats ("$67/s", "+1K") and stickers with words are extra text. A number that is part of the game's name ("+1 Monkey Evolution") is the name.
 - Nothing is laid over a cover or a background: buttons, menus, shop panels, reward rows, badges, stickers, starbursts, icon bubbles, arrows or circles pointing at something.
 - Nothing promises a fake reward or real-money bait, on any picture or in the words.
-- No famous character, logo or name a typical teenager would name at a glance, on a cover, a background or in the title. Obvious cases only: when unsure, it doesn't count.
 - A cover's main subject appears in the game's screenshots.
 - A screenshot is a real capture: only what was added after capturing it counts against it, never the game's own interface.
 - A background shows no words or logo at all: not even the game's name, a subtitle or the studio's logo. Words that are part of the scene still don't count.
@@ -257,8 +244,6 @@ export function pictureOutcome(picture: Pick<ListingPicture, "kind">, answer: Pi
   const fakeReward = said(answer.fake_reward);
   if (fakeReward) return { outcome: "held", reason: reason("fake_reward", `The ${kindName} promises ${quoted(fakeReward)}.`) };
   if (isBackground(picture.kind)) {
-    const famous = said(answer.famous_name);
-    if (famous) return { outcome: "rejected", reason: reason("famous_name_on_background", `The background shows ${famous}.`) };
     const found = said(answer.background_text);
     if (found) return { outcome: "rejected", reason: reason("text_on_background", `The background has words or a logo on it: ${found.split(" / ").map(quoted).join(", ")}.`) };
     const laidOver = said(answer.overlay);
@@ -268,8 +253,6 @@ export function pictureOutcome(picture: Pick<ListingPicture, "kind">, answer: Pi
     const added = said(answer.added_after_capture);
     return added ? { outcome: "rejected", reason: reason("screenshot_not_from_game", `The screenshot has something added after it was captured: ${added}.`) } : { outcome: "fine" };
   }
-  const famousName = said(answer.famous_name);
-  if (famousName) return { outcome: "off_lists", reason: reason("famous_name", `The ${kindName} shows ${famousName}.`) };
   const extraText = said(answer.extra_text);
   if (extraText) return { outcome: "off_lists", reason: reason("extra_text_on_cover", `The ${kindName} has words besides the title: ${extraText.split(" / ").map(quoted).join(", ")}.`) };
   const overlay = said(answer.overlay);
@@ -302,7 +285,6 @@ export function listingOutcomes(brief: ListingBrief, answer: ListingAnswer | nul
   let title: WordsOutcome = { outcome: "fine" };
   if (hasWordsConcern) title = { outcome: "person" };
   else if (titleFakeReward) title = { outcome: "held", reason: wordsHeld! };
-  else if (brief.isTitleJudged && said(answer.title_famous_name)) title = { outcome: "off_lists", reason: reason("famous_name", `The title names ${quoted(said(answer.title_famous_name))}.`) };
   else if (brief.isTitleJudged && said(answer.title_tag)) title = { outcome: "off_lists", reason: reason("tag_in_title", `The title carries a tag: ${quoted(said(answer.title_tag))}.`) };
   else if (brief.isTitleJudged && said(answer.title_search_words)) title = { outcome: "off_lists", reason: reason("search_words_in_title", `The title lists what the game is instead of naming it: ${quoted(said(answer.title_search_words))}.`) };
   return { pictures, title, isWordsClear: !hasWordsConcern && !wordsHeld, heldReason };

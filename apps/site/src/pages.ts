@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { PICTURE_COLUMNS_SQL, shownPictureOf, type PictureRow } from "./placeholders.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
@@ -633,13 +634,14 @@ export function legal(env: Env, page: string): Response | null {
   if (page === "terms") return layout(env, { title: "Terms of service · Zaisma", body: termsBody(), pageShape: "reading", checkedPage: "Terms of service" });
   if (page === "privacy") return layout(env, { title: "Privacy policy · Zaisma", body: privacyBody(), pageShape: "reading", checkedPage: "Privacy policy" });
   if (page === "security") return layout(env, { title: "Security · Zaisma", body: securityBody(), pageShape: "reading", checkedPage: "Security" });
-  const pages: Record<string, { title: string; body: string }> = {
-    dmca: { title: "Copyright and DMCA notices", body: DMCA },
-    defamation: { title: "Defamation notices", body: DEFAMATION },
+  const pages: Record<string, { title: string; body: string; checkedPage: SteelPageName }> = {
+    dmca: { title: "Copyright and DMCA notices", body: DMCA, checkedPage: "DMCA notices" },
+    defamation: { title: "Defamation notices", body: DEFAMATION, checkedPage: "Defamation notices" },
+    trademark: { title: "Trademark notices", body: TRADEMARK, checkedPage: "Trademark notices" },
   };
   const legalPage = pages[page];
   if (!legalPage) return null;
-  return layout(env, { title: `${legalPage.title} · Zaisma`, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
+  return layout(env, { title: `${legalPage.title} · Zaisma`, checkedPage: legalPage.checkedPage, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
 }
 
 // Settled by Julius on Oct 28, 2026 (docs/DECISIONS.md, "Terms of service"): the promises are the decisions' own, in plain words, with no lawyer review.
@@ -685,7 +687,7 @@ function termsBody(): Raw {
 </ul>
 <h2>Content rules and takedowns</h2>
 <p>Games, names and posts must comply with the ${textLink("content rules", "/legal/content-rules")}. A game that breaks them or the law may be held, meaning it is hidden from players until a corrected version is published, or removed. Every hold or removal states the rule concerned, what was found and how to fix it.</p>
-<p>Copyright notices follow the ${textLink("copyright policy", "/legal/dmca")}. An account is closed after 3 copyright notices that stand within 12 months. Notices that a game falsely accuses a person of a crime follow the ${textLink("defamation policy", "/legal/defamation")}.</p>`,
+<p>Copyright notices follow the ${textLink("copyright policy", "/legal/dmca")}. An account is closed after 3 copyright notices that stand within 12 months. Notices that a game falsely accuses a person of a crime follow the ${textLink("defamation policy", "/legal/defamation")}. Notices about a trademark follow the ${textLink("trademark policy", "/legal/trademark")}.</p>`,
       ),
       pane(
         "Payments",
@@ -731,7 +733,7 @@ const ruleRow = (rule: ContentRule): ListRow => {
   };
 };
 
-/** zaisma.com/legal/content-rules: what's welcome, then each rule with its test, the two acted on only on a notice, and what happens. */
+/** zaisma.com/legal/content-rules: what's welcome, then each rule with its test, the ones acted on only on a notice, and what happens. */
 function contentRulesBody(): Raw {
   const pane = (label: string, items: LayoutItem[]): LayoutItem => ({ kind: "block", markup: glassPane({ paneWidth: "full", label, body: stack({ items }) }) });
   return stack({
@@ -748,7 +750,7 @@ function contentRulesBody(): Raw {
       ]),
       pane("Only on a notice", [
         { kind: "words", markup: html`<h2>Only on a notice</h2>` },
-        { kind: "words", markup: html`<p>Zaisma does not judge these itself. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")} and ${textLink("Defamation notices", "/legal/defamation")}.</p>` },
+        { kind: "words", markup: html`<p>Zaisma does not judge these itself. When the owner of a work or a trademark, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what it names. If the notice is wrong, you can send a counter-notice: see ${textLink("Copyright and DMCA notices", "/legal/dmca")}, ${textLink("Defamation notices", "/legal/defamation")} and ${textLink("Trademark notices", "/legal/trademark")}.</p>` },
         { kind: "block", markup: listRows({ label: "Only on a notice", whenEmpty: NO_EMPTY_NOTE, rows: NOTICE_ONLY_CONTENT_RULES.map(ruleRow) }) },
       ]),
       pane("What happens", [
@@ -801,7 +803,7 @@ function contentRulesBody(): Raw {
               {
                 title: "Covers and titles",
                 detail: "Zaisma's lists show games whose covers and titles keep the listing lines.",
-                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, no famous characters you do not own, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
+                fold: { id: "covers-and-titles", body: readingText({ markup: html`<p>No text but the title, nothing laid over the picture, no fake rewards, and built around something from the game. A game that breaks one still plays by its link until it is fixed; a fake reward holds it. See ${textLink("Covers that show your game", "/developers/covers")}.</p>` }) },
               },
               {
                 title: "Names players give",
@@ -868,6 +870,37 @@ const DEFAMATION = `
 <li>Your name, a contact address and your email.</li>
 <li>The game's Zaisma link and what the notice named.</li>
 <li>Why the notice is wrong: what it says is true, or it is not about the person who sent it, or that person is a public figure.</li>
+<li>Your consent for Zaisma to pass your counter-notice on to the person who sent the notice, with your name and address, so they can take it to court.</li>
+<li>A statement that you believe in good faith your counter-notice is accurate.</li>
+<li>Your physical or electronic signature.</li>
+</ol>
+<p>Zaisma passes it on to the person who sent the notice. After 10 working days the game is back, unless that person tells Zaisma they have gone to court.</p>
+`;
+
+// The flow Julius picked on Nov 5, 2026, when Zaisma stopped checking for famous names: as with defamation, hidden on a notice without Zaisma judging it.
+const TRADEMARK = `
+<p class="lead">If a game on Zaisma uses your registered trademark so that players would think you made or back it, send Zaisma a notice, and players cannot open the game until it is fixed. Zaisma does not judge whether the trademark is infringed: the developer can answer with a counter-notice.</p>
+<p>A notice covers a game's name, its pictures and anything in the game. A brand mentioned in a game's story or description, parody, and a common word that happens to be a trademark are allowed.</p>
+<h2>What to include</h2>
+<ol>
+<li>Your name, address and email.</li>
+<li>The trademark, where it is registered and its registration number.</li>
+<li>The game's Zaisma link, and where the trademark is used: the title, a picture, or where in the game.</li>
+<li>Your consent for Zaisma to pass your notice on to the game's developer, with your name and email.</li>
+<li>A statement that you believe in good faith the use is not authorized by you, your agent or the law.</li>
+<li>A statement that your notice is accurate and that you are the owner or authorized to act for the owner.</li>
+<li>Your physical or electronic signature.</li>
+</ol>
+<h2>Where to send it</h2>
+<p>Email <a href="mailto:dmca@zaisma.com">dmca@zaisma.com</a>, with "Trademark notice" in the subject.</p>
+<h2>What happens next</h2>
+<p>Zaisma hides the game from players and tells its developer what your notice names. Once the developer changes it, Zaisma checks the game and shows it again. Nothing is deleted.</p>
+<h2>Counter-notices</h2>
+<p>If your game was hidden by mistake, or you may use the trademark, email the same address with a counter-notice:</p>
+<ol>
+<li>Your name, a contact address and your email.</li>
+<li>The game's Zaisma link and what the notice named.</li>
+<li>Why the notice is wrong: you own the trademark or have permission, the trademark is not registered, or players would not think its owner made or backs the game.</li>
 <li>Your consent for Zaisma to pass your counter-notice on to the person who sent the notice, with your name and address, so they can take it to court.</li>
 <li>A statement that you believe in good faith your counter-notice is accurate.</li>
 <li>Your physical or electronic signature.</li>

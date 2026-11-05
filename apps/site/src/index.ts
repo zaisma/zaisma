@@ -1,6 +1,6 @@
 import { fillMissingPlaceholders } from "./placeholders.ts";
 import { deleteDueGames } from "./game-deletion.ts";
-import { gameBySlug, sealStoredSecrets, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
+import { BodyPastCapError, cappedRequest, gameBySlug, sealStoredSecrets, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob, type ShaderCheckJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, deleteWaitingSignIns, publishDue } from "./cleanup.ts";
@@ -13,7 +13,7 @@ import { isLocalSite } from "./html.ts";
 import { playingNowAnswer } from "./live-world.ts";
 import { withDeclaredAnswer } from "./answers.ts";
 import { siteDoorAt } from "./doors.ts";
-import { guardSiteDoor } from "./guard.ts";
+import { bodyTooBig, doorBodyMaximumSizeBytes, guardSiteDoor } from "./guard.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { heldUntilOpened, isPreparedRequest, speculationRulesResponse } from "./prepared-pages.ts";
@@ -82,9 +82,17 @@ export { ChatCheckService } from "./chat-check.ts";
 const DAILY = "17 3 * * *";
 
 /** Every door's answer goes out cut to what it declares (answers.ts). The API's and MCP's own rows answer bytes here, since each call is checked by its own. */
-async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const response = await routeToDoor(request, env, ctx);
-  const door = siteDoorAt(new URL(request.url).pathname.replace(/\/+$/, "") || "/", request.method);
+async function route(given: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const door = siteDoorAt(new URL(given.url).pathname.replace(/\/+$/, "") || "/", given.method);
+  // From here on no read of the body, the guard's or the door's, gets past what the door's row takes.
+  const request = typeof door === "string" ? given : cappedRequest(given, doorBodyMaximumSizeBytes(door));
+  let response: Response;
+  try {
+    response = await routeToDoor(request, env, ctx);
+  } catch (error) {
+    if (typeof door !== "string" && error instanceof BodyPastCapError) return bodyTooBig(env, door);
+    throw error;
+  }
   return typeof door === "string" || door.contract.answers.kind !== "json" ? response : withDeclaredAnswer(env, response, door.contract.answers, `page:${request.method} ${door.path}`, (promise) => ctx.waitUntil(promise));
 }
 

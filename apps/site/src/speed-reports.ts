@@ -1,5 +1,6 @@
 import { isPastLevel, ApiError, DEVICE_KINDS } from "@zaisma/core";
 import { CHECKED_PAGES } from "./components/checked-pages.ts";
+import { STEEL_PAGES } from "./steel-pages.ts";
 import type { Env } from "./env.ts";
 import { connectionAddressOf } from "./auth.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -16,11 +17,11 @@ export const VISIT_KINDS = ["opened", "switched"] as const;
 export const CONNECTION_KINDS = ["slow_2g", "2g", "3g", "4g", "unknown"] as const;
 /** The longest wait reported: anything longer is a page left open in the background, not a page loading. */
 export const FIRST_PAINT_DELAY_LIMIT_MS = 120_000;
-/** A page that isn't on the checks' list reports as this. */
+/** A page that names no screen reports as this: every page names one now (layout's checkedPage), so only a page held from before. */
 export const OTHER_PAGE_NAME = "other";
 const REPORT_SIZE_LIMIT_BYTES = 512;
 
-const PAGE_NAMES: ReadonlySet<string> = new Set([...CHECKED_PAGES.map((page) => page.name), OTHER_PAGE_NAME]);
+const PAGE_NAMES: ReadonlySet<string> = new Set([...CHECKED_PAGES.map((page) => page.name), ...STEEL_PAGES.map((page) => page.name), OTHER_PAGE_NAME]);
 const REPORT_FIELDS = ["page_name", "visit_kind", "first_paint_delay_ms", "device_kind", "connection_kind"] as const;
 
 export interface SpeedReport {

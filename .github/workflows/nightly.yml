@@ -201,6 +201,43 @@ jobs:
           if [ "$SEED_RESULT" = success ] && [ "$SWEEP_RESULT" = success ]; then exit 0; fi
           exit 1
 
+  # Every button on the Screens bench pressed and seen to arrive (npm run bench:check, scripts/bench-press-check.mjs), since pressing them all is
+  # too heavy for a pull request. The bench is a local tool, so this never holds a ship: the job may fail while the run passes (npm run ship reads
+  # the run's conclusion), and a failure pushes Julius. It can't catch a screen only the data makes, or a branch inside one page.
+  bench-presses:
+    name: Bench presses
+    needs: seed
+    if: ${{ !inputs.pages && !inputs.commit_sha }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          key: nightly-preview-test-data-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - run: npm run preview:start
+      - env:
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: npm run bench:check
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true
+
   # CI's warning line, 4:00 on the slowest tenth of the last runs (scripts/ci-time-limit.mjs): nothing fails for it, and it pushes Julius while there's
   # room to optimize before the ceiling.
   ci-time:

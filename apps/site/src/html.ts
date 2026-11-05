@@ -19,6 +19,7 @@ import { backdrop, glassPane } from "./components/foundations.ts";
 import type { SwitchTab } from "./components/inputs.ts";
 import type { Viewer } from "./viewer.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
+import type { PageName, SteelPageName } from "./steel-pages.ts";
 
 /**
  * A page's scripts, as their files (page-scripts.ts), named for the first-paint script to run: they download while nothing waits on them,
@@ -490,7 +491,9 @@ addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog"
 addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
-const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT);
+// A file past what its form takes says so when it's chosen, and the form won't send it: the browser would upload it only to be refused.
+const FILE_SIZE_SCRIPT = `addEventListener("change",e=>{const i=e.target;if(!i.matches||!i.matches("input[type=file][data-maximum-size-bytes]"))return;const most=+i.dataset.maximumSizeBytes,isTooBig=[...i.files].some(f=>f.size>most);i.setCustomValidity(isTooBig?"That file is over "+Math.round(most/1048576)+" MB. Save it smaller and choose it again.":"");if(isTooBig)i.reportValidity()});`;
+const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + BUSY_SCRIPT + PREPARE_SCRIPT + FILE_SIZE_SCRIPT);
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -659,9 +662,13 @@ interface LayoutBaseOptions {
   steelStyles?: PageStyle[];
 }
 
-/** A page built in Zaisma's look names its state and its shape; a Steel page, neither. */
+/**
+ * Every page says which screen it is, so none can be built that the Screens bench doesn't know of (components/checked-pages.ts). A page built
+ * in Zaisma's look names its state on the checks' list and its shape; a Steel page names itself on the list of pages in the old look, and has
+ * no shape.
+ */
 export type LayoutOptions =
-  | (LayoutBaseOptions & { checkedPage?: undefined; pageShape?: undefined })
+  | (LayoutBaseOptions & { checkedPage: SteelPageName; pageShape?: undefined })
   | (LayoutBaseOptions & {
       /**
        * The body is built in Zaisma's look, with no Steel around it, and this is the state it renders on the list the design and layout checks
@@ -680,7 +687,7 @@ function rootStyle(options: LayoutOptions): Raw {
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
-  const isRebuilt = options.checkedPage !== undefined;
+  const isRebuilt = options.pageShape !== undefined;
   const sheet = isRebuilt && !hasSteel(options.body.html) && !hasSteel(options.stage?.html ?? "") ? SITE_STYLE : STEEL_SITE_STYLE;
   const colorTheme = options.viewer?.account?.color_theme ?? "system";
   // The browser's own strip at the top of a phone takes the game's background color, so the page looks as if it runs up to the top.
@@ -708,7 +715,7 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
 ${options.isFillingScreen ? html`<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">` : html`<meta name="viewport" content="width=device-width,initial-scale=1">`}
 <title>${options.title}</title>
-${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
+${checkedPageTag(options.checkedPage)}
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -729,8 +736,8 @@ ${followingStyleTags(...sheets)}
   return new Response(page.html, { headers: securityHeaders(env, extra, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'", options.hasStripePayments, options.hasStripeFrame) });
 }
 
-/** Which state on the checks' list a page is (LayoutOptions.checkedPage), for the layout check to read and a swapped-in sign-in step to carry over. */
-export const checkedPageTag = (name: CheckedPageName): Raw => html`<meta name="checked-page" content="${name}">`;
+/** Which screen a page is (LayoutOptions.checkedPage), for the layout check and the Screens bench's press check to read and a swapped-in sign-in step to carry over. */
+export const checkedPageTag = (name: PageName): Raw => html`<meta name="checked-page" content="${name}">`;
 
 
 /**
@@ -764,7 +771,7 @@ export function siteFooter(): Raw {
 }
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {
-  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${secondaryButton("Back to games", { href: "/" })}</div>` });
+  const response = layout(env, { title, checkedPage: "A message, in the old look", body: html`<h1>${title}</h1><p class="lead">${text}</p><div class="not-steel">${secondaryButton("Back to games", { href: "/" })}</div>` });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 

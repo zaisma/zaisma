@@ -1,3 +1,4 @@
+import type { SteelPageName } from "./steel-pages.ts";
 import {
   ApiError,
   accountById,
@@ -14,6 +15,7 @@ import {
   type PostRating,
   type TopicKind,
   type TopicStatus,
+  formOf,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, type Caller } from "./developer.ts";
@@ -156,7 +158,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
     // An image to place in a post's text, uploaded while it's written.
     if (path === "/forum/media" && isPost) {
       if (!caller) return new Response(JSON.stringify({ error: "Sign in to add images." }), { status: 401, headers: { "Content-Type": "application/json" } });
-      const file = (await request.formData()).get("file");
+      const file = (await formOf(request)).get("file");
       try {
         if (!(file instanceof File)) throw new ApiError("no_file", { message: "No image was chosen.", field: "image", fix: "Choose an image." });
         const uploaded = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
@@ -169,7 +171,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
     // What a draft will look like, rendered exactly as a post is.
     if (path === "/forum/preview" && isPost) {
       if (!caller) return new Response("", { status: 401 });
-      const text = String((await request.formData()).get("text_markdown") ?? "").slice(0, FORUM_LIMITS.textCharacterCount);
+      const text = String((await formOf(request)).get("text_markdown") ?? "").slice(0, FORUM_LIMITS.textCharacterCount);
       const body = text.trim() ? renderMarkdown(text, { siteOrigin: env.SITE_ORIGIN, mentions: await previewMentions(env, text) }) : `<p class="muted">Nothing to preview yet.</p>`;
       return done(new Response(body, { headers: securityHeaders(env, { "Cache-Control": "no-store" }) }));
     }
@@ -185,7 +187,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       const isMessage = path === "/forum/messages/new";
       if (!caller) return signIn();
       if (!isPost) return done(await newPage(ctx, Object.fromEntries(url.searchParams), isMessage));
-      const form = await request.formData();
+      const form = await formOf(request);
       const field = (name: string) => String(form.get(name) ?? "").trim();
       try {
         const created = await createTopic(env, caller, {
@@ -197,7 +199,6 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
           is_public: !isMessage,
           ...(field("game_slug") ? { game_slug: field("game_slug") } : {}),
           ...(field("known_issue_topic_id") ? { known_issue_topic_id: field("known_issue_topic_id") } : {}),
-          ...(await imagesFrom(form)),
         });
         const topic = created.topic;
         const state = !topic.is_public ? "posted-private" : topic.is_shown ? "posted" : created.posts[0]?.check_status === "held" ? "held" : "checking";
@@ -223,7 +224,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       await markTopicSeen(env, caller, id);
       return done(new Response(null, { status: 204 }));
     }
-    const form = await request.formData();
+    const form = await formOf(request);
     const field = (name: string) => String(form.get(name) ?? "").trim();
     // A toggle's form says undo when it takes back what's on.
     const isUndo = form.get("undo") === "1";
@@ -234,7 +235,6 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
           text_markdown: field("text_markdown"),
           ...(field("reply_to_post_id") ? { reply_to_post_id: field("reply_to_post_id") } : {}),
           ...(reopen ? { reopen: true } : {}),
-          ...(await imagesFrom(form)),
         });
         const state = reopen ? "reopened" : replied.post.check_status === "pending" ? "checking" : replied.post.check_status === "held" ? "held" : "replied";
         return done(redirect(`/forum/${id}?done=${state}#p-${replied.post.id}`));
@@ -275,7 +275,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
   } catch (error) {
     if (error instanceof ApiError && error.httpStatus === 404) {
       return done(
-        forumPage(ctx, "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, {
+        forumPage(ctx, "Forum, not found", "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, {
           httpStatus: 404,
         }),
       );
@@ -338,26 +338,12 @@ function withCookies(response: Response, cookies: string[]): Response {
 }
 
 /** The images from a form, as the API takes them. */
-async function imagesFrom(form: FormData): Promise<{ images_base64?: string[] }> {
-  const files = form.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
-  if (!files.length) return {};
-  if (files.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError("too_many_images", { message: `That's ${files.length} images, over ${FORUM_LIMITS.imageCountPerPost}.`, field: "images", fix: `Attach up to ${FORUM_LIMITS.imageCountPerPost} images a post; put the rest in a reply.` });
-  const images: string[] = [];
-  for (const file of files) {
-    if (file.size > FORUM_LIMITS.imageSizeBytes) throw new ApiError("image_too_big", { message: `${file.name || "An image"} is over ${FORUM_LIMITS.imageSizeBytes / 1048576} MB.`, field: "images", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and attach it again." });
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    images.push(btoa(binary));
-  }
-  return { images_base64: images };
-}
-
 /** The site's page with the forum's search and New topic in the header. */
-function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: number; searchText?: string; keep?: Record<string, string> } = {}): Response {
+function forumPage(ctx: Ctx, checkedPage: SteelPageName, title: string, body: Raw, options: { httpStatus?: number; searchText?: string; keep?: Record<string, string> } = {}): Response {
   const category = ctx.url.searchParams.get("category");
   const page = layout(ctx.env, {
     title: `${title} · Zaisma forum`,
+    checkedPage,
     body: html`${body}${scriptTags(FORUM_SCRIPT, POSTS_SCRIPT)}`,
     steelStyles: [FORUM_STYLE],
     isPrivate: true,
@@ -517,6 +503,7 @@ async function listPage(ctx: Ctx, query: PageQuery): Promise<Response> {
   const hasMore = listing.next_cursor !== null;
   return forumPage(
     ctx,
+    "Forum",
     heading,
     html`<div class="forum">
 ${rail(ctx, query, listing.tab, unread)}
@@ -636,6 +623,7 @@ async function topicPage(ctx: Ctx, id: string, options: { done?: string; error?:
   const replyCount = rest.filter((post) => post.kind !== "status" || post.text_markdown.length > 60).length;
   return forumPage(
     ctx,
+    "A forum topic",
     topic.title,
     html`<div class="topic">
 <article class="t-main">
@@ -821,10 +809,11 @@ function outPage(ctx: Ctx, to: string): Response {
     destination = new URL(to);
   } catch {}
   if (!destination || !shownAddress(destination.href)) {
-    return forumPage(ctx, "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { httpStatus: 400 });
+    return forumPage(ctx, "Forum, not a link", "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { httpStatus: 400 });
   }
   return forumPage(
     ctx,
+    "Forum, leaving Zaisma",
     "Leaving Zaisma",
     html`<div class="leaving plate bevel-s">
   <h1>You're leaving Zaisma</h1>
@@ -844,6 +833,7 @@ async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Re
   if (!post || post.author.kind === "zaisma" || post.author.is_you) throw new ApiError("no_post", { message: "There's no post here you can report.", field: "post_id", fix: "Open the topic again and report a post someone else wrote." });
   return forumPage(
     ctx,
+    "Forum, report a post",
     "Report a post",
     html`<div class="newtopic">
 <form class="np plate bevel-s" method="post" action="/forum/${topicId}/report">
@@ -872,6 +862,7 @@ async function newPage(ctx: Ctx, given: Record<string, string>, isMessage: boole
   const category = (given.category && (FORUM_CATEGORIES as string[]).includes(given.category) ? given.category : sectionCategories[0]) || known?.topic.category || "";
   return forumPage(
     ctx,
+    isMessage ? "Forum, message Zaisma" : "Forum, new topic",
     isMessage ? "Message Zaisma" : "New topic",
     html`<div class="newtopic">
 <form class="np plate bevel-s" method="post" action="${isMessage ? "/forum/messages/new" : "/forum/new"}" enctype="multipart/form-data">

@@ -1224,6 +1224,15 @@ describe("layout", () => {
     expect(typeof layout).toBe("function");
   });
 
+  it("makes every page say which screen it is: the compiler refuses one without a name, or a Steel page with a shape", () => {
+    // @ts-expect-error: every page names its screen, or the Screens bench can't know of it.
+    const withoutName: LayoutOptions = { title: "A page", body: html`<p>Hi</p>` };
+    // @ts-expect-error: a name on the list of pages in the old look goes with no shape.
+    const steelWithShape: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Your account", pageShape: "reading" };
+    const steel: LayoutOptions = { title: "A page", body: html`<p>Hi</p>`, checkedPage: "Your account" };
+    expect([withoutName.title, steelWithShape.title]).toEqual([steel.title, steel.title]);
+  });
+
   it("sets no words in px: type and controls grow with the browser's text size", () => {
     // A picture's initials are sized to the picture, which doesn't grow: the one font in px.
     // A PIN's one field, unseen over its marks: 16px, the least that keeps a phone from zooming in as it's typed in.

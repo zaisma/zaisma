@@ -70,10 +70,7 @@ ${figure("lava-leap-overlay.webp", "A shop panel, a Play button and an arrow lai
 ${figure("lava-leap-fake-reward.webp", "“FREE” and “5,000 ROBUX”: the game is held.", "not-fine")}
 </div>
 
-<h3>4. No famous characters, logos or names you don't own</h3>
-<p>Only the obvious ones count: a character, logo or name a teen would name at a glance, like Mario, Naruto, Lightning McQueen, a football club's crest or the Roblox logo. Generic blocky or pixel characters are fine. If you own it or have permission, message Zaisma. What's inside your game is different: Zaisma acts on borrowed characters there only when the owner sends a notice.</p>
-
-<h3>5. Built around something from the game</h3>
+<h3>4. Built around something from the game</h3>
 <p>The character, creature or thing your cover is built around appears in at least one of your screenshots, in any art style.</p>
 <div class="guide-pair">
 ${figure("gem-grid-cover.webp", "A giant robot on the cover…", "not-fine")}
@@ -97,12 +94,12 @@ ${figure("screenshot-not-fine.webp", "A caption, an arrow and a circle added aft
 <p>A background is your game's world behind Zaisma's glass on your game page: a picture, or a shader that paints it live. It's separate from your cover and carries no title, logo or words: those go on the cover, and a background with them doesn't show. Words that are part of the scene, like a sign on a building, are fine. Compose it for the glass: on a wide one, Zaisma's glass sits on the left, so keep the left calm and let the world open up on the right; on a phone one, the glass takes the bottom half, so keep the interest in the top half. Without a phone background, phones show the wide one. <a href="/developers/backgrounds">The background guide</a> says what reads well under the glass, with live worlds whose sources are open to start from.</p>
 
 <h2>Titles</h2>
-<p>A title names the game. No tags: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. “+1 Speed Run”, “Wrangler 2x” and “Free Fall” are names, so they're fine. No list of what the game is: “Car Mechanic Simulator” is a name, however long, and “Neon Rush: Racing Drift Car Driving Simulator” isn't; the description and genres say what it is, and search finds those too. No famous names you don't own, and no fake rewards. Patch notes are where you say what's new.</p>
+<p>A title names the game. No tags: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. “+1 Speed Run”, “Wrangler 2x” and “Free Fall” are names, so they're fine. No list of what the game is: “Car Mechanic Simulator” is a name, however long, and “Neon Rush: Racing Drift Car Driving Simulator” isn't; the description and genres say what it is, and search finds those too. No fake rewards. Patch notes are where you say what's new.</p>
 
 <h2>What happens</h2>
-<p>Pictures and new words are checked in about a minute. A cover or title that breaks a line still shows on your game's page, and the game plays by its link, but home, All games, browse and search engines leave it out until it's fixed; it's back about a minute after. Your dashboard, and your AI through <code>get_game</code>, say what and how to fix it. A fake reward holds the game until a person looks. If the check got something wrong, message Zaisma from the dashboard, or <code>message_zaisma</code>, and a person looks.</p>
+<p>Pictures and new words are checked in about a minute. A cover or title that breaks a line still shows on your game's page, and the game plays by its link, but home, All games, browse and search engines leave it out until it's fixed; it's back about a minute after. Your dashboard, and your AI through <code>get_game</code>, say what and how to fix it. A fake reward holds the game until a person looks. Characters, logos and names that belong to someone else aren't checked: Zaisma acts on them only when the owner sends a notice. If the check got something wrong, message Zaisma from the dashboard, or <code>message_zaisma</code>, and a person looks.</p>
 </div>`;
-  const response = layout(env, { title: "Covers that show your game · Zaisma", head: STYLE, body, nav: "developer", viewer });
+  const response = layout(env, { title: "Covers that show your game · Zaisma", checkedPage: "Cover guide", head: STYLE, body, nav: "developer", viewer });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
 }

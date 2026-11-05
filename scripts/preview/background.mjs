@@ -41,8 +41,8 @@ const SEEDED = join(ROOT, ".wrangler/preview/seeded");
 const READY_LINE = "Zaisma preview is running.";
 // From its turn in the line for memory: the wait in line has its own limit (START_WAIT_LIMIT_MS, memory.mjs).
 const READY_TIMEOUT_MS = 9 * 60_000;
-// Every port run.mjs takes, for an offset (keep in step with its PORTS and inspector ports).
-const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 8803, 9340, 9341, 9342].map((port) => port + offset);
+// Every port run.mjs takes, for an offset (keep in step with its PORTS).
+const portsFor = (offset) => [8790, 8791, 8792, 8793, 8794, 8795, 8796, 8797, 8798, 8799, 8800, 8801, 8802, 8803].map((port) => port + offset);
 // Where a browser opens it: this Mac's tailnet name when the preview is on a phone (phoneHost), else localhost.
 const addressFor = (port, phoneHost) => (phoneHost ? `https://${phoneHost}:${port}` : `http://localhost:${port}`);
 const siteFor = (offset, phoneHost = null) => addressFor(8800 + offset, phoneHost);
@@ -111,12 +111,12 @@ async function start() {
       phone.reason = `Tailscale Serve said: ${serveProblem}`;
       phone.host = null;
     }
-    // Its own process group, so stopping it also stops wrangler and workerd under it.
-    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
+    // Its own process group, so stopping it also stops the servers and workerd under it.
+    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--max-semi-space-size=2", join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
       cwd: ROOT,
       detached: true,
       stdio: ["ignore", log, log],
-      env: { ...process.env, PREVIEW_PORT_OFFSET: String(offset), PREVIEW_PHONE_HOST: phone.host ?? "" },
+      env: { ...process.env, MallocLargeCache: "0", PREVIEW_PORT_OFFSET: String(offset), PREVIEW_PHONE_HOST: phone.host ?? "" },
     });
     child.unref();
     return { child, offset };
@@ -363,7 +363,7 @@ Admin pages (${site}/admin) need no sign-in here. Email codes: ${addressFor(8795
 
 Every test page and state, with what it shows: ${show(PAGES)}
 Log: ${show(LOG)}  (the servers' own: .wrangler/preview/servers.log)
-It sleeps after 30 minutes with nobody looking, or 10 when something waits in line for memory, and the next page opened wakes it in a few seconds, data and sign-ins as they were.
+It sleeps after 10 minutes with nobody looking, or 3 when something waits in line for memory, or 2 when its session has handed it over and a test run needs the room, and the next page opened wakes it in about a second, data and sign-ins as they were.
 Stop: npm run preview:stop   Fresh test data: npm run preview:start -- --reset   Every preview on this machine: npm run preview:list`);
 }
 
