@@ -272,7 +272,7 @@ const LIVE_WORLD_STYLES = `
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .world-still { background-image: var(--still-night), var(--still-small-night); } }
 [data-theme-choice="dark"] .world-still { background-image: var(--still-night), var(--still-small-night); }
 /* The count: the page's one line, on the sky, a link to what people are playing. */
-.world-count { position: absolute; z-index: 1; top: var(--header-room); left: max(var(--pad-pane), calc((100% - 1240px) / 2)); max-width: calc(100% - 2 * var(--pad-pane)); min-height: var(--control-height-regular); display: flex; align-items: center; font: var(--type-heading); color: var(--ink); text-decoration: none; }
+.world-count { position: absolute; z-index: 0; top: var(--header-room); left: max(var(--pad-pane), calc((100% - 1240px) / 2)); max-width: calc(100% - 2 * var(--pad-pane)); min-height: var(--control-height-regular); display: flex; align-items: center; font: var(--type-heading); color: var(--ink); text-decoration: none; }
 .world-page .world-count { position: fixed; }
 @media (max-width: 760px) { .world-page .world-count { min-height: 0; font: var(--type-section); } }
 .world-frame .world-count { top: var(--pad-inner-pane); left: var(--pad-inner-pane); }
