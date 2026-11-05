@@ -573,8 +573,10 @@ const COVER_STYLES = `
 .cover.sleek > .cover-art.carving { box-shadow: none; }
 .cover.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
 .cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--gap-words-words); min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --pad-words: 0px; }
-/* In a row of cards the plates are one height, whatever each holds. */
-:is(.layout-track, .layout-grid) .cover { height: 100%; grid-template-rows: auto 1fr; }
+/* In a row of cards every card is one height, the tallest's (a track stretches its cards, a grid its cells), and the plate takes what's left,
+   so a price or a friend under one title never makes its card taller than the rest. */
+.layout-track > .cover, .grid-cell > .cover { grid-template-rows: auto 1fr; }
+.grid-cell > .cover { height: 100%; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
