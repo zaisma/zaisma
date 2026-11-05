@@ -1279,9 +1279,9 @@ component({
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
 /* Its covers rest in a well carved straight across the pane, flush with the pane's edges, square where it meets them, the frame gap from the
-   well's edges on every side. A track that fits keeps no room for a rail it won't get. */
+   well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
 .shelf-well { margin-inline: calc(-1 * var(--pad-frame)); padding-block: var(--pad-frame); }
-.shelf-well > .track-holder > .layout-track { padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
+.shelf-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 .shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
 .shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
