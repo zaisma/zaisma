@@ -200,7 +200,7 @@ Everything in the gallery is built of five materials, each defined once in `mate
 - **Tray** (`tray`): one sheet of the thinnest glass, its head on a step of regular glass across its top.
 - **Floating** (a floating pane, a sheet, a notice, a playing card): thin glass over what's under it, which it blurs.
 - **Carving** (`carving`): the glass cut away, for what's held in it (a well, a field, a slot); a deep carving is a groove or a PIN's marks.
-- **Sleek** (`glass sleek`): a sheet of the tray's thinnest glass cut straight, with no bevel: one hairline round it and the light along its top edge, so its profile is one fine line. What shows through it has no edge of its own (a game card: its art in the top, its words on the glass below).
+- **Sleek** (`glass sleek`): thick glass cut straight, with no bevel, standing out from the pane it lies on: one hairline round it and the light along its top edge, so its profile is one fine line. What shows through it has no edge of its own (a game card: its art in the top, its words on the glass below).
 - **Slab** (`slab`): a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, it's the orange one.
 
 Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it and looks the same. Waiting is a state of the glass, not of a component: whatever was pressed and waits on the same page (`aria-busy="true"`) keeps its pressed look, and at once the Waiting component's glint runs across its pressed face (one glint resting, under reduced motion). A game's hue (`--glass-hue`) reaches every material at its own strength, a carving half as much as a pane or a slab.

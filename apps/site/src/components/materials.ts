@@ -16,7 +16,7 @@ import { CUT_LINE, glassPane } from "./foundations.ts";
  *   - Floating pane (foundations.ts's floatingPane), a sheet, a notice, a playing card: thin glass, over what's under it, blurred.
  *   - Carving: the glass cut away, for what's held in it (a well, a field, a slot) and, deep, a groove.
  *   - Slab: a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, the orange one.
- *   - Sleek: a sheet of the thinnest glass with a sleek profile, no bevel: one hairline round it and the light along its top edge (a game card).
+ *   - Sleek: thick glass with a sleek profile, no bevel: one hairline round it and the light along its top edge (a game card).
  *
  * Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it, the same look.
  */
@@ -34,9 +34,10 @@ export const MATERIAL_STYLES = `
    it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast),
    both stopping inside the rim's bevel, the lip fading out before it, so the step never runs into the sheet's edge. */
 .tray-group { --glass-tint: var(--glass-tray); }
-/* Sleek: the tray's thinnest glass, cut straight with no bevel, so its profile is one fine line: a hairline round it and the one light caught
-   along its top edge. It draws no rim of its own (no data-glass), so nothing in it sits inside a band; its edge lies over what it holds. */
-.glass.sleek { --glass-tint: var(--glass-tray); }
+/* Sleek: thick glass cut straight with no bevel, so its profile is one fine line: a hairline round it and the one light caught along its top
+   edge. Thicker than the pane it lies on, it stands out from it with a shape of its own. It draws no rim of its own (no data-glass), so nothing in
+   it sits inside a band; its edge lies over what it holds. */
+.glass.sleek { --glass-tint: var(--glass-thick); }
 .glass.sleek::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
 .glass.sleek::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 0 1px var(--edge-hair), inset 0 1px 0 var(--edge-inner); }
 /* Its lighter blur and saturation are its own glass's, not passed on to glass that blurs inside it (a menu over a game's world). */
