@@ -123,7 +123,7 @@ describe("the home page", () => {
     expect(text).toMatch(/id="home-event"[\s\S]*?<img class="reveals" src="\/whats-on-art\/whats_on_entry_homeevent\/wide"[^>]*alt="Zombie weekend"/);
     expect(text).toContain("Go play");
     expect(text).not.toContain("banner_close");
-    expect(text).toMatch(/id="home-event"[\s\S]*?<div class="event-banner"><section class="glass glass-pane[\s\S]*?<div class="well carving event-banner-well holds-art"/);
+    expect(text).toMatch(/id="home-event"[\s\S]*?<div class="event-banner"><section class="glass glass-pane full compact"[\s\S]*?<div class="well carving event-banner-well holds-art"/);
     await env.DB.prepare("UPDATE whats_on_entries SET ends_at_ms = ? WHERE id = 'whats_on_entry_homeevent'").bind(now - 1).run();
     expect((await homePage()).text).not.toContain('id="home-event"');
     await env.DB.prepare("DELETE FROM whats_on_entries WHERE id = 'whats_on_entry_homeevent'").run();

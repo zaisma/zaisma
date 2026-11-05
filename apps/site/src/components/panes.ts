@@ -661,6 +661,7 @@ component({
       isWide: true,
       markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h2>About Ashen Crown</h2>` }, { kind: "words", markup: html`<p>A siege across one long night for up to 64 players. Hold the walls of Ember Keep while the dead climb from the marsh, trade what you scavenge between waves, and keep the last fire burning until dawn. Every Sunday the map turns and the leaderboard starts again.</p>` }] }) }),
     },
+    { label: "Compact: a thin frame of glass round what fills it, at the compact frame gap", markup: glassPane({ paneWidth: "full", isCompact: true, body: stackOfOne(well({ body: html`zaisma.com/g/ashen-crown`, end: secondaryButton("Open", { href: "#", isSmall: true }) })) }), isWide: true },
     { label: "Full: as wide as what holds it (one that should take half the screen goes in Columns)", markup: glassPane({ paneWidth: "full", body: stack({ items: [{ kind: "words", markup: html`<h2>Rooms</h2>` }, { kind: "words", markup: html`<p>267 playing now in 78 rooms.</p>` }] }) }), isWide: true },
   ],
 });
@@ -2047,7 +2048,7 @@ export function eventBanner(options: EventBannerOptions): Raw {
   const artAt = (imageUrl: string, side: "is-wide" | "is-narrow") => picture({ imageUrl, widthPx: 2400, heightPx: 88, placeholderDataUrl: null }, { label: options.title, className: `event-banner-picture ${side}`, isEager: true });
   const pictureMarkup = html`${artAt(options.widePicture, "is-wide")}${options.narrowPicture ? artAt(options.narrowPicture, "is-narrow") : ""}`;
   const art = html`<a class="event-banner-art carving-art" data-cut-line="0" href="${options.action.href}">${pictureMarkup}</a>`;
-  return html`<div class="event-banner">${glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(well({ kind: "event-banner-well holds-art", body: art, end: secondaryButton(options.action.label, { href: options.action.href, isSmall: true }) })) })}</div>`;
+  return html`<div class="event-banner">${glassPane({ paneWidth: "full", isCompact: true, label: options.title, body: stackOfOne(well({ kind: "event-banner-well holds-art", body: art, end: secondaryButton(options.action.label, { href: options.action.href, isSmall: true }) })) })}</div>`;
 }
 
 component({
@@ -2057,9 +2058,8 @@ component({
   subgroup: "layers",
   summary: "A slim pane across the top of the home for an event Zaisma runs, like a themed weekend, with a well carved into it that the art shows from. The art carries the title; its one button sits at the well's end. All of it opens the event, and it stays until the event ends.",
   styles: `
-/* The pane: a thin frame of glass round the well, so an event never turns into a poster. */
+/* A compact pane, a thin frame of glass round the well, so an event never turns into a poster. */
 .event-banner { width: 100%; min-width: 0; container-type: inline-size; }
-.event-banner > .glass-pane > .pane-in { padding: var(--pad-frame); }
 .event-banner-well { position: relative; height: var(--control-height-regular); }
 .event-banner-well > .well-body { position: absolute; inset: 0; padding: 0; }
 .event-banner-picture img { object-position: left center; }
