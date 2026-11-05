@@ -39,7 +39,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server/internal";
-import { rememberDeletedKeptRoom, RENTED_SHARE_TEXT, gameHosting, hasAutomationSigns, isPastDoorLimit, isPastGameLimit, readPlayShare, rentedShareOfRoomCents, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { readBodyText, rememberDeletedKeptRoom, RENTED_SHARE_TEXT, gameHosting, hasAutomationSigns, isPastDoorLimit, isPastGameLimit, readPlayShare, rentedShareOfRoomCents, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase, gameDatabaseObject, type PointInTime } from "./database.ts";
 import type { CarriedOverRestore, ToldKeptRoomRestore } from "./kept-room-restores.ts";
@@ -157,6 +157,17 @@ const CHECK_MS = 60_000;
 const TESTER_CHECK_MS = 10_000;
 /** An empty room's saved state is deleted after this, unless the room is kept (room.setKept). */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
+/** The most a kept room's restore sends between its steps: who sits in the room, what they own and who was erased. */
+const KEPT_ROOM_RESTORE_BODY_SIZE_BYTES = 8 * 1024 * 1024;
+
+const readKeptRoomRestoreBody = async <T>(request: Request): Promise<T | null> => {
+  try {
+    return JSON.parse(await readBodyText(request, KEPT_ROOM_RESTORE_BODY_SIZE_BYTES)) as T;
+  } catch {
+    return null;
+  }
+};
+
 /** How long a kept room's restore waits for the room's save: a game server restoring its own room is in the middle of a handler. */
 const KEPT_ROOM_RESTORE_SAVE_WAIT_MS = 3000;
 /** How long a reserved room waits for its players before it's cleared. */
@@ -1507,7 +1518,7 @@ export class Room extends DurableObject<Env> {
    */
   private async preparingKeptRoomRestore(request: Request): Promise<Response> {
     if (!this.meta?.roomCode || this.hasEnded || this.erasesAtMs !== null || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
-    const target = (await request.json().catch(() => null)) as { restoreToAtMs?: unknown; bookmark?: unknown } | null;
+    const target = await readKeptRoomRestoreBody<{ restoreToAtMs?: unknown; bookmark?: unknown }>(request);
     if (typeof target?.restoreToAtMs !== "number" && typeof target?.bookmark !== "string") return new Response("Bad request", { status: 400 });
     if (this.core && !this.core.ended) {
       if (!this.core.ticking) this.core.dirty = true;
@@ -1533,7 +1544,8 @@ export class Room extends DurableObject<Env> {
 
   /** A prepared restore the record of couldn't be kept: the next start goes to the undo bookmark, the world as it is now, instead. */
   private async abandoningKeptRoomRestore(request: Request): Promise<Response> {
-    const abandoned = (await request.json().catch(() => null)) as { undoBookmark?: unknown } | null;
+    if (this.meta?.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const abandoned = await readKeptRoomRestoreBody<{ undoBookmark?: unknown }>(request);
     if (typeof abandoned?.undoBookmark !== "string") return new Response("Bad request", { status: 400 });
     await this.pointInTime().restoreOnNextStart(abandoned.undoBookmark);
     return new Response(null, { status: 204 });
@@ -1553,7 +1565,7 @@ export class Room extends DurableObject<Env> {
    * its game server hears who they are (ToldKeptRoomRestore), since the game's own state is the game's to clean.
    */
   private async carryingKeptRoomRestore(request: Request): Promise<Response> {
-    const carrying = (await request.json().catch(() => null)) as { carried?: CarriedOverRestore; told?: ToldKeptRoomRestore | null } | null;
+    const carrying = await readKeptRoomRestoreBody<{ carried?: CarriedOverRestore; told?: ToldKeptRoomRestore | null }>(request);
     if (!carrying?.carried || this.meta?.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
     return this.ctx.blockConcurrencyWhile(async () => {
       const erasedPlayerIds = new Set(carrying.told?.erasedPlayerIds ?? []);

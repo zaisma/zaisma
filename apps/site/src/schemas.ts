@@ -1236,7 +1236,7 @@ export const KEPT_ROOMS = object({
       name: nullable(text("The room's name, as its game server set it.")),
       saved_size_bytes: countOf("How much it took when it was erased."),
       deleted_at: isoTime("When it was deleted."),
-      can_bring_back_until: isoTime("Until when bring_back_kept_room can bring it back from its last copy."),
+      bring_back_ends_at: isoTime("Until when bring_back_kept_room can bring it back from its last copy."),
       bring_back_started_at: nullable(isoTime("When it started coming back; null if it hasn't.")),
       bring_back_failed_at: nullable(isoTime("When coming back failed, so ask again; null if it hasn't.")),
     }),

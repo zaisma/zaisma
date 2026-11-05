@@ -237,11 +237,12 @@ export async function restoreKeptRoomPage(env: Env, part: KeptRoomRestorePagePar
   }
   const isLastPage = rooms.length < KEPT_ROOM_RESTORE_LIMITS.batchPageRoomCount;
   await env.DB.prepare(
-    "UPDATE kept_room_restore_batches SET " +
-      "restored_room_count = (SELECT COUNT(*) FROM kept_room_restores WHERE kept_room_restore_batch_id = ?1), " +
-      "failed_room_count = (SELECT COUNT(*) FROM kept_room_restore_failures WHERE kept_room_restore_batch_id = ?1), " +
-      "skipped_room_count = CASE WHEN ?2 THEN kept_room_count - (SELECT COUNT(*) FROM kept_room_restores WHERE kept_room_restore_batch_id = ?1) - (SELECT COUNT(*) FROM kept_room_restore_failures WHERE kept_room_restore_batch_id = ?1) ELSE skipped_room_count END, " +
-      "finished_at_ms = CASE WHEN ?2 THEN ?3 ELSE NULL END WHERE id = ?1",
+    `UPDATE kept_room_restore_batches SET
+       restored_room_count = (SELECT COUNT(*) FROM kept_room_restores WHERE kept_room_restore_batch_id = ?1),
+       failed_room_count = (SELECT COUNT(*) FROM kept_room_restore_failures WHERE kept_room_restore_batch_id = ?1),
+       skipped_room_count = CASE WHEN ?2 THEN kept_room_count - (SELECT COUNT(*) FROM kept_room_restores WHERE kept_room_restore_batch_id = ?1) - (SELECT COUNT(*) FROM kept_room_restore_failures WHERE kept_room_restore_batch_id = ?1) ELSE skipped_room_count END,
+       finished_at_ms = CASE WHEN ?2 THEN ?3 ELSE NULL END
+     WHERE id = ?1`,
   )
     .bind(batch.id, isLastPage ? 1 : 0, Date.now())
     .run();

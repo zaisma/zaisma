@@ -123,7 +123,7 @@ export const deletedKeptRoomJson = (deleted: { room_code: string; name: string |
   name: deleted.name,
   saved_size_bytes: deleted.saved_size_bytes,
   deleted_at: iso(deleted.deleted_at_ms)!,
-  can_bring_back_until: iso(keptRoomCopyEndsAtMs(deleted.deleted_at_ms))!,
+  bring_back_ends_at: iso(keptRoomCopyEndsAtMs(deleted.deleted_at_ms))!,
   bring_back_started_at: iso(deleted.bring_back_started_at_ms),
   bring_back_failed_at: iso(deleted.bring_back_failed_at_ms),
 });

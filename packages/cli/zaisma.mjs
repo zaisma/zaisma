@@ -1964,7 +1964,7 @@ async function keptRooms(command, values) {
     if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
     for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.erases_at ? `waiting, erased ${when(keptRoom.erases_at)}  ` : ""}${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
     console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of the ${sizeText(answer.maximum_storage_size_bytes)} a game can keep (database and kept rooms).`);
-    if (answer.deleted_kept_rooms.length) console.log(`Deleted, and can come back from their last copy: ${answer.deleted_kept_rooms.map((deleted) => `${deleted.room_code} until ${when(deleted.can_bring_back_until)}`).join(", ")}`);
+    if (answer.deleted_kept_rooms.length) console.log(`Deleted, and can come back from their last copy: ${answer.deleted_kept_rooms.map((deleted) => `${deleted.room_code} until ${when(deleted.bring_back_ends_at)}`).join(", ")}`);
     return;
   }
   // Every world of the game.
