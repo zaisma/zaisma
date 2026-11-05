@@ -167,7 +167,7 @@ const PAGE_COSTS_SEC = {
   "Report a game": 5,
 };
 const SWEEP_PAGE_COSTS_SEC = {
-  "Gallery: inputs fields": 74,
+  "Gallery: inputs fields": 87.3,
   "Gallery: data pictures": 70.5,
   "Gallery: navigation bars": 66.5,
   "Gallery: layout inside": 62.6,
@@ -176,7 +176,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Playing a game, asked to sign in": 48.8,
   "Gallery: the sidebar over the page": 45.1,
   "Gallery: panes sheets": 36.4,
-  "Gallery: inputs choices": 34.4,
+  "Gallery: inputs choices": 51.5,
   "Gallery: panes materials": 32.8,
   "Game page": 32.2,
   "Gallery: panes layers": 32,
@@ -185,10 +185,10 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Game page, no rooms": 23.7,
   "Games, signed in": 23.6,
   "Games, empty": 23.4,
-  "Home, signed in": 23.1,
+  "Home, signed in": 19.9,
   "Home, empty": 21.7,
   "Developer settings, a game deletion request": 21.5,
-  "Developer settings, full": 21.3,
+  "Developer settings, full": 58.6,
   Games: 21,
   "Gallery: over-a-game sheets": 20.9,
   "Games, long names": 20.2,
@@ -198,7 +198,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Gallery: inputs pickers": 18.9,
   "Gallery: data numbers": 17,
   Home: 16.7,
-  "Developer settings": 16.3,
+  "Developer settings": 102.9,
   "Gallery: foundations look": 16.2,
   "Games, one genre": 15.4,
   "Gallery: data reading": 15.1,
@@ -210,7 +210,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Home, full": 13.5,
   "Gallery: panes buying": 13.4,
   "Developer settings, a spending request": 13.1,
-  "Content rules": 13.1,
+  "Content rules": 21.3,
   "Buying, confirm with a PIN": 12.1,
 };
 const COSTS_BY_RUN = { pull_request: { page_costs_sec: PAGE_COSTS_SEC, unlisted_page_cost_sec: 4 }, sweep: { page_costs_sec: SWEEP_PAGE_COSTS_SEC, unlisted_page_cost_sec: 8 } };
