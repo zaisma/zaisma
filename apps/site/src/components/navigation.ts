@@ -1280,11 +1280,13 @@ component({
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
-.shelf-well { padding-block: var(--pad-frame); }
+.shelf-well { padding-block: 0 var(--pad-frame); }
 .shelf-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
-.shelf-well > .track-holder > .layout-track, .shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: 0; margin-block: 0; }
+/* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
+.shelf-well > .track-holder > .layout-track, .shelf-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
+.shelf-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
 /* Its rail runs inside the well, the frame gap from its sides and from the covers above it. */
-.shelf-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: var(--pad-frame); }
+.shelf-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
 .shelf-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
 /* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
 .shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
