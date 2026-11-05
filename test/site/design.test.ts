@@ -15,7 +15,7 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, firstScreen, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
@@ -1333,6 +1333,8 @@ describe("layout", () => {
     const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
     expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
     expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
+    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isOrderShuffled: true, items: covers(6) }).html).toContain("is-one-line is-at-least-two-across is-order-shuffled");
+    expect(firstScreen({ top: [], low: { kind: "block", id: "low", markup: html`<div>Low</div>` } }).html).toMatch(/^<div class="first-screen"><div class="layout-stack"><div class="stack-cell is-block" id="low">/);
     // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
     expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
     expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");

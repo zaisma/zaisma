@@ -740,9 +740,8 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
-  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's Neon Drift shader,
-                  Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
-                  Play starts the game in place and Back returns)
+  Home            ${SITE}/  (a first visit: one line over six covers, new order each visit, Zaisma's world above; point at a cover to lift it with Play and Details.
+                  Played something, as a guest or as Many_Things: Continue playing first, the game played last lifted, then Popular)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge

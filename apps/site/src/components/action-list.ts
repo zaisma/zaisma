@@ -14,6 +14,8 @@ const LIST = {
   buy: { words: "Buy", icon: "cart" },
   update: { words: "Update", icon: "download" },
   zaisma: { words: "Zaisma", icon: "zaisma" },
+  // What a game's page says about it, beside its Play.
+  details: { words: "Details", icon: "info" },
   // People.
   invite: { words: "Invite", icon: "send" },
   inviteToGame: { words: "Invite to a game", icon: "send" },

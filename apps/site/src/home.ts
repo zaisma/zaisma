@@ -2,15 +2,15 @@ import { type DeviceKind, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOC
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { tertiaryButton } from "./components/actions.ts";
 import { CUT_LINE, glassPane, icon, tag, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
-import { row, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
+import { MAXIMUM_ONE_LINE_COVER_COUNT, firstScreen, grid, row, stack, type LayoutItem } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
-import { banner, gameCard, type GameCardOptions } from "./components/panes.ts";
+import { banner, gameCard, gameCardActions, type GameCardOptions } from "./components/panes.ts";
 import { currentAnnouncement } from "./announcements.ts";
 import { shownAddress } from "./markup.ts";
+import { NO_EMPTY_NOTE } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
@@ -18,9 +18,10 @@ import { viewerOf } from "./viewer.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 
 /**
- * The home page and what it needs: one sheet of rows, there as the page opens, and Zaisma's news above them while there is any. The
- * page is the same for everyone but the player's own part, Continue playing: an account's list, or what this device played (PLAYED_COOKIE),
- * from the first paint, and the browser adds this device's to an account's.
+ * The home page and what it needs: still covers on glass over Zaisma's own world, and Zaisma's news above them while there is any. A first
+ * visit opens on one line over six covers, low on the first screen; a player with something to continue opens on Continue playing, the game
+ * they played last lifted, then Popular. Both are in the markup. Which shows comes from an account's list or what this device played
+ * (PLAYED_COOKIE), from the first paint, and the browser adds this device's to an account's.
  */
 
 export interface ShowGame {
@@ -57,10 +58,8 @@ export interface ShowGame {
   playing_now_player_count: number;
   /** none, multiplayer or whole_game: a guest can't start a whole_game game without an account. */
   account_requirement: Game["account_requirement"];
-  /** The color the developer tints Zaisma's glass with while the game's background is behind it on the home. */
+  /** The color the developer tints Zaisma's glass with on the game's page; a card's lit foot takes it too. */
   glass_tint_color: string | null;
-  /** What the home shows behind its glass while the game's cover is pointed at; null is Zaisma's own on both screens (the home's script fills it, backgroundsOfGames). */
-  background: { wide: ShownBackground; phone: ShownBackground } | null;
   /** It sells itself once (games.full_game_item_name): only owners play it. */
   is_paid: boolean;
   /** A paid game's price to play in the viewer's country; null for a free game, or a paid one not on sale now. */
@@ -116,7 +115,6 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
     playing_now_player_count: playingNow.get(row.id) ?? 0,
     account_requirement: row.account_requirement,
     glass_tint_color: row.glass_tint_color,
-    background: null,
     is_paid: row.full_game_item_name !== null,
     full_game_price: fullGamePriceOf(row.full_game_item, countryCode),
     };
@@ -214,8 +212,9 @@ export const trendingScore = (counts: ShelfCount): number => counts.recentPlayer
  * Popular, trending and new, the same for everyone, by plain rules from counted plays (plays.ts), not
  * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
  * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
+ * gamesOnShelves is every listed game Zaisma hasn't kept off the shelves, in the order given: what's left to show when those three run short.
  */
-export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[] | Promise<GameOnShelf[]>, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[] }> {
+export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first_published_at_ms">>(env: Env, games: GameOnShelf[] | Promise<GameOnShelf[]>, viewerAgeFloorYears: number, nowMs = Date.now()): Promise<{ popular: GameOnShelf[]; trending: GameOnShelf[]; fresh: GameOnShelf[]; gamesOnShelves: GameOnShelf[] }> {
   // The games may still be on their way (the home starts every read at once): the counts don't need them, only the picking after.
   const [{ counts: countsBySlug, offShelfSlugs: off }, listedGames] = await Promise.all([shelfCounts(env, viewerAgeFloorYears, nowMs), games]);
   const shelfCounted = [...countsBySlug].map(([slug, counts]) => ({ slug, ...counts }));
@@ -232,7 +231,7 @@ export async function shelves<GameOnShelf extends Pick<ShowGame, "slug" | "first
       .sort((first, second) => second.first_published_at_ms! - first.first_published_at_ms!)
       .map((game) => game.slug),
   );
-  return { popular, trending, fresh };
+  return { popular, trending, fresh, gamesOnShelves: listedGames.filter((game) => !off.has(game.slug)) };
 }
 
 /**
@@ -261,8 +260,8 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority"> = {}, isUpdated = false): Raw =>
-  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds), isUpdated }, ...loading });
+const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, loading: Pick<GameCardOptions, "isEager" | "hasHighPriority" | "isCurrent"> = {}, isUpdated = false): Raw =>
+  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, playHref: `/g/${game.slug}?play`, tintColor: game.glass_tint_color, facts: { playerCount: shownPlayerCount(game), priceText: coverPriceText(game, ownedGameIds), isUpdated }, ...loading });
 
 /** The first shelf's covers the page opens with in view, about a phone's or a wide screen's first row: they load with the page. */
 const FIRST_VIEW_COVER_COUNT = 4;
@@ -282,8 +281,14 @@ function homeShelf(id: string, title: string, sortName: string, list: ShowGame[]
   return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref: `/games?sort=${sortName}`, items: list.map((game, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, loadingOf(coverIndex)) })) }) };
 }
 
-/** What of each game the home's script needs: Continue playing's covers, the background behind the cover pointed at and the devices it puts first. */
-const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "big_update_at_ms", "playing_now_player_count", "glass_tint_color", "background", "devices"] as const;
+/** What of each game the home's script needs: Continue playing's covers and the devices it puts first. */
+const BROWSER_GAME_FIELDS = ["slug", "title", "cover", "big_update_at_ms", "playing_now_player_count", "glass_tint_color", "devices"] as const;
+
+/** The first visit's line, over the games: Popular sums each day's players over a week, so a player who comes back counts again. */
+const FIRST_VISIT_LINE = "These are the games players come back to most. Each one plays here in your browser, with nothing to download.";
+
+/** Each game once, keeping the first of each. */
+const eachGameOnce = (list: ShowGame[]): ShowGame[] => [...new Map(list.map((game) => [game.slug, game] as const)).values()];
 
 export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.
@@ -296,35 +301,24 @@ export async function home(env: Env, request: Request): Promise<Response> {
     if (isDue) await markProtectionOffered(env, signedInAccount.id);
     return isDue;
   };
-  // Every read the page needs starts at once, one wave to the database: the shelves and the backgrounds take the games only to pick
-  // from and to match their rows, once their own reads are back.
+  // Every read the page needs starts at once, one wave to the database: the shelves take the games only to pick from, once their own reads are back.
   const gamesRead = showcase(env, viewer.ageFloorYears, undefined, requestCountryCode(request));
-  const [isProtectionOffered, games, { popular, trending, fresh }, backgrounds, news, accountPlayed] = await Promise.all([
+  const [isProtectionOffered, games, { popular, trending, fresh, gamesOnShelves }, news, accountPlayed] = await Promise.all([
     account ? protectionOffer(account) : false,
     gamesRead,
     shelves(env, gamesRead, viewer.ageFloorYears),
-    backgroundsOfGames(env, gamesRead),
     currentAnnouncement(env),
     // An account's Continue playing, in its place from the first paint; a guest's comes with the request (PLAYED_COOKIE), below.
     account ? recentlyPlayed(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve([]),
   ]);
-  for (const game of games) game.background = backgrounds.get(game.id) ?? null;
   const ownedGameIds = await paidGamesOwnedBy(env, account, games);
-  // A world fades in on the home only once it has arrived, so its placeholder stays on the server: it would only add to every game's data.
-  const withoutPlaceholder = (shown: ShownBackground) => (shown.source === "zaisma" ? shown : { ...shown, placeholderDataUrl: null });
-  const browserGames = games.map((game) =>
-    Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, name === "background" && game.background ? { wide: withoutPlaceholder(game.background.wide), phone: withoutPlaceholder(game.background.phone) } : game[name]])),
-  );
-  // Zaisma's news, until it ends or this device closes it (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint;
-  // and a guest's banner where there's no news to show, one banner at a time so the games show first even on a phone.
+  const browserGames = games.map((game) => Object.fromEntries(BROWSER_GAME_FIELDS.map((name) => [name, game[name]])));
+  // Zaisma's news, until it ends or this device closes it (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint.
   const closedNewsIds = (readCookie(request, env, CLOSED_NEWS_COOKIE) ?? "").split(",");
   const isNewsShown = Boolean(news && !closedNewsIds.includes(news.id));
   const newsLink = news ? shownAddress(news.link_url) : null;
   const newsBanner: LayoutItem[] = news
     ? [{ kind: "block", id: "home-news", isHidden: !isNewsShown, markup: html`<div data-announcement-id="${news.id}">${banner({ text: news.text, icon: "megaphone", action: newsLink ? { label: news.link_label ?? "Read more", href: newsLink } : undefined, closeLabel: "Close" })}</div>` }]
-    : [];
-  const guestBanner: LayoutItem[] = env.SUPABASE_URL
-    ? [{ kind: "block", id: "home-guest", isHidden: Boolean(account) || isNewsShown, markup: banner({ text: "You're playing as a guest. Your progress stays on this device. Make an account to keep it everywhere.", icon: "person", action: { label: "Make an account", href: "/join" } }) }]
     : [];
   // An account's from the server; a guest's from the slugs this device sends, kept nowhere. The home's script adds this device's to an account's.
   const guestPlayedSlugs = account ? [] : (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").filter((slug) => /^[a-z0-9-]{1,64}$/.test(slug)).slice(0, KEPT_PLAYED_GAME_COUNT);
@@ -335,27 +329,64 @@ export async function home(env: Env, request: Request): Promise<Response> {
     trackId: "track-continue",
     title: "Continue playing",
     sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
-    // A big update since the account last played it: Updated, from the first paint.
-    items: playedGames.map((game) => {
+    // The game played last is the one lifted, with its first covers loading with the page. A big update since the account last played it: Updated, from the first paint.
+    items: playedGames.map((game, coverIndex) => {
       const playedAtMs = accountPlayed.find((entry) => entry.slug === game.slug)?.played_at_ms;
-      return { kind: "block" as const, markup: coverOf(game, ownedGameIds, {}, Boolean(playedAtMs && game.big_update_at_ms && game.big_update_at_ms > playedAtMs)) };
+      return { kind: "block" as const, markup: coverOf(game, ownedGameIds, { isCurrent: coverIndex === 0, ...(coverIndex < FIRST_VIEW_COVER_COUNT ? { isEager: true, hasHighPriority: coverIndex === 0 } : {}) }, Boolean(playedAtMs && game.big_update_at_ms && game.big_update_at_ms > playedAtMs)) };
     }),
   });
-  const body = games.length
-    ? html`<div id="home-games">${glassPane({
-        paneWidth: "full",
-        label: "Games",
-        body: stackOfOne(html`<h1 class="sr">Games on Zaisma</h1>${stack({
-          items: [
-            ...newsBanner,
-            ...guestBanner,
-            { kind: "block", id: "home-continue", isHidden: !playedGames.length, markup: continuePlaying },
-            ...(popular.length ? [homeShelf("popular", "Popular", "popular", forDeviceFirst(popular, deviceKind), true, ownedGameIds)] : []),
-            ...(trending.length ? [homeShelf("trending", "Trending", "trending", forDeviceFirst(trending, deviceKind), !popular.length, ownedGameIds)] : []),
-            ...(fresh.length ? [homeShelf("new", "New", "new", forDeviceFirst(fresh, deviceKind), !popular.length && !trending.length, ownedGameIds)] : []),
-            { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: tertiaryButton("All games", { href: "/games" }) }] }) },
-          ],
-        })}`),
+  const isReturning = playedGames.length > 0;
+  // The first visit's six: Popular's first, then New's, then whatever else is listed, so its row never shows a gap while the beta has few games.
+  const firstVisitGames = eachGameOnce([...forDeviceFirst(popular, deviceKind), ...forDeviceFirst(fresh, deviceKind), ...forDeviceFirst(gamesOnShelves, deviceKind)]).slice(0, MAXIMUM_ONE_LINE_COVER_COUNT);
+  const firstVisitPane = glassPane({
+    paneWidth: "full",
+    label: "Games",
+    body: stack({
+      items: [
+        { kind: "words", markup: html`<p>${FIRST_VISIT_LINE}</p>` },
+        { kind: "block", markup: grid({ itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isOrderShuffled: true, whenEmpty: NO_EMPTY_NOTE, items: firstVisitGames.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, isReturning ? {} : { isEager: true }) })) }) },
+      ],
+    }),
+  });
+  const returningPane = glassPane({
+    paneWidth: "full",
+    label: "Your games",
+    body: stack({
+      items: [
+        { kind: "block", markup: continuePlaying },
+        ...(popular.length ? [homeShelf("popular", "Popular", "popular", forDeviceFirst(popular, deviceKind), false, ownedGameIds)] : []),
+      ],
+    }),
+  });
+  // Below the first screen, a row whose games are all above it already would only repeat them.
+  const shownAboveSlugs = new Set([...firstVisitGames, ...popular].map((game) => game.slug));
+  const rowsBelow = [{ id: "trending", title: "Trending", list: trending }, { id: "new", title: "New", list: fresh }].filter(({ list }) => {
+    const isRepeat = list.every((game) => shownAboveSlugs.has(game.slug));
+    for (const game of list) shownAboveSlugs.add(game.slug);
+    return !isRepeat;
+  });
+  const belowPane = glassPane({
+    paneWidth: "full",
+    label: "More games",
+    body: stack({
+      items: [
+        ...rowsBelow.map(({ id, title, list }) => homeShelf(id, title, id, forDeviceFirst(list, deviceKind), false, ownedGameIds)),
+        { kind: "block", markup: row({ widths: "fit", alignment: "center", items: [{ kind: "control", markup: tertiaryButton("All games", { href: "/games" }) }] }) },
+      ],
+    }),
+  });
+  const body = games.length >= MINIMUM_SHELF_GAME_COUNT
+    ? html`<div id="home-games"><h1 class="sr">Games on Zaisma</h1>${stack({
+        items: [
+          {
+            kind: "block",
+            markup: firstScreen({
+              top: [...newsBanner, { kind: "block", id: "home-returning", isHidden: !isReturning, markup: returningPane }],
+              low: { kind: "block", id: "home-first-visit", isHidden: isReturning, markup: firstVisitPane },
+            }),
+          },
+          { kind: "block", id: "home-games-below", markup: belowPane },
+        ],
       })}</div>`
     : glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) });
   const response = layout(env, {
@@ -364,7 +395,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     isPrivate: Boolean(viewer.account) || guestPlayedSlugs.length > 0 || closedNewsIds.some(Boolean),
     nav: "home",
     viewer,
-    checkedPage: viewer.account ? "Home, signed in" : "Home",
+    checkedPage: isReturning ? "Home, returning" : viewer.account ? "Home, signed in" : "Home",
     pageShape: "full",
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
@@ -372,7 +403,7 @@ ${pageData("home-data", {
       games: browserGames,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
       icons: { people: icon("people").html },
-      parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html },
+      parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html, cover_actions: gameCardActions("/", "/").html },
     })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);

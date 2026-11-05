@@ -443,7 +443,7 @@ export interface PageSettings {
   /** Light or dark. Left out, the system's. */
   theme?: "light" | "dark";
   glass?: {
-    /** Tints every piece of glass, as a #rrggbb color (like a game's color on the home). Glass tinted for a brand keeps its own color. */
+    /** Tints every piece of glass, as a #rrggbb color (like a game's color on its page). Glass tinted for a brand keeps its own color. */
     hueColor?: string;
   };
 }
@@ -667,7 +667,7 @@ component({
   slug: "game-background",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
+  summary: "A game's own world behind the glass on its page: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
    and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later: the same gentle

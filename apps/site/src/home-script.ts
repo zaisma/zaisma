@@ -14,32 +14,29 @@ export const KEEP_PLAYED_COOKIE_SOURCE = `function keepPlayedCookie(list) {
 }`;
 
 /**
- * The home's script. The page is the same for everyone (so it caches); this puts the player's own part on it (the guest note, Continue
- * playing, whether Zaisma's news was closed here) and puts the background of the cover pointed at behind the glass.
+ * The home's script. The page is the same for everyone (so it caches); this puts the player's own part on it (Continue playing and which
+ * opening shows, whether Zaisma's news was closed here) and moves the one cover lifted: its foot lit, its Play and Details showing.
  *
- * Backgrounds: the page opens on Zaisma's own, the page's backdrop canvas (components/backdrop-script.ts). Pointing at or focusing a
- * cover fades that game's picture or shader in as a layer over it (zaismaBackdrop.add), at most every 0.6 s, to the latest game, so a
- * quick sweep across a row never flashes; it stays until another cover is pointed at. Covers that slide under a still pointer (a row or
- * the page scrolling) don't count. The last three games' shaders stay loaded, paused and out of sight, so pointing back at one shows it at
- * once. The glass is measured from the new layer's still by the backdrop script, so it follows the background.
+ * A pointer, the keys and a controller all move it, and a cover the pointer leaves keeps it. Covers that slide under a still pointer (a row or
+ * the page scrolling) don't count. A touch screen, with nothing to point, lifts nothing by a tap: a tap on a cover is its link.
  * Popular, Trending and New put the games made for this device first (each part keeping its order), and the device is kept for Browse.
  * The data it reads comes in the page's home-data block.
  */
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
+const $ = (id) => document.getElementById(id);
+const shelf = $("home-games");
+if (!shelf) return;
 ${DEVICE_KIND_SOURCE}
 const DEVICE_KIND = zaismaDeviceKind();
-const DATA = JSON.parse(document.getElementById("home-data").textContent);
+const DATA = JSON.parse($("home-data").textContent);
 const GAMES = DATA.games;
-if (!GAMES.length) return;
 // A picture Zaisma serves (/img/<id>) at the sizes it keeps (SIZED_IMAGE_WIDTHS_PX), up to largestPx, for the browser to pick the one it shows.
 const SIZES = ${JSON.stringify([...SIZED_IMAGE_WIDTHS_PX])};
 function sizedSet(url, largestPx) { return /^\/img\/[A-Za-z0-9_-]+$/.test(url || "") ? SIZES.filter((widthPx) => widthPx <= largestPx).map((widthPx) => url + "/w" + widthPx + ".webp " + widthPx + "w").join(", ") : ""; }
 const bySlug = Object.fromEntries(GAMES.map((game) => [game.slug, game]));
 const PLAYED_KEY = "zaisma:played", NEWS_KEY = "zaisma:closed-news";
 const isReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const isPhone = () => matchMedia("(max-width: 760px)").matches;
 const isSignedIn = /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-const $ = (id) => document.getElementById(id);
 function make(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function iconNode(markup) { const holder = make("span"); holder.innerHTML = markup; return holder.firstElementChild; }
 
@@ -48,129 +45,18 @@ let played = [];
 try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at })); } catch {}
 const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms);
 
-/* ---- The world behind the glass ---- */
-const root = document.documentElement;
-let focusSlug = "";
-const defaultBackdrop = document.querySelector("canvas.backdrop[data-backdrop]");
-let worldSlug = "", worldKey = "", layers = [], swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
-// The last few games' shader frames, kept out of sight and paused once another background shows, so pointing back at one shows it at
-// once instead of loading and building its shader again. The oldest goes past KEPT_FRAME_COUNT.
-const KEPT_FRAME_COUNT = 3, keptFrames = new Map();
-root.classList.add("eases-settings");
-function backgroundOf(game) {
-  const own = game.background;
-  return own ? (isPhone() ? own.phone : own.wide) : { source: "zaisma" };
-}
-function layerFor(background) {
-  const layer = background.source === "image" ? make("img", "backdrop world") : make("iframe", "backdrop world");
-  layer.setAttribute("aria-hidden", "true");
-  layer.setAttribute("data-adapts-glass", "");
-  // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
-  if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); layer.setAttribute("data-backdrop-color", background.tone.averageColor); }
-  if (background.source === "image") {
-    layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async";
-    // The size the screen shows, not the picture as it was uploaded.
-    const set = sizedSet(background.imageUrl, 1920); if (set) { layer.srcset = set; layer.sizes = "100vw"; }
-    layer.src = background.imageUrl;
-  } else {
-    layer.setAttribute("data-backdrop", "frame"); layer.setAttribute("data-backdrop-still", background.stillUrl);
-    layer.setAttribute("sandbox", "allow-scripts allow-same-origin"); layer.setAttribute("loading", "eager"); layer.tabIndex = -1; layer.title = "Background"; layer.src = background.frameUrl;
-  }
-  return layer;
-}
-// A frame told to pause or carry on; it hears only Zaisma's own pages (apps/games/src/background.ts).
-function tellFrame(layer, message) { try { layer.contentWindow.postMessage(message, new URL(layer.src).origin); } catch {} }
-// A layer that's gone from sight: a shader's frame is paused and kept for a return, anything else removed.
-function putAway(layer) {
-  if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer);
-  layer.classList.remove("is-shown");
-  if (layer.tagName !== "IFRAME" || !layer.dataset.worldKey) { layer.remove(); return; }
-  tellFrame(layer, { isPaused: true });
-  keptFrames.delete(layer.dataset.worldKey); keptFrames.set(layer.dataset.worldKey, layer);
-  while (keptFrames.size > KEPT_FRAME_COUNT) { const [oldestKey, oldest] = keptFrames.entries().next().value; keptFrames.delete(oldestKey); oldest.remove(); }
-}
-function dropLayers(keep) {
-  layers = layers.filter((layer) => {
-    if (layer === keep) return true;
-    putAway(layer);
-    return false;
-  });
-}
-function showWorld(slug, isInstant) {
-  const game = bySlug[slug], background = backgroundOf(game);
-  const key = background.source + "|" + (background.imageUrl || background.frameUrl || "");
-  worldSlug = slug;
-  if (/^#[0-9a-fA-F]{6}$/.test(game.glass_tint_color || "")) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
-  if (key === worldKey) return;
-  worldKey = key;
-  const fadeMs = isReduced || isInstant ? 0 : 500;
-  lastFadeMs = fadeMs;
-  if (background.source === "zaisma") {
-    // Back to Zaisma's own: the game's layer fades out over its canvas, which draws again, and the glass goes back to the theme's.
-    if (defaultBackdrop) { defaultBackdrop.removeAttribute("data-backdrop-paused"); defaultBackdrop.classList.add("is-shown"); }
-    if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
-    layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
-    const leaving = layers.slice();
-    setTimeout(() => { if (worldKey !== key) return; leaving.forEach(putAway); layers = layers.filter((layer) => !leaving.includes(layer)); }, fadeMs + 80);
-    return;
-  }
-  // A game shown a moment ago is still here, paused: it carries on at once. Anything else is made and loads.
-  const kept = keptFrames.get(key), layer = kept || layerFor(background);
-  layer.style.transitionDuration = fadeMs + "ms";
-  if (kept) { keptFrames.delete(key); tellFrame(layer, { isPaused: false }); }
-  else { layer.dataset.worldKey = key; document.body.append(layer); }
-  layers = layers.filter((each) => each !== layer);
-  // Moving a frame in the page would load it again, so one kept below what's showing is shown at once under it, and what's over it fades out.
-  const over = kept ? layers.filter((each) => !(each.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING) && each.classList.contains("is-shown")) : [];
-  layers.push(layer);
-  if (window.zaismaBackdrop) window.zaismaBackdrop.add(layer);
-  let isShown = false;
-  const reveal = () => {
-    if (isShown || worldKey !== key) return;
-    isShown = true;
-    void layer.offsetWidth;
-    if (over.length) { layer.style.transitionDuration = "0ms"; over.forEach((each) => { each.style.transitionDuration = fadeMs + "ms"; each.classList.remove("is-shown"); }); }
-    layer.classList.add("is-shown");
-    // The old layers stay whole underneath until this one has fully faded in, so nothing shows through halfway.
-    setTimeout(() => {
-      if (worldKey !== key) return;
-      dropLayers(layer);
-      // Zaisma's own waits shown underneath, so going back to it is only the game's fading out.
-      if (defaultBackdrop) { defaultBackdrop.setAttribute("data-backdrop-paused", ""); defaultBackdrop.classList.add("is-shown"); }
-    }, fadeMs + 80);
-  };
-  if (kept) reveal();
-  else if (background.source === "image") {
-    if (layer.complete && layer.naturalWidth) reveal(); else { layer.addEventListener("load", reveal); layer.addEventListener("error", () => { worldKey = ""; layer.remove(); layers = layers.filter((each) => each !== layer); if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer); }); }
-  } else {
-    // A shader's frame says when it's drawing; if it never does (no WebGL, an error) its still carries the glass and the frame shows the still.
-    const onMessage = (event) => { if (event.source === layer.contentWindow && event.data && event.data.zaismaBackground && (event.data.isRunning || event.data.error)) { removeEventListener("message", onMessage); reveal(); } };
-    addEventListener("message", onMessage);
-    setTimeout(() => { removeEventListener("message", onMessage); reveal(); }, 3000);
-  }
-}
-function queueWorld(slug) {
-  clearTimeout(swapTimer);
-  const wait = Math.max(0, Math.max(600, lastFadeMs + 100) - (performance.now() - lastSwapMs));
-  swapTimer = setTimeout(() => {
-    if (focusSlug !== slug || (worldSlug === slug && worldKey)) return;
-    lastSwapMs = performance.now();
-    showWorld(slug, false);
-  }, wait);
-}
-// The phone background and the wide one differ: crossing the width between them shows the other.
-matchMedia("(max-width: 760px)").addEventListener("change", () => { if (focusSlug) { worldSlug = ""; queueWorld(focusSlug); } });
-
-function setFocus(slug) {
-  if (!bySlug[slug] || slug === focusSlug) return;
-  focusSlug = slug;
-  document.querySelectorAll("#home-games .cover").forEach((cover) => { if (cover.dataset.slug === slug) cover.setAttribute("aria-current", "true"); else cover.removeAttribute("aria-current"); });
-  queueWorld(slug);
+/* ---- The one cover lifted ---- */
+let liftedCover = shelf.querySelector('.cover[aria-current="true"]');
+function liftCover(cover) {
+  if (cover === liftedCover) return;
+  if (liftedCover) liftedCover.removeAttribute("aria-current");
+  liftedCover = cover;
+  if (cover) cover.setAttribute("aria-current", "true");
 }
 
 /* ---- Covers ---- */
 // The same markup as components/panes.ts's gameCard: the art in its well, its foot's edge light in the game's tint, Updated in its top left
-// corner (a game played before its last big update, in Continue playing), and its line: its title and players now.
+// corner (a game played before its last big update, in Continue playing), its line (its title and players now), and Play and Details under it.
 function coverFor(game, list, at) {
   const cover = make("div", "cover"), art = make("a", "cover-art carving holds-art");
   const isUpdated = list === "continue" && game.big_update_at_ms && game.big_update_at_ms > at;
@@ -193,26 +79,36 @@ function coverFor(game, list, at) {
     const count = make("span", "count"), words = make("span", "", game.playing_now_player_count.toLocaleString("en-US")); words.append(make("span", "sr", " playing now"));
     count.append(iconNode(DATA.icons.people), words); meta.append(count);
   }
-  cover.append(art, meta);
-  if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");
+  const actions = iconNode(DATA.parts.cover_actions), [play, details] = actions.querySelectorAll("a");
+  play.href = "/g/" + game.slug + "?play"; details.href = "/g/" + game.slug;
+  cover.append(art, meta, actions);
   return cover;
 }
+const continueTrack = $("track-continue");
 let sort = "played";
 function fillContinue() {
-  const row = $("home-continue"), list = playedList();
-  // An account's covers from the server stay while its list is on its way.
-  row.hidden = !list.length && !$("track-continue").querySelector(".cover");
-  if (!list.length) return;
+  const list = playedList();
   if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].big_update_at_ms || 0) - (bySlug[a.slug].big_update_at_ms || 0));
   // What the page already shows (an account's, from the server) stays as it is.
-  const shown = Array.from($("track-continue").querySelectorAll(".cover")).map((cover) => cover.dataset.slug || (cover.querySelector(".cover-art") || { getAttribute: () => "" }).getAttribute("href").slice(3));
-  if (shown.join(" ") === list.map((entry) => entry.slug).join(" ")) return;
-  $("track-continue").replaceChildren(...list.map((entry) => coverFor(bySlug[entry.slug], "continue", entry.played_at_ms)));
-  document.querySelectorAll("#home-continue [data-slug]").forEach((cover) => cover.dataset.slug === focusSlug && cover.setAttribute("aria-current", "true"));
+  const shown = Array.from(continueTrack.querySelectorAll(".cover")).map((cover) => cover.dataset.slug);
+  if (list.length && shown.join(" ") !== list.map((entry) => entry.slug).join(" ")) {
+    const liftedSlug = liftedCover && continueTrack.contains(liftedCover) ? liftedCover.dataset.slug : "";
+    const covers = list.map((entry) => coverFor(bySlug[entry.slug], "continue", entry.played_at_ms));
+    continueTrack.replaceChildren(...covers);
+    if (liftedSlug) { liftedCover = null; liftCover(covers.find((cover) => cover.dataset.slug === liftedSlug) || covers[0]); }
+  }
+  showOpening();
 }
-document.querySelectorAll("#home-continue .tab-switch button").forEach((button) => button.addEventListener("click", () => { sort = button.value; fillContinue(); }));
-// Server-rendered covers carry their game in the address; the focus follows the pointer and the keys from here.
-document.querySelectorAll("#home-games .cover").forEach((cover) => { const art = cover.querySelector(".cover-art"); if (art) cover.dataset.slug = art.getAttribute("href").slice(3); });
+// Anything to continue: Continue playing, the game played last lifted, in place of the first visit's row.
+function showOpening() {
+  const first = continueTrack.querySelector(".cover");
+  $("home-returning").hidden = !first;
+  $("home-first-visit").hidden = Boolean(first);
+  if (first && (!liftedCover || !liftedCover.offsetParent)) liftCover(first);
+}
+document.querySelectorAll("#home-returning .tab-switch button").forEach((button) => button.addEventListener("click", () => { sort = button.value; fillContinue(); }));
+// Server-rendered covers carry their game in the address.
+shelf.querySelectorAll(".cover").forEach((cover) => { const art = cover.querySelector(".cover-art"); if (art) cover.dataset.slug = art.getAttribute("href").slice(3); });
 // Games made for this device first on every shelf; a game that names no devices fits them all.
 ["track-popular", "track-trending", "track-new"].forEach((id) => {
   const track = $(id);
@@ -223,46 +119,75 @@ document.querySelectorAll("#home-games .cover").forEach((cover) => { const art =
   if (ordered.some((item, index) => item !== items[index])) track.replaceChildren(...ordered);
 });
 
-/* Pointing rests for a moment before the background follows, so sweeping across a row doesn't flash through games. */
-let restTimer = 0, lastScrollMs = 0, isPending = false;
+/* ---- Moving the lift ---- */
+let lastScrollMs = 0;
 document.addEventListener("scroll", () => { lastScrollMs = performance.now(); }, { passive: true, capture: true });
-const shelf = document.getElementById("home-games");
 shelf.addEventListener("pointermove", (event) => {
   const cover = event.target.closest && event.target.closest(".cover");
-  if (!cover || event.pointerType === "touch" || cover.dataset.slug === focusSlug || isPending) return;
+  if (!cover || event.pointerType === "touch" || cover === liftedCover) return;
   if (!event.movementX && !event.movementY && performance.now() - lastScrollMs < 300) return;
-  isPending = true; clearTimeout(restTimer);
-  restTimer = setTimeout(() => { isPending = false; setFocus(cover.dataset.slug); }, 110);
+  liftCover(cover);
 });
-shelf.addEventListener("pointerout", (event) => { if (event.target.closest && event.target.closest(".cover") && !(event.relatedTarget && event.relatedTarget.closest && event.relatedTarget.closest(".cover") === event.target.closest(".cover"))) { isPending = false; clearTimeout(restTimer); } });
-shelf.addEventListener("focusin", (event) => { const cover = event.target.closest && event.target.closest(".cover"); if (cover) setFocus(cover.dataset.slug); });
-// A click or tap on a cover is its link: it opens the game's page (middle-click and new tabs work too). Pointing and keys only move the
-// background; a touch screen, with nothing to point, keeps Zaisma's own.
-// Arrow keys move between covers like a console: along a row, or to the nearest cover in the row above or below.
-document.addEventListener("keydown", (event) => {
-  const from = document.activeElement;
-  if (!from || !from.classList.contains("cover-art") || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-  const covers = Array.prototype.filter.call(document.querySelectorAll("#home-games .cover-art"), (each) => each.offsetParent);
-  const origin = from.getBoundingClientRect(), originX = origin.left + origin.width / 2;
+shelf.addEventListener("focusin", (event) => { const cover = event.target.closest && event.target.closest(".cover"); if (cover) liftCover(cover); });
+// Keys and a controller move between covers like a console: along a row, or to the nearest cover in the row above or below.
+function moveFromCover(fromCover, direction) {
+  const covers = Array.prototype.filter.call(shelf.querySelectorAll(".cover-art"), (each) => each.offsetParent);
+  const fromArt = fromCover.querySelector(".cover-art"), origin = fromArt.getBoundingClientRect(), originX = origin.left + origin.width / 2;
   let best = null, bestScore = Infinity;
   covers.forEach((each) => {
-    if (each === from) return;
+    if (each === fromArt) return;
     const box = each.getBoundingClientRect(), dy = box.top - origin.top, dx = box.left + box.width / 2 - originX;
     let score;
-    if (event.key === "ArrowRight") { if (Math.abs(dy) > 8 || dx <= 0) return; score = dx; }
-    else if (event.key === "ArrowLeft") { if (Math.abs(dy) > 8 || dx >= 0) return; score = -dx; }
-    else if (event.key === "ArrowDown") { if (dy <= 8) return; score = dy * 4 + Math.abs(dx); }
+    if (direction === "right") { if (Math.abs(dy) > 8 || dx <= 0) return; score = dx; }
+    else if (direction === "left") { if (Math.abs(dy) > 8 || dx >= 0) return; score = -dx; }
+    else if (direction === "down") { if (dy <= 8) return; score = dy * 4 + Math.abs(dx); }
     else { if (dy >= -8) return; score = -dy * 4 + Math.abs(dx); }
     if (score < bestScore) { bestScore = score; best = each; }
   });
-  if (best) { event.preventDefault(); best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: isReduced ? "auto" : "smooth" }); }
+  if (best) { best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: isReduced ? "auto" : "smooth" }); }
+  return Boolean(best);
+}
+const KEY_DIRECTIONS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+document.addEventListener("keydown", (event) => {
+  const direction = KEY_DIRECTIONS[event.key], from = document.activeElement, cover = from && from.closest && from.closest("#home-games .cover");
+  if (direction && cover && moveFromCover(cover, direction)) event.preventDefault();
 });
 
+/* ---- A controller: read only while one is connected ---- */
+const STICK_LEAN = 0.5, FIRST_REPEAT_MS = 360, NEXT_REPEAT_MS = 160;
+const A_BUTTON = 0, START_BUTTON = 9, PAD_DIRECTIONS = { 12: "up", 13: "down", 14: "left", 15: "right" };
+let connectedPadCount = 0, padFrame = 0, heldDirection = "", nextMoveMs = 0, isAHeld = false, isStartHeld = false;
+function padDirection(pad) {
+  for (const [button, direction] of Object.entries(PAD_DIRECTIONS)) if (pad.buttons[button] && pad.buttons[button].pressed) return direction;
+  const [acrossAxis = 0, downAxis = 0] = pad.axes;
+  if (Math.abs(acrossAxis) < STICK_LEAN && Math.abs(downAxis) < STICK_LEAN) return "";
+  return Math.abs(acrossAxis) > Math.abs(downAxis) ? (acrossAxis > 0 ? "right" : "left") : (downAxis > 0 ? "down" : "up");
+}
+const shownLift = () => (liftedCover && liftedCover.offsetParent ? liftedCover : null);
+function readPad(nowMs) {
+  padFrame = requestAnimationFrame(readPad);
+  const pad = Array.from(navigator.getGamepads()).find(Boolean);
+  // A sheet over the page, or the tab out of sight: it isn't the page's to answer.
+  if (!pad || document.hidden || document.querySelector("dialog[open]")) { heldDirection = ""; return; }
+  const direction = padDirection(pad);
+  if (direction !== heldDirection) { heldDirection = direction; nextMoveMs = 0; }
+  if (direction && nowMs >= nextMoveMs) {
+    const isFirstMove = !nextMoveMs;
+    nextMoveMs = nowMs + (isFirstMove ? FIRST_REPEAT_MS : NEXT_REPEAT_MS);
+    if (shownLift()) moveFromCover(liftedCover, direction);
+    else { const first = Array.prototype.find.call(shelf.querySelectorAll(".cover"), (cover) => cover.offsetParent); if (first) first.querySelector(".cover-art").focus(); }
+  }
+  const isAPressed = Boolean(pad.buttons[A_BUTTON] && pad.buttons[A_BUTTON].pressed), isStartPressed = Boolean(pad.buttons[START_BUTTON] && pad.buttons[START_BUTTON].pressed);
+  // A opens the game's page; only Play starts a game.
+  if (isAPressed && !isAHeld && shownLift()) liftedCover.querySelector(".cover-art").click();
+  if (isStartPressed && !isStartHeld && shownLift()) liftedCover.querySelector(".cover-actions a").click();
+  isAHeld = isAPressed; isStartHeld = isStartPressed;
+}
+addEventListener("gamepadconnected", () => { connectedPadCount++; if (!padFrame) padFrame = requestAnimationFrame(readPad); });
+addEventListener("gamepaddisconnected", () => { connectedPadCount = Math.max(0, connectedPadCount - 1); if (!connectedPadCount) { cancelAnimationFrame(padFrame); padFrame = 0; } });
+
 /* ---- Starting up ---- */
-// One banner at a time, so the games show first even on a phone: Zaisma's news while it's open, then the guest's. The page shows them as
-// they are from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing the news keeps it closed on this device, in the cookie and here.
-const guest = $("home-guest");
-const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
+// The page shows the news as it is from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing it keeps it closed on this device, in the cookie and here.
 fillContinue();
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
@@ -278,9 +203,9 @@ if (news) {
     document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(CLOSED_NEWS_COOKIE)} + "=" + closed.join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
   };
   // Closed on this device before the cookie kept it: closed again, and kept there from now on.
-  if (!news.hidden && closed.includes(id)) { news.hidden = true; remember(); showGuest(); }
+  if (!news.hidden && closed.includes(id)) { news.hidden = true; remember(); }
   const close = news.querySelector('button[name="banner_close"]');
-  if (close) close.addEventListener("click", () => { news.hidden = true; showGuest(); remember(); });
+  if (close) close.addEventListener("click", () => { news.hidden = true; remember(); });
 }
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {

@@ -8,7 +8,7 @@ import { BUSY_SCRIPT, RUNNER_SCRIPT, TOGGLE_SCRIPT } from "./actions.ts";
 import { GUILD_SEAL_SCRIPT } from "./guild-seal.ts";
 import { CHECK_SCRIPT, CHOICE_CARDS_SCRIPT, COLOR_FIELD_SCRIPT, COPY_SCRIPT, FIELD_SCRIPT, FILE_DROP_SCRIPT, LONG_FIELD_SCRIPT, PIN_FIELD_SCRIPT, SEARCH_SCRIPT, SELECT_SCRIPT, SLIDER_SCRIPT, SWITCH_SCRIPT, WHEEL_SCRIPT, TYPING_BAR_SCRIPT } from "./inputs.ts";
 import { COMPACT_SCRIPT, FILTER_MENU_SCRIPT, HEADER_FIT_SCRIPT, LOAD_MORE_SCRIPT, RAIL_SCRIPT, SCROLL_FADE_SCRIPT, SIDEBAR_SCRIPT } from "./navigation.ts";
-import { ROW_LAYOUT_SCRIPT } from "./layout.ts";
+import { ROW_LAYOUT_SCRIPT, SHUFFLED_GRID_SCRIPT } from "./layout.ts";
 import { DROPDOWN_SCRIPT, PLACE_SCRIPT, STARTED_LOW_SCRIPT, STEP_FLOW_SCRIPT } from "./panes.ts";
 import { LAYERS_SCRIPT } from "./layers.ts";
 import { MATERIAL_SCRIPT, MATERIAL_STYLES } from "./materials.ts";
@@ -154,6 +154,8 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("guild-seal", GUILD_SEAL_SCRIPT, /\bguild-seal-video\b/),
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
   firstPaintPiece("started-low", STARTED_LOW_SCRIPT, /\bis-started-low\b/),
+  // A grid in a new order each time the page opens is in that order from its first paint.
+  firstPaintPiece("shuffled-grids", SHUFFLED_GRID_SCRIPT, /\bis-order-shuffled\b/),
   // Where a pane hangs from its button: a wheel or a colour field makes its floating pane as it's wired.
   firstPaintPiece("placing", PLACE_SCRIPT, /data-wheels|data-color-field/),
   firstPaintPiece("wheels", WHEEL_SCRIPT, /data-wheels/),

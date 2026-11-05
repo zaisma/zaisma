@@ -29,7 +29,7 @@ const drawnShare = SHADER_LIMITS.runtimeResolutionScale === 0.5 ? "half" : `${Ma
 /** The guide's words, the same on the page and in docs/BACKGROUNDS.md. */
 export const BACKGROUND_GUIDE = {
   title: "Backgrounds behind the glass",
-  lead: "Your background is your game's world behind Zaisma's glass, on the home and on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The backgrounds further down are drawn live, and their sources are open to start from.",
+  lead: "Your background is your game's world behind Zaisma's glass on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The backgrounds further down are drawn live, and their sources are open to start from.",
   linesHeading: "The lines",
   linesIntro: "What keeps a background clear under the glass, each with why. The first three are for pictures and shaders alike; the rest are for shaders.",
   lines: [

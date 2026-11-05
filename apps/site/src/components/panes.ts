@@ -122,8 +122,10 @@ export interface GameCardOptions {
   facts: GameCardFacts;
   /** The game's own glass tint (#rrggbb), which its lit edge takes; left out, the edge lights white. */
   tintColor?: string | null;
-  /** The game in the pane beside the list: its edge stays lit. */
+  /** The one card lifted: the game in the pane beside the list, or the home's card in focus. Its edge stays lit, its art brightens and its Play and Details show. */
   isCurrent?: boolean;
+  /** Where its Play goes: Play and Details lie under it, kept from sight until it's lifted (isCurrent) in room that's always theirs, so a lift moves nothing. Left out, a card has neither. */
+  playHref?: string;
   /** Its art loads with the page, not once it nears the screen: for the cards a page opens with in view, like the home's first. */
   isEager?: boolean;
   /** Its art is fetched before the page's other pictures: for the one card likely the largest thing in the first view. */
@@ -148,6 +150,11 @@ const cardLabel = (options: GameCardOptions): string =>
   ].filter(Boolean).join(", ");
 
 
+/** Play and Details under a game card (gameCard's playHref): a page script that builds a card takes this, with its two addresses set. */
+export function gameCardActions(playHref: string, detailsHref: string): Raw {
+  return html`<div class="cover-actions">${row({ widths: "lead-fills", items: [control(primaryButton(action("play"), { href: playHref, isFullWidth: true })), control(secondaryButton(action("details"), { href: detailsHref, isLabelHidden: true }))] })}</div>`;
+}
+
 /**
  * A game card: a game in a list, the studio's art in a carved well with its title and players now on one line under it. What else
  * concerns you about it lies in a corner of the art, each kind in its own corner on every card: news (Updated) top left, the price top
@@ -163,7 +170,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const marks = html`${facts.isUpdated ? html`<span class="cover-mark at-news">${tag("Updated", "new-on-glass")}</span>` : ""}${facts.priceText ? html`<span class="cover-mark at-price">${tag(facts.priceText, "glass")}</span>` : ""}${facts.friends?.length ? html`<span class="cover-mark at-friends">${pictureRow(facts.friends, "xs")}</span>` : ""}${facts.deviceNote ? html`<span class="cover-mark at-device">${tag(facts.deviceNote, "glass", { icon: deviceIcon(facts.deviceNote) })}</span>` : ""}`;
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div></div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${playerCountMarkup}</div>${options.playHref ? gameCardActions(options.playHref, options.href) : ""}</div>`;
 }
 
 /**
@@ -584,7 +591,12 @@ const COVER_STYLES = `
 .cover:is([aria-current="true"], .is-pointed, .is-pressed) .cover-art > .edge-light::before, .cover:is([aria-current="true"], .is-pointed, .is-pressed) .cover-art > .edge-light::after,
 .cover-art:is(.is-pointed, .is-pressed) > .edge-light::before, .cover-art:is(.is-pointed, .is-pressed) > .edge-light::after { opacity: 1; }
 .cover-picture img { transition: filter var(--motion-state) var(--ease-standard); }
-.cover:is(:hover, .is-pointed) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
+.cover:is(:hover, .is-pointed, [aria-current="true"]) .cover-picture img, .cover-art.is-pointed .cover-picture img { filter: brightness(1.06); }
+/* Play and Details under it: their room is always kept and they show only on the card lifted, so a lift moves nothing. With nothing to point
+   with, a tap opens the game's page, so no card lifts by touch and its room isn't kept. */
+.cover-actions { visibility: hidden; }
+.cover[aria-current="true"] > .cover-actions { visibility: visible; }
+@media (hover: none) { .cover:not([aria-current="true"]) > .cover-actions { display: none; } }
 /* Pressed, the art sinks into its well, its size kept: it drops a little toward the light and the well's rim casts its shade over it, deep
    along the top and lighter down the sides, so the walls show as it goes down; it darkens a touch, quickly. Let go, it springs back up.
    Its corners' marks go down with it, and its foot stays lit. */
@@ -1034,6 +1046,8 @@ component({
     { label: "Pointed at: its foot lit in the game's tint", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pointed" }), isStill: true },
     { label: "Pressed: the art sinks into its well", markup: cardSample({ title: "Neon Drift", picture: STAND_IN_COVER_PICTURES["neon-drift"]!, href: "#neon-drift", facts: { playerCount: 3870 }, tintColor: "#C454E8", state: "is-pressed" }), isStill: true },
     { label: "In focus beside the list: its foot stays lit", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, isCurrent: true }), isStill: true },
+    { label: "With Play and Details under it, kept from sight: their room stays, so a lift moves nothing", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", facts: { playerCount: 12480 } }), isStill: true },
+    { label: "Lifted: its foot lit, its art brighter, Play and Details showing", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", isCurrent: true, facts: { playerCount: 12480 } }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
     { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp", placeholderDataUrl: STAND_IN_COVER_PICTURES["kestrel"]!.placeholderDataUrl }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
   ],
@@ -1979,7 +1993,7 @@ component({
   slug: "banner",
   group: "panes",
   subgroup: "layers",
-  summary: "Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held, Zaisma's news on the home. A line of words, at most one button, and a Close for what a player can put away. Not for a moment that just happened: that's a Notice.",
+  summary: "Something that holds while you're on a page, across the top of its content: a version is held, Zaisma's news on the home. A line of words, at most one button, and a Close for what a player can put away. Not for a moment that just happened: that's a Notice.",
   styles: `
 /* A banner: a strip of the panes' glass, the width of the page's content, with a pane's two margins: what has an edge sits at the frame
    gap, so its buttons take the strip's corners, and its words keep the pane's margin. Its icon and words start at the start; its button

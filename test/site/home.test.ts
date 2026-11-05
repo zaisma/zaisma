@@ -6,8 +6,8 @@ import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "../../apps/site/
 import { cookieName } from "../../apps/site/src/auth.ts";
 
 /**
- * The home page (apps/site/src/home.ts): one shelf of Continue playing, Popular, Trending and New, there from the first frame, with no game picked for the player.
- * The page is the same for everyone, so these read it as a stranger sees it.
+ * The home page (apps/site/src/home.ts): still covers on glass over Zaisma's own world. A first visit opens on one line over six covers; anyone with
+ * something to continue opens on Continue playing, then Popular; then Trending and New. The page is the same for everyone, so most of these read it as a stranger sees it.
  */
 
 const SITE = "https://zaisma.test";
@@ -16,7 +16,7 @@ const day = (agoDays: number) => new Date(Date.now() - agoDays * DAY_MS).toISOSt
 
 const LIVE_SLUGS = ["home-one", "home-two", "home-three", "home-four", "home-five", "home-six", "home-seven", "home-eight", "home-nine", "home-ten"];
 
-async function homePage(cookies: Record<string, string> = {}): Promise<{ response: Response; text: string; data: { games: { slug: string; background: unknown; owner_id?: string; id?: string; description?: string }[] } }> {
+async function homePage(cookies: Record<string, string> = {}): Promise<{ response: Response; text: string; data: { games: { slug: string; owner_id?: string; id?: string; description?: string; [field: string]: unknown }[] } }> {
   const cookie = Object.entries(cookies).map(([name, cookieValue]) => `${cookieName(env, name)}=${cookieValue}`).join("; ");
   const response = await SELF.fetch(`${SITE}/`, { headers: cookie ? { cookie } : {} });
   const text = await response.text();
@@ -49,11 +49,15 @@ beforeAll(async () => {
   await env.DB.prepare("UPDATE game_shaders SET average_color = '#101828', is_glass_smoked = 1, glass_tint_pct = 46 WHERE id = 'shader-home-three'").run();
 });
 
+/** The part of the page from an element with this id to the next with that id. */
+const between = (text: string, fromId: string, toId: string) => text.slice(text.indexOf(`id="${fromId}"`), text.indexOf(`id="${toId}"`));
+const coverSlugs = (markup: string) => [...markup.matchAll(/<a class="cover-art[^>]* href="\/g\/([a-z-]+)"/g)].map((found) => found[1]);
+
 describe("the home page", () => {
   it("ends with an All games link into Browse, never a grid of every game", async () => {
     const { text } = await homePage();
-    expect(text).not.toContain('class="grid"');
     expect(text).toMatch(/<a class="shell tertiary-btn" href="\/games"[^>]*>[\s\S]*?All games/);
+    expect(coverSlugs(text).length).toBeLessThan(LIVE_SLUGS.length * 4);
   });
 
   it("marks a played game Updated only for a big update since, never for a publish", async () => {
@@ -65,25 +69,42 @@ describe("the home page", () => {
     expect(text).not.toContain("published_at_ms");
   });
 
-  it("lists Popular, then Trending and New when they have games, after Continue playing", async () => {
+  it("opens a first visit on the line and six still covers, Popular's first six, each with Play and Details ready under it", async () => {
     const { text } = await homePage();
+    const firstVisit = between(text, "home-first-visit", "home-games-below");
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-first-visit">/);
+    expect(firstVisit).toContain("These are the games players come back to most. Each one plays here in your browser, with nothing to download.");
+    expect(firstVisit).toContain("is-one-line is-at-least-two-across is-order-shuffled");
+    expect(coverSlugs(firstVisit)).toEqual(LIVE_SLUGS.slice(0, 6));
+    for (const slug of LIVE_SLUGS.slice(0, 6)) {
+      expect(firstVisit).toContain(`href="/g/${slug}?play"`);
+      expect(firstVisit).toMatch(new RegExp(`<a class="shell[^"]*"[^>]* href="/g/${slug}"`));
+    }
+    // Nothing is lifted until the player points at something, and only Play starts a game.
+    expect(firstVisit).not.toContain('aria-current="true"');
+    expect(text).toMatch(/<h1 class="sr">/);
+  });
+
+  it("has the returning rows in the page, hidden, for a device whose script finds something to continue", async () => {
+    const { text } = await homePage();
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-returning" hidden>/);
     const headings = [...text.matchAll(/<h2 class="shelf-title" id="([a-z]+)-title">/g)].map((match) => match[1]);
-    expect(headings[0]).toBe("continue");
-    expect(headings).toContain("popular");
-    const order = ["continue", "popular", "trending", "new"].filter((id) => headings.includes(id));
-    expect(headings).toEqual(order);
+    expect(headings.slice(0, 2)).toEqual(["continue", "popular"]);
     expect(text).toContain('href="/games?sort=popular"');
   });
 
-  it("opens on the shelf itself, with no game picked for the player and nothing staged", async () => {
+  it("leaves out a row below whose games are all above it", async () => {
     const { text } = await homePage();
-    expect(text).not.toContain("home-pane");
-    expect(text).not.toContain('id="home-opening"');
-    expect(text).not.toContain("data-home-staged");
-    // The page's only way to start a game is a game's page: covers link there, and the home has no Play of its own.
-    expect(text).not.toMatch(/href="\/g\/[a-z0-9-]+\?play"/);
-    expect(text).toMatch(/<a class="cover-art carving holds-art" data-cut-line="0"[^>]* href="\/g\/home-one"/);
-    expect(text).toMatch(/<h1 class="sr">/);
+    const below = text.slice(text.indexOf('id="home-first-visit"'));
+    // Popular holds all ten games here, so Trending and New would only repeat it.
+    expect(below).not.toContain('id="trending-title"');
+    expect(below).not.toContain('id="new-title"');
+  });
+
+  it("has no guest banner: the line says it now", async () => {
+    const { text } = await homePage();
+    expect(text).not.toContain("home-guest");
+    expect(text).not.toContain("You're playing as a guest");
   });
 
   it("lets a click or tap on a cover follow its link to the game's page, never cancelling it", () => {
@@ -91,24 +112,19 @@ describe("the home page", () => {
     expect(shelfClicks).toBeNull();
   });
 
-  it("sends a game's background for the browser to put behind the glass, from the game's own site for a shader", async () => {
-    const { data } = await homePage();
-    const bySlug = Object.fromEntries(data.games.map((game) => [game.slug, game]));
-    expect(bySlug["home-one"]!.background).toBeNull();
-    expect(bySlug["home-two"]!.background).toMatchObject({ wide: { source: "image", imageUrl: `${SITE}/img/image-home-world` }, phone: { source: "image" } });
-    const shader = (bySlug["home-three"]!.background as { wide: { source: string; frameUrl: string; stillUrl: string } }).wide;
-    expect(shader.source).toBe("shader");
-    // The runner is on the game domain, never zaisma.com; the still its glass is measured from is zaisma.com's.
-    expect(new URL(shader.frameUrl).origin).not.toBe(SITE);
-    expect(shader.frameUrl).toContain("/_zaisma/background?screen=wide&shader=shader-home-three");
-    expect(shader.stillUrl).toBe(`${SITE}/shaders/shader-home-three/still.png`);
+  it("shows no game's world: its background stays on the game's page", async () => {
+    const { text, data } = await homePage();
+    for (const game of data.games) expect(game.background).toBeUndefined();
+    expect(text).not.toContain("image-home-world");
+    expect(text).not.toContain("shader-home-three");
+    expect(text).not.toContain("backdrop world");
+    expect(HOME_SCRIPT.sourceText).not.toContain("zaismaBackdrop");
   });
 
-  it("sends a background's measured tone, so the glass follows it without measuring", async () => {
-    const { data } = await homePage();
-    const bySlug = Object.fromEntries(data.games.map((game) => [game.slug, game]));
-    expect((bySlug["home-three"]!.background as { wide: { tone: unknown } }).wide.tone).toEqual({ averageColor: "#101828", isGlassSmoked: true, glassTint: "rgba(13, 18, 26, 0.46)" });
-    expect((bySlug["home-two"]!.background as { wide: { tone: unknown } }).wide.tone).toBeNull();
+  it("reads a controller only once one is connected", () => {
+    expect(HOME_SCRIPT.sourceText).toMatch(/addEventListener\("gamepadconnected", \(\) => \{[^}]*requestAnimationFrame\(readPad\)/);
+    expect(HOME_SCRIPT.sourceText.match(/requestAnimationFrame\(readPad\)/g)).toHaveLength(2);
+    expect(HOME_SCRIPT.sourceText).toContain("cancelAnimationFrame(padFrame)");
   });
 
   it("keeps the games' owners and IDs out of what the browser gets, and what it doesn't need", async () => {
@@ -125,15 +141,19 @@ describe("the home page", () => {
     const second = await homePage();
     expect(second.text).toBe(first.text);
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
-    // A stranger's device has played nothing here yet, so Continue playing starts hidden.
-    expect(first.text).toMatch(/<div class="stack-cell[^"]*" id="home-continue" hidden>/);
+    // A stranger's device has played nothing here yet, so the returning rows start hidden.
+    expect(first.text).toMatch(/<div class="stack-cell[^"]*" id="home-returning" hidden>/);
   });
 
-  it("shows a guest's Continue playing from the first paint, from the games their device sends, newest first, and keeps none of it", async () => {
+  it("opens a returning guest on Continue playing from the first paint, the game played last lifted, from the games their device sends, and keeps none of it", async () => {
     const { response, text } = await homePage({ [PLAYED_COOKIE]: "home-three,no-such-game,home-one,<b>" });
-    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-continue">/);
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-returning">/);
+    expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-first-visit" hidden>/);
     const shelf = text.slice(text.indexOf('id="track-continue"'), text.indexOf('id="track-popular"'));
-    expect([...shelf.matchAll(/href="\/g\/([a-z-]+)"/g)].map((found) => found[1]).filter((slug, index, all) => all.indexOf(slug) === index)).toEqual(["home-three", "home-one"]);
+    expect(coverSlugs(shelf)).toEqual(["home-three", "home-one"]);
+    expect(shelf.match(/aria-current="true"/g)).toHaveLength(1);
+    expect(shelf).toMatch(/<div class="cover[^"]*" aria-current="true"><a class="cover-art[^>]* href="\/g\/home-three"/);
+    expect(shelf).toContain('href="/g/home-three?play"');
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
@@ -154,6 +174,25 @@ describe("the home page", () => {
   it("refuses to be framed by other sites, as every page does", async () => {
     const { response } = await homePage();
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  });
+});
+
+describe("the home with fewer games", () => {
+  it("fills the first visit's six from New when Popular is short, with no repeats, and shows the empty state under two games", async () => {
+    await env.DB.exec("DELETE FROM play_networks;");
+    const { text } = await homePage();
+    const firstVisit = between(text, "home-first-visit", "home-games-below");
+    const slugs = coverSlugs(firstVisit);
+    expect(slugs).toHaveLength(6);
+    expect(new Set(slugs).size).toBe(6);
+    // The newest first, since nothing is Popular now.
+    expect(slugs).toEqual(LIVE_SLUGS.slice(0, 6));
+    // New holds four more than those six, so its row stays.
+    expect(text).toContain('id="new-title"');
+    await env.DB.exec(`UPDATE games SET visibility = 'unlisted' WHERE slug LIKE 'home-%' AND slug != 'home-one';`);
+    const empty = await SELF.fetch(`${SITE}/`).then((response) => response.text());
+    expect(empty).not.toContain('id="home-games"');
+    expect(empty).toContain("The first games are on their way.");
   });
 });
 

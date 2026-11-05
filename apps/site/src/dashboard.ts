@@ -191,7 +191,7 @@ const DONE: Record<string, string> = {
   image: "Image added. It shows on the game page once it's reviewed.",
   "image-removed": "Image removed.",
   "background-sent": "Sent. It's checked in about a minute; refresh to see it here, then choose it.",
-  "background-chosen": "Background changed. It shows on the home and your game page now.",
+  "background-chosen": "Background changed. It shows on your game page now.",
   "shader-removed": "Shader removed.",
   tint: "Glass tint saved.",
   published: "Published. Players get this version now.",
@@ -1351,7 +1351,7 @@ ${textures.length ? html`<div class="bg-textures"><h3>Shader textures</h3><div c
     (texture) => html`<figure><img class="bevel-s" src="${texture.image_url}" alt="" loading="lazy"><figcaption><span>${sizeText(texture.size_bytes)}${texture.review_status === "pending" ? html` <span class="pill pending">Being checked</span>` : ""}</span><form method="post" action="/dashboard/${slug}/images/${texture.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
   )}</div><p class="hint">Pictures your shaders read through their channels: a game keeps up to 16, and one a kept shader reads stays until that shader goes.</p></div>` : ""}
 <form class="row bg-tint" method="post" action="/dashboard/${slug}/glass-tint"><label>Glass tint <input type="color" name="glass_tint_color" value="${glassTintColor ?? "#808080"}"></label><button class="btn ghost" type="submit">Save tint</button>${glassTintColor ? html`<button class="link" type="submit" name="clear" value="yes">Clear</button>` : ""}</form>
-<p class="hint">A background is your game's world behind Zaisma's glass on the home and your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is Shadertoy's <code>mainImage</code> in WebGL2's GLSL, up to 64 KB a pass: one <code>.glsl</code> file, or a folder with <code>image.glsl</code>, <code>buffer-a.glsl</code> to <code>buffer-d.glsl</code> for its buffers, its textures (PNG, JPEG or WebP), and <code>channels.json</code> for what each pass reads, like <code>{"image": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}, {"channel_index": 1, "input_kind": "texture", "texture_file": "noise.png"}], "buffer-a": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}]}</code>. It's drawn and checked before it can show, at each quality level it reads; players' browsers draw it at fewer pixels, sharpened as it's scaled up, at most 30 frames a second. <a href="/developers/backgrounds">What reads well under the glass</a>. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
+<p class="hint">A background is your game's world behind Zaisma's glass on your game page: no title, logo or words on it (those go on the cover). A picture for wide screens is landscape, at least 1600 px wide, with room for the glass on the left; one for phones is portrait, at least 1600 px tall, with room on the bottom half. A shader is Shadertoy's <code>mainImage</code> in WebGL2's GLSL, up to 64 KB a pass: one <code>.glsl</code> file, or a folder with <code>image.glsl</code>, <code>buffer-a.glsl</code> to <code>buffer-d.glsl</code> for its buffers, its textures (PNG, JPEG or WebP), and <code>channels.json</code> for what each pass reads, like <code>{"image": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}, {"channel_index": 1, "input_kind": "texture", "texture_file": "noise.png"}], "buffer-a": [{"channel_index": 0, "input_kind": "buffer", "buffer_name": "a"}]}</code>. It's drawn and checked before it can show, at each quality level it reads; players' browsers draw it at fewer pixels, sharpened as it's scaled up, at most 30 frames a second. <a href="/developers/backgrounds">What reads well under the glass</a>. Without a phone background, phones show the wide one. The tint colors Zaisma's glass; Zaisma still decides how thick it is, so words stay readable.</p>
 </div>${scriptTags(BACKGROUND_PREVIEW_SCRIPT)}`;
 }
 
@@ -1732,7 +1732,7 @@ const DASHBOARD_STYLE = pageStyle("dashboard", () => STYLES + GAME_STYLES);
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
 // The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.
 /**
- * The Background section's live preview (backgroundPanel), built as the home and game page build theirs: a shader runs in a frame on the
+ * The Background section's live preview (backgroundPanel), built as the game page builds its own: a shader runs in a frame on the
  * game's own site (apps/games/src/background.ts), posted by this page with its passes and its textures' bytes; the backdrop script
  * (BACKDROP_SCRIPT) tells the frame where the real pane of glass is, and picks the pane's glass from a still. Pictures show over the frame.
  * It starts with what wide screens show now, or Zaisma's own, at the device's quality level until one is picked.
