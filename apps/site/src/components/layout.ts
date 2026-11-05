@@ -361,13 +361,16 @@ const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:la
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
  * the first and last of what it holds (a form, a stack, a shelf), a row's words there, and a component's own words there.
  */
-function edgeWords(edge: "top" | "bottom"): string[] {
+function edgeWords(edge: "top" | "bottom", isSideBySide = false): string[] {
+  // Lead and side, side by side: the side's top is at the edge as the lead's is, and the lead's foot as the side's.
+  const besideEdge = edge === "top" ? ".lead-and-side-side" : ".lead-and-side-lead";
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
+  const endHere = isSideBySide ? `:is(${end}, ${besideEdge})` : end;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
     // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
-    const into = ` > *${end}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
+    const into = ` > *${endHere}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -410,6 +413,9 @@ function edgeRows(edge: "top" | "bottom"): string[] {
     .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
 }
 
+/** Wider than this, lead and side stand side by side (equal halves, then two thirds and one third from 800px). */
+const LEAD_AND_SIDE_SIDE_BY_SIDE_PX = 440;
+
 export const STACK_STYLES = `
 /* A stack: one under another, each cell's gap above it picked by what's on each side (stack(), from the spacing table). A hidden cell takes no
    room, and the first shown has nothing above it. Everything in a stack is one width, the stack's, as everything in a row is one height. */
@@ -435,6 +441,10 @@ fieldset > legend { float: left; width: 100%; padding-block: 0; }
 :root { --edge-room: 0px; }
 ${rulesOf(edgeWords("top"), "padding-top: calc(var(--pad-words) + var(--edge-room));")}
 ${rulesOf(edgeWords("bottom"), "padding-bottom: calc(var(--pad-words) + var(--edge-room));")}
+@container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) {
+${rulesOf(edgeWords("top", true), "padding-top: calc(var(--pad-words) + var(--edge-room));")}
+${rulesOf(edgeWords("bottom", true), "padding-bottom: calc(var(--pad-words) + var(--edge-room));")}
+}
 `;
 
 export const ROW_STYLES = `
@@ -529,6 +539,8 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
    come and go. The page keeps the bar's room beside it, each clear of the notch. */
 @media ${HEADER_RAIL_MEDIA} {
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); }
+  /* The page's own panes are the bar's gap apart too, so every gap between glass on the page is one. */
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .layout-stack:not(.glass *) > .stack-cell.gap-top-block-block { margin-top: var(--pad-frame); }
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }
   body > .bar-layout.has-tab-row:not(.searching) { top: var(--pad-frame); bottom: auto; left: max(var(--pad-frame), var(--safe-left), var(--corner-room)); width: var(--header-height); height: calc(100svh - 2 * var(--pad-frame)); transform: none; flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); }
   body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > * { margin: 0; max-width: none; }
@@ -584,7 +596,7 @@ export const LEAD_AND_SIDE_STYLES = `
 .lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
 .lead-and-side-lead, .lead-and-side-side { min-width: 0; }
 .lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); }
-@container lead-and-side (min-width: 440px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container lead-and-side (min-width: 800px) {
   .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
   .lead-and-side-side .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
