@@ -908,8 +908,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   device, Continue, and back on the stand-in it calls list_games. As Preview_Studio: Change and its
                   summary, and ${SITE}/account#developer lists a Claude connection beside the keys (its passkey is the
                   seed's, so Continue there can't be tapped). As New_Passkey: it says when its passkey can connect apps)
-  Notices         ${SITE}/legal/defamation  and  ${SITE}/legal/dmca  (what a notice and a counter-notice include, and what happens),
-                  ${SITE}/legal/content-rules#defamation  (the rule), ${SITE}/g/arena  (Report: the two notice lines),
+  Notices         ${SITE}/legal/defamation,  ${SITE}/legal/trademark  and  ${SITE}/legal/dmca  (what a notice and a counter-notice include, and what happens),
+                  ${SITE}/legal/content-rules#defamation  (the rule), ${SITE}/g/arena  (Report: the notice lines),
                   ${SITE}/dashboard/town-gossip  (as Preview_Studio: held on a defamation notice, with what it names and the fix),
                   ${SITE}/admin  (Town Gossip's admin page: held on a notice; any other game's has the Notice form)
   Admin           ${SITE}/admin

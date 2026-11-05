@@ -3,7 +3,7 @@ import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 
 /**
- * A game held on a copyright or defamation notice stays hidden when it publishes a version (publishVersion),
+ * A game held on a copyright, defamation or trademark notice stays hidden when it publishes a version (publishVersion),
  * and one blocked in a country stays blocked there: a person checks that what the notice names is gone and
  * shows it again, or lifts the block. Publishing tells Zaisma, so the
  * developer has nothing more to send. Call it after every publish.

@@ -400,7 +400,7 @@ export const HEADER_SCRIPT = pageScript(
 
 /** The links at the foot of every page: what Zaisma is and its rules. */
 const FOOTER_LINKS: [string, string][] = [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"]];
-const FOOTER_RULES_LINKS: [string, string][] = [["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"]];
+const FOOTER_RULES_LINKS: [string, string][] = [["Content rules", "/legal/content-rules"], ["Terms", "/legal/terms"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["DMCA", "/legal/dmca"], ["Defamation", "/legal/defamation"], ["Trademark", "/legal/trademark"]];
 
 export function footer(): Raw {
   return html`<footer class="foot glass glass-bar" data-glass data-glass-corners="header">${EDGE}<div class="foot-in words-margin round">
