@@ -1356,7 +1356,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     reaches: "zaisma_settings",
     title: "Post an event",
     description:
-      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at or until the player closes it. The newest current event shows. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
+      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at. The newest current event shows. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
       'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
     inputSchema: {
       ...object(

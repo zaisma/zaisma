@@ -12,7 +12,7 @@ import { joinPath } from "./friends-now.ts";
 import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards } from "./whats-on.ts";
 import { NO_EMPTY_NOTE } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
-import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
+import { HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
@@ -311,16 +311,15 @@ export async function home(env: Env, request: Request): Promise<Response> {
     account ? friendsNowOf(env.DB, account.id, AGE_BAND_FLOOR_YEARS[account.age_band]) : Promise.resolve(null),
   ]);
   const ownedGameIds = await paidGamesOwnedBy(env, account, games);
-  // Zaisma's event, until it ends or this device closes it (CLOSED_NEWS_COOKIE, which the home's script keeps), shown from the first paint.
-  const closedNewsIds = (readCookie(request, env, CLOSED_NEWS_COOKIE) ?? "").split(",");
+  // Zaisma's event, shown from the first paint until it ends.
   // An account's from the server; a guest's from the slugs this device sends, kept nowhere. The home's script adds this device's to an account's.
   const guestPlayedSlugs = account ? [] : (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").filter((slug) => /^[a-z0-9-]{1,64}$/.test(slug)).slice(0, KEPT_PLAYED_GAME_COUNT);
   const playedSlugs = account ? accountPlayed.map((entry) => entry.slug) : guestPlayedSlugs;
   const playedGames = playedSlugs.flatMap((slug) => games.filter((game) => game.slug === slug));
   const isReturning = playedGames.length > 0;
   const event = whatsOn.event ? eventOf(whatsOn.event) : null;
-  const eventStrip: LayoutItem[] = event && !closedNewsIds.includes(event.id)
-    ? [{ kind: "block", id: "home-event", markup: html`<div data-announcement-id="${event.id}">${eventBanner({ title: event.title, widePicture: event.wide_art_url, narrowPicture: event.narrow_art_url, action: { label: event.link_label, href: event.link_url }, closeLabel: "Close" })}</div>` }]
+  const eventStrip: LayoutItem[] = event
+    ? [{ kind: "block", id: "home-event", markup: eventBanner({ title: event.title, widePicture: event.wide_art_url, narrowPicture: event.narrow_art_url, action: { label: event.link_label, href: event.link_url } }) }]
     : [];
   const yourGame = playedGames[0];
   const nowMs = Date.now();
@@ -388,8 +387,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
     : stack({ items: [...eventStrip, { kind: "block", markup: glassPane({ paneWidth: "fit", body: stack({ items: [{ kind: "words", markup: html`<h1>Every kind of game. One link away.</h1>` }, { kind: "words", markup: html`<p>The first games are on their way.</p>` }] }) }) }] });
   const response = layout(env, {
     title: "Zaisma: every kind of game, one link away",
-    // Filtered for a signed-in viewer's age, or showing what this device played or closed, so no shared cache keeps it.
-    isPrivate: Boolean(viewer.account) || guestPlayedSlugs.length > 0 || closedNewsIds.some(Boolean),
+    // Filtered for a signed-in viewer's age, or showing what this device played, so no shared cache keeps it.
+    isPrivate: Boolean(viewer.account) || guestPlayedSlugs.length > 0,
     nav: "home",
     viewer,
     checkedPage: isReturning ? "Home, returning" : viewer.account ? "Home, signed in" : "Home",

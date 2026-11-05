@@ -147,10 +147,10 @@ describe("the bench's marks and cookies", () => {
     expect(withoutMarks(url("/g/x?play&bench_screen=main.phone.guest.still&bench_state=a/b")).search).toBe("?play=");
   });
   it("send the jar in place of the browser's own sign-in, keeping what the page's script wrote", () => {
-    const browser = "zaisma_session=julius; zaisma_in=1; zaisma_played=a,b; __Host-zaisma_closed_news=1";
-    expect(cookieHeaderFor(browser, [["zaisma_session", "pin"], ["zaisma_in", "1"]], "laptop")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_session=pin; zaisma_in=1; zaisma_device_kind=computer");
-    expect(cookieHeaderFor(browser, [], "phone")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_device_kind=phone");
-    expect(cookieHeaderFor(browser, [], "real")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1");
+    const browser = "zaisma_session=julius; zaisma_in=1; zaisma_played=a,b; __Host-download_started=1";
+    expect(cookieHeaderFor(browser, [["zaisma_session", "pin"], ["zaisma_in", "1"]], "laptop")).toBe("zaisma_played=a,b; __Host-download_started=1; zaisma_session=pin; zaisma_in=1; zaisma_device_kind=computer");
+    expect(cookieHeaderFor(browser, [], "phone")).toBe("zaisma_played=a,b; __Host-download_started=1; zaisma_device_kind=phone");
+    expect(cookieHeaderFor(browser, [], "real")).toBe("zaisma_played=a,b; __Host-download_started=1");
   });
   it("keep a jar to one address, since each address names its cookies and signs its tokens itself", () => {
     expect(jarKeyOf("http://localhost:8900", "Moss_Runner")).not.toBe(jarKeyOf("https://mac.example.ts.net:8900", "Moss_Runner"));

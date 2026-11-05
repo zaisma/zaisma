@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAccount, createGame, personOwner, setBackground } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
-import { CLOSED_NEWS_COOKIE, HOME_SCRIPT, PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
+import { HOME_SCRIPT, PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
 import { cookieName } from "../../apps/site/src/auth.ts";
 
 /**
@@ -109,22 +109,23 @@ describe("the home page", () => {
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
   });
 
-  it("shows Zaisma's current news from the first paint unless this device closed it, and none once it ends", async () => {
+  it("shows no news line: an event is the home's one announcement", async () => {
     const now = Date.now();
     await env.DB.prepare("INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_homenews', 'News for players.', NULL, NULL, ?, ?, ?, 'test')").bind(now - 1000, now + DAY_MS, now).run();
-    expect((await homePage()).text).toMatch(/id="home-news"><div data-announcement-id="announcement_homenews">/);
-    expect((await homePage({ [CLOSED_NEWS_COOKIE]: "announcement_older,announcement_homenews" })).text).toMatch(/id="home-news" hidden|hidden[^>]*id="home-news"/);
-    await env.DB.prepare("UPDATE announcements SET ends_at_ms = ? WHERE id = 'announcement_homenews'").bind(now - 1).run();
-    expect((await homePage()).text).not.toContain("announcement_homenews");
+    expect((await homePage()).text).not.toContain("News for players.");
+    await env.DB.prepare("DELETE FROM announcements WHERE id = 'announcement_homenews'").run();
   });
 
-  it("runs an event's art across the top until it ends or this device closes it, with its name for a screen reader and its button", async () => {
+  it("runs an event's art across the top until it ends, in a well on a pane, with its name for a screen reader and its one button, and nothing to close it with", async () => {
     const now = Date.now();
     await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_homeevent', 'event', 'Zombie weekend', 'k', '/games', ?, ?, ?, 'test')").bind(now - 1000, now + DAY_MS, now).run();
     const { text } = await homePage();
     expect(text).toMatch(/id="home-event"[\s\S]*?<img class="reveals" src="\/whats-on-art\/whats_on_entry_homeevent\/wide"[^>]*alt="Zombie weekend"/);
     expect(text).toContain("Go play");
-    expect((await homePage({ [CLOSED_NEWS_COOKIE]: "whats_on_entry_homeevent" })).text).not.toContain('id="home-event"');
+    expect(text).not.toContain("banner_close");
+    expect(text).toMatch(/id="home-event"[\s\S]*?<div class="event-banner"><section class="glass glass-pane[\s\S]*?<div class="well carving event-banner-well holds-art"/);
+    await env.DB.prepare("UPDATE whats_on_entries SET ends_at_ms = ? WHERE id = 'whats_on_entry_homeevent'").bind(now - 1).run();
+    expect((await homePage()).text).not.toContain('id="home-event"');
     await env.DB.prepare("DELETE FROM whats_on_entries WHERE id = 'whats_on_entry_homeevent'").run();
   });
 

@@ -2037,17 +2037,17 @@ export interface EventBannerOptions {
   /** The art for a narrow strip; left out, the wide one, its start kept. */
   narrowPicture?: string | null;
   action: { label: string; href: string };
-  closeLabel: string;
 }
 
 /**
- * An event banner: a slim strip of art across the top of a page for an event Zaisma runs. The art is the words: nothing is written over it but its
- * one button and its Close, at its end. All of it opens the event; where the strip is narrow only the art and Close show.
+ * An event banner: a slim pane across the top of a page for an event Zaisma runs, with a well carved into it that the art shows from. The art is the
+ * words: nothing sits on it but its one button, at the well's end, cut by the edge rule. It stays for as long as the event runs.
  */
 export function eventBanner(options: EventBannerOptions): Raw {
   const artAt = (imageUrl: string, side: "is-wide" | "is-narrow") => picture({ imageUrl, widthPx: 2400, heightPx: 88, placeholderDataUrl: null }, { label: options.title, className: `event-banner-picture ${side}`, isEager: true });
   const pictureMarkup = html`${artAt(options.widePicture, "is-wide")}${options.narrowPicture ? artAt(options.narrowPicture, "is-narrow") : ""}`;
-  return html`<div class="event-banner"><a class="event-banner-art carving holds-art" data-cut-line="0" href="${options.action.href}">${CUT_LINE}<span class="carving-art" data-cut-line="0">${pictureMarkup}</span></a><div class="event-banner-controls">${row({ widths: "fit", alignment: "end", items: [control(secondaryButton(options.action.label, { href: options.action.href })), control(secondaryButton(action("close", options.closeLabel), { type: "button", name: "banner_close", isLabelHidden: true, staysSecondaryBecause: "Close has to read on any event's art, so it keeps its glass" }))] })}</div></div>`;
+  const art = html`<a class="event-banner-art carving-art" data-cut-line="0" href="${options.action.href}">${pictureMarkup}</a>`;
+  return html`<div class="event-banner">${glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(well({ kind: "event-banner-well holds-art", body: art, end: secondaryButton(options.action.label, { href: options.action.href, isSmall: true }) })) })}</div>`;
 }
 
 component({
@@ -2055,21 +2055,21 @@ component({
   slug: "event-banner",
   group: "panes",
   subgroup: "layers",
-  summary: "A slim strip of art across the top of the home for an event Zaisma runs, like a themed weekend. The art carries the title; its one button and Close sit on its end. All of it opens the event, and where it's narrow only the art and Close show.",
+  summary: "A slim pane across the top of the home for an event Zaisma runs, like a themed weekend, with a well carved into it that the art shows from. The art carries the title; its one button sits at the well's end. All of it opens the event, and it stays until the event ends.",
   styles: `
-/* The strip: as slim as a control and its frame, wherever it is, so an event never turns into a poster. */
-.event-banner { position: relative; width: 100%; min-width: 0; height: calc(var(--control-height-regular) + 2 * var(--pad-frame-compact)); container-type: inline-size; }
-.event-banner-art { position: absolute; inset: 0; display: block; }
+/* The pane: a thin frame of glass round the well, so an event never turns into a poster. */
+.event-banner { width: 100%; min-width: 0; container-type: inline-size; }
+.event-banner > .glass-pane > .pane-in { padding: var(--pad-frame); }
+.event-banner-well { position: relative; height: var(--control-height-regular); }
+.event-banner-well > .well-body { position: absolute; inset: 0; padding: 0; }
 .event-banner-picture img { object-position: left center; }
 .event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: none; }
 @container (max-width: 559px) { .event-banner-art:has(.is-narrow) .event-banner-picture.is-wide { display: none; } .event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: block; } }
-.event-banner-controls { position: absolute; inset-block: 0; inset-inline-end: var(--pad-frame-compact); display: flex; align-items: center; }
-@container (max-width: 559px) { .event-banner-controls .row-cell:first-child { display: none; } }
 `,
   render: eventBanner,
   examples: [
-    { label: "An event", isWide: true, markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" }, closeLabel: "Close" }) },
-    { label: "Where it's narrow: the art and Close", markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" }, closeLabel: "Close" }) },
+    { label: "An event", isWide: true, markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" } }) },
+    { label: "Where it's narrow: the art and its button", markup: eventBanner({ title: "Zombie weekend", widePicture: "/event-example.svg", action: { label: "Go play", href: "#" } }) },
   ],
 });
 
