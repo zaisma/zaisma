@@ -2065,6 +2065,8 @@ component({
   styles: `
 /* A compact pane, a thin frame of glass round the well, so an event never turns into a poster. */
 .event-banner { width: 100%; min-width: 0; container-type: inline-size; }
+/* Opening a page, it hangs from the header at the frame gap (the header's own gap is --header-gap), so it reads as the header's, not as one more block. */
+main .layout-stack:not(.glass *) > .stack-cell:first-child > .event-banner { margin-top: calc(var(--pad-frame) - var(--header-gap, var(--gap-block-block))); }
 .event-banner-well { position: relative; height: var(--control-height-regular); }
 .event-banner-well > .well-body { position: absolute; inset: 0; padding: 0; }
 .event-banner-picture img { object-position: left center; }

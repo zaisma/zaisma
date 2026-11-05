@@ -538,7 +538,7 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
    a control's gap apart. What comes last sits at its foot. As tall as the screen with the browser's bars showing, so it never resizes as they
    come and go. The page keeps the bar's room beside it, each clear of the notch. */
 @media ${HEADER_RAIL_MEDIA} {
-  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); --header-gap: var(--pad-frame); }
   /* The page's own panes are the bar's gap apart too, so every gap between glass on the page is one. */
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .layout-stack:not(.glass *) > .stack-cell.gap-top-block-block { margin-top: var(--pad-frame); }
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }

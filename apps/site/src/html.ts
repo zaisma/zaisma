@@ -433,8 +433,8 @@ const SYSTEM_STYLES = (): string => (systemStyles ||= mapSelectors(COMPONENT_STY
 const SHELL_STYLES = `
 /* The room the floating header takes at the top: its inset, its height (the header's own --header-height) and a
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
-:root { --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--gap-block-block)); scroll-padding-top: var(--header-room); }
-@media ${HEADER_SMALL_SCREEN_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 68px) + var(--gap-block-block)); } }
+:root { --header-gap: var(--gap-block-block); --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--header-gap)); scroll-padding-top: var(--header-room); }
+@media ${HEADER_SMALL_SCREEN_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 68px) + var(--header-gap)); } }
 /* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
 html { background: var(--backdrop-edge, var(--page)); }
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
