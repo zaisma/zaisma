@@ -284,6 +284,18 @@ async function waitForBrotliCopies() {
   }
 }
 
+/**
+ * Until the AI reviews the test data started are over, or a minute: starting the servers again drops a review in the queue, and a game set
+ * listed or unlisted takes that only when its review ends. The seeded reviews that stay waiting (seedAiReviewStates) are left out, as are the
+ * ones in a batch, which outlast the start, and the ones waiting for a free review.
+ */
+async function waitForAiReviews() {
+  const running = () => querySql("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND ai_review_speed = 'at_once' AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND id NOT LIKE 'version_preview%'");
+  for (let lookCount = 0; running().length && lookCount < 120; lookCount++) await new Promise((r) => setTimeout(r, 500));
+  const left = running();
+  if (left.length) console.log(`  Still in AI review after a minute: ${left.slice(0, 5).map((row) => row.id).join(", ")}`);
+}
+
 // How long each part of starting took, in the log (and so in GitHub's check), so a slow part shows.
 let stepStartedMs = Date.now();
 function stepDone(label) {
@@ -565,6 +577,8 @@ if (fresh) {
   }
   await waitForBrotliCopies();
   stepDone("Brotli copies");
+  await waitForAiReviews();
+  stepDone("AI reviews");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
   // Adding the test data leaves the runtime hundreds of MB bigger than it needs to be from then on, and it's the moment to keep the data for
   // other checkouts: the servers are stopped, so the databases are whole.
