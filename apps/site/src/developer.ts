@@ -213,6 +213,7 @@ import {
   isCreditLow,
   type DoorContract,
   BodyPastCapError,
+  MAXIMUM_RAW_BODY_SIZE_BYTES,
   NO_BODY_MAXIMUM_SIZE_BYTES,
   readBodyBytes,
   readBodyText,
@@ -1022,9 +1023,6 @@ export const apiRouteContract = (apiRoute: ApiRoute): DoorContract => ({
 });
 
 const inputShapes = (inputs: Readonly<Record<string, ApiInput>>): Record<string, DoorShape> => Object.fromEntries(Object.keys(inputs).map((name) => [name, API_INPUT_SHAPES[name as ApiInputName]]));
-
-/** The most of a raw body any call reads: a file's part, or an image. */
-const MAXIMUM_RAW_BODY_SIZE_BYTES = 110 * 1024 * 1024;
 
 /** Each tool's outputSchema, by its name, which mcp.ts fills as it loads: a tool's answer is its call's. */
 export const TOOL_ANSWER_SCHEMAS = new Map<string, Readonly<Record<string, unknown>>>();

@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { BodyPastCapError, cappedRequest, createAccount, createApiKey, readBodyBytes, readBodyText } from "@zaisma/core";
+import { BodyPastCapError, cappedRequest, createAccount, createApiKey, FILE_LIMITS, formOf, IMAGE_LIMITS, readBodyBytes, readBodyText, ZIP_LIMITS } from "@zaisma/core";
+import { siteDoorAt, type SiteDoor } from "../../apps/site/src/doors.ts";
 import { guardSiteDoor } from "../../apps/site/src/guard.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -116,7 +117,8 @@ describe("The guard's own read", () => {
   it("stops at a form door's size, with no size stated", async () => {
     const path = "/g/sky-hopper/report";
     const { stream, read } = endlessBody();
-    const refused = await guardSiteDoor(requestWith(stream, { "content-type": "application/x-www-form-urlencoded" }, path), env, path);
+    const request = cappedRequest(requestWith(stream, { "content-type": "application/x-www-form-urlencoded" }, path), 4 * 1024 * 1024);
+    const refused = await guardSiteDoor(request, env, path);
     expect(refused?.status).toBe(413);
     expect((read.chunkCount - 2) * CHUNK_SIZE_BYTES).toBeLessThanOrEqual(4 * 1024 * 1024);
   });
@@ -127,6 +129,91 @@ describe("The guard's own read", () => {
     const refused = await guardSiteDoor(requestWith(stream, { "content-type": "application/json" }, path), env, path);
     expect(refused?.status).toBe(413);
     expect(read.chunkCount).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("A form, read once", () => {
+  const REPORT_PATH = "/g/sky-hopper/report";
+  /** A report's form with its picture, which says how many copies of itself were asked for. */
+  const reportForm = (picture: Uint8Array, names: Record<string, string> = {}) => {
+    const form = new FormData();
+    form.set("picture", new File([picture], "picture.png", { type: "image/png" }));
+    for (const [name, value] of Object.entries(names)) form.set(name, value);
+    const request = new Request(`${SITE}${REPORT_PATH}`, { method: "POST", body: form });
+    const copies = { count: 0 };
+    const clone = request.clone.bind(request);
+    request.clone = () => {
+      copies.count += 1;
+      return clone();
+    };
+    return { request, copies };
+  };
+
+  it("takes no copy of a file form, and hands the door the form it read", async () => {
+    const picture = new Uint8Array(64 * 1024).fill(7);
+    const { request, copies } = reportForm(picture);
+    expect(await guardSiteDoor(request, env, REPORT_PATH)).toBeNull();
+    expect(copies.count).toBe(0);
+    const file = (await formOf(request)).get("picture") as unknown as File;
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(picture);
+    expect(await formOf(request)).toBe(await formOf(request));
+  });
+
+  it("still refuses a name the door doesn't take, without a copy", async () => {
+    const { request, copies } = reportForm(new Uint8Array(16), { no_such_field: "x" });
+    expect((await guardSiteDoor(request, env, REPORT_PATH))?.status).toBe(400);
+    expect(copies.count).toBe(0);
+  });
+
+  it("takes an empty form, and refuses one it can't read", async () => {
+    const empty = new Request(`${SITE}${REPORT_PATH}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" } });
+    expect(await guardSiteDoor(empty, env, REPORT_PATH)).toBeNull();
+    const broken = new Request(`${SITE}${REPORT_PATH}`, { method: "POST", headers: { "content-type": "multipart/form-data" }, body: "not a form" });
+    expect((await guardSiteDoor(broken, env, REPORT_PATH))?.status).toBe(400);
+  });
+
+  it("reads a signed-out caller's form once too", async () => {
+    const path = "/account/social";
+    const request = new Request(`${SITE}${path}`, { method: "POST", headers: { origin: SITE, "content-type": "application/x-www-form-urlencoded" }, body: "next=%2Ffriends" });
+    request.clone = () => {
+      throw new Error("a copy");
+    };
+    const refused = await guardSiteDoor(request, { ...env, SUPABASE_URL: "https://supabase.test", SUPABASE_SECRET_KEY: "key" }, path);
+    expect(refused?.headers.get("location")).toBe("/signin?next=%2Ffriends");
+  });
+});
+
+describe("What each file door takes", () => {
+  const FIELDS_SIZE_BYTES = 256 * 1024;
+  const rowOf = (path: string, method = "POST") => siteDoorAt(path, method) as SiteDoor;
+  const sizeOf = (path: string, method?: string) => rowOf(path, method).contract.takes.body?.maximumSizeBytes;
+  const fileNamesOf = (path: string) => {
+    const body = rowOf(path).contract.takes.body;
+    return body?.kind === "form" ? (body.fileNames ?? []) : [];
+  };
+
+  it.each([
+    ["/dashboard/sky-hopper/images", ["file"], IMAGE_LIMITS.maximumSizeBytes],
+    ["/dashboard/sky-hopper/backgrounds", ["file"], IMAGE_LIMITS.maximumSizeBytes],
+    ["/forum/media", ["file"], 5 * 1024 * 1024],
+    ["/admin/upload", ["zip"], ZIP_LIMITS.maximumZipSizeBytes],
+    ["/admin/api/games", ["zip"], ZIP_LIMITS.maximumZipSizeBytes],
+  ])("%s takes its file and the form's fields", (path, fileNames, fileSizeBytes) => {
+    expect(fileNamesOf(path)).toEqual(fileNames);
+    expect(sizeOf(path)).toBe(fileSizeBytes + FIELDS_SIZE_BYTES);
+  });
+
+  it.each(["/dashboard/new", "/dashboard/sky-hopper/details", "/dashboard/sky-hopper/delete", "/forum/new", "/forum/messages/new", "/forum/topic_abc/reply", "/forum/topic_abc/vote", "/forum/preview", "/admin/versions/version_abc/approve", "/admin/precedents"])("%s takes fields and no file", (path) => {
+    expect(fileNamesOf(path)).toEqual([]);
+    expect(sizeOf(path)).toBe(FIELDS_SIZE_BYTES);
+  });
+
+  it("leaves a big build's whole files and parts their room, on the doors the upload command uses", () => {
+    for (const [method, path] of [["PUT", "/api/dev/files/abc"], ["PUT", "/api/dev/files/abc/parts/1"]] as const) {
+      expect(sizeOf(path, method)).toBeGreaterThanOrEqual(FILE_LIMITS.maximumDirectSizeBytes);
+      expect(sizeOf(path, method)).toBeGreaterThanOrEqual(FILE_LIMITS.partSizeBytes);
+    }
+    expect(sizeOf("/api/dev/files/abc", "PUT")).toBe(110 * 1024 * 1024);
   });
 });
 
@@ -152,6 +239,12 @@ describe("Every door, from outside", () => {
 
   it("answers a form door's body past its size as too big", async () => {
     expect((await sent("/g/sky-hopper/report", { "content-type": "application/x-www-form-urlencoded" }, 5 * 1024 * 1024)).status).toBe(413);
+  });
+
+  it("says how much a page's form takes", async () => {
+    const report = await SELF.fetch(`${SITE}/g/sky-hopper/report`, { method: "POST", headers: { origin: SITE, "content-type": "application/x-www-form-urlencoded", "content-length": String(5 * 1024 * 1024) }, body: new Uint8Array(5 * 1024 * 1024) });
+    expect(report.status).toBe(413);
+    expect(await report.text()).toContain("This form takes up to 4 MB.");
   });
 
   it("answers a raw door's body past its size as too big", async () => {

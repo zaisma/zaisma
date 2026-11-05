@@ -1,5 +1,5 @@
 import { gallerySheet } from "./components/gallery-sheet.ts";
-import { isPastLevel, AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, ZAISMA_PLAYER_REPORT_REASONS, audit, hasBlockBetweenAccounts, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
+import { isPastLevel, AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, ZAISMA_PLAYER_REPORT_REASONS, audit, hasBlockBetweenAccounts, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version, formOf } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
@@ -369,7 +369,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   const ip = request.headers.get("cf-connecting-ip") ?? "local";
   if (await isPastLevel(env, "guess", "report", ip)) return reply(429, { error: "Too many reports. Wait a minute and try again." });
 
-  const input = fromSheet ? await readJson(request) : Object.fromEntries((await request.formData()).entries());
+  const input = fromSheet ? await readJson(request) : Object.fromEntries((await formOf(request)).entries());
   const text = (given: unknown, maximumCharacterCount: number) => (typeof given === "string" ? given.slice(0, maximumCharacterCount).replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim() : "");
   const playerText = text(input.details, 2000);
   const room = text(input.room, 6).toUpperCase();
