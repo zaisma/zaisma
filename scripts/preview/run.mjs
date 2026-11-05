@@ -291,7 +291,13 @@ async function waitForBrotliCopies() {
  */
 async function waitForAiReviews() {
   const running = () => querySql("SELECT id FROM versions WHERE ai_review_status IN ('waiting', 'reviewing') AND scan_status = 'approved' AND ai_review_waiting_reason IS NULL AND id NOT LIKE 'version_preview%' AND NOT EXISTS (SELECT 1 FROM review_batches WHERE review_batches.version_id = versions.id)");
-  for (let lookCount = 0; running().length && lookCount < 120; lookCount++) await new Promise((r) => setTimeout(r, 500));
+  const wait = (durationMs) => new Promise((r) => setTimeout(r, durationMs));
+  // A review asked for this moment can still be on its way into the database, seen from this process: none counts only when none shows twice.
+  let emptyLookCount = 0;
+  for (let lookCount = 0; emptyLookCount < 2 && lookCount < 120; lookCount++) {
+    emptyLookCount = running().length ? 0 : emptyLookCount + 1;
+    await wait(500);
+  }
   const left = running();
   if (left.length) console.log(`  Still in AI review after a minute: ${left.slice(0, 5).map((row) => row.id).join(", ")}`);
 }
@@ -578,15 +584,17 @@ if (fresh) {
   }
   await waitForBrotliCopies();
   stepDone("Brotli copies");
-  await waitForAiReviews();
-  stepDone("AI reviews");
   writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
-  // Adding the test data leaves the runtime hundreds of MB bigger than it needs to be from then on, and it's the moment to keep the data for
-  // other checkouts: the servers are stopped, so the databases are whole.
   stopEsbuild();
-  await new Promise((done) => (serversProcess.once("exit", done), serversProcess.kill()));
-  if (!ENGINES_ONLY) saveSnapshot({ root: ROOT, phoneHost: PHONE_HOST, stateFolder: STATE });
-  await startServersAgain();
+  // Adding the test data leaves the runtime hundreds of MB bigger than it needs to be from then on, and it's the moment to keep the data for
+  // other checkouts: the servers are stopped, so the databases are whole. GitHub's runners have the memory, and their own snapshot.
+  if (!process.env.CI) {
+    await waitForAiReviews();
+    stepDone("AI reviews");
+    await new Promise((done) => (serversProcess.once("exit", done), serversProcess.kill()));
+    if (!ENGINES_ONLY) saveSnapshot({ root: ROOT, phoneHost: PHONE_HOST, stateFolder: STATE });
+    await startServersAgain();
+  }
   stepDone("servers started again");
 }
 if (IDLE_MINUTES > 0)
