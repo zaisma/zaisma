@@ -261,11 +261,10 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square"> & { pl
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** What kind of game it is and how it's played, for the line under a card's title. */
-const summaryOf = (game: ShowGame): string | undefined => [game.genres[0] ? GENRE_LABELS[game.genres[0] as Genre] : "", game.modes].filter(Boolean).join(" · ") || undefined;
 
 /** A game in one of the home's lists. */
 const coverOf = (game: ShowGame, ownedGameIds: ReadonlySet<string>, options: Pick<GameCardOptions, "isEager" | "hasHighPriority" | "playHref"> & { tagWords?: string | null } = {}): Raw =>
-  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, playHref: options.playHref, tintColor: game.glass_tint_color, isEager: options.isEager, hasHighPriority: options.hasHighPriority, facts: { playerCount: shownPlayerCount(game), tagWords: options.tagWords ?? undefined, summary: summaryOf(game), priceText: coverPriceText(game, ownedGameIds) } });
+  gameCard({ title: game.title, picture: game.cover_picture, href: `/g/${game.slug}`, playHref: options.playHref, tintColor: game.glass_tint_color, isEager: options.isEager, hasHighPriority: options.hasHighPriority, facts: { playerCount: shownPlayerCount(game), tagWords: options.tagWords ?? undefined, priceText: coverPriceText(game, ownedGameIds) } });
 
 /** A shelf's games with those made for this kind of device first, as the home's script keeps them, so they're in their place from the first paint. */
 const forDeviceFirst = (list: ShowGame[], deviceKind: DeviceKind) => {

@@ -160,6 +160,8 @@ export const LEAST_SCROLL_PX = 12;
 /** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
 export const BARE_GROUPS_STYLES = `
 :where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }
+/* The unit is padded, so nothing in it pads again: a row of words and controls in it (a card's title with Play) starts at its edge. */
+:where(${BARE_GROUPS.join(", ")}) > * { --pad-words: 0px; }
 :is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")})) { padding-inline: var(--pad-words); }
 :is(.layout-grid, .layout-track) > :is(${BARE_GROUPS.join(", ")}), .grid-cell > :is(${BARE_GROUPS.join(", ")}) { padding-inline: 0; }
 `;

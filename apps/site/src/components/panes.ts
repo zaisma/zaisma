@@ -106,7 +106,7 @@ export interface GameCardFacts {
   playerCount?: number;
   /** Why this card is here (Updated, New, Trending, Pick, Sponsored): a tag at the end of the title's line, in place of players now. */
   tagWords?: string;
-  /** What kind of game and how it's played, in a few words: the line under the title. */
+  /** A few words under the title that concern the player, like who's in it (Friends playing); never what kind of game it is, which its page says. */
   summary?: string;
   /** A paid game's price to play, for a viewer who doesn't own it: the line under the title. A free game shows nothing. */
   priceText?: string;
@@ -126,7 +126,7 @@ export interface GameCardOptions {
   tintColor?: string | null;
   /** The one card lifted: the game in the pane beside the list. Its edge stays lit and its art brightens. */
   isCurrent?: boolean;
-  /** Where its Play goes: Play and Details show under it (the home's game of the moment). Left out, a card has neither. */
+  /** Where its Play goes: a small Play and Details' icon end its title's line, in place of players now (the home's game of the moment). Left out, a card has neither. */
   playHref?: string;
   /** Where Join goes: the one button under it, for a game the player's friends are in now. Left out, a card has none. */
   joinHref?: string;
@@ -154,9 +154,9 @@ const cardLabel = (options: GameCardOptions): string =>
   ].filter(Boolean).join(", ");
 
 
-/** Play and Details under a game card (gameCard's playHref): a page script that builds a card takes this, with its two addresses set. */
-export function gameCardActions(playHref: string, detailsHref: string): Raw {
-  return html`<div class="cover-actions">${row({ widths: "lead-fills", items: [control(primaryButton(action("play"), { href: playHref, isFullWidth: true })), control(secondaryButton(action("details"), { href: detailsHref }))] })}</div>`;
+/** A card's title line with Play and Details at its end (gameCard's playHref), small, so the card grows no taller than its title: Details is its icon alone. */
+export function gameCardActions(title: string, playHref: string, detailsHref: string): Raw {
+  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<span class="cover-name one-line">${title}</span>` }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
 }
 
 /**
@@ -176,7 +176,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>${secondLine}${options.playHref ? gameCardActions(options.playHref, options.href) : ""}${options.joinHref ? html`<div class="cover-actions">${stackOfOne(secondaryButton("Join", { href: options.joinHref, isFullWidth: true }))}</div>` : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}${options.joinHref ? html`<div class="cover-actions">${stackOfOne(secondaryButton("Join", { href: options.joinHref, isFullWidth: true }))}</div>` : ""}</div>`;
 }
 
 /**
@@ -597,7 +597,9 @@ const COVER_STYLES = `
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
-.cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
+.cover-meta:not(.has-actions) .ico { width: 15px; height: 15px; stroke-width: 1.5; }
+/* Play and Details on the title's line: a row, its name on the controls' center line. */
+.cover-meta.has-actions { display: block; }
 .cover-meta .count { display: inline-flex; align-items: center; gap: var(--gap-words-words); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 /* Play and Details under it take the card's width. */
 .cover-actions { min-width: 0; }

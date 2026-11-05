@@ -78,6 +78,9 @@ describe("the home page", () => {
     const lead = text.slice(text.indexOf('class="lead-and-side-lead"'), text.indexOf('class="lead-and-side-side"'));
     expect(coverSlugs(lead)).toEqual(["home-three"]);
     expect(lead).toContain('href="/g/home-three?play"');
+    // Play and Details' icon end the title's line, and no card says what kind of game it is.
+    expect(lead).toMatch(/<div class="cover-meta has-actions">[\s\S]*?cover-name[\s\S]*?href="\/g\/home-three\?play"/);
+    expect(text).not.toContain('class="cover-actions"><div class="layout-row');
     const side = text.slice(text.indexOf('class="lead-and-side-side"'), text.indexOf('aria-label="What else is here"'));
     expect(coverSlugs(side)).toHaveLength(2);
     expect(coverSlugs(side)).not.toContain("home-three");
