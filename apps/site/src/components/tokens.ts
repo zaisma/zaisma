@@ -81,7 +81,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --thick-edge-light: rgb(112, 156, 240); --thick-edge-flood: rgba(112, 156, 240, 0.62); --thick-edge-flood-far: rgba(112, 156, 240, 0.24); --thick-edge-wake: rgba(112, 156, 240, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
-  --backdrop-base: #BBD8F0; --backdrop-a: #DCEBF6; --backdrop-b: #7FA8A8; --backdrop-c: #6FA0E6;`;
+  --backdrop-base: #BACEE6; --backdrop-a: #DCE6F2; --backdrop-b: #9DB0CA; --backdrop-c: #9CBEE4;`;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --glass-ground: #121110;
