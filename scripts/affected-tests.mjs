@@ -34,7 +34,7 @@ const WORKER_TEST_ENTRIES = ["test/apply-migrations.ts", "migrations/"];
 const SITE_TEST_ENTRIES = ["test/site/rooms-database-worker.ts"];
 // The node and layout projects' stand-ins for the Workers modules (vitest.config.ts's resolve.alias).
 const NODE_TEST_ENTRIES = ["test/node/cloudflare-email.ts", "test/node/cloudflare-workers.ts"];
-// The preview's Workers (scripts/preview/run.mjs runs them all in one wrangler dev), and everything its start and test data use.
+// The preview's Workers (scripts/preview/run.mjs runs them all in one runtime), and everything its start and test data use.
 const PREVIEW_WORKERS = ["site", "games", "rooms", "compress"];
 const PREVIEW_ENTRIES = ["scripts/preview/", "migrations/", "package.json", "package-lock.json", ".github/workflows/check.yml"];
 /** Each check GitHub's check runs on the preview, with what it runs besides the preview. */

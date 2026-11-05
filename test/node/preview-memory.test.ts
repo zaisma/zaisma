@@ -204,15 +204,15 @@ describe("which preview sleeps to make room", () => {
   const asked = (kind = "start", minutesAgo = 5) => entry(11, 100, kind, NOW_MS - minutesAgo * MINUTE_MS);
   const pick = (entries: object[], awakePreviews: object[], roomAskedAtMs: number | null = null) => previewToSleep({ entries, awakePreviews, roomAskedAtMs, nowMs: NOW_MS });
 
-  it("is none with nothing in line, however long nobody has looked: the 30 minutes stays", () => {
+  it("is none with nothing in line, however long nobody has looked: the 10 minutes stays", () => {
     expect(pick([], [awakeFor(0, 29)])).toBeNull();
     expect(pick([entry(11, 100, "start", NOW_MS, NOW_MS)], [awakeFor(0, 29)])).toBeNull();
   });
-  it("is the one nobody has looked at for longest, once that's 10 minutes", () => {
-    expect(IDLE_WHILE_WAITED_FOR_MS).toBe(10 * MINUTE_MS);
-    expect(pick([asked()], [awakeFor(0, 12), awakeFor(100, 25), awakeFor(200, 3)])).toBe(100);
-    expect(pick([asked()], [awakeFor(0, 9), awakeFor(200, 3)])).toBeNull();
-    expect(pick([asked()], [awakeFor(0, 10)])).toBe(0);
+  it("is the one nobody has looked at for longest, once that's 3 minutes", () => {
+    expect(IDLE_WHILE_WAITED_FOR_MS).toBe(3 * MINUTE_MS);
+    expect(pick([asked()], [awakeFor(0, 5), awakeFor(100, 25), awakeFor(200, 1)])).toBe(100);
+    expect(pick([asked()], [awakeFor(0, 2), awakeFor(200, 1)])).toBeNull();
+    expect(pick([asked()], [awakeFor(0, 3)])).toBe(0);
   });
   it("counts a wake as waiting, and a test run never", () => {
     expect(pick([asked("wake")], [awakeFor(0, 12)])).toBe(0);

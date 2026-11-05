@@ -30,7 +30,7 @@ export const LINE_DIRECTORY = join(homedir(), ".zaisma/previews");
 export const OFFSETS = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900];
 const DEFAULT_CAP_SHARE = 3 / 8;
 // What an awake preview takes until one has been measured on this machine.
-export const DEFAULT_AWAKE_SIZE_BYTES = 1024 ** 3;
+export const DEFAULT_AWAKE_SIZE_BYTES = 600 * 1024 ** 2;
 // What a test run takes, measured on an 8 GB Mac (Oct 23, 2026): vitest, its bundler and npm, and a runtime for each file at once,
 // about 0.9 GB for a Workers file's (its own workerd) and much less for a node file's.
 export const TEST_RUN_SIZE_BYTES = 600 * 1024 ** 2;
@@ -50,10 +50,10 @@ const KEPT_DURATION_MS = 10 * 60_000;
 const LOCK_STALE_MS = 20_000;
 // A waiter says its place again when it changes, or this often.
 const PLACE_REPEAT_MS = 5 * 60_000;
-// An awake preview nobody has looked at for this long sleeps when something waits in line (30 minutes when nothing does, run.mjs's
-// IDLE_MINUTES). A start gives up a minute later, so a preview last looked at just as it asked still makes room in time (each
-// preview looks every 15 seconds, and stopping and measuring take seconds). PREVIEW_START_WAIT_MINUTES changes the limit for one shell.
-export const IDLE_WHILE_WAITED_FOR_MS = 10 * 60_000;
+// An awake preview nobody has looked at for this long sleeps when something waits in line (10 minutes when nothing does, run.mjs's
+// IDLE_MINUTES), and it wakes in about a second. A start gives up well after that, so a preview someone is still looking at has time to
+// go quiet. PREVIEW_START_WAIT_MINUTES changes the limit for one shell.
+export const IDLE_WHILE_WAITED_FOR_MS = 3 * 60_000;
 export const START_WAIT_LIMIT_MS = Number(process.env.PREVIEW_START_WAIT_MINUTES ?? 11) * 60_000;
 // Something counts as waiting after this long in line: long enough for one that fits to have been measured and given its turn.
 const WAITING_BEFORE_SLEEP_MS = 20_000;
@@ -311,7 +311,7 @@ export function memoryHoldersText({ previews, testRuns, ownOffset = null }) {
  * once that's IDLE_WHILE_WAITED_FOR_MS. Only starts and wakes count as waiting, once they've been in line long enough to have had
  * their turn if they fit. One at a time, so a sleep that makes enough room stays the only one. entries: the line's, alive;
  * awakePreviews: [{ offset, last_visit_at_ms, noted_at_ms }]. A preview's own jobs and a session's checks count as they do for its
- * 30 minutes: run.mjs's lastVisitAtMs is the same clock.
+ * 10 minutes: run.mjs's lastVisitAtMs is the same clock.
  */
 export function previewToSleep({ entries, awakePreviews, roomAskedAtMs = null, nowMs = Date.now() }) {
   const isSomethingWaiting = entries.some((entry) => entry.kind !== "test" && entry.turn_given_at_ms === null && nowMs - entry.asked_at_ms >= WAITING_BEFORE_SLEEP_MS);
