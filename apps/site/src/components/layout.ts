@@ -166,8 +166,13 @@ export function row(options: RowOptions): LayoutMarkup {
  */
 export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
   if (!window.zaismaWatch) return;
+  var laidSizes = new WeakMap();
+  function sizeOf(row) { return row.offsetWidth + "x" + row.offsetHeight; }
   function lay(row) {
     var cells = Array.prototype.slice.call(row.children);
+    // From the same start every time: measured as the last pass left it, a row could wrap on one pass and unwrap on the next, and every
+    // flip resizes what's round it and sets the next one off.
+    row.classList.remove("is-wrapped");
     row.classList.add("is-measuring");
     var widestPx = 0;
     // Measured as it's laid out, not as it's drawn: in a sheet still growing in as it opens, it's drawn smaller than it lays out.
@@ -176,8 +181,6 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
     row.classList.remove("is-measuring");
     var equalWidth = widestPx ? Math.ceil(widestPx) + "px" : "";
     if (row.style.getPropertyValue("--equal-cell-width") !== equalWidth) row.style.setProperty("--equal-cell-width", equalWidth);
-    var wasWrapped = row.classList.contains("is-wrapped");
-    if (wasWrapped) row.classList.remove("is-wrapped");
     var isRtl = getComputedStyle(row).direction === "rtl", previousStart = null, isWrapped = false;
     cells.forEach(function (cell) {
       var box = cell.getBoundingClientRect();
@@ -187,10 +190,12 @@ export const ROW_LAYOUT_SCRIPT = `/* row layout */(function () {
       previousStart = start;
     });
     if (isWrapped) row.classList.add("is-wrapped");
+    laidSizes.set(row, sizeOf(row));
   }
   window.zaismaWatch.each(".layout-row", function (row) {
     lay(row);
-    window.zaismaWatch.size(row, function () { lay(row); });
+    // Only for a size this row wasn't laid out at: the height its own wrapping gave it is no reason to lay it out again.
+    window.zaismaWatch.size(row, function () { if (laidSizes.get(row) !== sizeOf(row)) lay(row); });
   });
   window.zaismaWatch.fontArrived(function () { document.querySelectorAll(".layout-row").forEach(lay); });
   // A cell whose only thing is hidden is marked so (holds-only-hidden), for SHOWN to pass it over by its class: a :has() inside

@@ -150,6 +150,9 @@ async function pageAfterSteps(path: string, steps: readonly StepToTake[]): Promi
   return text;
 }
 
+// What a test that reads every page may take: on a GitHub runner shared with three other files, this whole file takes up to 37 s.
+const PAGE_SWEEP_LIMIT_MS = 60_000;
+
 describe("the gallery", () => {
   it("reads every component's source: none is left out of the checks below", () => {
     // Modules with no markup, styles or pieces of their own to check: plain lists and data.
@@ -449,7 +452,7 @@ describe("the gallery", () => {
       }
     }
     expect([...new Set(problems)]).toEqual([]);
-  }, 20_000);
+  }, PAGE_SWEEP_LIMIT_MS);
 
   it("names no exception that's gone: every entry in the lists below is still in the code", async () => {
     const problems: string[] = [];
@@ -1045,7 +1048,7 @@ describe("pages", () => {
       expect(response.status, path).toBe(200);
       expect(await pageStructureProblems(text), path).toEqual([]);
     }
-  });
+  }, PAGE_SWEEP_LIMIT_MS);
 
   /** Runs with a session for the design test's developer, as Supabase signs one (auth.ts reads its keys from Supabase's address). */
   async function signedInAsDesignDev(run: (cookie: string) => Promise<void>) {
