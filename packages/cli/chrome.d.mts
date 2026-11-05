@@ -8,4 +8,8 @@ export interface ChromeConnection {
 
 export function findChrome(downloadFolders?: string[]): string | null;
 export function chromeFlags(options?: { isDrawingOnCpu?: boolean }): string[];
-export function openChrome(path: string, profilePrefix: string, options?: { isDrawingOnCpu?: boolean }): Promise<ChromeConnection>;
+export function openChrome(path: string, profilePrefix: string, options?: { isDrawingOnCpu?: boolean; startLimitMs?: number }): Promise<ChromeConnection>;
+
+export const CHROME_START_LIMIT_MS: number;
+export class ChromeStartStalled extends Error {}
+export function startWithinTries<Started>(startOnce: () => Promise<Started> | Started, say?: (line: string) => void): Promise<Started>;

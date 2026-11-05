@@ -37,6 +37,21 @@ export function migrationsIn(folder) {
   return Object.fromEntries(readdirSync(folder).filter((name) => name.endsWith(".sql")).sort().map((name) => [name, createHash("sha256").update(readFileSync(join(folder, name))).digest("hex").slice(0, 16)]));
 }
 
+/**
+ * A kept database whose migrations are the first of these, the same and in the same order, so the rest can be applied to it as they would to
+ * an empty one: its folder, or null. Each is kept beside a list of what made it, <folder>.json (migrationsIn).
+ */
+export function keptMigratedDatabase(folder, migrations) {
+  if (!existsSync(folder)) return null;
+  const names = Object.keys(migrations);
+  for (const listName of readdirSync(folder).filter((name) => name.endsWith(".json"))) {
+    const kept = Object.entries(JSON.parse(readFileSync(join(folder, listName), "utf8")));
+    const database = join(folder, listName.slice(0, -".json".length));
+    if (existsSync(database) && kept.every(([name, hash], index) => names[index] === name && migrations[name] === hash)) return database;
+  }
+  return null;
+}
+
 /** Whether a snapshot's data fits a checkout: young enough, and the checkout has every migration that made it, the same. */
 export function isSnapshotUsable({ madeAtMs, snapshotMigrations, checkoutMigrations, nowMs = Date.now() }) {
   return nowMs - madeAtMs < SNAPSHOT_USE_LIMIT_MS && Object.entries(snapshotMigrations).every(([name, hash]) => checkoutMigrations[name] === hash);

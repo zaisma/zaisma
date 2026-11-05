@@ -55,7 +55,9 @@ for (const engine of engines) {
   }
 }
 
+const chromeStartedAtMs = Date.now();
 const chrome = await startChrome();
+console.log(`Chrome answered in ${Math.round((Date.now() - chromeStartedAtMs) / 1000)} s.`);
 try {
   for (const sample of samples.filter((candidate) => engines.includes(candidate.engine) && candidate.scan_status === "approved")) {
     console.log(`${sample.engine}: ${site}/g/${sample.slug}?play`);

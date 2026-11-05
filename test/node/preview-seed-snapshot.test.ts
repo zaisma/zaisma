@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { isSnapshotUsable, migrationsIn, restoreSnapshot, saveSnapshot, seedKey, SNAPSHOT_USE_LIMIT_MS } from "../../scripts/preview/seed-snapshot.mjs";
+import { isSnapshotUsable, keptMigratedDatabase, migrationsIn, restoreSnapshot, saveSnapshot, seedKey, SNAPSHOT_USE_LIMIT_MS } from "../../scripts/preview/seed-snapshot.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /** The preview's kept test data (scripts/preview/seed-snapshot.mjs): which seed files make which data, and when a checkout may take it. */
@@ -108,5 +108,32 @@ describe.runIf(process.platform === "darwin" && !process.env.CI)("a snapshot, ke
     expect(restoreSnapshot({ root: taker, phoneHost: "", stateFolder: join(taker, ".wrangler/preview"), directory })).toBeNull();
     for (const phoneHost of ["a.example.test", "b.example.test", "c.example.test"]) saveSnapshot({ root, phoneHost, stateFolder: state, directory });
     expect(execFileSync("ls", [directory], { encoding: "utf8" }).trim().split("\n")).toHaveLength(2);
+  });
+});
+
+describe("the kept database a fresh start builds on", () => {
+  function keptFolder(kept: Record<string, string>): string {
+    const folder = temporaryFolder("zaisma-migrated-");
+    mkdirSync(join(folder, "abc"));
+    writeFileSync(join(folder, "abc.json"), JSON.stringify(kept));
+    return folder;
+  }
+
+  it("is one made from the first of these migrations, so only the rest are applied", () => {
+    const folder = keptFolder({ "0001_a.sql": "h1", "0002_b.sql": "h2" });
+    expect(keptMigratedDatabase(folder, { "0001_a.sql": "h1", "0002_b.sql": "h2", "0003_c.sql": "h3" })).toBe(join(folder, "abc"));
+  });
+
+  it("is never one with a migration that changed, is gone, or came before one it lacks", () => {
+    const changed = keptFolder({ "0001_a.sql": "h1", "0002_b.sql": "old" });
+    expect(keptMigratedDatabase(changed, { "0001_a.sql": "h1", "0002_b.sql": "h2" })).toBeNull();
+    const gone = keptFolder({ "0001_a.sql": "h1", "0002_b.sql": "h2" });
+    expect(keptMigratedDatabase(gone, { "0001_a.sql": "h1" })).toBeNull();
+    const skipped = keptFolder({ "0001_a.sql": "h1", "0003_c.sql": "h3" });
+    expect(keptMigratedDatabase(skipped, { "0001_a.sql": "h1", "0002_b.sql": "h2", "0003_c.sql": "h3" })).toBeNull();
+  });
+
+  it("is none when nothing is kept", () => {
+    expect(keptMigratedDatabase(join(temporaryFolder("zaisma-migrated-"), "none"), { "0001_a.sql": "h1" })).toBeNull();
   });
 });
