@@ -1215,7 +1215,7 @@ export interface ShelfOptions {
   emptyText?: string;
   /**
    * Its covers in lines down the page (a Grid) rather than a track that scrolls sideways: a shelf that's a part of a library (Your
-   * games). leadCell makes its first cover the one it's grounded on, twice the rest (Grid's hasLeadCell).
+   * games), two to a line at the least. grid_with_lead_cell makes its first cover the one it's grounded on, twice the rest (Grid's hasLeadCell).
    */
   coversAs?: "track" | "grid" | "grid_with_lead_cell";
   /** A link at the heading's end, to the whole of what the shelf shows part of (Recently played's All you've played). */
@@ -1247,7 +1247,7 @@ export function shelf(options: ShelfOptions): Raw {
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
         : options.coversAs === "grid" || options.coversAs === "grid_with_lead_cell"
-          ? { kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", hasLeadCell: options.coversAs === "grid_with_lead_cell", items: options.items.filter((layoutItem): layoutItem is GridItem => layoutItem.kind !== "control") }) }
+          ? { kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", hasLeadCell: options.coversAs === "grid_with_lead_cell", isAtLeastTwoAcross: true, items: options.items.filter((layoutItem): layoutItem is GridItem => layoutItem.kind !== "control") }) }
           : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
     ],
   })}</section>`;

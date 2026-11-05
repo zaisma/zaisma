@@ -13,7 +13,7 @@ import {
   type Account,
   type DeviceKind,
 } from "@zaisma/core";
-import { action, secondaryButton } from "./components/actions.ts";
+import { action, secondaryButton, textLink } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { cutField } from "./components/inputs.ts";
 import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
@@ -245,7 +245,7 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
     ...(forYouItems.length
       ? [{ kind: "block" as const, markup: shelf({ id: "for-you", trackId: "for-you-grid", title: "For you", coversAs: "grid", items: forYouItems }) }]
       : []),
-    { kind: "block", markup: stateNote({ stateKind: "empty", text: "That's all your games.", action: secondaryButton("Browse games", { href: "/games" }) }) },
+    { kind: "words", markup: html`<p>That's all your games. ${textLink("Browse every game", "/games")}</p>` },
   ];
   const guestLine: LayoutItem[] = !account && env.SUPABASE_URL
     ? [{ kind: "block", markup: banner({ text: "These are the games played on this device. Make an account to keep them, and your favorites, everywhere.", icon: "person", action: { label: "Make an account", href: "/join?next=/your-games" } }) }]
@@ -312,7 +312,7 @@ export async function allPlayedPage(env: Env, request: Request): Promise<Respons
         },
         {
           kind: "block",
-          markup: grid({ id: "played-grid", itemSize: "cover", items: items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }),
+          markup: grid({ id: "played-grid", itemSize: "cover", isAtLeastTwoAcross: true, items: items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }),
         },
       ],
     }),

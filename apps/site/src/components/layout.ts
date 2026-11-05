@@ -229,8 +229,9 @@ export type GridOptions = {
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
    * three, two and then one across as they run out of a cover's least width. hasLeadCell makes the first cover the one the list is
    * grounded on (Your games' featured favorite): two cells wide and two lines tall where three or more fit across, the whole line at two.
+   * isAtLeastTwoAcross keeps two covers to a line however narrow it gets (a library on a phone), so a list of many shows more at a glance.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; hasLeadCell?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; hasLeadCell?: boolean; isAtLeastTwoAcross?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -250,7 +251,9 @@ export function grid(options: GridOptions): LayoutMarkup {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
     return asLayout(html`<div class="grid-one-line">${gridMarkup(options, " is-one-line")}</div>`);
   }
-  if (options.itemSize === "cover" && options.hasLeadCell) return asLayout(html`<div class="grid-lead-cell">${gridMarkup(options, " has-lead-cell")}</div>`);
+  const twoAcross = options.itemSize === "cover" && options.isAtLeastTwoAcross ? " is-at-least-two-across" : "";
+  if (options.itemSize === "cover" && options.hasLeadCell) return asLayout(html`<div class="grid-lead-cell">${gridMarkup(options, ` has-lead-cell${twoAcross}`)}</div>`);
+  if (twoAcross) return asLayout(gridMarkup(options, twoAcross));
   return asLayout(gridMarkup(options, ""));
 }
 
@@ -573,6 +576,8 @@ export const GRID_STYLES = `
 /* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
    more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
 .grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
+/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. */
+.layout-grid.item-cover.is-at-least-two-across { grid-template-columns: repeat(auto-fill, minmax(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * BLOCK_GAP_PX - 1}px) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }

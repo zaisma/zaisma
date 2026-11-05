@@ -138,7 +138,7 @@ export interface GameCardOptions {
    * game's page. The rest of the card still opens the page.
    */
   quickPlayHref?: string;
-  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available right now" where players now goes, and no link. */
+  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available right now" on the line a reason takes, and no link. */
   isGone?: boolean;
   /** A small More at the end of its line under the art, opening a short menu (Your games' Remove). id: the menu's, unique on the page. */
   menu?: { id: string; label: string; items: DropdownItem[] };
@@ -179,11 +179,12 @@ export function gameCard(options: GameCardOptions): Raw {
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square aria-label="${cardLabel(options)}" role="img">${CUT_LINE}${art}${marks}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}${marks}</a>`;
   const quickPlay = options.quickPlayHref && !options.isGone ? html`<span class="cover-quick-play">${primaryButton(action("play"), { href: options.quickPlayHref, isSmall: true })}</span>` : "";
-  const fact = options.isGone ? html`<span class="gone-note">Not available right now</span>` : playerCountMarkup;
+  const fact = options.isGone ? "" : playerCountMarkup;
+  const reasonText = options.isGone ? "Not available right now" : facts.reasonText;
   const menu = options.menu
-    ? html`<span class="cover-more">${secondaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
+    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
     : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-well">${well}${quickPlay}</div><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${fact}${menu}</div>${facts.reasonText ? html`<span class="cover-reason one-line">${facts.reasonText}</span>` : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-well">${well}${quickPlay}</div><div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${fact}${menu}</div>${reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : ""}</div>`;
 }
 
 /**
@@ -626,8 +627,8 @@ const COVER_STYLES = `
 @media (prefers-reduced-motion: reduce) { .cover-quick-play { transition: none; } }
 /* Gone for now (made private, or being deleted): the art greyed and still, no light, its line saying so. */
 .cover.is-gone .cover-picture { filter: grayscale(1) brightness(0.7); }
-.cover.is-gone .cover-name, .cover-meta .gone-note { color: var(--ink-2); }
-.cover-meta .gone-note { flex: none; white-space: nowrap; }
+.cover.is-gone .cover-name { color: var(--ink-2); }
+
 /* Why a list chose it, on its own quiet line under the title's. */
 .cover-reason { font: var(--type-facts); color: var(--ink-2); min-width: 0; }
 /* Its More, at the end of the line: one small button with its menu. */
