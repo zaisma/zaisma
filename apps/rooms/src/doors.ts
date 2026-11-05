@@ -1,5 +1,5 @@
 import { REQUEST_LIMITS } from "@zaisma/game-server/internal";
-import { answersJson, bodyProblem, doorPathPattern, isPastLevel, queryProblem, gameData, listOf, orNothing, text, yesOrNo, type DoorAnswer, type DoorCallerProvenByFunction, type DoorContract, type DoorLimit, type DoorLimitBindings, type DoorReach, type DoorShape, type DoorTakes, type DoorTrust } from "@zaisma/core";
+import { answersJson, BodyPastCapError, bodyProblem, doorPathPattern, readBodyText, isPastLevel, queryProblem, gameData, listOf, orNothing, text, yesOrNo, type DoorAnswer, type DoorCallerProvenByFunction, type DoorContract, type DoorLimit, type DoorLimitBindings, type DoorReach, type DoorShape, type DoorTakes, type DoorTrust } from "@zaisma/core";
 
 /**
  * Every address on rooms.zaisma.com (docs/DOORS.md). The rooms Worker's fetch finds the row before anything else
@@ -169,13 +169,11 @@ export async function guardRoomDoor(request: Request, env: DoorLimitBindings, do
   if (!body || request.method === "GET" || request.method === "HEAD") return null;
   if (Number(request.headers.get("content-length") ?? 0) > body.maximumSizeBytes) return "too_big";
   if (body.kind !== "json") return null;
-  const bodyText = await request.clone().text();
-  if (bodyText.length > body.maximumSizeBytes) return "too_big";
   let given: unknown;
   try {
-    given = JSON.parse(bodyText);
-  } catch {
-    return "bad_json";
+    given = JSON.parse(await readBodyText(request.clone(), body.maximumSizeBytes));
+  } catch (error) {
+    return error instanceof BodyPastCapError ? "too_big" : "bad_json";
   }
   if (!given || typeof given !== "object" || Array.isArray(given)) return "bad_json";
   return bodyProblem(body.fields, body.required ?? [], given as Record<string, unknown>);

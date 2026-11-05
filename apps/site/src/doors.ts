@@ -256,9 +256,11 @@ const ADMIN_FORM = form(
   ["zip"],
 );
 const PROFILE_FORM = form(["display_name", "bio", "link_url", "reason", "details"]);
+/** A report's words and its picture of the game, which report.ts takes up to 2.1 MB of text. */
+const REPORT_BODY_SIZE_BYTES = 4 * 1024 * 1024;
 const REPORT_FORM: DoorTakes = {
   query: query("room", "reported").query,
-  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", ...BOT_CHECK_FIELDS]) }, fileNames: ["picture"], maximumSizeBytes: FILE_FORM_SIZE_BYTES },
+  body: { kind: "form", fields: { ...namesOf(["reason", "details", "room", "about", ...BOT_CHECK_FIELDS]) }, fileNames: ["picture"], maximumSizeBytes: REPORT_BODY_SIZE_BYTES },
 };
 const BUY_FIELDS: Readonly<Record<string, DoorShape>> = {
   item_name: text(40),
