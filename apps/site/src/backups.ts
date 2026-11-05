@@ -3,6 +3,8 @@ import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { sendPush } from "./push.ts";
 import { restoreEventKey, type RestoreEvent } from "./restore-events.ts";
+import { handleBringBack, handleLastCopy, type KeptRoomBringBackPart, type KeptRoomLastCopyPart } from "./kept-room-copies.ts";
+import { restoreKeptRoomPage, type KeptRoomRestorePagePart } from "./kept-room-restores-api.ts";
 
 /**
  * Every night's copy of Zaisma to Backblaze B2, outside Cloudflare (docs/DECISIONS.md, "A copy outside
@@ -63,6 +65,9 @@ export type BackupPart =
   | { run_date: string; part_kind: "main_database" }
   | { run_date: string; part_kind: "failed_keys" }
   | { part_kind: "restore_event"; event: RestoreEvent }
+  | KeptRoomRestorePagePart
+  | KeptRoomLastCopyPart
+  | KeptRoomBringBackPart
   | { run_date: string; part_kind: "game_databases"; after_game_id: string | null }
   | { run_date: string; part_kind: "kept_rooms"; after_game_id: string | null; after_room_code: string | null }
   | { run_date: string; part_kind: "bucket"; bucket_name: BackedUpBucketName; after_key: string | null };
@@ -81,7 +86,7 @@ interface BackupRun {
   is_key_failures_only: number;
 }
 
-type NightPart = Exclude<BackupPart, { part_kind: "restore_event" }>;
+type NightPart = Exclude<BackupPart, { part_kind: "restore_event" | "kept_room_restore_page" | "kept_room_last_copy" | "kept_room_bring_back" }>;
 
 /** A key whose copy failed, as the backups bucket names it, with what's needed to copy it again. */
 interface FailedKey {
@@ -152,10 +157,25 @@ async function tellFailure(env: Env, runDate: string): Promise<void> {
   await Promise.all([sendAlert(env, `Backup failed: ${runDate}`, message), sendPush(env, { title: "Backup failed", message, priorityNumber: 1 })]);
 }
 
+/** A page of a batch of worlds going back: tried on the queue's tries, and what it couldn't reach the batch names. */
+async function handleRestorePage(env: Env, message: Message<KeptRoomRestorePagePart>): Promise<void> {
+  try {
+    await restoreKeptRoomPage(env, message.body);
+  } catch (error) {
+    console.error("A page of a batch of kept rooms failed:", message.body, error);
+    if (message.attempts < BACKUP_LIMITS.partTryCount) return message.retry({ delaySeconds: 30 * message.attempts });
+    await env.DB.prepare("UPDATE kept_room_restore_batches SET finished_at_ms = ? WHERE id = ? AND finished_at_ms IS NULL").bind(Date.now(), message.body.kept_room_restore_batch_id).run();
+  }
+  message.ack();
+}
+
 /** One message from the zaisma-backup queue: does its part, records it, queues the next; after its last try, marks the night failed. */
 export async function handleBackupMessage(env: Env, message: Message<BackupPart>, wait?: BackupWait): Promise<void> {
   const part = message.body;
   if (part.part_kind === "restore_event") return keepRestoreEvent(env, message as Message<Extract<BackupPart, { part_kind: "restore_event" }>>, wait);
+  if (part.part_kind === "kept_room_last_copy") return handleLastCopy(env, message as Message<KeptRoomLastCopyPart>, wait);
+  if (part.part_kind === "kept_room_bring_back") return handleBringBack(env, message as Message<KeptRoomBringBackPart>, wait);
+  if (part.part_kind === "kept_room_restore_page") return handleRestorePage(env, message as Message<KeptRoomRestorePagePart>);
   const run = await env.DB.prepare("SELECT * FROM backup_runs WHERE run_date = ?").bind(part.run_date).first<BackupRun>();
   if (!run || run.finished_at_ms !== null) return message.ack();
   let partResult: PartResult;
@@ -262,7 +282,8 @@ export async function backupPart(env: Env, part: NightPart, run: Pick<BackupRun,
   }
   if (part.part_kind === "kept_rooms") {
     const { results } = await env.DB.prepare(
-      "SELECT kept_rooms.game_id, kept_rooms.room_code, kept_rooms.saved_at_ms, games.slug FROM kept_rooms JOIN games ON games.id = kept_rooms.game_id " +
+      // A world that went back to an earlier moment changed too, though its saved_at is that moment's.
+      "SELECT kept_rooms.game_id, kept_rooms.room_code, MAX(COALESCE(kept_rooms.saved_at_ms, 0), COALESCE((SELECT MAX(restored_at_ms) FROM kept_room_restores WHERE kept_room_restores.game_id = kept_rooms.game_id AND kept_room_restores.room_code = kept_rooms.room_code), 0)) AS saved_at_ms, games.slug FROM kept_rooms JOIN games ON games.id = kept_rooms.game_id " +
         "WHERE (kept_rooms.game_id, kept_rooms.room_code) > (?, ?) ORDER BY kept_rooms.game_id, kept_rooms.room_code LIMIT ?",
     )
       .bind(part.after_game_id ?? "", part.after_room_code ?? "", BACKUP_LIMITS.pageKeptRoomCount)
@@ -283,11 +304,11 @@ export async function backupPart(env: Env, part: NightPart, run: Pick<BackupRun,
 }
 
 const gameDatabaseKey = (gameId: string) => `game-databases/${gameId}.sql`;
-const keptRoomKey = (row: { game_id: string; room_code: string }) => `kept-rooms/${row.game_id}/${row.room_code}.jsonl`;
+export const keptRoomKey = (row: { game_id: string; room_code: string }) => `kept-rooms/${row.game_id}/${row.room_code}.jsonl`;
 
 const copyGameDatabase = async (env: Env, storage: BackupStorage, gameId: string) => (env.GAME_DATABASES ? storage.uploadObject(gameDatabaseKey(gameId), encodedLines(gameDatabaseDump(env, gameId))) : 0);
 
-async function copyKeptRoom(env: Env, storage: BackupStorage, row: { game_id: string; room_code: string; slug: string }): Promise<number> {
+export async function copyKeptRoom(env: Env, storage: BackupStorage, row: { game_id: string; room_code: string; slug: string }): Promise<number> {
   const world = await env.GAME_STORAGE?.keptRoomBackup(row.game_id, row.slug, row.room_code);
   return world ? storage.uploadObject(keptRoomKey(row), world) : 0;
 }
@@ -406,7 +427,7 @@ async function checkOldVersions(env: Env, storage: BackupStorage, nowMs: number)
   await Promise.all([sendAlert(env, "Backups kept too long", message), sendPush(env, { title: "Backups kept too long", message, priorityNumber: 1 })]);
 }
 
-function backupStorageSettings(env: Env): BackupStorageSettings {
+export function backupStorageSettings(env: Env): BackupStorageSettings {
   return { endpointUrl: env.BACKUP_ENDPOINT!, regionName: env.BACKUP_REGION!, bucketName: env.BACKUP_BUCKET_NAME!, keyId: env.BACKUP_KEY_ID!, keySecret: env.BACKUP_KEY_SECRET! };
 }
 

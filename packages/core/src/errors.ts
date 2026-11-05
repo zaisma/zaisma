@@ -192,8 +192,16 @@ export const ERROR_CODES = {
   too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have.", messageForPeople: "The game has 50 secrets, the most it can have. Delete one to add another." },
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer.", messageForPeople: "The game's secrets didn't answer. Try again in a minute." },
   no_kept_room: { httpStatus: 404, meaning: "The game has no kept room with that code.", messageForPeople: "The game has no kept room with that code." },
+  no_kept_room_restore: { httpStatus: 404, meaning: "The kept room has no restore with that ID in the last 30 days.", messageForPeople: "This world has no such restore in the last 30 days." },
+  no_kept_room_restore_batch: { httpStatus: 404, meaning: "The game has no restore of every kept room with that ID in the last 30 days.", messageForPeople: "This game has no such restore of its kept rooms in the last 30 days." },
+  kept_room_restore_unavailable: { httpStatus: 501, meaning: "This Zaisma's rooms can't go back in time: their storage keeps no history, like a local preview.", messageForPeople: "This copy of Zaisma keeps no history of its kept rooms, so they can't go back." },
+  kept_room_restore_batch_running: { httpStatus: 409, meaning: "The game's worlds are going back to a moment already, and one batch runs at a time.", messageForPeople: "This game's kept rooms are going back already. Wait for it to finish." },
+  kept_room_copies_unavailable: { httpStatus: 501, meaning: "This Zaisma can't read its worlds' copies, so an erased world can't come back.", messageForPeople: "This copy of Zaisma can't read its copies of kept rooms, so this one can't come back." },
+  no_kept_room_copy: { httpStatus: 404, meaning: "No copy of the deleted world is left: a copy lasts about 28 days after a world is deleted.", messageForPeople: "No copy of this world is left to bring back." },
+  room_code_in_use: { httpStatus: 409, meaning: "Another room of the game has that code now, so the deleted world can't come back under it.", messageForPeople: "Another room has this code now. End it first, then bring this world back." },
+  game_storage_full: { httpStatus: 403, meaning: "The deleted world doesn't fit in the 10 GB a game can keep.", messageForPeople: "This world doesn't fit in the game's 10 GB now. Delete kept rooms or rows first." },
   kept_room_not_waiting: { httpStatus: 409, meaning: "The kept room isn't deleted and waiting to be erased, so there's nothing to bring back or erase now.", messageForPeople: "This world isn't waiting to be erased." },
-  kept_room_erasing: { httpStatus: 409, meaning: "The kept room's week is over and its erasing has started, so it can't be brought back.", messageForPeople: "This world's week is over, so it can't be brought back." },
+  kept_room_erasing: { httpStatus: 409, meaning: "The kept room's week is over and its erasing has started: in a minute it comes back only from its last copy.", messageForPeople: "This world is being erased. Try again in a minute, to bring it back from its last copy." },
 
   // Reaching live rooms
   no_room: { httpStatus: 404, meaning: "The game has no live room with that code on Zaisma.", messageForPeople: "No room with that code is running now." },

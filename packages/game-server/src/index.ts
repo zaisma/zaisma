@@ -37,6 +37,7 @@ export {
   type Purchase,
   type Refusal,
   type ReserveOptions,
+  type KeptRoomRestoreInfo,
   type RestoreInfo,
   type Room,
   type RoomErrorCode,

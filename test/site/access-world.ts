@@ -4,6 +4,7 @@ import {
   accountById,
   addCreditEntry,
   addDatabaseRestore,
+  addKeptRoomRestore,
   addImage,
   addPasskey,
   addShader,
@@ -166,6 +167,12 @@ export const SAMPLES: Record<string, (world: World) => Sample> = {
   "DELETE /games/:slug/kept-rooms/:room_code": () => ({}),
   "POST /games/:slug/kept-rooms/:room_code/bring-back": () => ({}),
   "POST /games/:slug/kept-rooms/:room_code/erase-now": () => ({}),
+  "GET /games/:slug/kept-rooms/:room_code/restores": () => ({}),
+  "POST /games/:slug/kept-rooms/:room_code/restores": () => ({ body: { restore_to_at: new Date().toISOString() } }),
+  "POST /games/:slug/kept-rooms/:room_code/restores/:kept_room_restore_id/undo": () => ({}),
+  "POST /games/:slug/kept-room-restores": () => ({ body: { restore_to_at: new Date().toISOString() } }),
+  "GET /games/:slug/kept-room-restores/:kept_room_restore_batch_id": () => ({}),
+  "POST /games/:slug/kept-room-restores/:kept_room_restore_batch_id/undo": () => ({}),
   "GET /games/:slug/rooms": () => ({ query: { labels: '[{"label_name":"Region","label_value":"North"}]' } }),
   "GET /games/:slug/rooms/:room_code": () => ({}),
   "POST /games/:slug/rooms/:room_code/messages": () => ({ body: { message: { kind: "freeze" } } }),
@@ -323,6 +330,12 @@ export async function makeWorld(routeName = ""): Promise<World> {
   const databaseRestoreId = newId("database_restore");
   await addDatabaseRestore(env.DB, { id: databaseRestoreId, game_id: game.id, restore_to_at_ms: nowMs - 60_000, undo_bookmark: "undo-access-checks", undoes_database_restore_id: null, restored_at_ms: nowMs });
 
+  // A restore of a kept room's world, and a finished restore of every world, to undo.
+  const keptRoomRestoreId = newId("kept_room_restore");
+  const keptRoomRestoreBatchId = newId("kept_room_restore_batch");
+  await env.DB.prepare("INSERT INTO kept_room_restore_batches (id, game_id, restore_to_at_ms, started_at_ms, finished_at_ms, kept_room_count) VALUES (?, ?, ?, ?, ?, 1)").bind(keptRoomRestoreBatchId, game.id, nowMs - 60_000, nowMs, nowMs).run();
+  await addKeptRoomRestore(env.DB, { id: keptRoomRestoreId, game_id: game.id, room_code: "K7Q2MX", restore_to_at_ms: nowMs - 60_000, undo_bookmark: "undo-access-checks", undoes_kept_room_restore_id: null, kept_room_restore_batch_id: keptRoomRestoreBatchId, restored_at_ms: nowMs });
+
   // A webhook and a sign-in app each.
   const { webhook } = await createWebhook(env.DB, env, { ownerId: victimOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/zaisma`, eventKinds: ["bug_reported"], gameSlugs: null });
   const { webhook: strangerWebhook } = await createWebhook(env.DB, env, { ownerId: strangerOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/moon`, eventKinds: ["bug_reported"], gameSlugs: null });
@@ -387,6 +400,8 @@ export async function makeWorld(routeName = ""): Promise<World> {
       player_id: player!.player_id,
       save_copy_id: saveCopyId,
       database_restore_id: databaseRestoreId,
+      kept_room_restore_id: keptRoomRestoreId,
+      kept_room_restore_batch_id: keptRoomRestoreBatchId,
       scheduled_room_message_id: scheduledRoomMessageId,
       item_name: "revive",
       purchase_id: purchaseId,
@@ -414,12 +429,12 @@ export async function makeWorld(routeName = ""): Promise<World> {
 /** The developer's things a stranger must never see in an answer: their account, games and IDs. */
 export function privateValues(world: World): string[] {
   const { values } = world;
-  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.shader_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.scheduled_room_message_id!, values.purchase_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
+  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.shader_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.kept_room_restore_id!, values.kept_room_restore_batch_id!, values.scheduled_room_message_id!, values.purchase_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
 }
 
 /** The same request with each of the developer's things swapped for one that doesn't exist, and how to swap them back in an answer. */
 export function withNothingThere(world: World, sample: Required<Pick<Sample, "pathValues">> & Sample): { sample: typeof sample; swapBack: (answerText: string) => string } {
-  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", shader_id: "shader", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", scheduled_room_message_id: "scheduled_room_message", purchase_id: "purchase", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
+  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", shader_id: "shader", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", kept_room_restore_id: "kept_room_restore", kept_room_restore_batch_id: "kept_room_restore_batch", scheduled_room_message_id: "scheduled_room_message", purchase_id: "purchase", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
   const swaps: [string, string][] = [
     [world.values.slug!, `gone-${world.n}`],
     [world.otherSlug, `gone-other-${world.n}`],

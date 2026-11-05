@@ -496,6 +496,62 @@ async function runRestore(testEnv: Env, sent: RestorePart[]): Promise<void> {
   }
 }
 
+describe("a deleted world's copy", () => {
+  const copyKeys = { KEPT_ROOM_COPY_KEY_ID: "test-backup-key-id", KEPT_ROOM_COPY_KEY_SECRET: "test-backup-key-secret" };
+  const GAME = { game_id: "game-world", slug: "world-game", room_code: "K7Q2MX" };
+
+  async function storageOf(lines: string) {
+    const broughtBack: { code: string; body: string; copySavedAtMs: number; isTriedBefore: boolean }[] = [];
+    const gameStorage = {
+      keptRoomBackup: async () => new Response(lines).body,
+      bringBackKeptRoom: async (_gameId: string, _slug: string, code: string, body: ReadableStream<Uint8Array>, copySavedAtMs: number, isTriedBefore: boolean) => {
+        broughtBack.push({ code, body: await new Response(body).text(), copySavedAtMs, isTriedBefore });
+        return { isInUse: false };
+      },
+    };
+    return { broughtBack, gameStorage };
+  }
+
+  it("is taken as its deletion starts, and brings it back with its row, as of when it was made", async () => {
+    await env.DB.prepare("DELETE FROM deleted_kept_rooms").run();
+    await env.DB.prepare("DELETE FROM kept_rooms").run();
+    const { broughtBack, gameStorage } = await storageOf('{"key":"meta","stored_value":{}}\n');
+    const testEnv = { ...env, ...copyKeys, GAME_STORAGE: gameStorage } as unknown as Env;
+
+    const copied = message({ part_kind: "kept_room_last_copy", ...GAME });
+    await handleBackupMessage(testEnv, copied.message);
+    expect(copied.outcome.acked).toBe(true);
+    const key = `kept-rooms/${GAME.game_id}/${GAME.room_code}.jsonl`;
+    expect(text(newest(key)!.bytes)).toContain("meta");
+
+    const deletedAtMs = Date.now() - DAY_MS;
+    await env.DB.prepare("INSERT INTO deleted_kept_rooms (game_id, room_code, name, saved_size_bytes, deleted_at_ms) VALUES (?, ?, 'Valhalla', 33, ?)").bind(GAME.game_id, GAME.room_code, deletedAtMs).run();
+    const copySavedAtMs = newest(key)!.atMs;
+    const back = message({ part_kind: "kept_room_bring_back", ...GAME, deleted_at_ms: deletedAtMs, version_id: "v0", copy_saved_at_ms: copySavedAtMs });
+    await handleBackupMessage(testEnv, back.message);
+    expect(back.outcome.acked).toBe(true);
+    expect(broughtBack).toEqual([{ code: GAME.room_code, body: expect.stringContaining("meta"), copySavedAtMs, isTriedBefore: false }]);
+    expect(await env.DB.prepare("SELECT name, saved_size_bytes, saved_at_ms, erases_at_ms FROM kept_rooms WHERE game_id = ?").bind(GAME.game_id).first()).toEqual({ name: "Valhalla", saved_size_bytes: 33, saved_at_ms: copySavedAtMs, erases_at_ms: null });
+    const row = await env.DB.prepare("SELECT brought_back_at_ms, bring_back_failed_at_ms FROM deleted_kept_rooms WHERE game_id = ?").bind(GAME.game_id).first<any>();
+    expect(row).toEqual({ brought_back_at_ms: expect.any(Number), bring_back_failed_at_ms: null });
+  });
+
+  it("says so when it can't come back, after the queue's tries", async () => {
+    await env.DB.prepare("DELETE FROM deleted_kept_rooms").run();
+    const deletedAtMs = Date.now() - DAY_MS;
+    await env.DB.prepare("INSERT INTO deleted_kept_rooms (game_id, room_code, saved_size_bytes, deleted_at_ms) VALUES (?, ?, 33, ?)").bind(GAME.game_id, GAME.room_code, deletedAtMs).run();
+    const testEnv = { ...env, ...copyKeys } as unknown as Env;
+    const part: BackupPart = { part_kind: "kept_room_bring_back", ...GAME, deleted_at_ms: deletedAtMs, version_id: "v9", copy_saved_at_ms: deletedAtMs };
+    const first = message(part);
+    await handleBackupMessage(testEnv, first.message);
+    expect(first.outcome.retried).toBe(true);
+    const last = message(part, BACKUP_LIMITS.partTryCount);
+    await handleBackupMessage(testEnv, last.message);
+    expect(last.outcome.acked).toBe(true);
+    expect(await env.DB.prepare("SELECT bring_back_failed_at_ms FROM deleted_kept_rooms WHERE game_id = ?").bind(GAME.game_id).first()).toEqual({ bring_back_failed_at_ms: expect.any(Number) });
+  });
+});
+
 describe("a restore from the backups", () => {
   const restoreKeys = { RESTORE_KEY_ID: "test-backup-key-id", RESTORE_KEY_SECRET: "test-backup-key-secret" };
 

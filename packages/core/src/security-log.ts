@@ -82,6 +82,8 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   kept_room_deleted: "Deleted a kept room",
   kept_rooms_deleted: "A key or AI app deleted a kept room",
   kept_room_brought_back: "Brought a deleted kept room back",
+  kept_room_restored: "Restored a kept room's world to an earlier time",
+  kept_rooms_restored: "A key or AI app restored a kept room's world to an earlier time",
   kept_room_erase_asked: "Asked to erase a kept room at once",
   kept_room_erased_now: "Erased a kept room at once",
   room_player_kicked: "Removed a player from a live room",
@@ -196,6 +198,8 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "kept_room_deleted",
   "kept_rooms_deleted",
   "kept_room_brought_back",
+  "kept_room_restored",
+  "kept_rooms_restored",
   "kept_room_erase_asked",
   "kept_room_erased_now",
   "room_player_kicked",
@@ -281,6 +285,7 @@ export const SECURITY_ALERT_WORDS = {
   stripe_account_connected: { subject: "A Stripe account was connected to your Zaisma games", ifNotYou: "disconnect it under Game developers and change your password" },
   game_deleted: { subject: "A game on your Zaisma account was deleted", ifNotYou: "bring it back on its page under Game developers within its week, remove the key and change your password" },
   game_deletion_asked: { subject: "A key or AI app asked to delete a game on your Zaisma account", ifNotYou: "decline it, remove the key under Game developers and change your password" },
+  kept_rooms_restored: { subject: "A key or AI app put kept worlds back to an earlier time in a game on your Zaisma account", ifNotYou: "undo it with undo_kept_room_restore or undo_every_kept_room_restore within 30 days, remove the key under Game developers and change your password" },
   kept_rooms_deleted: { subject: "A key or AI app deleted kept worlds in a game on your Zaisma account", ifNotYou: "bring them back with bring_back_kept_room within their week, remove the key under Game developers and change your password" },
   connected_app_removed: { subject: "Zaisma disconnected an app from your account", ifNotYou: "connect the app again, and change your password" },
 } as const satisfies Partial<Record<SecurityEventKind, { subject: string; ifNotYou: string }>>;
@@ -304,6 +309,7 @@ export const SECURITY_ALERT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "game_deleted",
   "game_deletion_asked",
   "kept_rooms_deleted",
+  "kept_rooms_restored",
 ];
 
 /** Whether an event is a security alert. isNewPlace: for a sign-in, from a network the account hasn't used. */

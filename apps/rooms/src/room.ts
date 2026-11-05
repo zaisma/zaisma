@@ -39,9 +39,10 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server/internal";
-import { RENTED_SHARE_TEXT, gameHosting, hasAutomationSigns, isPastDoorLimit, isPastGameLimit, readPlayShare, rentedShareOfRoomCents, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { readBodyText, rememberDeletedKeptRoom, RENTED_SHARE_TEXT, gameHosting, hasAutomationSigns, isPastDoorLimit, isPastGameLimit, readPlayShare, rentedShareOfRoomCents, MAXIMUM_GAME_STORAGE_SIZE_BYTES, MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, gameStorageSizeBytes, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, roomHostingOf, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
-import { gameDatabase, gameDatabaseObject } from "./database.ts";
+import { gameDatabase, gameDatabaseObject, type PointInTime } from "./database.ts";
+import type { CarriedOverRestore, ToldKeptRoomRestore } from "./kept-room-restores.ts";
 import { SANDBOX, errorLine, isGameStartError, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
 import { LogWriter } from "./logs.ts";
 import { AwakeTime, countingDatabase, countingStorage } from "./usage-counts.ts";
@@ -156,6 +157,19 @@ const CHECK_MS = 60_000;
 const TESTER_CHECK_MS = 10_000;
 /** An empty room's saved state is deleted after this, unless the room is kept (room.setKept). */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
+/** The most a kept room's restore sends between its steps: who sits in the room, what they own and who was erased. */
+const KEPT_ROOM_RESTORE_BODY_SIZE_BYTES = 8 * 1024 * 1024;
+
+const readKeptRoomRestoreBody = async <T>(request: Request): Promise<T | null> => {
+  try {
+    return JSON.parse(await readBodyText(request, KEPT_ROOM_RESTORE_BODY_SIZE_BYTES)) as T;
+  } catch {
+    return null;
+  }
+};
+
+/** How long a kept room's restore waits for the room's save: a game server restoring its own room is in the middle of a handler. */
+const KEPT_ROOM_RESTORE_SAVE_WAIT_MS = 3000;
 /** How long a reserved room waits for its players before it's cleared. */
 const RESERVED_DURATION_MS = 600_000;
 /** What a kept room's game server's log says when the game's storage is too full to keep another. */
@@ -293,6 +307,10 @@ export class Room extends DurableObject<Env> {
   private hostingCheckedAtMs = 0;
   /** Kept (room.setKept), as this room accepted it and kept_rooms has it: it sleeps with its state when everyone leaves. */
   private isKept = false;
+  /** A restore of this world is set for the next start (/kept-room-restore/prepare): nothing more runs on what's about to be replaced. */
+  private isRestarting = false;
+  /** The restore this world just went through, told to its game server's onRestored once. */
+  private toldKeptRoomRestore: ToldKeptRoomRestore | null = null;
   /** When this deleted world is erased (/wait-to-erase): until then it keeps everything, and nothing but its developer reaches it. */
   private erasesAtMs: number | null = null;
   /** The room's saved state was saved as it emptied (Saved.isSavedEmpty). */
@@ -313,7 +331,8 @@ export class Room extends DurableObject<Env> {
 
   /** Reads what the room keeps into memory: when it wakes, and again after a restore puts its world back. */
   private async readStored(): Promise<void> {
-    const got = await this.ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "erasesAtMs", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+    const got = await this.ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate | ToldKeptRoomRestore>(["meta", "saved", "room", "erasesAtMs", "checkedInAtMs", "hostingCheckedAtMs", "seatedPlayerIds", "versionUpdate", "keptRoomRestore"]);
+    this.toldKeptRoomRestore = (got.get("keptRoomRestore") as ToldKeptRoomRestore | undefined) ?? null;
     this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
     this.meta = (got.get("meta") as Meta | undefined) ?? null;
     const saved = (got.get("saved") as Saved | undefined) ?? {};
@@ -354,6 +373,13 @@ export class Room extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // On its way to an earlier moment: only the steps that finish it get through, the SDK tries again, and the restored room answers.
+    if (this.isRestarting) {
+      const restartingPath = new URL(request.url).pathname;
+      if (restartingPath === "/kept-room-restore/abandon") return this.abandoningKeptRoomRestore(request);
+      if (restartingPath === "/kept-room-restore/restart") return this.restartingKeptRoomRestore(request);
+      return new Response("Restarting", { status: 503 });
+    }
     this.noteAwake();
     // A call from another room or Zaisma; anything else is a player connecting (spectators are taken off once they say so).
     if (request.method === "POST") this.usage.objectRequestCount = (this.usage.objectRequestCount ?? 0) + 1;
@@ -362,6 +388,8 @@ export class Room extends DurableObject<Env> {
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/unseat") return this.unseating(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/delete") return this.deleting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/kept-room-restore/prepare") return this.preparingKeptRoomRestore(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/kept-room-restore/carry") return this.carryingKeptRoomRestore(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/backup") return this.backingUp(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/restore") return this.restoring(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/wait-to-erase") return this.waitingToErase(request);
@@ -415,6 +443,7 @@ export class Room extends DurableObject<Env> {
   }
 
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (this.isRestarting) return;
     const attachment = socket.deserializeAttachment() as Attachment;
     if (attachment.stage === "hello") {
       this.noteAwake();
@@ -504,12 +533,16 @@ export class Room extends DurableObject<Env> {
    * stopped without hearing its players go (a restart).
    */
   async alarm(): Promise<void> {
+    if (this.isRestarting) return;
     this.noteAwake();
     this.usage.objectRequestCount = (this.usage.objectRequestCount ?? 0) + 1;
     this.alarmAtMs = null;
     if (this.erasesAtMs !== null) {
-      if (Date.now() >= this.erasesAtMs) await this.eraseWorld();
-      else await this.setAlarm(this.erasesAtMs);
+      if (Date.now() >= this.erasesAtMs) {
+        // Its last copy can still bring it back (apps/site/src/kept-room-copies.ts): what that needs is read from its row before the row goes.
+        if (this.meta?.roomCode) await rememberDeletedKeptRoom(this.env.DB, this.meta.gameId, this.meta.roomCode).run().catch((error) => console.error("deleted_kept_rooms write failed", error));
+        await this.eraseWorld();
+      } else await this.setAlarm(this.erasesAtMs);
       return;
     }
     if (this.pendingVersionUpdate && this.pendingVersionUpdate.appliesAtMs <= Date.now()) await this.applyVersionUpdate();
@@ -1426,7 +1459,8 @@ export class Room extends DurableObject<Env> {
    * an earlier try cut short, cleared first; a room that already holds a world is never replaced (409).
    */
   private async restoring(request: Request): Promise<Response> {
-    if (this.meta) return new Response("This room already holds a world.", { status: 409 });
+    // Read from storage: an object that erased this world in this life still remembers its meta, and takes it back from a copy.
+    if ((await this.ctx.storage.get("meta")) !== undefined) return new Response("This room already holds a world.", { status: 409 });
     if (!request.body) return new Response("No world sent.", { status: 400 });
     await this.ctx.storage.deleteAll();
     let meta: unknown;
@@ -1461,8 +1495,119 @@ export class Room extends DurableObject<Env> {
     await putEntries();
     if (!meta) return new Response("The world has no meta key: not a kept room's backup.", { status: 400 });
     await this.ctx.storage.put("meta", meta);
+    this.core = null;
+    this.server = null;
+    this.loading = null;
     await this.ctx.blockConcurrencyWhile(() => this.readStored());
     return new Response(null, { status: 204 });
+  }
+
+  /** Cloudflare's point-in-time recovery for this room's storage. Tests put a stand-in here: local storage has none. */
+  protected pointInTime(): PointInTime {
+    return {
+      bookmarkForTime: (atMs) => this.ctx.storage.getBookmarkForTime(atMs),
+      restoreOnNextStart: (bookmark) => this.ctx.storage.onNextSessionRestoreBookmark(bookmark),
+    };
+  }
+
+  /**
+   * Sets this world to go back to a moment, or to an earlier restore's undo bookmark, when it next starts
+   * (kept-room-restores.ts). What's in memory is saved first, so the undo brings all of it back, and what's waiting for
+   * the hosting meter is recorded, since the month's use isn't rolled back. Answers the undo bookmark and what the restored
+   * room must take back. From here on the room answers nothing until it restarts.
+   */
+  private async preparingKeptRoomRestore(request: Request): Promise<Response> {
+    if (!this.meta?.roomCode || this.hasEnded || this.erasesAtMs !== null || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const target = await readKeptRoomRestoreBody<{ restoreToAtMs?: unknown; bookmark?: unknown }>(request);
+    if (typeof target?.restoreToAtMs !== "number" && typeof target?.bookmark !== "string") return new Response("Bad request", { status: 400 });
+    if (this.core && !this.core.ended) {
+      if (!this.core.ticking) this.core.dirty = true;
+      await Promise.race([this.save(true), new Promise((resolve) => setTimeout(resolve, KEPT_ROOM_RESTORE_SAVE_WAIT_MS))]);
+    }
+    await this.recordUsage(false);
+    const carried: CarriedOverRestore = { seatedPlayerIds: this.seatedPlayerIds ?? null, ownedItemNamesByPlayerId: Object.fromEntries(this.ownedItemNamesByPlayerId) };
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const pointInTime = this.pointInTime();
+      try {
+        const bookmark = typeof target.bookmark === "string" ? target.bookmark : await pointInTime.bookmarkForTime(target.restoreToAtMs as number);
+        const undoBookmark = await pointInTime.restoreOnNextStart(bookmark);
+        this.isRestarting = true;
+        return Response.json({ undoBookmark, carried });
+      } catch (error) {
+        const cloudflareMessage = String(error instanceof Error ? error.message : error).slice(0, 300);
+        if (/does not implement point-in-time recovery/.test(cloudflareMessage)) return new Response("This Zaisma's rooms keep no history.", { status: 501 });
+        console.error("A kept room's restore was refused:", error);
+        return new Response("Refused", { status: 500 });
+      }
+    });
+  }
+
+  /** A prepared restore the record of couldn't be kept: the next start goes to the undo bookmark, the world as it is now, instead. */
+  private async abandoningKeptRoomRestore(request: Request): Promise<Response> {
+    if (this.meta?.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const abandoned = await readKeptRoomRestoreBody<{ undoBookmark?: unknown }>(request);
+    if (typeof abandoned?.undoBookmark !== "string") return new Response("Bad request", { status: 400 });
+    await this.pointInTime().restoreOnNextStart(abandoned.undoBookmark);
+    return new Response(null, { status: 204 });
+  }
+
+  /** Restarts the room, so a prepared restore happens: its sockets drop and its players' games reconnect. The call itself fails as the room goes. */
+  private restartingKeptRoomRestore(request: Request): Response {
+    if (this.meta?.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    this.ctx.abort("Restoring a kept world to an earlier time");
+    return new Response(null, { status: 204 });
+  }
+
+  /**
+   * The restored room takes back what must not go back with the world. The month's use was recorded before, so the moment's
+   * copy of it goes, or it would count twice. A wait or an alarm from the moment goes, or it would erase a world nobody deleted. It stays
+   * kept. Who sits in it and what they own are about now. Players erased since the moment leave what Zaisma holds of the room, and
+   * its game server hears who they are (ToldKeptRoomRestore), since the game's own state is the game's to clean.
+   */
+  private async carryingKeptRoomRestore(request: Request): Promise<Response> {
+    const carrying = await readKeptRoomRestoreBody<{ carried?: CarriedOverRestore; told?: ToldKeptRoomRestore | null }>(request);
+    if (!carrying?.carried || this.meta?.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const erasedPlayerIds = new Set(carrying.told?.erasedPlayerIds ?? []);
+      const isHere = (playerId: string) => !erasedPlayerIds.has(playerId);
+      const withoutErased = <T>(entries: Record<string, T> | undefined) => entries && Object.fromEntries(Object.entries(entries).filter(([playerId]) => isHere(playerId)));
+      const saved = (await this.ctx.storage.get<Saved>("saved")) ?? {};
+      const savedOfTheMoment = { ...saved };
+      delete savedOfTheMoment.hasEnded;
+      delete savedOfTheMoment.isSavedEmpty;
+      const savedRoom = await this.ctx.storage.get<SavedRoom>("room");
+      const room = {
+        ...savedRoom,
+        isKept: true,
+        knownPlayerIds: (savedRoom?.knownPlayerIds ?? []).filter(isHere),
+        reservedPlayerIds: savedRoom?.reservedPlayerIds?.filter(isHere),
+        keptOut: withoutErased(savedRoom?.keptOut),
+        expected: withoutErased(savedRoom?.expected),
+        held: withoutErased(savedRoom?.held),
+        kept: withoutErased(savedRoom?.kept),
+        reconnecting: withoutErased(savedRoom?.reconnecting),
+        chatSettings: withoutErased(savedRoom?.chatSettings),
+        accountBlocks: savedRoom?.accountBlocks?.filter((pair) => pair.every(isHere)),
+        sessionBlocks: savedRoom?.sessionBlocks?.filter((pair) => pair.every(isHere)),
+        friendships: savedRoom?.friendships?.filter((pair) => pair.every(isHere)),
+      } as SavedRoom;
+      const ownedItemKeys = [...(await this.ctx.storage.list({ prefix: OWNED_ITEM_NAMES_KEY_PREFIX })).keys()];
+      const staleKeys = ["erasesAtMs", "emptiedAtMs", "versionUpdate", "keptRoomRestore", ...ownedItemKeys];
+      for (let index = 0; index < staleKeys.length; index += 128) await this.ctx.storage.delete(staleKeys.slice(index, index + 128));
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.put({
+        saved: { ...savedOfTheMoment, usage: noUsage(), ...(saved.matchPlayers ? { matchPlayers: saved.matchPlayers.filter((player) => isHere(player.id)) } : {}) } satisfies Saved,
+        room,
+        ...(carrying.told ? { keptRoomRestore: carrying.told } : {}),
+      });
+      if (carrying.carried!.seatedPlayerIds) await this.ctx.storage.put("seatedPlayerIds", carrying.carried!.seatedPlayerIds);
+      else await this.ctx.storage.delete("seatedPlayerIds");
+      for (const [playerId, names] of Object.entries(carrying.carried!.ownedItemNamesByPlayerId)) if (isHere(playerId)) await this.ctx.storage.put(OWNED_ITEM_NAMES_KEY_PREFIX + playerId, names);
+      await this.readStored();
+      await this.seat();
+      await this.sleepKept();
+      return new Response(null, { status: 204 });
+    });
   }
 
   private async deleting(request: Request): Promise<Response> {
@@ -1764,13 +1909,18 @@ export class Room extends DurableObject<Env> {
     // A turn-based room comes back the same way after switching versions (match_update_mode "now").
     const isVersionSwitch = this.savedVersionId !== undefined && this.savedVersionId !== this.meta?.versionId;
     // A turn-based room that wakes with none of its match's players connected was restarted (every connection closed), and comes back the same way. Dropped players it's waiting on stay as they were saved.
+    const told = this.toldKeptRoomRestore;
+    if (told) {
+      this.toldKeptRoomRestore = null;
+      void this.storage.delete("keptRoomRestore");
+    }
     const isRestarted = !server.ticksPerSec && this.matchPlayers.length > 0 && !this.matchPlayers.some((matchPlayer) => players.some((connected) => connected.id === matchPlayer.id)) && !Object.keys(this.savedRoom?.reconnecting ?? {}).length;
-    if ((server.ticksPerSec || isVersionSwitch || isRestarted) && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
+    if ((server.ticksPerSec || isVersionSwitch || isRestarted || told) && this.saved !== undefined && (this.savedAtMs !== undefined || told) && !this.hasEnded) {
       const lostPlayers = this.matchPlayers.filter((player) => !players.some((connected) => connected.id === player.id));
       // A sandboxed game server starts from the saved state with its next call, which is onRestored.
       void (server as SandboxServer).restore?.(this.saved);
-      this.core = new RoomCore(server, transport, { state: this.saved, players, spectators, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs, Date.now(), this.savedVersionId ?? null, this.isSavedEmpty), lostPlayers });
-      this.core.savedAtMs = this.savedAtMs;
+      this.core = new RoomCore(server, transport, { state: this.saved, players, spectators, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs ?? told!.restoreToAtMs, Date.now(), this.savedVersionId ?? null, this.isSavedEmpty && !told, told), lostPlayers });
+      this.core.savedAtMs = this.savedAtMs ?? told!.restoreToAtMs;
     } else if (!server.ticksPerSec && this.saved !== undefined) {
       this.core = new RoomCore(server, transport, { state: this.saved, players, spectators, room: this.savedRoom, presence });
     } else {

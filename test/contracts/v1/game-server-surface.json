@@ -303,6 +303,16 @@
       "isSpectator": ": boolean"
     }
   },
+  "KeptRoomRestoreInfo": {
+    "kind": "fields",
+    "fields": {
+      "id": ": string | null",
+      "restoreToAt": ": string",
+      "restoredAt": ": string",
+      "undoesKeptRoomRestoreId": ": string | null",
+      "erasedPlayerIds": ": Array<string>"
+    }
+  },
   "KickOptions": {
     "kind": "fields",
     "fields": {
@@ -662,6 +672,7 @@
       "game_unavailable",
       "hosting_paused",
       "no_request_handler",
+      "rented_share_used",
       "slow_down",
       "too_big"
     ]
@@ -683,7 +694,8 @@
     "fields": {
       "savedAt": ": string",
       "lostDurationSec": ": number",
-      "savedVersionId": ": string | null"
+      "savedVersionId": ": string | null",
+      "keptRoomRestore": ": KeptRoomRestoreInfo | null"
     }
   },
   "Room": {
@@ -751,6 +763,7 @@
       "not_allowed",
       "other_version",
       "refused",
+      "rented_share_used",
       "room_closed",
       "room_full",
       "room_not_running",
@@ -849,7 +862,10 @@
       "listRooms": ": (roomSelection?: RoomSelection | undefined) => Promise<{ rooms: Array<LiveRoom>; }>",
       "getRoom": ": (roomCode: string) => Promise<{ room: LiveRoom; players: Array<RoomPlayer>; } | null>",
       "kickFromRoom": ": (roomCode: string, playerId: string, kickOptions?: KickOptions | undefined) => Promise<{ isDone: boolean; }>",
-      "endRoom": ": (roomCode: string, message?: string | undefined) => Promise<{ isDone: boolean; }>"
+      "endRoom": ": (roomCode: string, message?: string | undefined) => Promise<{ isDone: boolean; }>",
+      "restoreKeptRoom": ": (roomCode: string, restoreOptions: { restoreToAt: string; }) => Promise<KeptRoomRestore>",
+      "undoKeptRoomRestore": ": (roomCode: string, keptRoomRestoreId: string) => Promise<KeptRoomRestore>",
+      "listKeptRoomRestores": ": (roomCode: string) => Promise<KeptRoomRestoreList>"
     }
   },
   "SignInWithZaismaPlayersOptions": {
@@ -924,6 +940,7 @@
     "kind": "values",
     "values": [
       "account_deleted",
+      "ai_review_finished",
       "alert_raised",
       "bug_reported",
       "country_blocks_changed",

@@ -1503,7 +1503,7 @@ describe("A real-time room restarted with its saved state", () => {
     });
     expect(room.state.setUp).toBe(false);
     expect(room.state.laps).toBe(412);
-    expect(room.state.restored).toEqual([{ savedAt: "2026-10-21T12:00:06.000Z", lostDurationSec: 4, savedVersionId: null, awayReasons: ["lost", "lost"] }]);
+    expect(room.state.restored).toEqual([{ savedAt: "2026-10-21T12:00:06.000Z", lostDurationSec: 4, savedVersionId: null, keptRoomRestore: null, awayReasons: ["lost", "lost"] }]);
     // Then each is away as a dropped connection, with the whole reconnectTimeoutSec from now.
     expect(room.state.away).toEqual([["a", "lost"], ["b", "lost"]]);
     expect(room.playingCount).toBe(0);
@@ -2145,8 +2145,8 @@ describe("Kept rooms", () => {
   it("gives a room saved as it emptied lostDurationSec 0, however long it slept", () => {
     const nowMs = Date.parse("2026-10-21T12:00:00Z");
     const weekAgoMs = nowMs - 7 * 24 * 3600 * 1000;
-    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one", true)).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 0, savedVersionId: "version_one" });
-    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one")).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 7 * 24 * 3600, savedVersionId: "version_one" });
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one", true)).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 0, savedVersionId: "version_one", keptRoomRestore: null });
+    expect(restoreInfoOf(weekAgoMs, nowMs, "version_one")).toEqual({ savedAt: "2026-10-14T12:00:00.000Z", lostDurationSec: 7 * 24 * 3600, savedVersionId: "version_one", keptRoomRestore: null });
     expect(restoreInfoOf(weekAgoMs, nowMs, null, false).lostDurationSec).toBe(7 * 24 * 3600);
   });
 });

@@ -142,6 +142,15 @@ export class GameRoomsService extends WorkerEntrypoint {
     keptRoomDeletes.push(keptRoom);
     return { isDeleted: isKeptRoomDeleted };
   }
+  // A kept world going back: recorded, and answered as the test asks. The real one: test/rooms/kept-room-restores.test.ts.
+  async restoreKeptRoom(restoring: Record<string, unknown>) {
+    roomReachCalls.push({ call: "restoreKeptRoom", asked: restoring });
+    return roomReachAnswers.restoreKeptRoom ?? { outcome: "restored", keptRoomRestore: { id: "kept_room_restore_standin", game_id: restoring.gameId, room_code: restoring.roomCode, restore_to_at_ms: restoring.restoreToAtMs, undo_bookmark: "undo", undoes_kept_room_restore_id: null, kept_room_restore_batch_id: restoring.batchId ?? null, restored_at_ms: Date.now() } };
+  }
+  async undoKeptRoomRestore(undoing: Record<string, unknown>) {
+    roomReachCalls.push({ call: "undoKeptRoomRestore", asked: undoing });
+    return roomReachAnswers.undoKeptRoomRestore ?? { outcome: "restored", keptRoomRestore: { id: "kept_room_restore_undone", game_id: undoing.gameId, room_code: undoing.roomCode, restore_to_at_ms: Date.now() - 1000, undo_bookmark: "undo", undoes_kept_room_restore_id: undoing.keptRoomRestoreId, kept_room_restore_batch_id: undoing.batchId ?? null, restored_at_ms: Date.now() } };
+  }
   // A kept world's week starting, and a world brought back: recorded, and answered as the test asks.
   async holdKeptRoom(keptRoom: Record<string, unknown>) {
     roomReachCalls.push({ call: "holdKeptRoom", asked: keptRoom });
