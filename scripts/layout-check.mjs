@@ -365,6 +365,8 @@ const PRESS_EVERY_ANSWER = `(async () => {
     // A gallery still shows what a button opens laid in place (a menu, a wheel field's wheels, a search's list), open for good: pressing it
     // changes nothing, by design. A field typed into (a search with its list) answers its typing, not a press: a press only puts the caret in it.
     .filter((el) => !el.matches("input:not([type=button], [type=submit], [type=checkbox], [type=radio]), textarea"))
+    // The folder of a sidebar or switch you're in stays open and does nothing when pressed, by design (switch.ts: "pressing it does nothing").
+    .filter((el) => !el.matches(".switch-folder.is-held"))
     .filter((el) => !document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "")?.closest(".in-place"));
   const failures = [];
   const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
