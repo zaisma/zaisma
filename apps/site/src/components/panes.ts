@@ -560,7 +560,7 @@ const COVER_STYLES = `
 /* A game card is a carved well cut into the glass, with the studio's art set inside it: nothing over the art. The well and the art are both cut by the edge rule like every control, so a card near a pane's corner takes the pane's cut and
    one in the middle of it is square. The well keeps the card's 16:9, and the art fills it up to its carved rim (2px). Under the art,
    Zaisma's mark sits in the well: it shows until the art has loaded, and stays where a game has none (is-placeholder). */
-.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--gap-words-words); min-width: 0; }
+.cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; row-gap: var(--gap-words-words); min-width: 0; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
