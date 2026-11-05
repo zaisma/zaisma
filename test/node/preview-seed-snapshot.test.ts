@@ -1,17 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+// @ts-expect-error: a plain JavaScript script without types
 import { isSnapshotUsable, migrationsIn, restoreSnapshot, saveSnapshot, seedKey, SNAPSHOT_USE_LIMIT_MS } from "../../scripts/preview/seed-snapshot.mjs";
+import { temporaryFolder } from "../temporary-folder.ts";
 
 /** The preview's kept test data (scripts/preview/seed-snapshot.mjs): which seed files make which data, and when a checkout may take it. */
 
 const NOW_MS = 1_800_000_000_000;
-const folders: string[] = [];
 function checkout(): string {
-  const root = mkdtempSync(join(tmpdir(), "zaisma-seed-"));
-  folders.push(root);
+  const root = temporaryFolder("zaisma-seed-");
   mkdirSync(join(root, "scripts/preview"), { recursive: true });
   mkdirSync(join(root, "migrations"));
   writeFileSync(join(root, "scripts/preview/run.mjs"), "seed");
@@ -21,9 +20,6 @@ function checkout(): string {
   for (const args of [["init", "-q"], ["add", "."], ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "first"]]) execFileSync("git", args, { cwd: root });
   return root;
 }
-afterEach(() => {
-  for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
-});
 
 describe("the seed key", () => {
   it("is the same for two checkouts with the same seed files, and differs by address", () => {
@@ -74,8 +70,7 @@ describe.runIf(process.platform === "darwin" && !process.env.CI)("a snapshot, ke
   }
 
   it("comes back in another checkout without what each start makes for itself", () => {
-    const directory = mkdtempSync(join(tmpdir(), "zaisma-seeds-"));
-    folders.push(directory);
+    const directory = temporaryFolder("zaisma-seeds-");
     const made = checkout();
     saveSnapshot({ root: made, phoneHost: "", stateFolder: seededState(made), directory });
     const taker = checkout();
@@ -87,8 +82,7 @@ describe.runIf(process.platform === "darwin" && !process.env.CI)("a snapshot, ke
   });
 
   it("answers null for other seed files, another address and a migration the checkout lacks", () => {
-    const directory = mkdtempSync(join(tmpdir(), "zaisma-seeds-"));
-    folders.push(directory);
+    const directory = temporaryFolder("zaisma-seeds-");
     const made = checkout();
     writeFileSync(join(made, "migrations/0002_second.sql"), "CREATE TABLE c (d);");
     saveSnapshot({ root: made, phoneHost: "", stateFolder: seededState(made), directory });
@@ -102,8 +96,7 @@ describe.runIf(process.platform === "darwin" && !process.env.CI)("a snapshot, ke
   });
 
   it("is refused once it's older than the limit, and only the newest two stay", () => {
-    const directory = mkdtempSync(join(tmpdir(), "zaisma-seeds-"));
-    folders.push(directory);
+    const directory = temporaryFolder("zaisma-seeds-");
     const root = checkout();
     const state = seededState(root);
     saveSnapshot({ root, phoneHost: "", stateFolder: state, directory });
