@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { claimItem, commitAndPush, finishItem, markFindingFixed, pageLinesOf, pullClone, putItemBack, queueItemsOf, readState, settleItemCalls, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
+import { claimItem, commitAndPush, finishItem, markFindingFixed, pageLinesOf, pageShown, pullClone, putItemBack, queueItemsOf, readState, settleItemCalls, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
@@ -79,6 +79,82 @@ describe("reading the private repo", () => {
       public_promises_next_step: null,
     });
     expect(pageLinesOf("# Zaisma security\n")).toEqual({ map_page_url: null, map_page_shows_data_hash: null });
+  });
+});
+
+describe("recording what the map page shows", () => {
+  const SCALES = {
+    defense_steps: [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `Lock words ${step_score}` })),
+    damage_steps: [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `Harm words ${step_score}` })),
+  };
+  const promiseWith = (promiseLine: string) => ({
+    sector_id: "rooms",
+    rollout_position: 1,
+    promise_line: promiseLine,
+    strengths: [{ strength_kind: "math", strength_line: "A strength line.", strength_reason: "A reason.", anchors: [], strength_stale_reason: null }],
+    ways_to_break: [{ way_id: "a-way", way_line: "A way line.", defense_score: 3, damage_score: 5, defense_reason: "A reason.", damage_reason: "A reason.", anchors: [], score_stale_reason: null }],
+  });
+
+  /** A clone whose last commit holds a page to draw, and a finding the page doesn't read. */
+  function cloneWithPage() {
+    const repos = remoteAndClone();
+    const { seedDir, cloneDir } = repos;
+    mkdirSync(join(seedDir, "promises"));
+    mkdirSync(join(seedDir, "findings"));
+    writeFileSync(join(seedDir, "promises", "scales.json"), JSON.stringify(SCALES));
+    writeFileSync(join(seedDir, "promises", "rooms.json"), JSON.stringify(promiseWith("A promise line.")));
+    writeFileSync(join(seedDir, "findings", "2026-10-18-some-slug.md"), "# A finding\n\nStatus: open\n");
+    git(seedDir, "add", "-A");
+    git(seedDir, "commit", "--quiet", "-m", "Promises");
+    git(seedDir, "push", "--quiet", "origin", "main");
+    pullClone(cloneDir);
+    return repos;
+  }
+
+  it("records the page's hash on a clean clone, and the page isn't behind after it", () => {
+    const { remoteDir, cloneDir } = cloneWithPage();
+    expect(readState(cloneDir).is_map_page_behind).toBe(true);
+    const { page_data_hash } = readState(cloneDir);
+    expect(pageShown(cloneDir)).toEqual({ map_page_shows_data_hash: page_data_hash, committed_paths: ["README.md"], pushed: true });
+    expect(readState(cloneDir).is_map_page_behind).toBe(false);
+    expect(git(remoteDir, "log", "-1", "--format=%s", "main")).toBe(`Map page shows ${page_data_hash.slice(0, 12)}`);
+  });
+
+  it("works past an uncommitted change that doesn't alter the page, and leaves it uncommitted, even when main moved", () => {
+    const { remoteDir, seedDir, cloneDir } = cloneWithPage();
+    const findingPath = join(cloneDir, "findings", "2026-10-18-some-slug.md");
+    writeFileSync(findingPath, "# A finding\n\nStatus: fix under way\n");
+    expect(pageShown(cloneDir, { isDry: true }).is_dry).toBe(true);
+    writeFileSync(join(seedDir, "log.md"), "A quiet night\n");
+    git(seedDir, "add", "-A");
+    git(seedDir, "commit", "--quiet", "-m", "Report");
+    git(seedDir, "push", "--quiet", "origin", "main");
+
+    expect(pageShown(cloneDir)).toMatchObject({ committed_paths: ["README.md"], pushed: true });
+    expect(git(remoteDir, "show", "--name-only", "--format=", "main")).toBe("README.md");
+    expect(git(cloneDir, "status", "--porcelain", "--untracked-files=no")).toBe("M findings/2026-10-18-some-slug.md");
+    expect(readFileSync(findingPath, "utf8")).toContain("fix under way");
+    expect(readState(cloneDir).is_map_page_behind).toBe(false);
+  });
+
+  it("refuses an uncommitted change that alters the page, and records nothing", () => {
+    const { remoteDir, cloneDir } = cloneWithPage();
+    const before = git(remoteDir, "rev-parse", "main");
+    writeFileSync(join(cloneDir, "promises", "rooms.json"), JSON.stringify(promiseWith("A different promise.")));
+    expect(() => pageShown(cloneDir)).toThrow(/alters what the page shows \(one of: M promises\/rooms\.json\)/);
+    expect(() => pageShown(cloneDir, { isDry: true })).toThrow(/alters what the page shows/);
+    expect(git(remoteDir, "rev-parse", "main")).toBe(before);
+    expect(git(cloneDir, "status", "--porcelain", "--untracked-files=no")).toBe("M promises/rooms.json");
+  });
+
+  it("refuses a change this commit would carry: to the README, or staged", () => {
+    const { cloneDir } = cloneWithPage();
+    writeFileSync(join(cloneDir, "README.md"), `${README}Someone's line.\n`);
+    expect(() => pageShown(cloneDir)).toThrow(/uncommitted change to README\.md/);
+    git(cloneDir, "checkout", "--", "README.md");
+    writeFileSync(join(cloneDir, "findings", "2026-10-18-some-slug.md"), "# A finding\n\nStatus: staged\n");
+    git(cloneDir, "add", "findings");
+    expect(() => pageShown(cloneDir)).toThrow(/staged files \(findings\/2026-10-18-some-slug\.md\)/);
   });
 });
 
