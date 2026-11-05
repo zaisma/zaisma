@@ -177,7 +177,7 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
+    const VARIANTS: Record<string, string> = { gameCardActions: "game-card", gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
     // Not markup: an action's words and icon, and styles shared by what shows an icon alone.
     const NOT_MARKUP = new Set(["action", "iconAloneFace", "tabIconsAlone"]);
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
@@ -1333,12 +1333,12 @@ describe("layout", () => {
     const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
     expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
     expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
-    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isOrderShuffled: true, items: covers(6) }).html).toContain("is-one-line is-at-least-two-across is-order-shuffled");
+    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isOrderShuffled: true, items: covers(6) }).html).toMatch(/is-one-line is-at-least-two-across" data-order-shuffled/);
     expect(firstScreen({ top: [], low: { kind: "block", id: "low", markup: html`<div>Low</div>` } }).html).toMatch(/^<div class="first-screen"><div class="layout-stack"><div class="stack-cell is-block" id="low">/);
     // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
     expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
     expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
-    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }");
     expect(tokensSource).toContain("--size-cover: 180px");
     expect(tokensSource).toContain("--gap-control-stack: 8px");
   });

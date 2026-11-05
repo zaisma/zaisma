@@ -155,7 +155,7 @@ export const FIRST_PAINT_PIECES: readonly FirstPaintPiece[] = [
   firstPaintPiece("sidebar", SIDEBAR_SCRIPT, /\bsidebar-main\b|data-sidebar-remember/),
   firstPaintPiece("started-low", STARTED_LOW_SCRIPT, /\bis-started-low\b/),
   // A grid in a new order each time the page opens is in that order from its first paint.
-  firstPaintPiece("shuffled-grids", SHUFFLED_GRID_SCRIPT, /\bis-order-shuffled\b/),
+  firstPaintPiece("shuffled-grids", SHUFFLED_GRID_SCRIPT, /data-order-shuffled/),
   // Where a pane hangs from its button: a wheel or a colour field makes its floating pane as it's wired.
   firstPaintPiece("placing", PLACE_SCRIPT, /data-wheels|data-color-field/),
   firstPaintPiece("wheels", WHEEL_SCRIPT, /data-wheels/),

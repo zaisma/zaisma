@@ -243,18 +243,18 @@ const CONTROL_STACK_GAP_PX = 8;
 export function grid(options: GridOptions): LayoutMarkup {
   if (options.itemSize === "cover" && options.isAllOnOneLine) {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
-    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}${options.isOrderShuffled ? " is-order-shuffled" : ""}`)}</div>`);
+    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}`)}</div>`);
   }
   return asLayout(gridMarkup(options, ""));
 }
 
 function gridMarkup(options: GridOptions, variantClass: string): Raw {
-  return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
+  return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.itemSize === "cover" && options.isOrderShuffled ? raw(" data-order-shuffled") : ""}${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
 }
 
 /** A grid whose order is new each time the page opens (isOrderShuffled): done as the grid arrives, so the page is painted in it. */
 export const SHUFFLED_GRID_SCRIPT = `/* shuffled grids */(function () {
-  window.zaismaWatch.each(".layout-grid.is-order-shuffled", function (grid) {
+  window.zaismaWatch.each(".layout-grid[data-order-shuffled]", function (grid) {
     var cells = Array.prototype.slice.call(grid.children);
     for (var index = cells.length - 1; index > 0; index--) {
       var pickedIndex = crypto.getRandomValues(new Uint32Array(1))[0] % (index + 1), picked = cells[pickedIndex];

@@ -163,7 +163,7 @@ describe.skipIf(!sites)("the layout check", () => {
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
       await send("Page.navigate", { url: `${sites!.site}/` });
       await isAsked;
-      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-continue").hidden`, returnByValue: true });
+      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-returning").hidden`, returnByValue: true });
       expect(result.value).toBe(false);
     } finally {
       await chrome.close();

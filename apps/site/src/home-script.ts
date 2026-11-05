@@ -24,6 +24,23 @@ export const KEEP_PLAYED_COOKIE_SOURCE = `function keepPlayedCookie(list) {
  */
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
 const $ = (id) => document.getElementById(id);
+const NEWS_KEY = "zaisma:closed-news";
+/* ---- Zaisma's news: the page shows it as it is from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing it keeps it closed on this device, in the cookie and here ---- */
+const news = $("home-news");
+if (news) {
+  const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
+  let closed = [];
+  try { closed = JSON.parse(localStorage.getItem(NEWS_KEY) || "[]"); } catch {}
+  const remember = () => {
+    closed = [id, ...closed.filter((each) => each !== id)].slice(0, 20);
+    try { localStorage.setItem(NEWS_KEY, JSON.stringify(closed)); } catch {}
+    document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(CLOSED_NEWS_COOKIE)} + "=" + closed.join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
+  };
+  // Closed on this device before the cookie kept it: closed again, and kept there from now on.
+  if (!news.hidden && closed.includes(id)) { news.hidden = true; remember(); }
+  const close = news.querySelector('button[name="banner_close"]');
+  if (close) close.addEventListener("click", () => { news.hidden = true; remember(); });
+}
 const shelf = $("home-games");
 if (!shelf) return;
 ${DEVICE_KIND_SOURCE}
@@ -34,7 +51,7 @@ const GAMES = DATA.games;
 const SIZES = ${JSON.stringify([...SIZED_IMAGE_WIDTHS_PX])};
 function sizedSet(url, largestPx) { return /^\/img\/[A-Za-z0-9_-]+$/.test(url || "") ? SIZES.filter((widthPx) => widthPx <= largestPx).map((widthPx) => url + "/w" + widthPx + ".webp " + widthPx + "w").join(", ") : ""; }
 const bySlug = Object.fromEntries(GAMES.map((game) => [game.slug, game]));
-const PLAYED_KEY = "zaisma:played", NEWS_KEY = "zaisma:closed-news";
+const PLAYED_KEY = "zaisma:played";
 const isReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const isSignedIn = /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
 function make(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
@@ -144,7 +161,7 @@ function moveFromCover(fromCover, direction) {
     else { if (dy >= -8) return; score = -dy * 4 + Math.abs(dx); }
     if (score < bestScore) { bestScore = score; best = each; }
   });
-  if (best) { best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: isReduced ? "auto" : "smooth" }); }
+  if (best) { liftCover(best.closest(".cover")); best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: isReduced ? "auto" : "smooth" }); }
   return Boolean(best);
 }
 const KEY_DIRECTIONS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
@@ -175,7 +192,7 @@ function readPad(nowMs) {
     const isFirstMove = !nextMoveMs;
     nextMoveMs = nowMs + (isFirstMove ? FIRST_REPEAT_MS : NEXT_REPEAT_MS);
     if (shownLift()) moveFromCover(liftedCover, direction);
-    else { const first = Array.prototype.find.call(shelf.querySelectorAll(".cover"), (cover) => cover.offsetParent); if (first) first.querySelector(".cover-art").focus(); }
+    else { const first = Array.prototype.find.call(shelf.querySelectorAll(".cover"), (cover) => cover.offsetParent); if (first) { liftCover(first); first.querySelector(".cover-art").focus(); } }
   }
   const isAPressed = Boolean(pad.buttons[A_BUTTON] && pad.buttons[A_BUTTON].pressed), isStartPressed = Boolean(pad.buttons[START_BUTTON] && pad.buttons[START_BUTTON].pressed);
   // A opens the game's page; only Play starts a game.
@@ -187,26 +204,10 @@ addEventListener("gamepadconnected", () => { connectedPadCount++; if (!padFrame)
 addEventListener("gamepaddisconnected", () => { connectedPadCount = Math.max(0, connectedPadCount - 1); if (!connectedPadCount) { cancelAnimationFrame(padFrame); padFrame = 0; } });
 
 /* ---- Starting up ---- */
-// The page shows the news as it is from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing it keeps it closed on this device, in the cookie and here.
 fillContinue();
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 keepPlayedCookie([...played].sort((a, b) => b.played_at_ms - a.played_at_ms));
-const news = $("home-news");
-if (news) {
-  const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
-  let closed = [];
-  try { closed = JSON.parse(localStorage.getItem(NEWS_KEY) || "[]"); } catch {}
-  const remember = () => {
-    closed = [id, ...closed.filter((each) => each !== id)].slice(0, 20);
-    try { localStorage.setItem(NEWS_KEY, JSON.stringify(closed)); } catch {}
-    document.cookie = (location.protocol === "https:" ? "__Host-" : "") + ${JSON.stringify(CLOSED_NEWS_COOKIE)} + "=" + closed.join(",") + "; Max-Age=31536000; Path=/; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "");
-  };
-  // Closed on this device before the cookie kept it: closed again, and kept there from now on.
-  if (!news.hidden && closed.includes(id)) { news.hidden = true; remember(); }
-  const close = news.querySelector('button[name="banner_close"]');
-  if (close) close.addEventListener("click", () => { news.hidden = true; remember(); });
-}
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
     if (!answer) return;

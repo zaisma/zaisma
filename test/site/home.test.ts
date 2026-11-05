@@ -74,7 +74,7 @@ describe("the home page", () => {
     const firstVisit = between(text, "home-first-visit", "home-games-below");
     expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-first-visit">/);
     expect(firstVisit).toContain("These are the games players come back to most. Each one plays here in your browser, with nothing to download.");
-    expect(firstVisit).toContain("is-one-line is-at-least-two-across is-order-shuffled");
+    expect(firstVisit).toMatch(/is-one-line is-at-least-two-across" data-order-shuffled/);
     expect(coverSlugs(firstVisit)).toEqual(LIVE_SLUGS.slice(0, 6));
     for (const slug of LIVE_SLUGS.slice(0, 6)) {
       expect(firstVisit).toContain(`href="/g/${slug}?play"`);
