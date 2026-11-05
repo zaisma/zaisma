@@ -1,6 +1,6 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
 import { deleteOldShaderChecks } from "./shader-check.ts";
-import { recountStoredSizeStatement, utcDateOf, ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { recountStoredSizeStatement, utcDateOf, ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS, CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteOldFriendRequests, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldKeptRoomRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, brotliKeyOf, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -156,6 +156,7 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteOldDeliveries(env.DB, nowMs);
   // Game database restores whose undo Cloudflare no longer keeps (30 days).
   await deleteOldDatabaseRestores(env.DB, nowMs);
+  await deleteOldKeptRoomRestores(env.DB, nowMs);
   // Email codes past their 10 minutes and the day of requests their limits count; wrong passwords older than a
   // day, and device marks a year past their last sign-in.
   await deleteOldEmailCodes(env, nowMs);

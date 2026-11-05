@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { LiveRoom, RoomPlayer } from "@zaisma/game-server/internal";
 import { endRoom, getRoom, kickFromRoom, roomMessageOf, sendRoomMessage, sendToEveryRoom, type RoomMessageOutcome } from "./room-reach.ts";
+import { restoreKeptRoom, undoKeptRoomRestore, type KeptRoomRestoreOutcome } from "./kept-room-restores.ts";
 import type { Env } from "./index.ts";
 
 /** Rooms told at once, so a game with thousands of live rooms is told in a few seconds without a burst. */
@@ -94,6 +95,16 @@ export class GameRoomsService extends WorkerEntrypoint<Env> {
   /** Remove a player from a live room (POST /games/:slug/rooms/:room_code/kick): its onLeave hears reason "kicked". */
   async kickPlayer(kick: { gameId: string; slug: string; roomCode: string; playerId: string; message: string; isKeptOut: boolean }): Promise<{ kickOutcome: "kicked" | "no_room" | "no_player_in_room" }> {
     return { kickOutcome: await kickFromRoom(this.env, kick, kick.roomCode, kick) };
+  }
+
+  /** One world back to a moment (POST /games/:slug/kept-rooms/:room_code/restores), or one of a batch's. */
+  async restoreKeptRoom(restoring: { gameId: string; slug: string; roomCode: string; restoreToAtMs: number; batchId?: string | null }): Promise<KeptRoomRestoreOutcome> {
+    return restoreKeptRoom(this.env, restoring, restoring.roomCode, restoring.restoreToAtMs, { batchId: restoring.batchId ?? null, isLimited: !restoring.batchId });
+  }
+
+  /** One world back to just before an earlier restore (POST …/restores/:kept_room_restore_id/undo), or one of a batch's undo. */
+  async undoKeptRoomRestore(undoing: { gameId: string; slug: string; roomCode: string; keptRoomRestoreId: string; batchId?: string | null }): Promise<KeptRoomRestoreOutcome> {
+    return undoKeptRoomRestore(this.env, undoing, undoing.roomCode, undoing.keptRoomRestoreId, { batchId: undoing.batchId ?? null, isLimited: !undoing.batchId });
   }
 
   /** End a live room's match (POST /games/:slug/rooms/:room_code/end): its players hear message. */

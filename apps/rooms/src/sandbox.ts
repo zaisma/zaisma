@@ -354,6 +354,9 @@ function serverOf(database, secrets, verifyReceipt, binding) {
     getRoom(roomCode) { return timedWait(binding.getRoom(roomCodeOf(roomCode, "server.getRoom"))); },
     kickFromRoom(roomCode, playerId, kickOptions) { const code = roomCodeOf(roomCode, "server.kickFromRoom"); const checked = checks.checkKick(playerId, kickOptions); return timedWait(binding.kickFromRoom(code, checked.playerId, checked.message, checked.isKeptOut)); },
     endRoom(roomCode, message) { const code = roomCodeOf(roomCode, "server.endRoom"); return timedWait(binding.endRoom(code, checks.checkEnd(message))); },
+    restoreKeptRoom(roomCode, restoreOptions) { const call = "server.restoreKeptRoom"; const code = roomCodeOf(roomCode, call); const restoreToAtMs = checks.checkRestoreToAt(restoreOptions, call); return timedWait(binding.restoreKeptRoom(code, restoreToAtMs)).then((answer) => checks.keptRoomRestoreOf(answer, call)); },
+    undoKeptRoomRestore(roomCode, keptRoomRestoreId) { const call = "server.undoKeptRoomRestore"; const code = roomCodeOf(roomCode, call); const restoreId = checks.checkKeptRoomRestoreId(keptRoomRestoreId, call); return timedWait(binding.undoKeptRoomRestore(code, restoreId)).then((answer) => checks.keptRoomRestoreOf(answer, call)); },
+    listKeptRoomRestores(roomCode) { const call = "server.listKeptRoomRestores"; return timedWait(binding.listKeptRoomRestores(roomCodeOf(roomCode, call))).then((listed) => checks.keptRoomRestoreListOf(listed, call)); },
   };
 }
 

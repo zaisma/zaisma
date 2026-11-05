@@ -13,6 +13,7 @@
 import type { GameDatabase } from "./database.ts";
 import type { ReceiptClaims } from "./pass.ts";
 import type { KickOptions, LiveRoom, Player, RoomPlayer, RoomSelection } from "./room.ts";
+import type { KeptRoomRestore, KeptRoomRestoreList } from "./room-calls.ts";
 
 /**
  * What onRequest, onSchedule and onWebhook reach besides what they're given: the game's own database, the
@@ -40,6 +41,16 @@ export interface Server {
   kickFromRoom(roomCode: string, playerId: string, kickOptions?: KickOptions): Promise<{ isDone: boolean }>;
   /** End a live room's match, as room.end does there: its players hear message. isDone is false when no such room is running. */
   endRoom(roomCode: string, message?: string): Promise<{ isDone: boolean }>;
+  /**
+   * Put a kept room's world back as it was at a moment in the last 30 days (an ISO time). Who may do this is your game's own rule, so
+   * check it first. Players in the room drop for a second or two and reconnect, and its onRestored runs with restoreInfo.keptRoomRestore;
+   * tell them your own way. Called from inside that room, the room starts over, so nothing after the call runs on it.
+   */
+  restoreKeptRoom(roomCode: string, restoreOptions: { restoreToAt: string }): Promise<KeptRoomRestore>;
+  /** Put a kept room's world back as it was just before an earlier restore, for 30 days after it. */
+  undoKeptRoomRestore(roomCode: string, keptRoomRestoreId: string): Promise<KeptRoomRestore>;
+  /** What a restore screen draws from: the earliest moment the world can go back to, and its restores, newest first. */
+  listKeptRoomRestores(roomCode: string): Promise<KeptRoomRestoreList>;
 }
 
 export const REQUEST_LIMITS = {

@@ -171,7 +171,7 @@ async function restoreRoute(env: Env, game: Game, what: "restores" | "undo", che
 }
 
 /** restore_to_at as a moment a restore can go back to: in the last 30 days, and not before the game was made. */
-function readRestoreToAtMs(game: Game, given: unknown, nowMs: number): number {
+export function readRestoreToAtMs(game: Game, given: unknown, nowMs = Date.now()): number {
   if (given === undefined) throw new ApiError("missing_field", { message: "restore_to_at wasn't sent.", field: "restore_to_at", fix: `Send the moment to go back to as an ISO time, like { "restore_to_at": "${new Date(nowMs - 3_600_000).toISOString().slice(0, 16)}:00Z" }.` });
   const atMs = typeof given === "string" && ISO_TIME.test(given) ? Date.parse(given) : NaN;
   const said = typeof given === "string" ? `"${given.slice(0, 40)}"` : `a ${typeof given}`;

@@ -2,7 +2,7 @@ import { ApiError, cutUndeclared, noteAnswerCut, typeProblems, CONTROLS, DEVICES
 import { INTERNAL_ERROR, TOOL_ANSWER_SCHEMAS, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
+import { ACCESS, STANDING, ACTIVITY, STORAGE, STORAGE_CHANGED, DELETED_WITH_STORAGE, KEPT_ROOM_RESTORED, KEPT_ROOM_RESTORES, KEPT_ROOM_RESTORE_BATCH_STARTED, KEPT_ROOM_RESTORE_BATCH_READ, GAME_DELETED, GAME_BROUGHT_BACK, GAME_ERASING, GAME_DELETION_REQUEST, PRO, PRO_CHANGED, PRO_CHECKOUT, PRO_REFUNDED, CREDIT, CREDIT_CHANGED, CREDIT_PLAN_CHECKOUT, TOP_UP_CHECKOUT, TOP_UP_REFUNDED, STRIPE_ACCOUNT, STRIPE_ACCOUNT_CHANGED, SPENDING_REQUEST, CONNECTION_LINK, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, KEPT_ROOMS, KEPT_ROOM_BROUGHT_BACK, KEPT_ROOM_DELETED, KEPT_ROOM_ERASED, LIVE_ROOMS, LIVE_ROOM_WITH_PLAYERS, ROOM_MESSAGE_DELIVERED, EVERY_ROOM_SENT, SCHEDULED_ROOM_MESSAGES, ROOM_MESSAGE_CANCELLED, ROOM_PLAYER_KICKED, ROOM_ENDED, BACKGROUND, SHADER, SHADER_CHECK, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, INDEXEDDB_DATABASE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, isoTime, yes, GAME_ITEM, ITEMS, PURCHASE, PURCHASE_SETTINGS } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -1668,7 +1668,7 @@ export const TOOLS: Tool[] = [
     name: "list_kept_rooms",
     title: "List a game's kept rooms",
     description:
-      "A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the 10 GB a game can keep (`maximum_storage_size_bytes`); below that, storage counts on the game's hosting meter (get_stats, hosting_use_this_month). Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
+      "deleted_kept_rooms says which erased worlds their last copy can still bring back. A game's kept rooms: rooms its game server kept with room.setKept(true), like a survival world or a persistent server, which sleep with their world saved when everyone leaves and wake when someone joins. Each with its code, name, saved size and when it was last saved and played, most recently played first; and the game's storage, its database and kept rooms together, against the 10 GB a game can keep (`maximum_storage_size_bytes`); below that, storage counts on the game's hosting meter (get_stats, hosting_use_this_month). Listed kept rooms show on the game page's Rooms tab even with nobody in them.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: KEPT_ROOMS,
     annotations: read,
@@ -1690,7 +1690,8 @@ export const TOOLS: Tool[] = [
   {
     name: "bring_back_kept_room",
     title: "Bring a deleted kept room back",
-    description: "Brings back a kept room's world deleted or ended through the API, until its erases_at: it's as it was, with the same code. list_kept_rooms says erases_at. A world that isn't waiting answers kept_room_not_waiting; one whose week is over answers kept_room_erasing.",
+    description:
+      "Brings back a kept room's world deleted or ended through the API, with the same code. Until its erases_at it's as it was. After that it comes back from its last copy, for about 28 days after it was deleted (list_kept_rooms' deleted_kept_rooms), as of copy_saved_at, so up to a day can be lost; that takes a minute or more, and is_bringing_back says it's on its way. A world that isn't deleted answers kept_room_not_waiting; one mid-erase answers kept_room_erasing, so try again in a minute. A deleted world can't come back to a game Zaisma took down (game_removed), past 10 GB (game_storage_full) or under a code in use (room_code_in_use).",
     inputSchema: {
       ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A waiting kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
       examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],
@@ -1700,9 +1701,73 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/bring-back`),
   },
   {
+    name: "restore_kept_room",
+    title: "Restore a kept room's world to a time",
+    description:
+      "Puts one kept room's world back as it was at any minute in the last 30 days: the undo for a griefed world or a bad update. Players in it drop for a second or two and reconnect; its game server's onRestored hears what happened, and the game tells them its own way, with no message from Zaisma. Everything played since is gone until you undo it with undo_kept_room_restore, which works for 30 days. It never changes what players own through Zaisma, never undoes a takedown, and the game server hears who was erased since. get_history shows when things happened. For every world at once, use restore_every_kept_room. Free, like restore_database, which is a separate call.\n" +
+      'Not: { "restore_to_at": "2026-10-18 14:05" } (an ISO time with Z or an offset, like "2026-10-18T14:05:00Z")',
+    inputSchema: {
+      ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A kept room's code from list_kept_rooms, like K7Q2MX." }, restore_to_at: { type: "string", format: "date-time", description: "The moment to go back to: an ISO time with Z or an offset, in the last 30 days" } }, ["slug", "room_code", "restore_to_at"]),
+      examples: [{ slug: "frostbound", room_code: "K7Q2MX", restore_to_at: "2026-10-18T14:04:00Z" }],
+    },
+    outputSchema: KEPT_ROOM_RESTORED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/restores`, pick(toolArguments, ["restore_to_at"])),
+  },
+  {
+    name: "undo_kept_room_restore",
+    title: "Undo a kept room's restore",
+    description: "Undoes a restore_kept_room: the world goes back to just before that restore, and what was played after it is gone (this is a restore too, so it can be undone the same way). Within 30 days of the restore; list_kept_room_restores lists them.",
+    inputSchema: object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A kept room's code from list_kept_rooms, like K7Q2MX." }, kept_room_restore_id: idInput("kept_room_restore", "The restore to undo, from list_kept_room_restores or restore_kept_room's answer.") }, ["slug", "room_code", "kept_room_restore_id"]),
+    outputSchema: KEPT_ROOM_RESTORED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/restores/${pathPart(toolArguments.kept_room_restore_id)}/undo`),
+  },
+  {
+    name: "list_kept_room_restores",
+    title: "How far back a kept room can go",
+    description: "One kept room's earliest moment it can go back to (any minute from then to now), and its restores that can still be undone, newest first.",
+    inputSchema: object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
+    outputSchema: KEPT_ROOM_RESTORES,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/kept-rooms/${pathPart(toolArguments.room_code)}/restores`),
+  },
+  {
+    name: "restore_every_kept_room",
+    title: "Restore every kept room's world to a time",
+    description:
+      "Puts every kept room of a game back as it was at one minute in the last 30 days: the undo for a bad update. It answers at once and runs a few hundred worlds a minute: get_kept_room_restore_batch says how it's going. Worlds waiting to be erased and worlds kept after that moment stay as they are. Worlds, database and version are separate calls on purpose: next_steps names restore_database with the same time and publish_version when the live version went live after that moment, since it could do the damage again. Ask the developer first.\n" +
+      'Not: { "restore_to_at": "1 hour ago" } (work out the ISO time)',
+    inputSchema: {
+      ...object({ slug, restore_to_at: { type: "string", format: "date-time", description: "The moment to go back to: an ISO time with Z or an offset, in the last 30 days" } }, ["slug", "restore_to_at"]),
+      examples: [{ slug: "frostbound", restore_to_at: "2026-10-18T14:04:00Z" }],
+    },
+    outputSchema: KEPT_ROOM_RESTORE_BATCH_STARTED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-room-restores`, pick(toolArguments, ["restore_to_at"])),
+  },
+  {
+    name: "get_kept_room_restore_batch",
+    title: "How a restore of every kept room went",
+    description: "A restore_every_kept_room's progress: how many worlds went back, were left as they are or failed, and which failed (restore_kept_room each of those).",
+    inputSchema: object({ slug, kept_room_restore_batch_id: idInput("kept_room_restore_batch", "The batch, from restore_every_kept_room's answer.") }, ["slug", "kept_room_restore_batch_id"]),
+    outputSchema: KEPT_ROOM_RESTORE_BATCH_READ,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/kept-room-restores/${pathPart(toolArguments.kept_room_restore_batch_id)}`),
+  },
+  {
+    name: "undo_every_kept_room_restore",
+    title: "Undo a restore of every kept room",
+    description: "Undoes a restore_every_kept_room: each world it restored goes back to just before that, for 30 days after it. It answers at once, like the restore did.",
+    inputSchema: object({ slug, kept_room_restore_batch_id: idInput("kept_room_restore_batch", "The batch to undo, from restore_every_kept_room's answer.") }, ["slug", "kept_room_restore_batch_id"]),
+    outputSchema: KEPT_ROOM_RESTORE_BATCH_STARTED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/kept-room-restores/${pathPart(toolArguments.kept_room_restore_batch_id)}/undo`),
+  },
+  {
     name: "erase_kept_room_now",
     title: "Erase a deleted kept room at once",
-    description: "Erases a waiting kept room's world without waiting for its erases_at, so what it stores leaves the hosting meter and its code is free. It always answers confirmation_needed first: give the developer confirm_url, where they approve with a passkey tap or decline, and check the answer with get_game_deletion_request. Nothing brings it back after that.",
+    description: "Erases a waiting kept room's world without waiting for its erases_at, so what it stores leaves the hosting meter and its code is free. It always answers confirmation_needed first: give the developer confirm_url, where they approve with a passkey tap or decline, and check the answer with get_game_deletion_request. Its last copy can still bring it back with bring_back_kept_room for about 28 days after it was deleted, and nothing does after that.",
     inputSchema: {
       ...object({ slug, room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A waiting kept room's code from list_kept_rooms, like K7Q2MX." } }, ["slug", "room_code"]),
       examples: [{ slug: "frostbound", room_code: "K7Q2MX" }],

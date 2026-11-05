@@ -1,8 +1,9 @@
 import { isRoomCode } from "@zaisma/game-server";
-import { ApiError, KEPT_ROOM_ERASE_WAIT_DURATION_DAYS, MAXIMUM_GAME_STORAGE_SIZE_BYTES, audit, isPlayedByOthersOutsideKeptRooms, iso, type Game } from "@zaisma/core";
+import { ApiError, KEPT_ROOM_ERASE_WAIT_DURATION_DAYS, MAXIMUM_GAME_STORAGE_SIZE_BYTES, audit, isPlayedByOthersOutsideKeptRooms, iso, recentDeletedKeptRooms, rememberDeletedKeptRoom, type Game } from "@zaisma/core";
 import type { Caller, NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { askForGameDeletion } from "./game-deletion-requests.ts";
+import { bringBackFromCopy, copyBeforeErasing, deletedKeptRoomJson, queueLastCopy } from "./kept-room-copies.ts";
 import { logCallerEvent } from "./security-log.ts";
 
 /**
@@ -13,7 +14,7 @@ import { logCallerEvent } from "./security-log.ts";
  *
  *   GET    /api/dev/games/:slug/kept-rooms                         the game's kept rooms, and its storage
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code              players in it are sent out; its world waits its week
- *   POST   /api/dev/games/:slug/kept-rooms/:room_code/bring-back   a waiting world opens again as it was
+ *   POST   /api/dev/games/:slug/kept-rooms/:room_code/bring-back   a waiting world opens again as it was; an erased one comes back from its last copy (kept-room-copies.ts)
  *   POST   /api/dev/games/:slug/kept-rooms/:room_code/erase-now    a waiting world erased at once, with a passkey tap
  */
 
@@ -39,11 +40,14 @@ export async function keptRoomsRoute(request: Request, env: Env, game: Game, roo
       .all<KeptRoomRow>();
     const sizeBytesOf = (rows: KeptRoomRow[]) => rows.reduce((sizeBytes, row) => sizeBytes + row.saved_size_bytes, 0);
     const keptRoomsSizeBytes = sizeBytesOf(results.filter((row) => row.erases_at_ms === null));
+    const { deletedKeptRooms, deletedKeptRoomCount } = await recentDeletedKeptRooms(env.DB, game.id, nowMs);
     return [
       {
         kept_rooms: results.map((row) => ({ room_code: row.room_code, name: row.name, saved_size_bytes: row.saved_size_bytes, saved_at: iso(row.saved_at_ms), last_played_at: iso(row.last_played_at_ms), created_at: iso(row.created_at_ms), erases_at: iso(row.erases_at_ms) })),
         kept_rooms_size_bytes: keptRoomsSizeBytes,
         waiting_kept_rooms_size_bytes: sizeBytesOf(results.filter((row) => row.erases_at_ms !== null)),
+        deleted_kept_rooms: deletedKeptRooms.map(deletedKeptRoomJson),
+        deleted_kept_room_count: deletedKeptRoomCount,
         storage_size_bytes: (await databaseSizeBytes(env, game)) + keptRoomsSizeBytes,
         maximum_storage_size_bytes: MAXIMUM_GAME_STORAGE_SIZE_BYTES,
       },
@@ -57,6 +61,10 @@ export async function keptRoomsRoute(request: Request, env: Env, game: Game, roo
   const code = roomCode.toUpperCase();
   if (!isRoomCode(code)) throw new ApiError("bad_room_code", { message: `room_code ${JSON.stringify(roomCode.slice(0, 20))} isn't a room code.`, field: "room_code", fix: "Give a kept room's code from list_kept_rooms, like K7Q2MX." });
   const kept = await erasesAtOf(env, game, code);
+  if (!kept && isBringingBack) {
+    const answered = await bringBackFromCopy(env, game, code, caller, nowMs);
+    if (answered) return answered;
+  }
   if (!kept) throw noKeptRoom(game, code);
   if (isBringingBack) return bringBack(env, game, code, kept.erases_at_ms, caller, nowMs);
   if (isErasingNow) return eraseNow(env, game, code, kept.erases_at_ms, caller, nowMs);
@@ -68,6 +76,9 @@ export async function keptRoomsRoute(request: Request, env: Env, game: Game, roo
     return deletedAnswer(game, code, erasesAtMs);
   }
   // Nobody else ever played the game, or a Zaisma of its own has no rooms to keep it in: there's nobody's world to wait for.
+  await copyBeforeErasing(env, game, code);
+  await env.DB.prepare("UPDATE kept_rooms SET deleted_at_ms = ? WHERE game_id = ? AND room_code = ?").bind(nowMs, game.id, code).run();
+  await rememberDeletedKeptRoom(env.DB, game.id, code, nowMs).run();
   await eraseKeptRoom(env, game, code);
   await audit(env.DB, game.id, "kept-room-deleted", code, caller.actor);
   await logCallerEvent(env, caller, "kept_room_deleted", { gameId: game.id, subjectName: code });
@@ -89,7 +100,8 @@ export async function startKeptRoomWait(env: Env, game: Game, code: string, mess
   if (holdOutcome === "failed") throw noAnswer();
   // The room holds no world, so its row is all there is.
   if (holdOutcome === "no_room") return null;
-  await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ? WHERE game_id = ? AND room_code = ?").bind(erasesAtMs, game.id, code).run();
+  await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = ?, deleted_at_ms = ? WHERE game_id = ? AND room_code = ?").bind(erasesAtMs, nowMs, game.id, code).run();
+  await queueLastCopy(env, game, code);
   await logDeletedWorld(env, caller, game, code, nowMs);
   return erasesAtMs;
 }
@@ -108,21 +120,25 @@ async function bringBack(env: Env, game: Game, code: string, erasesAtMs: number 
     await env.DB.prepare("DELETE FROM kept_rooms WHERE game_id = ? AND room_code = ?").bind(game.id, code).run();
     throw noKeptRoom(game, code);
   }
-  await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = NULL WHERE game_id = ? AND room_code = ?").bind(game.id, code).run();
+  await env.DB.prepare("UPDATE kept_rooms SET erases_at_ms = NULL, deleted_at_ms = NULL WHERE game_id = ? AND room_code = ?").bind(game.id, code).run();
   await audit(env.DB, game.id, "kept-room-brought-back", code, caller.actor);
   await logCallerEvent(env, caller, "kept_room_brought_back", { gameId: game.id, subjectName: code });
   const nextSteps: NextStep[] = [{ tool: "list_kept_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's kept rooms and storage now." }];
-  return [{ is_brought_back: true, next_steps: nextSteps }];
+  return [{ is_brought_back: true, is_bringing_back: false, copy_saved_at: null, next_steps: nextSteps }];
 }
 
 /** A waiting world erased before its week is over: only ever with the developer's passkey tap, never a key or an AI alone. */
 async function eraseNow(env: Env, game: Game, code: string, erasesAtMs: number | null, caller: Caller, nowMs: number): Promise<[unknown, number?]> {
   checkWaiting(game, code, erasesAtMs, nowMs);
   if (!caller.isPasskeyConfirmed) throw await askForGameDeletion(env, caller, game, "erase_kept_room_now", nowMs, code);
+  await rememberDeletedKeptRoom(env.DB, game.id, code, nowMs).run();
   await eraseKeptRoom(env, game, code);
   await audit(env.DB, game.id, "kept-room-erased-now", code, caller.actor);
   await logCallerEvent(env, caller, "kept_room_erased_now", { gameId: game.id, subjectName: code });
-  const nextSteps: NextStep[] = [{ tool: "list_kept_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's kept rooms and storage now." }];
+  const nextSteps: NextStep[] = [
+    { tool: "list_kept_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's kept rooms and storage now." },
+    { tool: "bring_back_kept_room", arguments: { slug: game.slug, room_code: code }, after_sec: null, reason: "Brings it back from its last copy for about 28 days, if this was a mistake." },
+  ];
   return [{ is_erased: true, next_steps: nextSteps }];
 }
 
@@ -135,12 +151,12 @@ async function eraseKeptRoom(env: Env, game: Game, code: string): Promise<void> 
 
 function checkWaiting(game: Game, code: string, erasesAtMs: number | null, nowMs: number): void {
   if (erasesAtMs === null) throw new ApiError("kept_room_not_waiting", { message: `Kept room ${code} of ${game.slug} isn't deleted and waiting to be erased.`, field: "room_code", fix: "list_kept_rooms says erases_at for a world that's waiting." });
-  if (erasesAtMs <= nowMs) throw new ApiError("kept_room_erasing", { message: `Kept room ${code}'s week is over and its erasing has started.`, field: "room_code", fix: "Nothing brings it back now." });
+  if (erasesAtMs <= nowMs) throw new ApiError("kept_room_erasing", { message: `Kept room ${code}'s week is over and its erasing has started.`, field: "room_code", fix: "It's being erased. In a minute, bring_back_kept_room brings it back from its last copy, for about 28 days after it was deleted." });
 }
 
 function deletedAnswer(game: Game, code: string, erasesAtMs: number | null): [unknown, number?] {
   const nextSteps: NextStep[] = [
-    ...(erasesAtMs === null ? [] : [{ tool: "bring_back_kept_room", arguments: { slug: game.slug, room_code: code }, after_sec: null, reason: "Brings the world back until erases_at, as it was." }]),
+    { tool: "bring_back_kept_room", arguments: { slug: game.slug, room_code: code }, after_sec: null, reason: erasesAtMs === null ? "Brings the world back from its last copy, for about 28 days." : "Brings the world back until erases_at, as it was, and from its last copy after that, for about 28 days from now." },
     { tool: "list_kept_rooms", arguments: { slug: game.slug }, after_sec: null, reason: "The game's kept rooms and storage now." },
   ];
   return [{ is_deleted: true, erases_at: iso(erasesAtMs), next_steps: nextSteps }];

@@ -213,7 +213,13 @@ const COMMANDS = {
   "items remove": { about: "Remove an item nobody bought or was granted", arguments: [{ name: "slug" }, { name: "item_name" }], flags: {} },
   "kept-rooms": { about: "A game's kept rooms (room.setKept), worlds that sleep with nobody in them: each one's code, name, size and when it was last played, and the game's storage", arguments: [{ name: "slug" }], flags: {} },
   "kept-rooms delete": { about: "Delete a kept room's world; players in it are sent out, and it waits a week before it's erased", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
-  "kept-rooms bring-back": { about: "Bring back a kept room's world waiting to be erased, as it was", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms bring-back": { about: "Bring back a deleted kept room's world: as it was during its week, then from its last copy for about 28 days", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms restore": { about: "Put a kept room's world back as it was at a moment in the last 30 days (an ISO time, like 2026-10-18T14:05:00Z), live; undo it with kept-rooms undo-restore", arguments: [{ name: "slug" }, { name: "room_code" }, { name: "restore_to_at" }], flags: {} },
+  "kept-rooms undo-restore": { about: "Undo a kept room's restore: back to just before it, live", arguments: [{ name: "slug" }, { name: "room_code" }, { name: "kept_room_restore_id" }], flags: {} },
+  "kept-rooms restores": { about: "How far back a kept room's world can go, and its restores", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
+  "kept-rooms restore-all": { about: "Put every kept room's world back as it was at a moment in the last 30 days, a few hundred a minute; undo it with kept-rooms undo-restore-all", arguments: [{ name: "slug" }, { name: "restore_to_at" }], flags: {} },
+  "kept-rooms restore-all-status": { about: "How a restore of every kept room is going", arguments: [{ name: "slug" }, { name: "kept_room_restore_batch_id" }], flags: {} },
+  "kept-rooms undo-restore-all": { about: "Undo a restore of every kept room: each back to just before it", arguments: [{ name: "slug" }, { name: "kept_room_restore_batch_id" }], flags: {} },
   "kept-rooms erase-now": { about: "Erase a waiting kept room's world at once; answers a link where the developer approves with a passkey tap", arguments: [{ name: "slug" }, { name: "room_code" }], flags: {} },
   rooms: { about: "A game's live rooms on Zaisma, newest first: each one's code, name, labels, players and spectators, and whether it's kept", arguments: [{ name: "slug" }], flags: {} },
   logs: {
@@ -317,7 +323,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], items: ["set", "remove"], "kept-rooms": ["delete", "bring-back", "erase-now"] };
+const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"], items: ["set", "remove"], "kept-rooms": ["delete", "bring-back", "erase-now", "restore", "undo-restore", "restores", "restore-all", "restore-all-status", "undo-restore-all"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -1950,7 +1956,7 @@ async function liveRooms(values) {
   if (answer.next_cursor) console.log(`${answer.room_count} rooms in all; --json, or list_rooms with cursor, gives the rest.`);
 }
 
-/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms, delete_kept_room, bring_back_kept_room and erase_kept_room_now. */
+/** A game's kept rooms (…/games/<slug>/kept-rooms…), as the MCP's list_kept_rooms, delete_kept_room, bring_back_kept_room, erase_kept_room_now and its restores' tools. */
 async function keptRooms(command, values) {
   if (command === "kept-rooms") {
     const answer = await api("GET", `/games/${values.slug}/kept-rooms`);
@@ -1958,15 +1964,51 @@ async function keptRooms(command, values) {
     if (!answer.kept_rooms.length) console.log(`No kept rooms. A game server keeps one with room.setKept(true).`);
     for (const keptRoom of answer.kept_rooms) console.log(`${keptRoom.room_code}  ${(keptRoom.name ?? "").padEnd(24)} ${sizeText(keptRoom.saved_size_bytes).padStart(9)}  played ${keptRoom.erases_at ? `waiting, erased ${when(keptRoom.erases_at)}  ` : ""}${keptRoom.last_played_at ? when(keptRoom.last_played_at) : "never"}`);
     console.log(`Storage: ${sizeText(answer.storage_size_bytes)} of the ${sizeText(answer.maximum_storage_size_bytes)} a game can keep (database and kept rooms).`);
+    if (answer.deleted_kept_rooms.length) console.log(`Deleted, and can come back from their last copy: ${answer.deleted_kept_rooms.map((deleted) => `${deleted.room_code} until ${when(deleted.can_bring_back_until)}`).join(", ")}`);
+    return;
+  }
+  // Every world of the game.
+  if (command === "kept-rooms restore-all" || command === "kept-rooms undo-restore-all" || command === "kept-rooms restore-all-status") {
+    const batchPath = `/games/${values.slug}/kept-room-restores`;
+    const answer =
+      command === "kept-rooms restore-all"
+        ? await api("POST", batchPath, { restore_to_at: values.restore_to_at })
+        : command === "kept-rooms undo-restore-all"
+          ? await api("POST", `${batchPath}/${encodeURIComponent(values.kept_room_restore_batch_id)}/undo`)
+          : await api("GET", `${batchPath}/${encodeURIComponent(values.kept_room_restore_batch_id)}`);
+    if (isJson) return printJson(answer);
+    const batch = answer.kept_room_restore_batch;
+    console.log(`${values.slug}'s worlds to ${batch.restore_to_at}: ${batch.restored_room_count} of ${batch.kept_room_count} back, ${batch.skipped_room_count} left as they are, ${batch.failed_room_count} failed${batch.finished_at ? "." : ", still going."}`);
+    if (batch.failed_room_codes.length) console.log(`Failed: ${batch.failed_room_codes.join(", ")}`);
+    if (answer.live_version_published_since) console.log(answer.live_version_published_since.message);
+    if (command === "kept-rooms restore-all") console.log(`Status: zaisma kept-rooms restore-all-status ${values.slug} ${batch.id}\nUndo it until ${batch.undo_expires_at}: zaisma kept-rooms undo-restore-all ${values.slug} ${batch.id}`);
     return;
   }
   const roomPath = `/games/${values.slug}/kept-rooms/${encodeURIComponent(values.room_code)}`;
   const code = values.room_code.toUpperCase();
+  if (command === "kept-rooms restores") {
+    const answer = await api("GET", `${roomPath}/restores`);
+    if (isJson) return printJson(answer);
+    console.log(`${code} can go back to any minute since ${answer.earliest_restore_to_at}.`);
+    for (const restore of answer.restores) console.log(`${restore.id}  ${restore.restored_at}  ${restore.undoes_kept_room_restore_id ? `undid ${restore.undoes_kept_room_restore_id}` : `back to ${restore.restore_to_at}`}`);
+    return;
+  }
+  if (command === "kept-rooms restore" || command === "kept-rooms undo-restore") {
+    const isUndo = command === "kept-rooms undo-restore";
+    const answer = isUndo ? await api("POST", `${roomPath}/restores/${encodeURIComponent(values.kept_room_restore_id)}/undo`) : await api("POST", `${roomPath}/restores`, { restore_to_at: values.restore_to_at });
+    if (isJson) return printJson(answer);
+    const restore = answer.kept_room_restore;
+    console.log(isUndo ? `Undid restore ${values.kept_room_restore_id}: ${code} is back to ${restore.restore_to_at}.` : `Restored ${code} of ${values.slug} to ${restore.restore_to_at}.`);
+    if (answer.live_version_published_since) console.log(answer.live_version_published_since.message);
+    console.log(`Undo it until ${restore.undo_expires_at}: zaisma kept-rooms undo-restore ${values.slug} ${code} ${restore.id}`);
+    return;
+  }
   if (command === "kept-rooms bring-back" || command === "kept-rooms erase-now") {
     const isBringingBack = command === "kept-rooms bring-back";
     const answer = await api("POST", `${roomPath}/${isBringingBack ? "bring-back" : "erase-now"}`);
     if (isJson) return printJson(answer);
-    console.log(isBringingBack ? `Kept room ${code} of ${values.slug} is back, as it was.` : `Erased kept room ${code} of ${values.slug} for good.`);
+    if (answer.is_bringing_back) console.log(`Kept room ${code} of ${values.slug} is coming back from its last copy${answer.copy_saved_at ? `, made ${when(answer.copy_saved_at)}` : ""}. zaisma kept-rooms ${values.slug} has it when it's back.`);
+    else console.log(isBringingBack ? `Kept room ${code} of ${values.slug} is back, as it was.` : `Erased kept room ${code} of ${values.slug}. Its last copy can bring it back for about 28 days after it was deleted: zaisma kept-rooms bring-back ${values.slug} ${code}`);
     return;
   }
   const answer = await api("DELETE", roomPath);

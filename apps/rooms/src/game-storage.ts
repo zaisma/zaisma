@@ -1,6 +1,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { gameDatabaseObject } from "./database.ts";
 import { gameSecretsObject } from "./secrets.ts";
+import { playersErasedSince } from "@zaisma/core";
+import type { ToldKeptRoomRestore } from "./kept-room-restores.ts";
 import type { Env } from "./index.ts";
 
 /** Kept rooms deleted at once, so a game with thousands of worlds goes in a few seconds without a burst. */
@@ -50,6 +52,22 @@ export class GameStorageService extends WorkerEntrypoint<Env> {
       const held = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`)).fetch("https://room/wait-to-erase", { method: "POST", headers: { "x-game-id": gameId }, body: JSON.stringify({ erasesAtMs: row.erases_at_ms, message: null }) });
       if (!held.ok) throw new Error(`kept room ${roomCode} said ${held.status}`);
     }
+  }
+
+  /**
+   * A deleted world back from its last copy (apps/site/src/kept-room-copies.ts). A room that holds a world has another under the same code,
+   * unless an earlier try of this got that far (isTriedBefore). The restored room then takes what a restore always does: it stays
+   * kept and clear of any wait, what it's used goes, and its game server hears what it went back to and who was erased since.
+   */
+  async bringBackKeptRoom(gameId: string, slug: string, roomCode: string, lines: ReadableStream<Uint8Array>, copySavedAtMs: number, isTriedBefore: boolean): Promise<{ isInUse: boolean }> {
+    const room = () => this.env.ROOMS.get(this.env.ROOMS.idFromName(`${slug}:${roomCode}`));
+    const response = await room().fetch("https://room/restore", { method: "POST", headers: { "x-game-id": gameId }, body: lines });
+    if (response.status === 409 && !isTriedBefore) return { isInUse: true };
+    if (!response.ok && response.status !== 409) throw new Error(`kept room ${roomCode} said ${response.status}: ${await response.text()}`);
+    const told: ToldKeptRoomRestore = { id: null, restoreToAtMs: copySavedAtMs, restoredAtMs: Date.now(), undoesKeptRoomRestoreId: null, erasedPlayerIds: await playersErasedSince(this.env.DB, gameId, copySavedAtMs) };
+    const carried = await room().fetch("https://room/kept-room-restore/carry", { method: "POST", headers: { "x-game-id": gameId }, body: JSON.stringify({ carried: { seatedPlayerIds: null, ownedItemNamesByPlayerId: {} }, told }) });
+    if (!carried.ok) throw new Error(`kept room ${roomCode} said ${carried.status}`);
+    return { isInUse: false };
   }
 
   /** Each kept room deletes its own world (its object is named by the game's link name and its code), then the rows go. */

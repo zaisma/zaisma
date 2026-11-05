@@ -43,6 +43,9 @@ export interface Env {
   BACKUP_KEY_ID?: string;
   BACKUP_KEY_SECRET?: string;
   /** A key that can only list and read the backups bucket, set only while a restore runs into this account (restore.ts). */
+  /** The Backblaze key that reads only kept-rooms/, for a deleted world coming back from its last copy (kept-room-copies.ts). */
+  KEPT_ROOM_COPY_KEY_ID?: string;
+  KEPT_ROOM_COPY_KEY_SECRET?: string;
   RESTORE_KEY_ID?: string;
   RESTORE_KEY_SECRET?: string;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */

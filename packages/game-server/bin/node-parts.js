@@ -1,6 +1,7 @@
 // The parts of the Node runner (node.js) that stand on their own: where it gets the pass keys and
 // profiles, its local SQLite files, and the checks on its options. Nothing here is part of the
 // public package: tests reach it by path.
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { DATABASE_LIMITS, GameServerError, answerDatabase, checkBatch, checkPlayerId, checkStatement, checkedRow, eraseRefused, eraseStatements, readDatabaseAnswer, tablesFromColumns, tooManyRows, TABLE_COLUMNS_SQL } from "../src/internal.ts";
 
@@ -249,9 +250,43 @@ export function localRoomStates(file) {
       console.warn("Saved room states from an older runner were dropped; rooms start fresh.");
     }
     database.exec("CREATE TABLE IF NOT EXISTS room_states (room_code TEXT PRIMARY KEY, format_version INTEGER NOT NULL, state_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, saved_at_ms INTEGER NOT NULL, is_saved_empty INTEGER NOT NULL, is_kept INTEGER NOT NULL)");
+    // A kept room's world back to an earlier moment: copies of its state, and each restore with the state from just before it, for its undo.
+    database.exec("CREATE TABLE IF NOT EXISTS room_state_copies (room_code TEXT NOT NULL, saved_at_ms INTEGER NOT NULL, state_json TEXT NOT NULL, saved_room_json TEXT NOT NULL, PRIMARY KEY (room_code, saved_at_ms))");
+    database.exec("CREATE TABLE IF NOT EXISTS kept_room_restores (id TEXT PRIMARY KEY, room_code TEXT NOT NULL, restore_to_at_ms INTEGER NOT NULL, restored_at_ms INTEGER NOT NULL, undoes_kept_room_restore_id TEXT, undo_state_json TEXT NOT NULL, undo_saved_room_json TEXT NOT NULL, undo_saved_at_ms INTEGER NOT NULL, is_told INTEGER NOT NULL DEFAULT 0)");
     return database;
   };
   const isThere = () => database !== null || (file !== ":memory:" && existsSync(file));
+  /** Keep a copy of a kept room's state: the newest of each minute for a day, of each hour back to 30 days. */
+  const keepCopy = (roomCode, stateJson, savedRoomJson, savedAtMs) => {
+    const minuteMs = savedAtMs - (savedAtMs % 60_000);
+    const opened = open();
+    const isNewMinute = opened.prepare("SELECT 1 FROM room_state_copies WHERE room_code = ? AND saved_at_ms >= ? LIMIT 1").get(roomCode, minuteMs) === undefined;
+    if (!isNewMinute) opened.prepare("DELETE FROM room_state_copies WHERE room_code = ? AND saved_at_ms >= ?").run(roomCode, minuteMs);
+    opened.prepare("INSERT OR REPLACE INTO room_state_copies (room_code, saved_at_ms, state_json, saved_room_json) VALUES (?, ?, ?, ?)").run(roomCode, savedAtMs, stateJson, savedRoomJson);
+    if (!isNewMinute) return;
+    const dayAgoMs = savedAtMs - WORLD_COPY_MINUTES_DURATION_MS;
+    opened.prepare("DELETE FROM room_state_copies WHERE room_code = ?1 AND saved_at_ms < ?2 AND saved_at_ms NOT IN (SELECT MAX(saved_at_ms) FROM room_state_copies WHERE room_code = ?1 AND saved_at_ms < ?2 GROUP BY saved_at_ms / 3600000)").run(roomCode, dayAgoMs);
+    opened.prepare("DELETE FROM room_state_copies WHERE room_code = ? AND saved_at_ms < ?").run(roomCode, savedAtMs - WORLD_COPIES_DURATION_MS);
+  };
+  const restoreJson = (row) => ({
+    id: row.id,
+    roomCode: row.room_code,
+    restoreToAt: new Date(Number(row.restore_to_at_ms)).toISOString(),
+    restoredAt: new Date(Number(row.restored_at_ms)).toISOString(),
+    undoesKeptRoomRestoreId: row.undoes_kept_room_restore_id,
+    undoExpiresAt: new Date(Number(row.restored_at_ms) + WORLD_COPIES_DURATION_MS).toISOString(),
+  });
+  /** Puts a kept room's row back to a state, keeping the state it held, so the restore can be undone. */
+  const restoreTo = (roomCode, to, restoreToAtMs, undoneId, nowMs) => {
+    const opened = open();
+    const current = opened.prepare("SELECT state_json, saved_room_json, saved_at_ms FROM room_states WHERE room_code = ? AND is_kept = 1").get(roomCode);
+    if (!current) return { refusal: "no_kept_room" };
+    const id = `kept_room_restore_${randomUUID().replaceAll("-", "")}`;
+    const record = JSON.parse(to.saved_room_json);
+    opened.prepare("INSERT INTO kept_room_restores (id, room_code, restore_to_at_ms, restored_at_ms, undoes_kept_room_restore_id, undo_state_json, undo_saved_room_json, undo_saved_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, roomCode, restoreToAtMs, nowMs, undoneId, current.state_json, current.saved_room_json, current.saved_at_ms);
+    opened.prepare("UPDATE room_states SET state_json = ?, saved_room_json = ?, saved_at_ms = ?, is_saved_empty = 0 WHERE room_code = ?").run(to.state_json, JSON.stringify(record), to.saved_at_ms, roomCode);
+    return { keptRoomRestore: restoreJson(opened.prepare("SELECT * FROM kept_room_restores WHERE id = ?").get(id)) };
+  };
   return {
     /** A room's saved state, the players in its match and the room, when it was saved and whether it was empty then; null if it has none. */
     read(roomCode) {
@@ -262,6 +297,7 @@ export function localRoomStates(file) {
       return { stateJson: row.state_json, matchPlayers, savedRoom, savedAtMs: Number(row.saved_at_ms), isSavedEmpty: row.is_saved_empty === 1 };
     },
     write(roomCode, { stateJson, matchPlayers, savedRoom, savedAtMs, isSavedEmpty = false }) {
+      if (savedRoom.isKept === true) keepCopy(roomCode, stateJson, JSON.stringify(savedRoomRecord(savedRoom, matchPlayers)), savedAtMs);
       open()
         .prepare("INSERT INTO room_states (room_code, format_version, state_json, saved_room_json, saved_at_ms, is_saved_empty, is_kept) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(room_code) DO UPDATE SET format_version = excluded.format_version, state_json = excluded.state_json, saved_room_json = excluded.saved_room_json, saved_at_ms = excluded.saved_at_ms, is_saved_empty = excluded.is_saved_empty, is_kept = excluded.is_kept")
         .run(roomCode, ROOM_STATES_FORMAT_VERSION_NUMBER, stateJson, JSON.stringify(savedRoomRecord(savedRoom, matchPlayers)), savedAtMs, isSavedEmpty ? 1 : 0, savedRoom.isKept === true ? 1 : 0);
@@ -271,7 +307,44 @@ export function localRoomStates(file) {
       if (isThere()) open().prepare("UPDATE room_states SET saved_room_json = ?, is_kept = ?, is_saved_empty = 1 WHERE room_code = ?").run(JSON.stringify(savedRoomRecord(savedRoom, matchPlayers)), savedRoom.isKept === true ? 1 : 0, roomCode);
     },
     remove(roomCode) {
-      if (isThere()) open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
+      if (!isThere()) return;
+      open().prepare("DELETE FROM room_states WHERE room_code = ?").run(roomCode);
+      open().prepare("DELETE FROM room_state_copies WHERE room_code = ?").run(roomCode);
+      open().prepare("DELETE FROM kept_room_restores WHERE room_code = ?").run(roomCode);
+    },
+    /** The earliest moment a kept room can go back to and its restores, newest first, or null when it isn't kept. */
+    keptRoomRestores(roomCode, nowMs = Date.now()) {
+      if (!isThere()) return null;
+      const opened = open();
+      if (opened.prepare("SELECT 1 FROM room_states WHERE room_code = ? AND is_kept = 1").get(roomCode) === undefined) return null;
+      const earliest = opened.prepare("SELECT MIN(saved_at_ms) AS saved_at_ms FROM room_state_copies WHERE room_code = ? AND saved_at_ms >= ?").get(roomCode, nowMs - WORLD_COPIES_DURATION_MS);
+      const restores = opened.prepare("SELECT * FROM kept_room_restores WHERE room_code = ? AND restored_at_ms >= ? ORDER BY restored_at_ms DESC LIMIT 50").all(roomCode, nowMs - WORLD_COPIES_DURATION_MS);
+      return { earliestRestoreToAt: new Date(Number(earliest?.saved_at_ms ?? nowMs)).toISOString(), restores: restores.map(restoreJson) };
+    },
+    /** A kept room back at its newest copy at or before a moment. */
+    restoreKeptRoom(roomCode, restoreToAtMs, nowMs = Date.now()) {
+      if (!isThere()) return { refusal: "no_kept_room" };
+      const listed = this.keptRoomRestores(roomCode, nowMs);
+      if (!listed) return { refusal: "no_kept_room" };
+      const to = open().prepare("SELECT state_json, saved_room_json, saved_at_ms FROM room_state_copies WHERE room_code = ? AND saved_at_ms <= ? ORDER BY saved_at_ms DESC LIMIT 1").get(roomCode, restoreToAtMs);
+      if (!to || restoreToAtMs > nowMs || restoreToAtMs < nowMs - WORLD_COPIES_DURATION_MS) return { refusal: "bad_time", earliestRestoreToAt: listed.earliestRestoreToAt };
+      return restoreTo(roomCode, to, restoreToAtMs, null, nowMs);
+    },
+    /** A kept room back at the state it held just before an earlier restore. */
+    undoKeptRoomRestore(roomCode, keptRoomRestoreId, nowMs = Date.now()) {
+      if (!isThere()) return { refusal: "no_kept_room" };
+      const undone = open().prepare("SELECT * FROM kept_room_restores WHERE id = ? AND room_code = ? AND restored_at_ms >= ?").get(keptRoomRestoreId, roomCode, nowMs - WORLD_COPIES_DURATION_MS);
+      if (!undone) return { refusal: "no_kept_room_restore" };
+      return restoreTo(roomCode, { state_json: undone.undo_state_json, saved_room_json: undone.undo_saved_room_json, saved_at_ms: undone.undo_saved_at_ms }, Number(undone.restored_at_ms), keptRoomRestoreId, nowMs);
+    },
+    /** A restore this room hasn't told its game server yet, once. */
+    takeToldRestore(roomCode) {
+      if (!isThere()) return null;
+      const opened = open();
+      const row = opened.prepare("SELECT id, restore_to_at_ms, restored_at_ms, undoes_kept_room_restore_id FROM kept_room_restores WHERE room_code = ? AND is_told = 0 ORDER BY restored_at_ms DESC LIMIT 1").get(roomCode);
+      if (!row) return null;
+      opened.prepare("UPDATE kept_room_restores SET is_told = 1 WHERE room_code = ?").run(roomCode);
+      return { id: row.id, restoreToAtMs: Number(row.restore_to_at_ms), restoredAtMs: Number(row.restored_at_ms), undoesKeptRoomRestoreId: row.undoes_kept_room_restore_id, erasedPlayerIds: [] };
     },
     /** Delete the states saved before then, except those of rooms still running and kept rooms (room.setKept). */
     removeOlder(beforeMs, runningRoomCodes) {
@@ -288,6 +361,10 @@ export function localRoomStates(file) {
 export function secretsFromEnvironment() {
   return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
+
+/** How long a kept room's state copies last, and a restore's undo; the first of those keeps a copy a minute, the rest one an hour. */
+const WORLD_COPIES_DURATION_MS = 30 * 86_400_000;
+const WORLD_COPY_MINUTES_DURATION_MS = 86_400_000;
 
 const OPTION_NAMES = ["gameServer", "gameSlug", "port", "origins", "issuerUrl", "loadPassKeys", "loadReceiptKeys", "loadProfile", "database", "secrets", "webhookSigningSecret", "roomStateFile", "zaismaKey", "developerApiUrl", "webtransportPort", "certificatePath", "certificateKeyPath", "identifyPlayer", "outsideGuestsEnabled"];
 

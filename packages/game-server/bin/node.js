@@ -304,6 +304,7 @@ export function startServer(options) {
     let room = rooms.get(code);
     if (room) return room;
     const saved = start ? null : readSaved(code);
+    const toldRestore = saved ? (roomStates?.takeToldRestore(code) ?? null) : null;
     const sockets = new Map();
     const core = new RoomCore(
       definition,
@@ -346,7 +347,7 @@ export function startServer(options) {
       },
       // As in Zaisma's rooms: a room that ticks, or a turn-based one that had players in its match, comes back with its state and
       // onRestored, its match's players away until they reconnect; a turn-based room nobody was in comes back with its state and its room settings alone.
-      saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec || saved.matchPlayers?.length ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty), lostPlayers: saved.matchPlayers } : {}) } : { start },
+      saved ? { state: saved.state, room: saved.savedRoom, ...(definition.ticksPerSec || saved.matchPlayers?.length || toldRestore ? { restoreInfo: restoreInfoOf(saved.savedAtMs, Date.now(), null, saved.isSavedEmpty, toldRestore), lostPlayers: saved.matchPlayers } : {}) } : { start },
     );
     if (saved) core.savedAtMs = saved.savedAtMs;
     // passes: each player's checked pass, newest, for the blocks and friendships between them (passesHaveBlockBetween, passesAreFriends);
@@ -408,7 +409,29 @@ export function startServer(options) {
         closeIfEmpty(code, room);
         return { isDone: true };
       },
+      restoreKeptRoom: async (code, restoreToAtMs) => (roomStates ? startOverRestored(code, () => roomStates.restoreKeptRoom(code, restoreToAtMs)) : { refusal: "no_history" }),
+      undoKeptRoomRestore: async (code, keptRoomRestoreId) => (roomStates ? startOverRestored(code, () => roomStates.undoKeptRoomRestore(code, keptRoomRestoreId)) : { refusal: "no_history" }),
+      listKeptRoomRestores: async (code) => roomStates?.keptRoomRestores(code) ?? null,
     };
+  }
+
+  /**
+   * A kept room back at an earlier state: what it holds now is saved first, so the undo brings all of it back, then its row changes and the running
+   * room goes. Its players' connections drop, their games reconnect, and the room comes back from its row, with onRestored, as after a restart.
+   */
+  function startOverRestored(code, restore) {
+    const room = rooms.get(code);
+    if (room && !room.core.ended) {
+      room.savedStateKey = null;
+      saveRoom(code, room);
+    }
+    const answer = restore();
+    if (answer.keptRoomRestore && room) {
+      stopTimers(room);
+      rooms.delete(code);
+      for (const ws of room.sockets.values()) ws.terminate();
+    }
+    return answer;
   }
 
   /** A room here by its code that hasn't ended, or, when isWaking, a kept one asleep in the saved states, woken. */
