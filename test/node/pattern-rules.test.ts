@@ -61,8 +61,8 @@ const EXAMPLES: Record<string, { caught: string[]; let_by: string[] }> = {
     let_by: ['const frame = document.createElement("iframe"); frame.setAttribute("sandbox", "allow-scripts");', 'const markup = html`<iframe sandbox="allow-scripts" src="${path}"></iframe>`;', 'const frame = document.createElement("div");'],
   },
   body_read_without_cap: {
-    caught: ["async function read(request: Request) { return request.json(); }", "async function read(request: Request) { return request.formData(); }"],
-    let_by: ['async function read(request: Request) { if (Number(request.headers.get("content-length")) > 10) throw new Error("big"); return request.json(); }', "async function read(answer: Response) { return answer.json(); }"],
+    caught: ["async function read(request: Request) { return request.json(); }", "async function read(request: Request) { return request.formData(); }", "async function read(request: Request) { return request.clone().text(); }", 'async function read(request: Request) { if (Number(request.headers.get("content-length")) > 10) throw new Error("big"); return request.json(); }'],
+    let_by: ["async function read(request: Request) { return readBodyText(request, 10); }", "async function read(answer: Response) { return answer.json(); }"],
   },
   pattern_from_a_value: {
     caught: ["export const fits = (given: string) => new RegExp(given);", "const pattern = new RegExp(`^${query.search}$`);"],

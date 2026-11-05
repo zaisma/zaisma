@@ -111,11 +111,11 @@ export interface PostDraft {
   blankedCount: number;
 }
 
+export const imageTooBig = () => new ApiError("image_too_big", { message: `An image is over ${FORUM_LIMITS.imageSizeBytes / 1048576} MB.`, field: "images_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
+
 /** An image someone sent: PNG, JPEG, WebP or GIF, up to FORUM_LIMITS.imageSizeBytes. */
 export function readImage(bytes: Uint8Array): { bytes: Uint8Array; contentType: string } {
-  if (bytes.byteLength > FORUM_LIMITS.imageSizeBytes) {
-    throw new ApiError("image_too_big", { message: `An image is over ${FORUM_LIMITS.imageSizeBytes / 1048576} MB.`, field: "images_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
-  }
+  if (bytes.byteLength > FORUM_LIMITS.imageSizeBytes) throw imageTooBig();
   const isGif = bytes.length > 6 && /^GIF8[79]a$/.test(String.fromCharCode(...bytes.subarray(0, 6)));
   const sniffed = isGif ? { type: "image/gif" } : sniffImage(bytes);
   if (!sniffed) throw new ApiError("not_an_image", { message: "An image isn't a PNG, JPEG, WebP or GIF.", field: "images_base64", fix: "Send PNG, JPEG, WebP or GIF images; take a screenshot of anything else." });
