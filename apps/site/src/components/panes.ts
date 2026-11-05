@@ -128,7 +128,7 @@ export interface GameCardOptions {
   isCurrent?: boolean;
   /** Where its Play goes: a small Play and Details' icon end its title's line, in place of players now (the home's game of the moment). Left out, a card has neither. */
   playHref?: string;
-  /** Where Join goes: the one button under it, for a game the player's friends are in now. Left out, a card has none. */
+  /** Where Join goes: a small Join at the end of its title's line, in place of players now, for a game the player's friends are in now. Left out, a card has none. */
   joinHref?: string;
   /** Its art loads with the page, not once it nears the screen: for the cards a page opens with in view, like the home's first. */
   isEager?: boolean;
@@ -154,6 +154,11 @@ const cardLabel = (options: GameCardOptions): string =>
   ].filter(Boolean).join(", ");
 
 
+/** A card's title line with a small Join at its end (gameCard's joinHref), in place of players now, so the card grows no taller than its title. */
+function gameCardJoin(title: string, joinHref: string): Raw {
+  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<span class="cover-name one-line">${title}</span>` }, control(secondaryButton("Join", { href: joinHref, isSmall: true }))] })}</div>`;
+}
+
 /** A card's title line with Play and Details at its end (gameCard's playHref), small, so the card grows no taller than its title: Details is its icon alone. */
 export function gameCardActions(title: string, playHref: string, detailsHref: string): Raw {
   return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: html`<span class="cover-name one-line">${title}</span>` }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
@@ -176,7 +181,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const secondLine = hasSecondLine ? html`<div class="cover-facts">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}${facts.summary ? html`<span class="one-line">${facts.summary}</span>` : ""}${facts.deviceNote ? tag(facts.deviceNote, "plain", { icon: deviceIcon(facts.deviceNote) }) : ""}${facts.priceText ? tag(facts.priceText, "plain") : ""}</div>` : "";
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}${options.joinHref ? html`<div class="cover-actions">${stackOfOne(secondaryButton("Join", { href: options.joinHref, isFullWidth: true }))}</div>` : ""}</div>`;
+  return html`<div class="${className}"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>${options.playHref ? gameCardActions(options.title, options.playHref, options.href) : options.joinHref ? gameCardJoin(options.title, options.joinHref) : html`<div class="cover-meta"><span class="cover-name one-line">${options.title}</span>${tagAtEnd ?? playerCountMarkup}</div>`}${secondLine}</div>`;
 }
 
 /**
@@ -595,6 +600,8 @@ const COVER_STYLES = `
 /* Its art is its whole width: no words margin, since it has no words under it. */
 .cover.is-small { flex: none; width: 64px; padding-inline: 0; }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
+/* In a row where some card has a control on its title line (Join), every title line there is as tall as that control, so the cards line up. */
+:is(.layout-track, .layout-grid):has(.cover-meta.has-actions) .cover-meta { min-height: var(--control-height-small); }
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
 .cover-meta .cover-name { flex: 1 1 0; min-width: 0; font: var(--type-name); color: var(--ink); }
 .cover-meta:not(.has-actions) .ico { width: 15px; height: 15px; stroke-width: 1.5; }

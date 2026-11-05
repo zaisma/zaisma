@@ -9,6 +9,7 @@ import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, 
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { listRows, stateNote } from "./data.ts";
+import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
@@ -1224,8 +1225,8 @@ export interface ShelfOptions {
   /** Its track's id, for a page script that fills it. */
   trackId: string;
   title: string;
-  /** Where its title goes, the whole list it's from (Browse, sorted the same way): the title is then a Link. Left out, it's words alone. */
-  titleHref?: string;
+  /** The whole list it's from (Browse, sorted the same way): See all at its heading's end, and a See all after its last cover. Left out, it has neither. */
+  seeAllHref?: string;
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
@@ -1235,13 +1236,17 @@ export interface ShelfOptions {
 }
 
 /**
- * A shelf: a row of games under its heading, with its sort at the heading's end, and its covers in a track that scrolls sideways on its
- * rail. Where the heading and the sort don't fit side by side (a phone), the sort goes under the heading and fills that line.
+ * A shelf: a row of games under its heading, with its sort or See all at the heading's end, and its covers resting in a well carved into the
+ * pane, a track that scrolls sideways on its rail, ending in See all when there's more. Where the heading and the sort don't fit side by side
+ * (a phone), the sort goes under the heading and fills that line.
  */
 export function shelf(options: ShelfOptions): Raw {
   const titleId = `${options.id}-title`;
-  const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref) : options.title}</h2>`;
+  const title = html`<h2 class="shelf-title" id="${titleId}">${options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
+  const seeAll = options.seeAllHref ? tertiaryButton("See all", { href: options.seeAllHref, isSmall: true }) : undefined;
+  const items = options.seeAllHref && options.items.length ? [...options.items, { kind: "block" as const, markup: html`<div class="shelf-more">${secondaryButton("See all", { href: options.seeAllHref })}</div>` }] : options.items;
+  const shelfWell = (markup: Raw) => carving({ kind: "shelf-well", body: markup });
   return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       options.sortTabs
@@ -1253,10 +1258,12 @@ export function shelf(options: ShelfOptions): Raw {
               items: [{ kind: "words", markup: title }, { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] }) }],
             }),
           }
-        : { kind: "words", markup: title },
+        : seeAll
+          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "control", markup: seeAll }] }) }
+          : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
+        : { kind: "block", markup: shelfWell(track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items })) },
     ],
   })}</section>`;
 }
@@ -1266,12 +1273,18 @@ component({
   slug: "shelf",
   group: "navigation",
   subgroup: "scrolling",
-  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in.",
+  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort or See all sits at the heading's end; its covers rest in a well carved into the pane and scroll sideways on its rail, a few showing with the next peeking in, and end in See all when there's more.",
   styles: `
 /* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
 .shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
+/* The well the covers rest in: the carving is the shelf's, so a cover in it sits flush, its art not carved again, its foot still lighting. */
+.shelf-well { padding: var(--rail-inset); }
+.shelf-well .cover-art.carving { box-shadow: none; }
+.shelf-well .cover-art.carving > .cut-line { visibility: hidden; }
+/* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
+.shelf-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
@@ -1282,7 +1295,7 @@ component({
 `,
   render: shelf,
   examples: [
-    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
+    { label: "Popular, with See all for the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAllHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
@@ -1306,7 +1319,7 @@ component({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
-          titleHref: "#shelf",
+          seeAllHref: "#shelf",
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
         })),

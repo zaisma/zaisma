@@ -1,11 +1,11 @@
-import { type DeviceKind, type Genre, GENRE_LABELS, friendsNowOf, type FriendsInGame, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
+import { type DeviceKind, friendsNowOf, type FriendsInGame, AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, NOT_BLOCKED_IN_COUNTRY_SQL, SHOWN_IN_LISTS_SQL, requestCountryCode, gameBySlug, mergePlayed, priceFor, priceText, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type LocalPrice, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { secondaryButton, tertiaryButton } from "./components/actions.ts";
+import { secondaryButton } from "./components/actions.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
-import { grid, leadAndSide, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
+import { grid, leadAndSide, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
 import { nameList } from "./components/data.ts";
 import { shelf } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
@@ -273,7 +273,7 @@ const forDeviceFirst = (list: ShowGame[], deviceKind: DeviceKind) => {
 };
 
 function homeShelf(id: string, title: string, titleHref: string | undefined, list: ShowGame[], ownedGameIds: ReadonlySet<string>): LayoutItem {
-  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, titleHref, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
+  return { kind: "block", markup: shelf({ id, trackId: `track-${id}`, title, seeAllHref: titleHref, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
 }
 
 const control = (markup: ControlMarkup): LayoutItem => ({ kind: "control", markup });
@@ -291,10 +291,8 @@ const section = (options: { title: string; body: LayoutMarkup }): LayoutMarkup =
 /** The first visit's words, flat on the backdrop, from what Zaisma is. */
 const FIRST_VISIT_LINE = "One place to play every kind of game.";
 const FIRST_VISIT_SMALLER_LINE = "Press Play, install nothing, bring your friends.";
-/** Games in Friends playing, those with the most friends first: everyone is on /friends, which its title links to. */
-const MAXIMUM_FRIENDS_PLAYING_CARD_COUNT = 12;
-/** Kinds of game on the home: the most common among listed games. */
-const SHOWN_GENRE_COUNT = 5;
+/** Games in a row, past which its See all opens the whole list (Browse sorted the same way, or /friends for everyone playing). */
+const MAXIMUM_SHELF_CARD_COUNT = 10;
 /** What's on's cards beside a player's own game; alone on a first visit it has MAXIMUM_WHATS_ON_CARD_COUNT. */
 const WHATS_ON_BESIDE_GAME_CARD_COUNT = 2;
 
@@ -355,8 +353,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   // What else is here. A row whose games all showed higher up would only repeat them, and leaves.
   const shownSlugs = new Set([...(yourGame ? [yourGame.slug] : []), ...whatsOnCards.map(({ game }) => game.slug)]);
-  const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, 12);
-  const neverPlayed = gamesOnShelves.filter((game) => !playedSlugs.includes(game.slug)).slice(0, 12);
+  const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, MAXIMUM_SHELF_CARD_COUNT);
+  const neverPlayed = gamesOnShelves.filter((game) => !playedSlugs.includes(game.slug)).slice(0, MAXIMUM_SHELF_CARD_COUNT);
   const rows = [
     { id: "playing-now", title: "Playing now", titleHref: undefined, list: playingNow, isShown: true },
     { id: "never-played", title: "Never played", titleHref: undefined, list: neverPlayed, isShown: isReturning },
@@ -371,19 +369,14 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   const friendsPlaying = (friendsNow?.playing ?? []).filter((playing) => playing.game);
   const friendsSection: LayoutItem[] = friendsPlaying.length
-    ? [{ kind: "block", markup: shelf({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", titleHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_FRIENDS_PLAYING_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
+    ? [{ kind: "block", markup: shelf({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAllHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_SHELF_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
     : [];
-  const genreCounts = new Map<string, number>();
-  for (const game of gamesOnShelves) for (const genre of game.genres) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
-  const shownGenres = [...genreCounts].sort(([, firstCount], [, secondCount]) => secondCount - firstCount).slice(0, SHOWN_GENRE_COUNT).map(([genre]) => genre as Genre);
-  const kindsSection: LayoutItem = {
-    kind: "block",
-    markup: section({ title: "Kinds of game", body: row({ widths: "fit", items: [...shownGenres.map((genre) => control(secondaryButton(GENRE_LABELS[genre], { href: `/games?genre=${genre}` }))), control(tertiaryButton("Browse all", { href: "/games" }))] }) }),
-  };
+  // Past the rows, the whole of Browse: every game, every kind.
+  const browseAll: LayoutItem = control(secondaryButton("Browse every game", { href: "/games", isFullWidth: true }));
   const whatElse = glassPane({
     paneWidth: "full",
     label: "What else is here",
-    body: stack({ items: [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeShelf(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds)), kindsSection] }),
+    body: stack({ items: [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeShelf(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds)), browseAll] }),
   });
   const body = games.length >= MINIMUM_SHELF_GAME_COUNT
     ? html`<div id="home-games">${isReturning ? html`<h1 class="sr">Games on Zaisma</h1>` : ""}${stack({

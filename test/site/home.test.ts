@@ -146,7 +146,7 @@ describe("the home page", () => {
 });
 
 describe("the home's friends playing", () => {
-  it("shows at most 12 games friends are in, most friends first, as game cards in one row whose title opens /friends", async () => {
+  it("shows at most 10 games friends are in, most friends first, as game cards in a carved row whose See all opens /friends", async () => {
     await useSessions();
     await createAccount(env.DB, { id: "home-viewer", username: "Home_Viewer", ageBand: "18+" });
     const owner = await personOwner(env.DB, "home-dev");
@@ -168,7 +168,7 @@ describe("the home's friends playing", () => {
     const text = await response.text();
     const friendsRow = text.slice(text.indexOf('<section class="shelf" id="friends-playing"'), text.indexOf("</section>", text.indexOf('id="friends-playing"')));
     expect(friendsRow).toContain('href="/friends"');
-    expect(coverSlugs(friendsRow)).toHaveLength(12);
+    expect(coverSlugs(friendsRow)).toHaveLength(10);
     expect(coverSlugs(friendsRow)[0]).toBe("home-thirteen");
     expect(friendsRow).toContain("Home_Friend_12 and Home_Friend_13");
   });
