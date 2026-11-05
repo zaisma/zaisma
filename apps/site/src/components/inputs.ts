@@ -384,7 +384,7 @@ export function copyField(options: CopyFieldOptions): Raw {
   // Words are a field's height, a control in a row or stack; code runs as many lines as it takes, a block.
   const markup = html`<div class="${className}"><span class="copy-head words-margin"><span class="copy-label" id="${id}-label">${options.label}</span><span class="copy-said" role="status">${isCopied ? "Copied" : ""}</span></span>${well({
     body,
-    end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, isSmall: true, controls: id, state: buttonState }),
+    end: tertiaryButton(action("copy"), { type: "button", isLabelHidden: true, controls: id, state: buttonState }),
     endNote: icon("check"),
     state: options.isCode && options.state === "is-focused" ? "is-focused" : undefined,
     isUsed: !options.isCode,
@@ -402,7 +402,7 @@ export const COPY_SCRIPT = `/* copy fields */(function () {
     var field = event.target.closest && event.target.closest(".copy-field");
     if (!field || !event.target.closest(".well")) return;
     var text = field.querySelector(".copy-field-text"), said = field.querySelector(".copy-said");
-    if (!event.target.closest(".well-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
+    if (!event.target.closest(".carving-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
     function saying(words) {
       said.textContent = words; field.classList.add("is-copied");
       clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
@@ -433,19 +433,19 @@ component({
 .copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
 .copy-field.is-copied .well-end-note { display: grid; }
-.copy-field.is-copied .well-end > .tertiary-btn .ico { visibility: hidden; }
+.copy-field.is-copied .carving-end > .tertiary-btn .ico { visibility: hidden; }
 .copy-field-text:focus-visible { outline: none; }
 /* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
 .copy-field:not(.is-code) .well { cursor: pointer; }
 .copy-field:not(.is-code) .well-body { display: flex; align-items: center; padding-block: 0; }
 .copy-field:not(.is-code) .copy-field-text { flex: 1; }
-.copy-field:not(.is-code) .well:hover .well-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
-.copy-field:not(.is-code) .well:active .well-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
+.copy-field:not(.is-code) .well:hover .carving-end > .tertiary-btn > .face { color: var(--ink); --face-color: var(--wash); }
+.copy-field:not(.is-code) .well:active .carving-end > .tertiary-btn > .face { --face-color: var(--wash-press); }
 /* Code: all of it in code's letters, wrapping onto more lines rather than hiding any; one long token (a key) breaks at a line's end. Only
    its first line keeps clear of Copy; the lines under it run the well's whole width, each as tall as Copy's half and the gap round it. */
 .copy-field.is-code .well { align-items: stretch; min-height: var(--control-height-field); }
 .copy-field.is-code .copy-field-text { display: block; font: 500 0.9375rem/1.5rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; cursor: text; }
-.copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-small) + var(--well-inset) - var(--pad-inside-words) + var(--gap-words-words)); }
+.copy-field.is-code .copy-field-text::before { content: "\\200b"; float: right; width: max(0px, var(--control-height-regular) + var(--pad-frame-compact) - var(--pad-inside-words) + var(--gap-words-words)); }
 /* A command's parts each stay whole, so it breaks only at its spaces; a part longer than a line breaks within itself. */
 .code-word { display: inline-block; max-width: 100%; }
 /* Masked: its letters blur into their own glow, unreadable, until the page shows them, the glow with room round the words so it isn't

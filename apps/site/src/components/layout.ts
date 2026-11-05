@@ -117,18 +117,19 @@ export function stack(options: StackOptions): LayoutMarkup {
   })}</div>`);
 }
 
-export interface RowOptions {
+export type RowOptions = {
   /** Start to end. */
   items: LayoutItem[];
+  label?: string;
+} & (
   /**
    * How the row shares its width: "equal" in equal shares (Light and Dark), "lead-fills" the first takes the rest and the others fit
    * their words (Play and Details), "fit" each fits its words, placed by alignment. A row that can't fit on one line goes on to the next.
    */
-  widths: "equal" | "lead-fills" | "fit";
-  /** Where fitting things sit: at the start, the end, the middle, or spread to both ends. Only for "fit". */
-  alignment?: "start" | "end" | "center" | "between";
-  label?: string;
-}
+  | { widths: "equal" | "lead-fills" }
+  /** Where fitting things sit: at the start, the end, the middle, or spread to both ends. Only "fit" has room left to place them in. */
+  | { widths: "fit"; alignment?: "start" | "end" | "center" | "between" }
+);
 
 /**
  * Things side by side. Controls in a row are always one height: every one takes the tallest one's size class. Two controls side by
@@ -218,18 +219,36 @@ export type GridOptions = {
   /** Unique on the page, for Load more to add the next page's cells to it (navigation.ts, loadMore's listIds). */
   id?: string;
 } & (
-  /** What a cell holds, which names its least width: a cover, a card, a figure. Cells share the width equally, as many as fit. */
-  | { itemSize: "cover" | "card"; whenEmpty: EmptyNoteMarkup }
-  /** Pictures or fields that are always there: no empty state. */
-  | { itemSize: "figure"; whenEmpty?: never }
+  /**
+   * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
+   * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
+   * three, two and then one across as they run out of a cover's least width.
+   */
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean }
+  | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
+/** The most covers one line takes before each is too small to read as a cover on a laptop. */
+export const MAXIMUM_ONE_LINE_COVER_COUNT = 6;
+/** --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below two, one. */
+const COVER_LEAST_PX = 180;
+/** --gap-control-stack, the gap between covers on one line, for the same queries. */
+const CONTROL_STACK_GAP_PX = 8;
+
 /**
- * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of covers or cards says what
- * shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
+ * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of
+ * covers or cards says what shows in its place while it has none (whenEmpty, an Empty state), a page script's cells included.
  */
 export function grid(options: GridOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-grid item-${options.itemSize}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`);
+  if (options.itemSize === "cover" && options.isAllOnOneLine) {
+    if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
+    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, " is-one-line")}</div>`);
+  }
+  return asLayout(gridMarkup(options, ""));
+}
+
+function gridMarkup(options: GridOptions, variantClass: string): Raw {
+  return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
 }
 
 export interface TrackOptions {
@@ -237,8 +256,8 @@ export interface TrackOptions {
   id: string;
   /** Start to end: blocks, each one cell. A page script may add more of the same. */
   items: LayoutItem[];
-  /** What a cell holds, which names its width: a cover. */
-  itemSize: "cover";
+  /** What a cell holds, which names its width: a cover, with words under it, or a picture with an edge of its own and none (a game's screenshots). */
+  itemSize: "cover" | "picture";
   label?: string;
   /** What shows in its place while it has no covers (an Empty state), a page script's included. */
   whenEmpty: EmptyNoteMarkup;
@@ -246,7 +265,7 @@ export interface TrackOptions {
 
 /** A row of cells of one size that scrolls sideways, fading at an edge with more past it: a row of covers, on its rail. */
 export function track(options: TrackOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div>`);
+  return asLayout(html`<div class="track-holder"><div class="layout-track item-${options.itemSize}" id="${options.id}" data-fades-sideways data-side-rail${groupLabel(options.label)}>${options.items.map((layoutItem) => layoutItem.markup)}</div><div class="when-empty"${options.items.length ? raw(" hidden") : ""}>${options.whenEmpty}</div></div>`);
 }
 
 export interface ColumnsOptions {
@@ -292,6 +311,14 @@ export function paneParts(options: PanePartsOptions): LayoutMarkup {
     ? html`<div class="pane-foot"${options.foot.end && !options.foot.end.isWordsAlone ? html` data-control-height="${options.foot.end.controlHeight}"` : ""}>${options.foot.start ? html`<div class="pane-foot-start is-${options.foot.start.kind}">${options.foot.start.markup}</div>` : ""}${options.foot.end ? html`<div class="pane-foot-end${options.foot.end.isWordsAlone ? " is-words" : ""}">${options.foot.end}</div>` : ""}</div>`
     : "";
   return asLayout(html`<div class="pane-parts">${head}<div class="pane-body">${options.body}</div>${foot}</div>`);
+}
+
+/**
+ * The one place for a control in a carving (a field, a search, a well): at its end, the carving's frame gap from its edges, so the edge rule
+ * cuts its corner along the carving's. Exactly one control, by its type; note is what shows over it for a moment (Copied).
+ */
+export function carvingEnd(control: LayoutControl, note?: Raw): Raw {
+  return html`<span class="carving-end">${control}${note ?? ""}</span>`;
 }
 
 /* ---- Styles: each layout component's own, in gallery order. ---- */
@@ -428,7 +455,8 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 .layout-row.alignment-between { justify-content: space-between; }
 /* A cell that takes more than its words (equal shares, or the lead) shares out what's left, and its control fills it. */
 .row-cell.fills { flex: 1 1 0; }
-.row-cell.fills > * { flex: 1 1 auto; }
+/* What's in it never runs past its cell, whatever its own words want (a font still arriving, a picker sized to its longest choice): a row too narrow for them is a stack instead, once it's measured (ROW_LAYOUT_SCRIPT). */
+.row-cell.fills > * { flex: 1 1 auto; min-width: 0; }
 .row-cell.fills > .shell { display: flex; }
 .row-cell.fills > .shell > .face { width: 100%; justify-content: center; }
 .row-cell:not(.fills) { flex: none; }
@@ -527,12 +555,19 @@ export const GRID_STYLES = `
 .layout-grid { display: grid; gap: var(--gap-block-block); min-width: 0; }
 .layout-grid.item-cover { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-cover)), 1fr)); }
 .layout-grid.item-card { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-card)), 1fr)); }
-.layout-grid.item-figure { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-figure)), 1fr)); }
 .grid-cell { display: flex; flex-direction: column; min-width: 0; }
 .grid-cell.is-words { padding-inline: var(--pad-words); }
+/* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three, two and one across. */
+.grid-one-line { container-type: inline-size; width: 100%; min-width: 0; }
+.layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+@container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }
 `;
 
 export const TRACK_STYLES = `
+/* A track and its rail are one thing to what holds them: whatever gap it puts between its parts never falls between them. */
+.track-holder { display: flex; flex-direction: column; min-width: 0; }
 /* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
    track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
    back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
@@ -545,12 +580,12 @@ export const TRACK_STYLES = `
 /* A cover snaps where the track's start inset ends, so the first one is a snapping point at the track's very start, not past it. */
 .layout-track { scroll-padding-inline: var(--pad-words); }
 @media (max-width: 760px), (max-height: 500px) { .layout-track { --fade-sideways-px: 28px; } }
-/* Screenshots lie closer than game cards do: pictures with an edge of their own, side by side. */
-.layout-track:has(> .media-well) { gap: var(--gap-control-stack); }
-/* A row of wells with no words under them (a game's media) keeps no rail's room while it fits: nothing under them needs the words margin,
-   so they sit at the frame gap from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
-.layout-track:not(.shows-side-rail):has(> .media-well) { margin-bottom: calc(-1 * var(--edge-room)); }
-.layout-track.item-cover > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
+/* Pictures lie closer than game cards do: each has an edge of its own, side by side. */
+.layout-track.item-picture { gap: var(--gap-control-stack); }
+/* With no words under them, they keep no rail's room while they fit: nothing under them needs the words margin, so they sit at the frame gap
+   from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
+.layout-track.item-picture:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
+.layout-track:is(.item-cover, .item-picture) > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
 export const COLUMNS_STYLES = `
@@ -563,6 +598,11 @@ export const COLUMNS_STYLES = `
 .columns-in > .column > .glass-pane { width: 100%; }
 .layout-columns.sticky-first > .columns-in > .column:first-child, .layout-columns.sticky-second > .columns-in > .column:last-child { position: sticky; top: var(--header-room, var(--pad-pane)); }
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
+`;
+
+export const CARVING_END_STYLES = `
+/* It's the size class that fills the carving less the frame gap each side: regular in a field or a well, small in a search. */
+.carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact); right: calc(var(--pad-frame-compact) + var(--slant-end, 0px)); display: flex; }
 `;
 
 export const PANE_PARTS_STYLES = `
@@ -610,17 +650,20 @@ export const PAGE_SHAPES = ["reading", "wide", "full"] as const;
 
 /** The screens the gallery draws the shapes on (checked-pages.ts's Desktop and Laptop), and the widths the shapes' tokens give: tokens.ts. */
 const DRAWN_SCREENS = [
-  { screenName: "2560 desktop", widthPx: 2560, heightPx: 1440 },
-  { screenName: "Laptop", widthPx: 1440, heightPx: 900 },
+  { screenName: "2560 desktop", screenSlug: "desktop", widthPx: 2560, heightPx: 1440 },
+  { screenName: "Laptop", screenSlug: "laptop", widthPx: 1440, heightPx: 900 },
+  { screenName: "Phone", screenSlug: "phone", widthPx: 320, heightPx: 667 },
 ] as const;
 const PAGE_WIDE_PX = 1680;
 const PAGE_READING_PX = 820;
+const PAGE_SIDEBAR_PX = 240;
 const PAGE_MARGIN_PX = 24;
+const PAGE_BLOCK_GAP_PX = 24;
 
 /** One page shape drawn small on a screen: the world behind, the header and footer in the wide frame, and what the page holds at its width. */
-export function pageShapeDrawing(options: { pageShape: (typeof PAGE_SHAPES)[number]; screenName: (typeof DRAWN_SCREENS)[number]["screenName"] }): Raw {
-  const screenSlug = options.screenName === "Laptop" ? "laptop" : "desktop";
-  return html`<div class="shape-drawing on-${screenSlug} shape-${options.pageShape}" data-cut-line="0" role="img" aria-label="A ${options.pageShape} page on a ${options.screenName}"><span class="shape-world"></span><span class="shape-bar"></span><span class="shape-page"><span class="shape-pane"></span><span class="shape-pane"></span></span><span class="shape-bar is-foot"></span></div>`;
+export function pageShapeDrawing(options: { pageShape: (typeof PAGE_SHAPES)[number]; screenName: (typeof DRAWN_SCREENS)[number]["screenName"]; hasSidebar?: boolean }): Raw {
+  const screenSlug = DRAWN_SCREENS.find((screen) => screen.screenName === options.screenName)!.screenSlug;
+  return html`<div class="shape-drawing on-${screenSlug} shape-${options.pageShape}${options.hasSidebar ? " has-sidebar" : ""}" data-cut-line="0" role="img" aria-label="A ${options.pageShape} page on a ${options.screenName}"><span class="shape-world"></span><span class="shape-bar"></span><span class="shape-page">${options.hasSidebar ? html`<span class="shape-pane is-side"></span><span class="shape-main"><span class="shape-pane"></span><span class="shape-pane"></span></span>` : html`<span class="shape-pane"></span><span class="shape-pane"></span>`}</span><span class="shape-bar is-foot"></span></div>`;
 }
 
 /** A screen's frame and reading column, as shares of its width, for the drawings. */
@@ -639,6 +682,8 @@ html[data-page-shape] body > main > .glass-pane.fit:not(.is-at-start), html[data
 /* The drawings in the gallery: a screen in its proportions, its world, the header and footer in the frame, and the page's panes at its width. */
 .shape-drawing { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .shape-drawing.on-laptop { aspect-ratio: 16 / 10; }
+/* A phone stands tall: drawn narrower, so it stays near the others' height. */
+.shape-drawing.on-phone { aspect-ratio: 320 / 667; width: 40%; margin-inline: auto; }
 .shape-world { position: absolute; inset: 0; background: linear-gradient(135deg, color-mix(in srgb, var(--run) 18%, transparent), transparent 60%); }
 /* A full page's world runs to the screen's edges, bright; behind a reading or wide page it's quieter, the frame being what counts. */
 .shape-drawing:is(.shape-reading, .shape-wide) .shape-world { opacity: 0.35; }
@@ -648,9 +693,13 @@ html[data-page-shape] body > main > .glass-pane.fit:not(.is-at-start), html[data
 .shape-bar.is-foot { height: 5%; }
 .shape-page { height: 62%; flex-direction: column; justify-content: space-between; }
 .shape-pane { height: 46%; background: var(--slab); box-shadow: var(--slab-shade); }
+/* A reading page beside its places: the sidebar's own column and the reading column, the pair centered. */
+.shape-drawing.has-sidebar > .shape-page { flex-direction: row; gap: var(--gap-control-stack); }
+.shape-pane.is-side { flex: ${PAGE_SIDEBAR_PX} 0 0; height: 70%; }
+.shape-main { flex: ${PAGE_READING_PX} 0 0; display: flex; flex-direction: column; justify-content: space-between; }
 ${DRAWN_SCREENS.map((screen) => {
-  const slug = screen.screenName === "Laptop" ? "laptop" : "desktop";
-  return `.shape-drawing.on-${slug} > .shape-bar, .shape-drawing.on-${slug} > .shape-page { width: ${shareOf(PAGE_WIDE_PX, screen.widthPx)}; }
-.shape-drawing.on-${slug}.shape-reading > .shape-page { width: ${shareOf(PAGE_READING_PX, screen.widthPx)}; }`;
+  return `.shape-drawing.on-${screen.screenSlug} > .shape-bar, .shape-drawing.on-${screen.screenSlug} > .shape-page { width: ${shareOf(PAGE_WIDE_PX, screen.widthPx)}; }
+.shape-drawing.on-${screen.screenSlug}.shape-reading > .shape-page { width: ${shareOf(PAGE_READING_PX, screen.widthPx)}; }
+.shape-drawing.on-${screen.screenSlug}.shape-reading.has-sidebar > .shape-page { width: ${shareOf(PAGE_SIDEBAR_PX + PAGE_BLOCK_GAP_PX + PAGE_READING_PX, screen.widthPx)}; }`;
 }).join("\n")}
 `;

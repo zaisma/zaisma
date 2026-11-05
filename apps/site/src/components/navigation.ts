@@ -82,7 +82,7 @@ export function header(options: HeaderOptions): Raw {
     ? secondaryButton(action("signIn"), { href: "/signin", dataAttributes: { "sign-in-icon": "", ...(options.hasBackButton ? { "sign-in-narrows": "" } : {}) } })
     : primaryButton(action("signIn"), { href: "/signin", isArrowKept: true, dataAttributes: { "sign-in-icon": "" } });
   return html`<header class="top bar-layout glass glass-bar pinned${states}" id="${id}" data-compacts data-glass data-glass-corners="header"${options.isCompact ? raw(" data-stays-compact") : ""}${options.isWaiting ? raw(" data-stays-waiting") : ""}>${EDGE}
-  ${options.hasBackButton ? secondaryButton(action("back"), { id: `${id}-back`, href: "/", isLabelHidden: true, isSmall: true, dataAttributes: { "header-back": "" } }) : ""}${options.sidebarButton ?? ""}${wordmark}${hasTabRow ? logo("mark") : ""}
+  ${options.hasBackButton ? secondaryButton(action("back"), { staysSecondaryBecause: "It sits with the header's other controls, where a bare icon would look out of place.", id: `${id}-back`, href: "/", isLabelHidden: true, isSmall: true, dataAttributes: { "header-back": "" } }) : ""}${options.sidebarButton ?? ""}${wordmark}${hasTabRow ? logo("mark") : ""}
   ${options.isOnSignInPage ? "" : html`<nav class="nav" aria-label="Main"${hasTabRow ? "" : raw(" hidden")}>${tabSwitch({ label: "Where you are", switchSize: "regular", isFull: true, tabs })}</nav>`}
   ${options.search ? html`${searchField({ ...options.search, id: options.search.id ?? `${id}-find` })}${secondaryButton(action("search", options.search.label), { type: "button", isLabelHidden: true, isSmall: true, isExpanded: Boolean(options.isSearchOpen) })}` : ""}
   ${options.isOnSignInPage ? "" : html`<div class="end">${
@@ -363,7 +363,8 @@ export const HEADER_SCRIPT = pageScript(
   function setWaiting(isWaiting) {
     clearTimeout(waitingTimer);
     if (!isWaiting && pressedLink) { pressedLink.classList.remove("is-pressed"); pressedLink = null; }
-    headers.forEach(function (top) { if (!top.hasAttribute("data-stays-waiting")) top.classList.toggle("is-waiting", isWaiting); });
+    // Every bar of header glass, the gallery's too: the line is the glass's own (.glass-bar).
+    document.querySelectorAll("header.glass-bar").forEach(function (bar) { if (!bar.hasAttribute("data-stays-waiting")) bar.classList.toggle("is-waiting", isWaiting); });
   }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest("a[href]");
@@ -378,6 +379,11 @@ export const HEADER_SCRIPT = pageScript(
       link.classList.add("is-pressed");
       waitingTimer = setTimeout(function () { setWaiting(true); }, 500);
     }, 0);
+  });
+  // A stacked switch moves on the press and opens the next page itself (SWITCH_SCRIPT), so its links say so here: its slab is what stays pressed.
+  document.addEventListener("zaisma-leaving-page", function () {
+    setWaiting(false);
+    waitingTimer = setTimeout(function () { setWaiting(true); }, 500);
   });
   window.addEventListener("pageshow", function () { setWaiting(false); });
   window.addEventListener("pagehide", function () { setWaiting(false); });
@@ -1371,12 +1377,16 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
       button.setAttribute("aria-expanded", String(isSheet(nav) ? Boolean(sheet && sheet.open) : Boolean(layout && !layout.classList.contains("is-collapsed"))));
     });
   }
+  function endFold(nav, layout) { layout.classList.remove("is-folding"); nav.classList.remove("is-leaving"); ["--sidebar-left", "--sidebar-top", "--sidebar-width", "--sidebar-height"].forEach(function (name) { nav.style.removeProperty(name); }); }
   // Folding moves only transforms and opacity: the sidebar leaves from where it was, held there out of the page's way, and the page, laid out
   // at its new width at once, slides from where it was into its new place (first, last, invert, play), so nothing snaps.
   function fold(nav, isFolded, isKept) {
     var layout = nav.closest(".sidebar-layout");
     if (!layout) return;
     if (isKept) try { localStorage.setItem(keyOf(nav), isFolded ? "hidden" : "shown"); } catch (error) {}
+    // Pressed again while it's still going, the last fold ends here: left to run, it would keep the sidebar out of its column as it comes back, and the page would drop into that column.
+    cancelAnimationFrame(nav.foldFrame); clearTimeout(nav.foldTimer); clearTimeout(nav.slideTimer);
+    endFold(nav, layout);
     var main = layout.querySelector(".sidebar-main"), isMoving = isKept && !isReduced() && main;
     var first = isMoving ? main.getBoundingClientRect() : null, held = isMoving && isFolded ? nav.getBoundingClientRect() : null;
     if (held) {
@@ -1387,8 +1397,8 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     layout.classList.toggle("is-collapsed", isFolded);
     say(nav);
     if (held) {
-      requestAnimationFrame(function () { nav.classList.add("is-leaving"); });
-      setTimeout(function () { layout.classList.remove("is-folding"); nav.classList.remove("is-leaving"); ["--sidebar-left", "--sidebar-top", "--sidebar-width", "--sidebar-height"].forEach(function (name) { nav.style.removeProperty(name); }); }, 350);
+      nav.foldFrame = requestAnimationFrame(function () { nav.classList.add("is-leaving"); });
+      nav.foldTimer = setTimeout(function () { endFold(nav, layout); }, 350);
     }
     if (!isMoving) return;
     var shiftPx = first.left - main.getBoundingClientRect().left;
@@ -1396,7 +1406,7 @@ export const SIDEBAR_SCRIPT = `/* sidebars */(function () {
     main.style.transition = "none"; main.style.transform = "translateX(" + shiftPx + "px)";
     void main.offsetWidth;
     main.style.transition = "transform 0.45s cubic-bezier(.2,.8,.2,1)"; main.style.transform = "";
-    setTimeout(function () { main.style.removeProperty("transition"); main.style.removeProperty("transform"); }, 500);
+    nav.slideTimer = setTimeout(function () { main.style.removeProperty("transition"); main.style.removeProperty("transform"); }, 500);
   }
   window.zaismaWatch.each("nav.sidebar[data-sidebar-remember]", function (nav) {
     try { var kept = localStorage.getItem(keyOf(nav)); if (kept === "shown" || kept === "hidden") fold(nav, kept === "hidden", false); } catch (error) {}
@@ -1519,7 +1529,9 @@ component({
   name: "Sidebar layout",
   slug: "sidebar-layout",
   group: "layout",
-  summary: "A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page.",
+  subgroup: "page",
+  after: "page-shape",
+  summary: "A Sidebar beside the page: the sidebar in its own column, staying in view while the page scrolls, the page in the rest. Folded, the page takes the whole width; on a reading page the page is its reading column and the pair sits in the middle; on a phone the sidebar is a sheet over the page. Not for places that belong to the whole site: those are the header's.",
   styles: `
 /* A Sidebar beside the page: its own column, staying in view under the header while the page scrolls, never taller than the window. It
    comes in fading and sliding a little, and folds away the same way (SIDEBAR_SCRIPT), only then giving its column to the page. */
@@ -1533,7 +1545,7 @@ component({
 .sidebar-layout.is-folding > .sidebar-layout-in > .sidebar.is-leaving { opacity: 0; transform: translateX(-24px); }
 .sidebar-main { min-width: 0; }
 .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, 1fr); }
-.sidebar-layout.is-collapsed > .sidebar-layout-in > .sidebar { display: none; }
+.sidebar-layout.is-collapsed:not(.is-folding) > .sidebar-layout-in > .sidebar { display: none; }
 /* A reading page: the page a reading column beside it, the pair in the middle of the wide frame; folded, the column alone in the middle. */
 html[data-page-shape="reading"] .sidebar-layout-in { grid-template-columns: var(--size-sidebar) minmax(0, var(--size-page-reading)); justify-content: center; }
 html[data-page-shape="reading"] .sidebar-layout.is-collapsed > .sidebar-layout-in { grid-template-columns: minmax(0, var(--size-page-reading)); }

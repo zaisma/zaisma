@@ -129,7 +129,7 @@ export const friendRequestRow = (name: string, isNewest: boolean): ListRow => ({
   isNewTab: true,
   action: [
     (isNewest ? primaryButton : secondaryButton)(action("addFriend", "Accept"), { type: "button", isSmall: true, isLabelHidden: true, dataAttributes: { "request-action": "accept" } }),
-    secondaryButton(action("close", "Turn down"), { type: "button", isSmall: true, isLabelHidden: true, dataAttributes: { "request-action": "turn-down" } }),
+    secondaryButton(action("close", "Turn down"), { staysSecondaryBecause: "Turning a friend down is a real decision beside Accept, not a way out.", type: "button", isSmall: true, isLabelHidden: true, dataAttributes: { "request-action": "turn-down" } }),
   ],
 });
 

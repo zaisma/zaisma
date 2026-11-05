@@ -4,10 +4,10 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, floatingPane, glassPane, icon, picture, type IconName } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { ICON_ROOM_WIDTH, secondaryButton, action, passwordToggle, tertiaryButton } from "./actions.ts";
+import { secondaryButton, action, passwordToggle, tertiaryButton } from "./actions.ts";
 import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
-import { row } from "./layout.ts";
+import { carvingEnd, row } from "./layout.ts";
 import { HEADER_RAIL_MEDIA } from "./tokens.ts";
 
 /*
@@ -63,7 +63,7 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const className = ["field", "carving", "layered", "is-used", "sized", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return controlMarkup(html`<div class="cut-field${options.isShort ? " is-short" : ""}"><label class="words-margin" for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) }) : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? carvingEnd(passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) })) : ""}</span>
 ${options.error ? html`<p class="field-error words-margin" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint words-margin" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
 
@@ -126,7 +126,7 @@ export function searchField(options: SearchFieldOptions): ControlMarkup {
     ? html`<span class="find-finish" aria-hidden="true"><span class="find-typed">${typedFinish ? options.searchText : ""}</span><span>${typedFinish}</span></span>${floatingPane({ id: `${id}-list`, placement: "under", kind: "select-list find-list", isShownInPlace: isOpen, body: html`<div class="select-options" id="${id}-choices" role="listbox" aria-label="${options.label}" data-own-fade>${isOpen && options.shownSuggestions ? suggestionRows(id, options.searchText, options.shownSuggestions, activeRowIndex) : ""}</div>` })}<template class="find-icon"><span class="find-row-icon">${icon("search")}</span></template><template class="find-cover">${smallGameCard({ imageUrl: "" })}</template>`
     : "";
   const className = ["find", "carving", "layered", "is-used", "sized", options.state === "is-open" ? "is-focused is-open" : options.state ?? ""].filter(Boolean).join(" ");
-  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${tertiaryButton(action("close", "Clear the search"), { type: "button", isLabelHidden: true, isSmall: true })}${list}</form>`, "regular");
+  return controlMarkup(html`<form class="${className}" method="get" action="${options.action}" role="search" data-cut-line="10"${options.suggestionsUrl !== undefined ? html` data-suggest="${options.suggestionsUrl}"` : ""}>${CUT_LINE}${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}${icon("search")}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off"${combobox}>${carvingEnd(tertiaryButton(action("close", "Clear the search"), { type: "button", isLabelHidden: true, isSmall: true }))}${list}</form>`, "regular");
 }
 
 export interface WheelColumn {
@@ -222,7 +222,7 @@ ${floatingPane({
     label: options.label,
     isShownInPlace: isOpen,
     // The wheels' middle row: under the pane's room at its top, a row and a half down.
-    lineFromTop: "calc(var(--pad-inner-pane) + 54px)",
+    lineFromTop: "calc(var(--pad-frame) + 3.375rem)",
     body: html`<span class="wheel-read sr" aria-live="polite"></span><div class="wheels ${options.wheelKind}-wheels"${options.wheelKind === "custom" ? html` style="--wheel-count: ${columns.length}"` : ""}>${channels}</div>`,
   })}
 <p class="field-error words-margin" id="${id}-error"${isMarked ? "" : raw(" hidden")}>${options.error ?? WHEEL_MISSING[options.wheelKind]}</p>${options.hint ? html`<p class="field-hint words-margin" id="${id}-hint"${isMarked ? raw(" hidden") : ""}>${options.hint}</p>` : ""}
@@ -269,7 +269,7 @@ export function pinField(options: PinFieldOptions): ControlMarkup {
   const input = html`<input class="pin-input" id="${id}-input" name="${options.name}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="${PIN_DIGIT_COUNT}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="${errorId}"${digits ? html` value="${digits}"` : ""}${options.error ? raw(' aria-invalid="true"') : ""}${options.isDisabled ? raw(" disabled") : ""}>`;
   return controlMarkup(html`<div class="pin-field${options.state === "is-focused" ? " is-focused" : ""}" id="${id}" data-pin${options.isDisabled ? raw(' aria-busy="true"') : ""}>
 <label class="words-margin" for="${id}-input">${options.label}</label>
-<span class="pin-marks">${marks}${input}</span>
+<span class="pin-marks words-margin">${marks}${input}</span>
 <p class="field-error words-margin" id="${errorId}"${options.error ? "" : raw(" hidden")}>${options.error ?? ""}</p>
 </div>`, "field", { hasOwnWords: true });
 }
@@ -449,13 +449,13 @@ export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
 
 export const FIELD_SCRIPT = `/* fields */(function () {
   document.addEventListener("click", function (event) {
-    var clear = event.target.closest && event.target.closest(".find > .tertiary-btn");
+    var clear = event.target.closest && event.target.closest(".find > .carving-end > .tertiary-btn");
     if (clear) {
-      var search = clear.parentElement.querySelector('input[type="search"]');
+      var search = clear.closest(".find").querySelector('input[type="search"]');
       if (search) { search.value = ""; search.dispatchEvent(new Event("input", { bubbles: true })); search.focus(); }
       return;
     }
-    var show = event.target.closest && event.target.closest(".field:not(.code) > .cut-btn[aria-controls]");
+    var show = event.target.closest && event.target.closest(".field:not(.code) > .carving-end > .cut-btn[aria-controls]");
     if (!show) return;
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
@@ -607,6 +607,8 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var games = (answer.games || []).slice(0, 3);
       var next = (answer.finishes || []).slice(0, 3).map(function (finish) { return finishRow(finish, typed, kept); });
       var nextGames = games.map(function (game) { return gameRow(game, typed, kept); });
+      // Nothing to show: it goes as it is, as it does when nothing's typed.
+      if (!next.length && !nextGames.length) { setActive(-1); hide(); emptyOnceGone(); return; }
       var isSame = next.length + nextGames.length === rows.length && next.concat(nextGames).every(function (row, rowIndex) { return rows[rowIndex] === row; });
       // Only rows that changed are put in: the same rows in the same order stay where they are.
       if (!isSame) {
@@ -620,11 +622,16 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
       var titledIndex = games.findIndex(function (game) { return game.title.toLowerCase() === typed.toLowerCase(); });
       if (rows.length && document.activeElement === input) { show(); setActive(titledIndex < 0 ? -1 : next.length + titledIndex); } else { setActive(-1); hide(); }
     }
+    // Nothing to show: the list fades as it is and only then empties, so it never shrinks as it goes. Opened again by then, it has rows of its own.
+    function emptyOnceGone() {
+      function empty() { if (!isOpen()) { rows = []; box.textContent = ""; setActive(-1); } }
+      Promise.allSettled(list.getAnimations({ subtree: true }).map(function (animation) { return animation.finished; })).then(empty);
+    }
     function ask() {
       if (hasNoRoom()) return;
       var typed = input.value.trim();
       if (asking) { asking.abort(); asking = null; }
-      if (!typed) { rows = []; box.textContent = ""; setActive(-1); hide(); return; }
+      if (!typed) { setActive(-1); hide(); emptyOnceGone(); return; }
       if (answers.has(typed)) { fill(answers.get(typed), typed); return; }
       asking = new AbortController();
       fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "search_text=" + encodeURIComponent(typed), { signal: asking.signal, headers: { Accept: "application/json" } })
@@ -642,7 +649,7 @@ export const SEARCH_SCRIPT = `/* search finishes */(function () {
     }
     // A search sent is done with: its predictions close, and on a touch screen the keyboard goes with them, so the results show.
     form.addEventListener("submit", function () { clearTimeout(timer); if (asking) asking.abort(); hide(); if (matchMedia("(pointer: coarse)").matches) input.blur(); });
-    input.addEventListener("input", function () { clearTimeout(timer); showFinish(); timer = setTimeout(ask, WAIT_MS); });
+    input.addEventListener("input", function () { clearTimeout(timer); showFinish(); if (input.value.trim()) timer = setTimeout(ask, WAIT_MS); else ask(); });
     input.addEventListener("scroll", showFinish);
     // Back in a search that has words in it (clicked, tapped or tabbed to), its predictions show again, as if just typed.
     function reopen() { if (!isOpen() && input.value.trim()) { clearTimeout(timer); ask(); } }
@@ -811,7 +818,7 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
     // A Floating pane over the field, as wide as its wheels whatever the field shows, their middle row on the field's own line.
     var float = window.zaismaFloat(pick, {
       anchor: field, home: root,
-      lineOf: function () { return wheelRow.offsetTop + 1.5 * ROW; },
+      lineOf: function () { return wheelRow.parentElement.offsetTop + wheelRow.offsetTop + wheelRow.offsetHeight / 2; },
       onToggle: function (isShown) { field.setAttribute("aria-expanded", String(isShown)); }
     });
     function isOpen() { return float.isOpen(); }
@@ -953,21 +960,21 @@ const FIELD_STYLES = `
 /* A hidden password's dots: the display face's are too small to count, so they're Verdana's, larger and a little apart. */
 .field input[type="password"]:not(:placeholder-shown) { font-family: Verdana, var(--body); font-size: 1.375rem; letter-spacing: 0.12em; }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
+/* Centered by its own place, never by what its holder happens to do for what's out of its flow. */
+.field > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; transform: translateY(-50%); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
 .field:has(:focus-visible), .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field:has(:focus-visible) > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+/* Words over or under a field that slants at its start keep lining up with the words in it. */
+.cut-field:has(> [data-slanted~="start"]) > .words-margin { --words-slant: calc(var(--control-slant) / 2); }
 .field-error { margin: 0; font: var(--type-words); color: var(--marked); }
 .field-hint { margin: 0; font: var(--type-note); color: var(--muted); }
 /* No icon: its words start where an icon would, so they still line up with the pane's words. */
 .field.no-icon > input { --text-start: var(--pad-inside-words); }
 /* Show/Hide: a small secondary button, a toggle, at the field's end, as far in from its end as from its top and bottom. Its icon changes and its
    width doesn't, so what's typed keeps exactly the room it leaves: the toggle's width and its inset on each side. */
-.field { --toggle-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); }
-.field.with-toggle { --toggle-width: ${ICON_ROOM_WIDTH}; }
-.field.with-toggle > input { --text-end: calc(var(--toggle-width) + 2 * var(--toggle-inset)); }
-.field > .cut-btn { position: absolute; z-index: 5; right: var(--toggle-inset); top: var(--toggle-inset); }
+.field.with-toggle > input { --text-end: calc(var(--control-height-regular) + 2 * var(--pad-frame-compact)); }
 /* Read-only: nothing to type, so it doesn't light as you point at it; it can still be selected, copied and focused. */
 .field:has(> input[readonly])::before { --face-color: var(--carving-face); }
 /* Can't be changed now: carved the same, its words and icon quieter, and it answers no pointer. */
@@ -1019,7 +1026,8 @@ component({
    light as the digits go in. One field, unseen, lies over the row and takes the typing; the row is a small control tall, so a finger finds it. */
 .pin-field { display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
 .pin-field > label { font: var(--type-label); color: var(--ink-2); }
-.pin-marks { position: relative; display: flex; align-items: center; gap: var(--pad-inside-words); min-height: var(--control-height-small); }
+/* The marks are words to a pane's edges, keeping its margin, and sit in the middle of the width they have. */
+.pin-marks { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--pad-inside-words); min-height: var(--control-height-small); }
 .pin-mark { position: relative; flex: none; width: 20px; height: 20px; }
 .pin-fill { position: absolute; z-index: 2; inset: 4px; clip-path: var(--cut-shape); opacity: 0; transform: scale(0.4); transition: opacity var(--motion-state), transform var(--motion-state) var(--ease-glide); }
 .pin-mark.is-filled > .pin-fill { opacity: 1; transform: none; }
@@ -1080,12 +1088,14 @@ component({
 /* Search: the cut field's sibling, at a control's height (it sits in the header's row). The same face, carving and shade, the same
    brightening under the pointer and whitening with the orange outline as you type, the same icon (20px, quiet until you're in it), indent
    and words (18px, 16 on a phone). Clear, a small tertiary button, sits at its end once something's typed, so the browser's own clear button is hidden. "/" jumps to it. */
-.find { --control-height: var(--control-height-regular); --search-end-room: 16px; --clear-inset: calc((var(--control-height) - var(--control-height-small)) / 2); display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
+.find { --control-height: var(--control-height-regular); --search-end-room: 16px; display: flex; align-items: center; flex: 1; max-width: 460px; margin: 0; color: var(--muted); }
 .find input[type="search"] {
   --text-start: calc(var(--pad-inside-words) + 34px); --text-end: var(--search-end-room);
   position: relative; z-index: 2; width: 100%;
   font: 500 1.125rem var(--display); color: var(--ink); caret-color: var(--run-lo); clip-path: var(--cut-shape);
 }
+/* In a stack it keeps its height: its flex is for sharing a row's width, and down a column it would share the height to nothing. */
+.stack-cell > .find { flex: none; }
 /* It's a layered carving you type in, as a cut field is (materials.ts). */
 .find input::placeholder { color: var(--muted); }
 .find input:focus-visible, .find.is-focused input { outline: none; }
@@ -1093,11 +1103,10 @@ component({
 .find > .cut-line { z-index: 4; }
 .find:has(:focus-visible) > .cut-line polygon, .find.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
-.find > .ico { position: absolute; z-index: 3; left: var(--pad-inside-words); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
-/* Clear: a small tertiary button, square, only once something's typed. It sits as far in from the end as from the top and foot, measured on
-   the search, whose height it is (Clear has a height of its own); what's typed stops short of it, so its room is the search's height. */
-.find > .tertiary-btn { position: absolute; z-index: 5; top: var(--clear-inset); right: var(--clear-inset); }
-.find:has(input:placeholder-shown) > .tertiary-btn { display: none; }
+.find > .ico { position: absolute; z-index: 3; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; transform: translateY(-50%); width: 20px; height: 20px; pointer-events: none; transition: color var(--motion-state); }
+/* Clear: a small tertiary button, only once something's typed, in the carving's one place for a control (.carving-end). A search is a regular
+   control's height, so a small one fills it less the frame gap; what's typed stops short of it, so its room is the search's height. */
+.find:has(input:placeholder-shown) > .carving-end { display: none; }
 .find:not(:has(input:placeholder-shown)) { --search-end-room: var(--control-height); }
 /* Finishes and games as you type (suggestionsUrl, SEARCH_SCRIPT): a select field's list hangs under it. The row you're on catches the
    light, and the rest of its finish, or of the first while you're on none, shows after what's typed, quieter, in the field itself: Tab takes
@@ -1166,7 +1175,7 @@ component({
   font: 500 1.125rem var(--display); color: var(--muted); }
 .wheel-button[aria-expanded="true"], .wheel-button:focus-visible { outline: none; --face-color: var(--carving-face-focus); }
 .wheel-button.set { color: var(--ink); font-weight: 500; }
-.wheel-button > .ico { position: absolute; left: var(--pad-inside-words); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
+.wheel-button > .ico { position: absolute; left: calc(var(--pad-inside-words) + var(--slant-start, 0px)); top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
 .wheel-button[aria-expanded="true"] > .ico, .wheel-button.set > .ico { color: var(--ink); }
 .wheel-chev { display: inline-flex; flex: none; margin-right: 4px; color: var(--ink); transition: transform var(--motion-arrive) var(--ease-glide); }
 .wheel-chev > .ico { width: 16px; height: 10px; stroke-width: 2.2; }
@@ -1189,7 +1198,7 @@ component({
 .wheel-pick .wheel-read { position: absolute; }
 /* Each wheel is at least as wide as its longest row (a month's name, a year, "Tomorrow", "25 min") with its room each side, so a pane that
    fits what's in it grows to them. */
-.wheels { --wheel-row: 36px; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
+.wheels { --wheel-row: 2.25rem; position: relative; display: grid; grid-template-columns: repeat(3, auto); gap: var(--gap-control-row); }
 .wheel-channel { min-width: 0; height: calc(3 * var(--wheel-row)); }
 .wheel-lit { position: absolute; z-index: 1; left: 3px; right: 3px; top: var(--wheel-row); bottom: var(--wheel-row); pointer-events: none; }
 .wheel-channel > .cut-line { z-index: 3; pointer-events: none; }
@@ -1201,8 +1210,9 @@ component({
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), #000 33%, #000 67%, rgba(0,0,0,0.4)); }
 .wheel::-webkit-scrollbar { display: none; }
 /* A row is as wide as it is picked, in bold (its label again, unseen and unheard, holds that width), with the room words get inside a
-   control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. */
-.wheel [role="option"] { --row-height: var(--wheel-row); --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
+   control each side, so the lit slab never touches its words and the pane doesn't change size as the pick moves. It's exactly the groove's
+   row tall, its words centered, so they lie in the middle of the lit slab. */
+.wheel [role="option"] { --row-height: var(--wheel-row); --row-start: var(--pad-inside-words); --row-end: var(--pad-inside-words); padding-block: 0; gap: 0; flex-direction: column; align-items: center; justify-content: center; scroll-snap-align: start;
   clip-path: none; white-space: nowrap; font: 500 1rem var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color var(--motion-state), font-size var(--motion-state); }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { color: var(--ink); font-weight: 600; }

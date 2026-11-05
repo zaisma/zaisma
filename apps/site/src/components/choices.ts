@@ -243,7 +243,17 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       isPicked = true; float.close(true);
     }
     var isPicked = picked() >= 0;
-    button.addEventListener("click", function () { if (button.disabled) return; if (float.isOpen()) float.close(false); else float.open(); });
+    // A mouse opens it on the press, as a browser's own select does, not on letting go. A finger waits for its tap, since a press may start a scroll; keys still arrive as a click.
+    var isPressHandled = false;
+    function toggle() { if (button.disabled) return; if (float.isOpen()) float.close(false); else float.open(); }
+    button.addEventListener("pointerdown", function (event) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      isPressHandled = true; toggle();
+      document.addEventListener("pointerup", function () { setTimeout(function () { isPressHandled = false; }, 0); }, { once: true });
+    });
+    // The press would take the focus back from the list it just opened.
+    button.addEventListener("mousedown", function (event) { if (event.button === 0) event.preventDefault(); });
+    button.addEventListener("click", function () { if (!isPressHandled) toggle(); });
     button.addEventListener("keydown", function (event) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!button.disabled) float.open(); }
     });
@@ -306,7 +316,7 @@ component({
 .select-button:focus-visible { outline: none; }
 .field.select.is-open { --face-color: var(--carving-face-focus); }
 .field.select:has(:focus-visible) > .cut-line polygon, .field.select.is-focused > .cut-line polygon, .field.select.is-open > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.select-chev { position: absolute; z-index: 3; right: var(--pad-inside-words); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform var(--motion-arrive) var(--ease-glide); }
+.select-chev { position: absolute; z-index: 3; right: calc(var(--pad-inside-words) + var(--slant-end, 0px)); display: inline-flex; color: var(--ink); pointer-events: none; transition: transform var(--motion-arrive) var(--ease-glide); }
 .select-chev > .ico { position: static; width: 16px; height: 10px; stroke-width: 2.2; }
 .field.select.is-open .select-chev { transform: rotate(180deg); }
 /* Can't be changed now: flat in the glass, its pick and chevron quieter, and nothing changes as you point at it. */
@@ -644,15 +654,15 @@ component({
   slug: "toggle",
   group: "inputs",
   subgroup: "choices",
-  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that springs across a carved slot, which fills orange when it's on. It ends a row of List rows (a row's switch), and the whole row is its label: a press anywhere on it flips it. A row may hold the settings that only matter while it's on, in a well under it. It's a checkbox in its form, so it posts without a script.",
+  summary: "On or off for a setting: Cloud saves, Show me online. A white slab that slides across a carved slot, which fills orange when it's on. It ends a row of List rows (a row's switch), and the whole row is its label: a press anywhere on it flips it. A row may hold the settings that only matter while it's on, in a well under it. It's a checkbox in its form, so it posts without a script.",
   styles: `
-/* A toggle: a carved slot holding a white slab that springs to its far end when on, the slot filling orange behind it. The real checkbox
+/* A toggle: a carved slot holding a white slab that slides to its far end when on, the slot filling orange behind it. The real checkbox
    (role switch) lies over the slot, unseen; the row round it (List rows) is its label, so a press anywhere on the row flips it. */
 /* The slot is a carving's (materials.ts), the slab a thumb. */
 /* Off, it's carved into the glass, its edges lit and shaded like every carving; on, its orange is its edge. */
 .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: transparent; }
 .toggle-input { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; transition: transform var(--motion-arrive) var(--spring), filter var(--motion-state); }
+.toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; transition: transform var(--motion-arrive) var(--ease-settle), filter var(--motion-state); }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
 .toggle:not(.is-disabled):hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: var(--thumb-cast-pointed); }

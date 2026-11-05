@@ -67,7 +67,7 @@ export const MATERIAL_STYLES = `
 .carving:has(> .scrolls:not(.across)) { align-items: stretch; max-height: var(--well-height, var(--size-menu-height)); }
 .floating-pane { max-height: min(var(--size-menu-height), var(--floating-room, calc(100dvh - 2 * var(--pad-frame)))); padding: var(--pad-frame-compact); --pad-words: calc(var(--pad-tray) - var(--pad-frame-compact)); }
 /* Holding edged parts beside words (a color picker, wheels), it keeps the regular frame gap and a field's words margin. */
-.floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); }
+.floating-pane.regular { padding: var(--pad-frame); --pad-words: var(--pad-inside-words); --rail-inset: var(--pad-frame); }
 /* Its glass is a layer of its own (.glass::before), so the browser's own face and scroll for a popover or a dialog never apply: the face would show square
    behind its cut corners, and a scroll (or a clip) on the pane itself leaves its glass nothing to blur but what's in it, so what's behind
    shows through sharp. Its inside scrolls (Caps and scrolls). */
@@ -76,8 +76,8 @@ export const MATERIAL_STYLES = `
    glass, so the glass blurs its own box instead, cut to its shape; what stands on it is cut at its edge too. */
 .glass.pinned { clip-path: var(--glass-clip, none); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .glass.pinned::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
-/* A carving with a control at its end (a well's Copy): what's in it stops short of the control. */
-.carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-small) + var(--well-inset, 8px) + var(--gap-words-words)); }
+/* A carving with a control at its end (Carving end, layout.ts): what's in it stops short of the control. */
+.carving:has(> .carving-end) > .carving-words { padding-inline-end: calc(var(--control-height-regular) + var(--pad-frame-compact) + var(--gap-words-words)); }
 /* Over everything (a sheet, a light box, a store panel): a pane of thin glass over the page, capped at the screen, with the page dimmed
    behind it: a task's dim, a little for one hanging from its button, deep for one thing large, whose words turn light; a store panel and a
    buy sheet over a running game dim nothing. Past its cap what's in it scrolls, its head and buttons staying put. */
@@ -142,7 +142,7 @@ tbody.hairlines > tr:hover > :is(td:not(.table-placeholder), th) { --face-color:
 span.hairline { flex: 1; border-top: var(--divider); }
 
 /* Words on the glass keep its margin (--pad-words), however they sit; beside controls, they line up with the controls' center line. */
-.words-margin { padding-inline: var(--pad-words); }
+.words-margin { padding-inline: calc(var(--pad-words) + var(--words-slant, 0px)) var(--pad-words); }
 /* Words with a control on one side keep the margin only at the pane's edge: at their start (a toggle's words, before its slot), or their end
    (a check's words, after its box; a slider's number). */
 .words-margin.at-start { padding-inline: var(--pad-words) 0; }
@@ -227,12 +227,16 @@ span.hairline { flex: 1; border-top: var(--divider); }
    it or written on it keeping its words inset, past an icon at its start or a control at its end (--text-start, --text-end). With focus, it
    clears (--carving-face-focus). A press carves it a little deeper. */
 .carving.sized { height: var(--control-height, var(--control-height-field)); }
-.carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) var(--text-end, var(--pad-words)) var(--text-block, 0) var(--text-start, var(--pad-words)); background: transparent; border: 0; border-radius: 0; }
+/* Beside another control a carving's end slants, losing half the slant at mid-height: what's in it moves in by that, so it keeps its room from the slant. */
+.carving { --slant-start: 0px; --slant-end: 0px; }
+.carving[data-slanted~="start"] { --slant-start: calc(var(--control-slant) / 2); }
+.carving[data-slanted~="end"] { --slant-end: calc(var(--control-slant) / 2); }
+.carving > :is(input, textarea, .carving-control) { padding: var(--text-block, 0) calc(var(--text-end, var(--pad-words)) + var(--slant-end)) var(--text-block, 0) calc(var(--text-start, var(--pad-words)) + var(--slant-start)); background: transparent; border: 0; border-radius: 0; }
 .carving.sized > :is(input, .carving-control) { height: 100%; }
 /* A drop zone: a carving you drop files onto (a file drop), what's in it a pane's margin in, at least 168px tall so it's a place to aim for. */
 .carving.drop-zone { padding: var(--pad-pane); min-height: 168px; }
 /* A carving that is itself a button you press (a wheel field's) keeps its words inset the same way. */
-.carving.is-button { padding: 0 var(--text-end, var(--pad-words)) 0 var(--text-start, var(--pad-words)); border: 0; }
+.carving.is-button { padding: 0 calc(var(--text-end, var(--pad-words)) + var(--slant-end)) 0 calc(var(--text-start, var(--pad-words)) + var(--slant-start)); border: 0; }
 /* A pointed place in a carving (a wheel's picked row): its face cleared as a pointed field's, its edges raised. */
 .carving-pointed { background: var(--carving-face-pointed); clip-path: var(--cut-shape); }
 .carving-pointed > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
@@ -288,9 +292,9 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .thumb { width: var(--thumb, 24px); height: var(--thumb, 24px); filter: var(--thumb-cast); }
 .thumb-slab { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--ink-2); background: var(--thumb-face); clip-path: var(--cut-shape); transition: box-shadow var(--motion-state); }
 .thumb-slab::after { content: ""; position: absolute; inset: 0; background: var(--thumb-press-face); opacity: 0; transition: opacity var(--motion-state); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
-:is(label:not(.is-disabled):active, .is-pressed, :has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb, input:active ~ .thumb { filter: var(--thumb-cast-pressed); transition-duration: var(--motion-press); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab, input:active ~ .thumb > .thumb-slab { box-shadow: var(--thumb-press-shade); }
+:is(label:not(.is-disabled):active, .is-pressed, label:has(input[aria-busy="true"]), .is-held) .thumb > .thumb-slab::after, input:active ~ .thumb > .thumb-slab::after { opacity: 1; transition-duration: var(--motion-press); }
 /* Layered: its face is a layer of its own under what's typed in it, so the words can fade at an end with more past it while the face stays
    whole (a field, a search, a long field). */
 .carving.layered { background: none; box-shadow: none; }

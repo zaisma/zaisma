@@ -10,7 +10,7 @@ export function phoneMediaText(mediaText) {
   });
 }
 
-/** What an iPhone 15 or 16 keeps clear of its Dynamic Island, corners and home bar. Upright the page starts under the status bar, as in a browser, so its top is the frame's own. */
+/** What an iPhone 15 or 16 tells a page that fills the screen (viewport-fit=cover) to keep clear of its Dynamic Island, corners and home bar. Upright the page starts under the status bar, as in a browser, so its top is the frame's own. Any other page stops at them and is told nothing. */
 export const SAFE_AREA_PX = { phone: { top: 0, right: 0, bottom: 34, left: 0 }, turned: { top: 0, right: 59, bottom: 21, left: 59 } };
 
 /** A rule's text with each env(safe-area-inset-*) as that side's pixels, its fallback gone. */

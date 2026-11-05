@@ -33,9 +33,7 @@ describe("docs/DESIGN.md's component catalog", () => {
 describe("the gallery's subgroups", () => {
   it("hold every component of a group that has them, and each holds one at least", () => {
     for (const each of COMPONENTS()) {
-      const subgroups = subgroupsOf(each.group).map(({ subgroup }) => subgroup);
-      if (subgroups.length) expect(subgroups, each.slug).toContain(each.subgroup);
-      else expect(each.subgroup, each.slug).toBeUndefined();
+      expect(subgroupsOf(each.group).map(({ subgroup }) => subgroup), each.slug).toContain(each.subgroup);
     }
     // Over a game's Notices and Sheets show moments of Panes' pieces, with no component of their own.
     for (const { group, subgroup } of COMPONENT_SUBGROUPS.filter((each) => !(each.group === "over-a-game" && (each.subgroup === "notices" || each.subgroup === "sheets")))) expect(COMPONENTS().some((each) => each.group === group && each.subgroup === subgroup), `${group} ${subgroup}`).toBe(true);

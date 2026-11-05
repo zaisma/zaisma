@@ -10,6 +10,7 @@
   const isPhoneScreen = screenName === "phone" || screenName === "turned";
   const bench = window.parent !== window && window.parent.zaismaBench ? window.parent.zaismaBench : null;
   const SCREEN_SIZE = { phone: [393, 852], turned: [852, 393] }[screenName];
+  const isFillingScreen = () => /viewport-fit=cover/.test(document.querySelector('meta[name="viewport"]')?.content ?? "");
 
   // The mark stays on the address, so the Referer of everything the page sends says whose it is.
   const marked = (address) => { const url = new URL(address, location.href); if (url.origin === location.origin) url.searchParams.set("bench_screen", markText); return url.href; };
@@ -47,13 +48,14 @@
     // Every media rule, as each sheet arrives: the page's first-paint styles, and the site's sheet that follows them.
     const done = new WeakSet();
     let rewrittenCount = 0, safeAreaCount = 0;
+    const NO_SAFE_AREA_PX = { top: 0, right: 0, bottom: 0, left: 0 };
     const rewrite = (rules) => {
       for (const rule of rules) {
         if (rule.media && rule.media.mediaText !== undefined) {
           const text = rule.media.mediaText, next = phoneMediaText(text);
           if (next !== text) { rule.media.mediaText = next; rewrittenCount += 1; }
         }
-        if (rule.style && rule.style.cssText.includes("safe-area-inset")) { rule.style.cssText = phoneSafeAreaText(rule.style.cssText, SAFE_AREA_PX[screenName]); safeAreaCount += 1; }
+        if (rule.style && rule.style.cssText.includes("safe-area-inset")) { rule.style.cssText = phoneSafeAreaText(rule.style.cssText, isFillingScreen() ? SAFE_AREA_PX[screenName] : NO_SAFE_AREA_PX); safeAreaCount += 1; }
         if (rule.cssRules) rewrite(rule.cssRules);
       }
     };
@@ -206,7 +208,8 @@
     } else if (state.presses) {
       const { control, opened } = opener(state);
       if (!control) return false;
-      if (!opened || !isLayerOpen(opened)) control.click();
+      // As a player would have it: what's pressed is in view first, and what it opens with it.
+      if (!opened || !isLayerOpen(opened)) { control.scrollIntoView({ block: "center", behavior: "instant" }); control.click(); }
     } else if (state.setUpName) {
       // The checks wait for the page to settle before their scripts run; here a page's own script may not be there yet, so it's tried again.
       for (let tryIndex = 0; ; tryIndex += 1) {
@@ -255,6 +258,7 @@
     return isDark ? "#000" : "#fff";
   };
   const sayPageColor = () => say({ kind: "page-color", color: pageColor() });
+  addEventListener("DOMContentLoaded", () => say({ kind: "page-fill", isFillingScreen: isFillingScreen() }));
   addEventListener("load", () => { sayPageColor(); new MutationObserver(sayPageColor).observe(document.head, { subtree: true, childList: true, attributes: true, attributeFilter: ["content", "media"] }); });
 
   // What the slider holds, and running any state to where it belongs with no animation at all.

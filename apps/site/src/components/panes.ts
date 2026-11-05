@@ -370,7 +370,7 @@ export const PLACE_SCRIPT = `/* place */(function () {
     }
     // Safari keeps no closing popover in the top layer while it fades (no overlay), nor plays its entrance: the script moves it there.
     var isMovedByScript = !(window.CSS && CSS.supports("overlay", "auto")) && !matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var LEAVE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-arrive")) || 0.3) * 1000;
+    var LEAVE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-float")) || 0.12) * 1000;
     function close(returnFocus) {
       if (isInPlace || !pane.matches(":popover-open") || pane.classList.contains("is-leaving")) return;
       // There, it stays in the top layer while it fades toward its anchor (is-leaving), then goes.
@@ -805,12 +805,11 @@ component({
   summary: "A box carved into a pane's glass that holds things and is never a control itself: code to copy, a link, a line of words, a list of choices. One gallery control can sit at its end, as Copy does; what's longer than it can show scrolls inside it. A field or a carved button is carved too, but it's what you use, so it isn't a well. For glass that holds a task, use a Glass pane; for something to type in, a Cut field.",
   styles: `
 /* A well: carved into the glass, a field's height at least, lit and shaded at its edges like every carving and cut by the edge rule. What's
-   in it keeps a field's inset (--pad-inside-words); an end control sits as far in from its end as from its top (--well-inset), over the
+   in it keeps a field's inset (--pad-inside-words); an end control sits in its one place (.carving-end, materials.ts), over the
    well, and what's in it stops short of it. Keyboard focus on what's in it is the cut stroke round the well. */
 /* It's a carving (materials.ts): its look, its words' inset, its focus ring and its scrolling are the carving's. */
-.well { --well-inset: calc((var(--control-height-field) - var(--control-height-small)) / 2); display: flex; align-items: center; min-width: 0; color: var(--ink); }
+.well { display: flex; align-items: center; min-width: 0; color: var(--ink); }
 .well > .well-body { flex: 1; min-width: 0; }
-.well > .well-end { position: absolute; z-index: 3; top: var(--well-inset); right: var(--well-inset); display: flex; }
 .well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
 `,
@@ -845,13 +844,13 @@ component({
    anchor. Closed, it takes no room and no presses: it fades toward its anchor, then goes. Under, it slides from its anchor (from above it,
    is-above); over, it opens out of it, from a touch smaller. Riding the page (is-on-page), it's placed in the page's coordinates. */
 .floating-pane { position: fixed; inset: auto; margin: 0; border: 0; color: var(--ink); display: flex; flex-direction: column; max-width: calc(100vw - 2 * var(--pad-frame)); --glass-tint: var(--glass-dropdown);
-  transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide), overlay var(--motion-arrive) allow-discrete, display var(--motion-arrive) allow-discrete; }
+  transition: var(--glass-transition), transform var(--motion-float) var(--ease-glide), overlay var(--motion-float) allow-discrete, display var(--motion-float) allow-discrete; }
 /* It fades its glass and what's on it, never itself: a pane faded as a whole blurs nothing behind it until it's whole. Each fades by its own
    opacity, which the browser draws on the GPU, never a custom property, which would restyle all of it every frame. */
-.floating-pane::before, .floating-pane > * { transition: opacity var(--motion-state); }
+.floating-pane::before, .floating-pane > * { transition: opacity var(--motion-float); }
 /* Its edge light fades with the rest, and keeps gliding along its edge. */
-.floating-pane > .edge-light { transition: opacity var(--motion-state), var(--edge-light-glide); }
-@media (prefers-reduced-motion: reduce) { .floating-pane > .edge-light { transition: opacity var(--motion-state); } }
+.floating-pane > .edge-light { transition: opacity var(--motion-float), var(--edge-light-glide); }
+@media (prefers-reduced-motion: reduce) { .floating-pane > .edge-light { transition: opacity var(--motion-float); } }
 .floating-pane:not(:popover-open):not(.in-place)::before, .floating-pane:not(:popover-open):not(.in-place) > * { opacity: 0; }
 @starting-style { .floating-pane:popover-open::before, .floating-pane:popover-open > * { opacity: 0; } }
 .floating-pane.is-on-page { position: absolute; }
@@ -861,7 +860,7 @@ component({
 .floating-body { flex: 0 1 auto; display: flex; flex-direction: column; }
 .floating-body > * { flex: none; }
 /* A browser that can't keep it in the top layer while it fades (Safari) would let it fall under what follows it on the page: it goes at once. */
-@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), transform var(--motion-arrive) var(--ease-glide); } }
+@supports not (overlay: auto) { .floating-pane { transition: var(--glass-transition), transform var(--motion-float) var(--ease-glide); } }
 /* There the script moves it (zaismaFloat): open, it starts from its closed look (is-arriving); closing, it keeps the top layer while it takes
    that look again (is-leaving), then goes. */
 .floating-pane:is(.is-arriving, .is-leaving)::before, .floating-pane:is(.is-arriving, .is-leaving) > * { opacity: 0; }
@@ -871,6 +870,8 @@ component({
 :is(.floating-pane, .floating-cast) { --away-move: translateY(-6px); }
 :is(.floating-pane, .floating-cast).is-above { --away-move: translateY(6px); }
 :is(.floating-pane, .floating-cast).placed-over { --away-move: scale(0.97); }
+/* Open, it takes its own presses: it's moved to the body, and a page may turn presses off there (the sign-in's world goes through to its scene). */
+.floating-pane:popover-open { pointer-events: auto; }
 .floating-pane:is(.is-arriving, .is-leaving) { transform: var(--away-move); pointer-events: none; }
 .floating-pane:not(:popover-open):not(.in-place) { display: none; transform: var(--away-move); pointer-events: none; }
 @starting-style { .floating-pane:popover-open { transform: var(--away-move); } }
@@ -881,11 +882,11 @@ component({
 .floating-cast.is-on-page { position: absolute; }
 /* It comes and goes with its pane, at its glass's fade and its move: hidden, it stays until they're done. Where the script moves the pane
    (Safari), its classes say so instead, as they do the pane's. */
-.floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide), display var(--motion-arrive) allow-discrete; }
+.floating-cast { transition: opacity var(--motion-float), transform var(--motion-float) var(--ease-glide), display var(--motion-float) allow-discrete; }
 .floating-cast:is([hidden], .is-arriving, .is-leaving) { opacity: 0; transform: var(--away-move); }
 @starting-style { .floating-cast { opacity: 0; transform: var(--away-move); } }
 .floating-cast.opens-at-once { transition: none; }
-@supports not (overlay: auto) { .floating-cast { transition: opacity var(--motion-state), transform var(--motion-arrive) var(--ease-glide); } }
+@supports not (overlay: auto) { .floating-cast { transition: opacity var(--motion-float), transform var(--motion-float) var(--ease-glide); } }
 /* Shown open in place (the gallery's open states), it's in the page's flow, no taller than a menu, scrolling past it as it does open. Over, as wide as what's in it, it lies on
    the field just before it, its line (--line-from-top) on the field's own line; glass inside a pane's glass isn't blurred, so what it
    covers is hidden rather than showing through, and it casts its shadow as a filter on what holds it, where only it is drawn. */

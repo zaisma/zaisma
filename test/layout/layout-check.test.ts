@@ -69,7 +69,7 @@ describe("the measured rules", () => {
     expect(RUNS.pull_request.themes).toEqual(["light"]);
     expect(RUNS.pull_request.pages.some((page) => / (long names|empty|full)$/.test(page.name))).toBe(false);
     expect(RUNS.pull_request.tiersOf({ name: "Home" })).toEqual(["page"]);
-    expect(RUNS.pull_request.tiersOf({ name: "Gallery: layout", isGallery: true })).toEqual(["page"]);
+    expect(RUNS.pull_request.tiersOf({ name: "Gallery: layout inside", isGallery: true })).toEqual(["page"]);
     expect(RUNS.sweep.tiersOf({ name: "Home" })).toEqual(["page", "sweep"]);
     expect(RUNS.sweep.themes).toEqual(["light"]);
     expect((RUNS.sweep.sizes as { name: string }[]).map((size) => size.name)).toEqual([...MEASURED_SCREEN_NAMES, ...TEXT_SCREEN_NAMES.map((name) => `${name} at 200% text`)]);

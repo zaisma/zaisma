@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CHECKED_PAGES, STRESS_ACCOUNTS } from "../../apps/site/src/components/checked-pages.ts";
 import { BENCH_PLACES, CHECKED_PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
 // @ts-expect-error: a Node script with no types of its own.
-import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, jarKeyOf, makeMirror, markOf, parseMark, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
+import { MIRROR_WINDOW_MS, cookieHeaderFor, jarAfter, jarKeyOf, makeMirror, markOf, parseMark, screenLocation, withoutMarks } from "../../scripts/preview/bench/bench-server.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { SAFE_AREA_PX, phoneMediaText, phoneSafeAreaText } from "../../scripts/preview/bench/phone-media.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -41,7 +41,7 @@ describe("the bench's places and states", () => {
   it("give every state a value of its own, and only name accounts the preview has", () => {
     const usernames = (SIGN_INS as { username: string }[]).map((each) => each.username);
     expect(new Set(states.map((state) => `${state.placeValue}/${state.stateValue}`)).size).toBe(states.length);
-    for (const state of states) if (state.profile) expect(usernames, state.label).toContain(state.profile);
+    for (const state of states) if (state.profile && state.profile !== "guest") expect(usernames, state.label).toContain(state.profile);
     for (const username of usernames) expect(PROFILE_WORDS[username], username).toBeTruthy();
     for (const username of Object.keys(PROFILE_WORDS)) expect(usernames, username).toContain(username);
   });
@@ -131,6 +131,12 @@ describe("a phone screen's safe areas", () => {
     expect(phoneSafeAreaText("top: calc(6px + env(safe-area-inset-top, 0px)); color: red;", { top: 7, right: 0, bottom: 0, left: 0 })).toBe("top: calc(6px + 7px); color: red;");
     expect(phoneSafeAreaText("padding-left: max(var(--pad-frame), env(safe-area-inset-left, calc(1px + 2px)));", SAFE_AREA_PX.turned)).toBe("padding-left: max(var(--pad-frame), 59px);");
     expect(phoneSafeAreaText("padding-bottom: env(safe-area-inset-bottom);", SAFE_AREA_PX.phone)).toBe("padding-bottom: 34px;");
+  });
+  it("keep a screen's mark on a redirect within the site, and leave any other address alone", async () => {
+    const url = new URL("http://localhost:8800/signin/callback");
+    const mark = parseMark("main.phone.guest.still");
+    expect(await screenLocation("/join/username?next=%2F", url, mark)).toBe("/join/username?next=%2F&bench_screen=main.phone.guest.still");
+    expect(await screenLocation("https://example.test/elsewhere", url, mark)).toBe("https://example.test/elsewhere");
   });
 });
 

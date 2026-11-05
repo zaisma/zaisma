@@ -1,19 +1,17 @@
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE, SHADER_VERTEX_SOURCE } from "@zaisma/core";
 import { pageScript, pageScriptPath } from "../page-scripts.ts";
-import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, SHADER_HELPERS, ZAISMA_SHADE_PASS, ZAISMA_SHAPES, ZAISMA_SHARP_DRAWING, ZAISMA_SOFT_PASS, ZAISMA_STORED_PARTS, ZAISMA_STRIP_PASS, ZAISMA_LIVE_PARTS } from "./shaders.ts";
+import { SHADER_HELPERS, ZAISMA_SHADE_PASS, ZAISMA_SHAPES, ZAISMA_SHARP_DRAWING, ZAISMA_SOFT_PASS, ZAISMA_STORED_PARTS, ZAISMA_STRIP_PASS, ZAISMA_LIVE_PARTS } from "./shaders.ts";
 
 /**
  * Backdrops: every [data-backdrop] on a page. On a canvas, "shader" draws a shader background (shaders.ts: a mainImage function, the page's own in
  * data-backdrop-shader, or Zaisma's), "scene" leaves the drawing to the page: each frame the canvas gets a backdrop-frame event whose detail is
  * { timeS, colors: { base, a, b, c, isDark }, widthPx, heightPx }, and the page draws its 3D scene into the canvas then. A game's own background
  * (backgrounds.ts) is "frame", an iframe of its shader runner on the game's site, which is told whether the page is idle ({ panes: [],
- * isIdle }) and never bends light under glass (it can't redraw in the frame the page scrolls in), or "picture", an img; either measures its
- * glass (data-adapts-glass) from the still in data-backdrop-still (or the picture), never the frame. A shader or scene drawn in the page
- * reads the glass again in the frame the page scrolls in, so its bend follows the glass. Either way this keeps the canvas sized to its box,
+ * isIdle }), or "picture", an img; either measures its glass (data-adapts-glass) from the still in data-backdrop-still (or the picture), never
+ * the frame. Either way this keeps the canvas sized to its box,
  * follows the theme (a shader's iDark eases from one to the other), runs at most 30 frames a second, rests on a still after a minute with
  * no input on the page (a game's frame drops to 15 a second), stops while the page is hidden or the canvas is out of view, and under
- * reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD and the glass pass round its mainImage,
- * with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
+ * reduced motion draws one still frame. A shader is drawn in WebGL2 as a game's is (SHADER_HEAD round its mainImage, with iDark and SHADER_HELPERS besides), at fewer pixels (about a quarter of the screen's, less on
  * a phone), then sharpened as it's scaled up to its canvas (SHADER_UPSCALE_SOURCE); it gets fewer pixels, then a still frame, on a device that
  * can't keep up. Zaisma's own is drawn in parts instead, at the screen's own pixels (zaismaPrograms). Its shader isn't sent with every page: it's a file (ZAISMA_SHADER_SCRIPT) kept in
  * localStorage after the first visit, so from then on it draws in the first frame; until it's drawn its blurred placeholder shows (backdrop()), and it fades in over that. Without WebGL2 Zaisma's stays on its placeholder, and any other shader backdrop on its CSS gradient in the theme's colors.
@@ -27,7 +25,9 @@ function compactParts(parts: Record<string, string>): Record<string, string> {
 export const ZAISMA_SHADER_SCRIPT = pageScript("zaisma-shader", `window.zaismaShaderPartsArrived(${JSON.stringify(compactParts({ shapes: ZAISMA_SHAPES, live: ZAISMA_LIVE_PARTS, stored: ZAISMA_STORED_PARTS, draw: ZAISMA_SHARP_DRAWING, soft: ZAISMA_SOFT_PASS, strip: ZAISMA_STRIP_PASS, shade: ZAISMA_SHADE_PASS }))});`);
 
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
-  var HELPERS = ${JSON.stringify(compactParts({ helpers: SHADER_HELPERS }).helpers)}, GLASS_LIGHT = ${JSON.stringify(compactParts({ glass: GLASS_LIGHT_PASS }).glass)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
+  var HELPERS = ${JSON.stringify(compactParts({ helpers: SHADER_HELPERS }).helpers)};
+  // What runs a shader's mainImage for each pixel. Nothing is drawn for the glass over it: the browser moves glass ahead of anything a page can draw, so whatever a canvas drew for a pane would trail it on a scroll.
+  var RUNS_SHADER = "uniform vec2 zaismaViewOffset;\\nout vec4 zaismaFragColor;\\nvoid main() { vec4 color = vec4(0.0); mainImage(color, gl_FragCoord.xy + zaismaViewOffset); zaismaFragColor = vec4(color.rgb, 1.0); }";
   var PARTS_PATH = ${JSON.stringify(pageScriptPath(ZAISMA_SHADER_SCRIPT))}, PARTS_KEY = "zaisma-shader-parts", ZAISMA_PARTS = null, arePartsAsked = false;
   try { var keptParts = JSON.parse(localStorage.getItem(PARTS_KEY)); if (keptParts && keptParts.path === PARTS_PATH) ZAISMA_PARTS = keptParts.parts; } catch (error) {}
   function askForParts() { if (ZAISMA_PARTS || arePartsAsked) return; arePartsAsked = true; var script = document.createElement("script"); script.src = PARTS_PATH; document.head.appendChild(script); }
@@ -60,54 +60,21 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       c: rgb(css.getPropertyValue("--backdrop-c")), isDark: /dark/.test(css.colorScheme || "") };
   }
   /*
-   * Where the glass is. Each backdrop knows the pieces of glass over it (data-glass, not a control's), the largest PANE_LIMIT in view:
-   * the list is read again when the page changes (elements come or go, open or shut, the theme turns), their rectangles when it scrolls,
-   * resizes or a piece of glass changes size; never every frame. A piece of glass is over the backdrop of the nearest box holding one.
+   * Which glass is over which backdrop, read again when the page changes (elements come or go, open or shut, the theme turns), so each piece
+   * takes the glass its backdrop picked. A piece of glass is over the backdrop of the nearest box holding one. The canvas draws nothing for the
+   * glass, so moving or resizing glass asks for no frame.
    */
-  var isListStale = true, isPlaceStale = true, candidates = [], watched = typeof WeakSet === "function" ? new WeakSet() : null;
-  function markPlaceStale() { isPlaceStale = true; wake(); }
-  /*
-   * Scrolling: the browser moves the glass at once, on its own. A shader drawn in the page reads the glass again in the frame the page
-   * scrolled in, so its bend moves with it. A game's background runs in a frame on the game's own site, a page away: it can't redraw its
-   * bend in the same frame, so it would trail every pane. It bends nothing under glass, ever (tellFrame), and has nothing to move on a scroll.
-   */
-  function scrolling() { if (layers.some(function (layer) { return !layer.isOuter && layer.isInView; })) markPlaceStale(); }
+  var isListStale = true, isRedrawDue = true, candidates = [];
+  function markRedrawDue() { isRedrawDue = true; wake(); }
   function hostOf(el) { return el.closest(":has(> .backdrop)"); }
   function readList() {
-    isListStale = false; isPlaceStale = true;
+    isListStale = false; isRedrawDue = true;
     candidates = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (el) {
       el.glassHost = hostOf(el);
       if (el.glassHost && el.glassHost.shownGlass) setGlass(el, el.glassHost.shownGlass);
       var css = getComputedStyle(el);
-      el.glassIsSmoked = /dark/.test(css.colorScheme || "");
       return css.visibility !== "hidden" && css.display !== "none" && Number(css.opacity) > 0.05;
     });
-    candidates.forEach(function (el) { if (watched && !watched.has(el)) { watched.add(el); window.zaismaWatch.size(el, markPlaceStale); } });
-  }
-  // The pane's cuts as the edge rule reads them (GLASS_SCRIPT's window.zaismaCorners, from data-glass-corners), each at most 30% of its short side.
-  function glassCuts(el, width, height) {
-    var short = Math.min(width, height);
-    return window.zaismaCorners(el, "pane").map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
-  }
-  // Each drawn layer's panes, in its shader's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
-  function placeGlass(layer) {
-    var box = layer.canvas.getBoundingClientRect(), host = layer.canvas.parentElement, scale = layer.isOuter ? 1 : (layer.drawnWidth || layer.canvas.width) / Math.max(1, box.width), found = [];
-    candidates.forEach(function (el) {
-      if (el.glassHost !== host) return;
-      var r = el.getBoundingClientRect();
-      if (r.width < 24 || r.height < 24 || r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) return;
-      found.push({ el: el, r: r, area: r.width * r.height });
-    });
-    found.sort(function (a, b) { return b.area - a.area; });
-    found = found.slice(0, PANE_LIMIT).sort(function (a, b) { return a.area - b.area; });
-    var rects = new Float32Array(PANE_LIMIT * 4), cuts = new Float32Array(PANE_LIMIT * 4);
-    found.forEach(function (pane, i) {
-      var r = pane.r, c = glassCuts(pane.el, r.width, r.height);
-      rects.set([(r.left - box.left) * scale, (box.bottom - r.bottom) * scale, (r.right - box.left) * scale, (box.bottom - r.top) * scale], i * 4);
-      cuts.set([c[0] * scale, c[1] * scale, c[2] * scale, c[3] * scale + (pane.el.glassIsSmoked ? 4096 : 0)], i * 4);
-    });
-    layer.glass = { rects: rects, cuts: cuts, count: found.length, scale: scale, box: box, els: found.map(function (pane) { return pane.el; }) };
-    layer.isDrawn = false;
   }
   /*
    * Glass that adapts to its backdrop (data-adapts-glass): the colors of the whole backdrop are read once (a page's own shader after its
@@ -238,20 +205,16 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       console.warn("Backdrop shader:", gl.getShaderInfoLog(pending.fragment) || gl.getProgramInfoLog(pending.program));
       gl.deleteProgram(pending.program);
       built.status = "failed";
-      // The glass pass didn't build here: the shader alone instead.
-      if (built.plainSource) { var plainSource = built.plainSource; built.plainSource = null; built.status = "compiling"; built.hasPass = false; startBuild(built, plainSource); }
     }
     gl.deleteShader(pending.fragment);
     if (built.status !== "compiling") built.pending = null;
     return built.status === "ready";
   }
-  // A shader's program in the shared context, built once per source: the glass pass round its mainImage, or the shader alone on a device that can't build it.
+  // A shader's program in the shared context, built once per source.
   function programFor(context, source) {
     if (context.programs[source]) return context.programs[source];
-    var body = HEAD + "uniform float iDark;\\n" + HELPERS + source + "\\n";
-    var built = { status: "compiling", hasPass: true, names: ["iResolution", "iTime", "iDark", "iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaViewOffset"],
-      plainSource: body + "uniform vec2 zaismaViewOffset;\\nout vec4 zaismaFragColor;\\nvoid main() { vec4 color = vec4(0.0); mainImage(color, gl_FragCoord.xy + zaismaViewOffset); zaismaFragColor = vec4(color.rgb, 1.0); }" };
-    startBuild(built, body + GLASS_LIGHT);
+    var built = { status: "compiling", names: ["iResolution", "iTime", "iDark", "zaismaViewOffset"] };
+    startBuild(built, HEAD + "uniform float iDark;\\n" + HELPERS + source + "\\n" + RUNS_SHADER);
     context.programs[source] = built;
     return built;
   }
@@ -264,8 +227,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   function zaismaPrograms(context) {
     if (context.zaisma) return context.zaisma;
     var defined = HEAD + "uniform float iDark;\\n" + HELPERS, fine = defined + "#define RIDGE_OCTAVES 6\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.live;
-    var sharp = { status: "compiling", hasPass: true, names: ZAISMA_NAMES.concat(["iGlassPanes", "iGlassPaneCount", "zaismaPaneCuts", "zaismaPixel", "zaismaSoftA", "zaismaSoftB", "zaismaSoftC", "zaismaStrip", "zaismaShadeA", "zaismaShadeB", "zaismaUv"]) };
-    startBuild(sharp, defined + "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.stored + ZAISMA_PARTS.draw + "\\n" + GLASS_LIGHT);
+    var sharp = { status: "compiling", names: ZAISMA_NAMES.concat(["zaismaSoftA", "zaismaSoftB", "zaismaSoftC", "zaismaStrip", "zaismaShadeA", "zaismaShadeB", "zaismaUv"]) };
+    startBuild(sharp, defined + "#define RIDGE_OCTAVES 4\\n" + ZAISMA_PARTS.shapes + ZAISMA_PARTS.stored + ZAISMA_PARTS.draw + "\\n" + RUNS_SHADER);
     function pass(source) { var built = { status: "compiling", names: ZAISMA_NAMES }; startBuild(built, fine + source); return built; }
     context.zaisma = { sharp: sharp, soft: pass(ZAISMA_PARTS.soft), strip: pass(ZAISMA_PARTS.strip), shade: pass(ZAISMA_PARTS.shade) };
     return context.zaisma;
@@ -373,12 +336,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       if (isParts) drawZaisma(context, layer, canvas, width, height, timeS, colors.darkShare, sceneShare);
       else { gl.uniform3f(at.iResolution, sceneWidth, sceneHeight, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
       gl.uniform2f(at.zaismaViewOffset, (sceneWidth - drawnWidth) / 2, (sceneHeight - drawnHeight) / 2); }
-      var isFirstWithGlass = false;
-      if (built.hasPass) {
-        var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
-        gl.uniform4fv(at.iGlassPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1i(at.iGlassPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
-        isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && glass.count > 0;
-      }
+      // The whole backdrop is read once there's glass over it to take the reading.
+      var isFirstWithGlass = canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted && candidates.some(function (el) { return el.glassHost === canvas.parentElement; });
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       // Sharpened as it's scaled up to the canvas's size, onto the board.
       if (!isParts) {
@@ -452,14 +411,14 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     running = false;
     // A hidden page draws nothing; showing it again wakes the loop.
     if (document.hidden) return;
-    // At most 30 frames a second (15 when idle), but at once when the glass over it has moved, so what's under a pane never trails it.
+    // At most 30 frames a second (15 when idle), but at once when something asks for a redraw.
     var gapGoalMs = isIdle ? IDLE_FRAME_GAP_MS : FRAME_GAP_MS;
-    if (nowMs - lastMs < gapGoalMs && !isPlaceStale) { running = true; requestAnimationFrame(frame); return; }
+    if (nowMs - lastMs < gapGoalMs && !isRedrawDue) { running = true; requestAnimationFrame(frame); return; }
     // The first frame after a rest isn't a slow one: nothing was drawn while it rested.
     var gapMs = isWaking ? FRAME_GAP_MS : nowMs - lastMs; lastMs = nowMs; isWaking = false; isBuildWaited = isFirstPaintDue; isFirstPaintDue = false;
     tickClock(nowMs);
     if (isListStale) readList();
-    var isMoved = isPlaceStale; isPlaceStale = false;
+    var isDue = isRedrawDue; isRedrawDue = false;
     layers.forEach(function (layer) {
       if (!layer.isInView || layer.canvas.hasAttribute("data-backdrop-paused")) return;
       if (layer.isOuter) {
@@ -468,8 +427,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
         if (layer.canvas.hasAttribute("data-adapts-glass") && !layer.isGlassAdapted) adaptGlassFromStill(layer);
         return;
       }
-      if (layer.drawShader && (isMoved || !layer.glass)) placeGlass(layer);
-      // Still (reduced motion, or held on a slow device), it's drawn again only when the glass over it moves.
+      if (layer.drawShader && isDue) layer.isDrawn = false;
+      // Still (reduced motion, or held on a slow device), it's drawn again only when something asks for it.
       if ((layer.isHeld || still.matches || isAsleep) && layer.isDrawn) return;
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
@@ -479,7 +438,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       draw(layer, nowMs);
     });
     isBuildWaited = false;
-    if (isPlaceStale || isListStale || layers.some(isMoving)) { running = true; requestAnimationFrame(frame); }
+    if (isRedrawDue || isListStale || layers.some(isMoving)) { running = true; requestAnimationFrame(frame); }
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {
@@ -504,7 +463,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null };
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
-    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markPlaceStale(); } }; window.addEventListener("message", layer.onMessage); }
+    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; markRedrawDue(); } }; window.addEventListener("message", layer.onMessage); }
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
       // A background whose tone was measured when it was added says its glass (background-tone.ts): nothing to measure here.
@@ -513,13 +472,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
       if (!el.hasAttribute("data-adapts-glass") || !stillUrl) return;
       var picture = new Image();
-      picture.onload = function () { if (el.getAttribute("data-backdrop-still") !== stillUrl && kind !== "picture") return; layer.still = picture; layer.isGlassAdapted = false; markPlaceStale(); };
+      picture.onload = function () { if (el.getAttribute("data-backdrop-still") !== stillUrl && kind !== "picture") return; layer.still = picture; layer.isGlassAdapted = false; markRedrawDue(); };
       picture.src = stillUrl;
     }
     loadStill();
     new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src", "data-glass-kind"] });
-    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.isInView) markPlaceStale(); }).observe(el);
-    markPlaceStale(); showEdge();
+    if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; if (layer.isInView) markRedrawDue(); }).observe(el);
+    markRedrawDue(); showEdge();
   }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
@@ -548,7 +507,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
         width = Math.round(layer.drawnWidth * UPSCALE_NUMBER); height = Math.round(layer.drawnHeight * UPSCALE_NUMBER);
       }
       if (width === canvas.width && height === canvas.height) return;
-      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
+      canvas.width = width; canvas.height = height; layer.isDrawn = false;
       if (canvas.backdropLayer && !isFirstPaintDue && layer.isInView) draw(layer, performance.now());
     };
     layer.size();
@@ -589,7 +548,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       var layer = el.backdropLayer; if (!layer) return;
       layers = layers.filter(function (each) { return each !== layer; });
       if (layer.onMessage) window.removeEventListener("message", layer.onMessage);
-      el.backdropLayer = null; markPlaceStale(); showEdge();
+      el.backdropLayer = null; markRedrawDue(); showEdge();
     },
     forgetGlass: function () {
       document.querySelectorAll(":has(> .backdrop)").forEach(function (host) { host.shownGlass = null; });
@@ -597,8 +556,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     }
   };
   // The glass's places: a scroll or resize moves them, and the page's own changes may add, remove, open or shut a piece of glass.
-  window.zaismaWatch.scroll(scrolling);
-  window.zaismaWatch.resize(markPlaceStale);
+  window.zaismaWatch.resize(markRedrawDue);
   // Only changes to glass itself count: a class on a tab or the rail changing as you point doesn't make the list stale.
   function hasGlass(node) { return node.nodeType === 1 && (node.hasAttribute("data-glass") || Boolean(node.querySelector("[data-glass]"))); }
   window.zaismaWatch.page(function (changes) {

@@ -93,7 +93,9 @@ const LIST = {
 export type ActionName = keyof typeof LIST;
 /** An icon from the list: the only kind a button, tab, menu item or sidebar place takes. */
 export type ListedIcon = IconName & { readonly isFromTheList: true };
-export interface ListedAction {
+export interface ListedAction<Name extends ActionName = ActionName> {
+  /** Which action it is, so a button can refuse one that isn't its to carry. */
+  actionName: Name;
   label: string;
   icon: ListedIcon;
   pressedIcon?: ListedIcon;
@@ -102,9 +104,9 @@ export interface ListedAction {
 /**
  * An action's word and icon. words replaces its word where the page has to say more ("Mute Liam", "Report the room Northwatch"), never its icon.
  */
-export const action = (name: ActionName, words?: string): ListedAction => {
+export const action = <Name extends ActionName>(name: Name, words?: string): ListedAction<Name> => {
   const listed: { words: string; icon: IconName; pressedIcon?: IconName } = LIST[name];
-  return { label: words ?? listed.words, icon: listed.icon as ListedIcon, ...(listed.pressedIcon ? { pressedIcon: listed.pressedIcon as ListedIcon } : {}) };
+  return { actionName: name, label: words ?? listed.words, icon: listed.icon as ListedIcon, ...(listed.pressedIcon ? { pressedIcon: listed.pressedIcon as ListedIcon } : {}) };
 };
 
 /** Every action on the list, for the gallery. */

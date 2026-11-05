@@ -104,6 +104,8 @@ const PAGE_COSTS_SEC = {
   "Gallery: data lists": 50.5,
   "Gallery: the sidebar over the page": 49.2,
   "Gallery: over-a-game zaisma-overlay": 49,
+  "Gallery: layout page": 14.3,
+  "Gallery: layout inside": 14.3,
   Screens: 43.8,
   "Gallery: navigation bars": 41.1,
   "Gallery: data pictures": 41.1,

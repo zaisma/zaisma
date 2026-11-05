@@ -618,6 +618,8 @@ const ADMIN_TABS: [string, string][] = [
 export type PageShape = "reading" | "wide" | "full";
 
 interface LayoutBaseOptions {
+  /** The page runs behind a phone's notch and home bar, keeping what's on it clear by the safe areas: only where a game plays. Every other page stops at the notch. */
+  isFillingScreen?: boolean;
   title: string;
   body: Raw;
   head?: Raw;
@@ -703,8 +705,8 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
 <html lang="en" data-theme-choice="${colorTheme}"${options.pageShape ? html` data-page-shape="${options.pageShape}"` : ""}${rootStyle(options)}>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+${options.isFillingScreen ? html`<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">` : html`<meta name="viewport" content="width=device-width,initial-scale=1">`}
 <title>${options.title}</title>
 ${options.checkedPage ? checkedPageTag(options.checkedPage) : ""}
 <link rel="icon" href="/favicon.ico" sizes="32x32">

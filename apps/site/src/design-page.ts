@@ -39,18 +39,18 @@ function placeOfPath(pathname: string): { place: GalleryPlace } | { redirectPath
   if (place) return { place };
   const [, designPart, groupPart, subgroupPart, ...rest] = pathname.split("/");
   const group = COMPONENT_GROUPS.find((each) => each.group === groupPart)?.group;
-  if (designPart !== "design" || !group || rest.length || !subgroupsOf(group).length) return undefined;
+  if (designPart !== "design" || !group || rest.length) return undefined;
   if (subgroupPart === undefined) return { redirectPath: galleryPagePath(group) };
   // /design/foundations/look is /design.
   if (subgroupPart === subgroupsOf(group)[0]!.subgroup) return { redirectPath: galleryPagePath(group, subgroupPart) };
   return undefined;
 }
 
-/** A page's name in words: "Fields · Inputs", or a group's alone. */
+/** A page's name in words: "Fields · Inputs". */
 const placeName = (place: GalleryPlace) => {
   const groupName = COMPONENT_GROUPS.find((each) => each.group === place.group)!.name;
-  const subgroupName = COMPONENT_SUBGROUPS.find((each) => each.group === place.group && each.subgroup === place.subgroup)?.name;
-  return subgroupName ? `${subgroupName} · ${groupName}` : groupName;
+  const subgroupName = COMPONENT_SUBGROUPS.find((each) => each.group === place.group && each.subgroup === place.subgroup)!.name;
+  return `${subgroupName} · ${groupName}`;
 };
 
 /** Words that name a token (--spring) set as code: Jost draws two hyphens as one dash, and code never breaks a name across lines. */
@@ -73,7 +73,7 @@ const themeButton = (path: string, theme: GalleryTheme) => {
   const other = new URL(path, "https://zaisma.com");
   if (theme === "dark") other.searchParams.delete("theme");
   else other.searchParams.set("theme", "dark");
-  return secondaryButton(action("lightDark", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"), { href: `${other.pathname}${other.search}`, isLabelHidden: true, isSmall: true });
+  return secondaryButton(action("lightDark", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"), { href: `${other.pathname}${other.search}`, isLabelHidden: true, isSmall: true, dataAttributes: { "theme-button": "" } });
 };
 
 /**
@@ -132,7 +132,7 @@ export function designPage(env: Env, url: URL): Response | null {
 ${shown.map((each) => section(each, theme, url))}${place.group === "over-a-game" ? overGameStates(place.subgroup, theme) : ""}`;
   const checkedPage = galleryPageName(place);
   // The layout group's Screens example frames the example page; Data's pictures, Game media's YouTube video once it's pressed.
-  const frames = place.group === "layout" || place.group === "over-a-game" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
+  const frames = (place.group === "layout" && place.subgroup === "page") || place.group === "over-a-game" ? ["'self'"] : place.group === "data" && place.subgroup === "pictures" ? [YOUTUBE_FRAME_ORIGIN] : [];
   return galleryPage(env, { place, theme, path: `${url.pathname}${url.search}`, title: placeName(place), checkedPage, main, frames, ...(place.group === "over-a-game" ? { scripts: [OVER_GAME_SCRIPT] } : {}) });
 }
 
@@ -157,7 +157,7 @@ ${checkedPageTag(options.checkedPage)}
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass glass-bar pinned" data-compacts data-rail-starts-below data-glass data-glass-corners="header">${EDGE}<span class="gallery-start">${sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true })}</span>${logo("wordmark")}<span class="gallery-title">Design</span>
-${isLocalSite(env) ? html`<span class="gallery-screens">${secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true })}</span>` : ""}<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }, { kind: "control", markup: themeButton(options.path, theme) }] })}</span></header>
+<span class="gallery-buttons">${row({ widths: "fit", alignment: "end", items: [...(isLocalSite(env) ? [{ kind: "control" as const, id: "gallery-screens", markup: secondaryButton("Screens", { href: SCREENS_PATH, isSmall: true }) }] : []), { kind: "control", markup: themeButton(options.path, theme) }, { kind: "control", id: "gallery-sidebar-button", markup: sidebarButton({ controls: "gallery-places", label: "Groups", isExpanded: true }) }] })}</span></header>
 <div class="gallery-layout">${sidebarLayout({
     sidebar: sidebar({ id: "gallery-places", label: "Design", places, rememberKey: "gallery" }),
     main: html`<main class="gallery-main">
@@ -187,12 +187,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-bar > .logo { --logo-height: 24px; }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-buttons { margin-left: auto; }
-/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. */
-.gallery-screens { margin-left: auto; }
-.gallery-screens + .gallery-buttons { margin-left: 0; }
-@media (max-width: 760px) { .gallery-screens { display: none; } }
-/* The sidebar's button sits over the sidebar, at the bar's start; on a phone, where the sidebar is a sheet, in the bar's end corner. */
-@media (min-width: 761px) { .gallery-buttons [data-sidebar-button] { display: none; } }
+/* The way to the Screens bench, on a local preview: a computer's tool, so a phone's bar has no room kept for it. Its cell goes, so its row ends at what shows. */
+@media (max-width: 760px) { #gallery-screens { display: none; } }
+/* The sidebar's button is always at the bar's far edge: over the sidebar, at its start; on a phone, where the sidebar is a sheet, in its end corner, after light or dark. */
+@media (min-width: 761px) { #gallery-sidebar-button { display: none; } }
 .gallery-layout { max-width: var(--size-page-wide); margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); }
 .gallery-main { min-width: 0; }
 /* The page's name is already the current place in the sidebar, so on the page it's only for screen readers. */
@@ -247,7 +245,7 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
-/* Phones: the bar is one row (Zaisma, Design, the sidebar's button, light or dark), the sidebar a sheet the button slides over the page, and every example a column of its own. */
+/* Phones: the bar is one row (Zaisma, Design, light or dark, the sidebar's button), the sidebar a sheet the button slides over the page, and every example a column of its own. */
 @media (max-width: 760px) {
   .gallery-start { display: none; }
   /* One even inset all round, so the buttons sit the same distance from every edge of the pane; compact keeps it even, only smaller. */
@@ -287,7 +285,7 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another page of the gallery keeps it. (The sidebar folds away by itself: SIDEBAR_SCRIPT.)
-  var button = document.querySelector(".gallery-buttons a.cut-btn");
+  var button = document.querySelector("[data-theme-button]");
   // The Page settings example's Light or Dark (a Switch) follows the theme wherever it's changed.
   function pickTheme(theme) {
     document.querySelectorAll("[data-setting-theme] .tab-switch").forEach(function (sw) {
@@ -319,7 +317,7 @@ export const GALLERY_SCRIPT = pageScript(
     });
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-buttons a.cut-btn");
+    var link = event.target.closest && event.target.closest("[data-theme-button]");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
     apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");

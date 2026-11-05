@@ -123,6 +123,7 @@
     api.setPlaybackRate(look.isSlow ? SLOW_RATE : 1);
   }
 
+  let oneAtATime = Promise.resolve();
   // A state's steps, one form or address at a time: each answer's page takes the next.
   async function stepThrough(screen, steps, ready) {
     let stepIndex = 0;
@@ -132,7 +133,8 @@
       if (stepIndex >= steps.length) return ready();
       const step = steps[stepIndex++];
       screen.pending = [next];
-      if (step.path) { screen.frame.contentWindow.location.assign(step.path); return; }
+      // An address may be a way through a sign-in, and the screens share a person's cookies: one screen at a time.
+      if (step.path) { oneAtATime = oneAtATime.then(() => new Promise((done) => { screen.pending = [() => { done(); next(); }]; screen.frame.contentWindow.location.assign(addressFor(screen, step.path)); })); return; }
       const form = [...doc.querySelectorAll("form")].find((each) => each.getAttribute("action") === step.formAction);
       if (!form) return ready();
       const word = Math.random().toString(36).slice(2, 10);
@@ -158,7 +160,8 @@
 
   // A press: enter it on every screen in play, on its page and as its person, then mark it seen.
   function arrive(state, then) {
-    const profile = state.profile && bench.profile !== state.profile ? state.profile : null;
+    // As a guest again, too, when a sign-in on the way left the guest signed in here.
+    const profile = state.profile && (bench.profile !== state.profile || (state.profile === "guest" && bench.isSignedIn)) ? state.profile : null;
     const isOnPage = allScreens.every((screen) => isSameAddress(screen.address, state.path));
     if (big) { arriveBig(state, then); return; }
     if (profile) { bench.profile = profile; forgetOnce(profile); drawProfile(); }
@@ -230,7 +233,7 @@
   }
   const isSeen = (state) => seenHere.has(seenKey(state)) || matchingLooks.has(seenKey(state));
 
-  const canSee = (state) => (state.seenBy === "both" || state.seenBy === (bench.isSignedIn ? "signed_in" : "guest"));
+  const canSee = (state) => (Boolean(state.profile) || state.seenBy === "both" || state.seenBy === (bench.isSignedIn ? "signed_in" : "guest"));
   function drawRail() {
     const shown = data.states.filter((state) => state.placeValue === bench.placeValue && canSee(state));
     let seenCount = 0;
@@ -287,6 +290,8 @@
       // What a state opened was closed in the page, by its own Close or Esc: its button comes back up.
       if (message.kind === "state-left") { if (screen === activeScreens()[0]) unpress(message.key); return; }
       if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
+      // A phone on its side: a page stops at its side bars, as in a browser, unless it fills the screen.
+      if (message.kind === "page-fill") { const sideBarPx = message.isFillingScreen ? 0 : Number(screen.figure.dataset.sideBarPx); screen.frame.width = screen.widthPx - 2 * sideBarPx; screen.frame.style.setProperty("--side-bar", `${sideBarPx}px`); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
       if (big) { big.isChanged = true; if (message.kind === "click") big.lastDone = { kind: "click", message, address: screen.address }; return; }

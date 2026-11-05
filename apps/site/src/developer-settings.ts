@@ -17,7 +17,7 @@ import { answerGameDeletionRequest, gameDeletionRequestAnswer } from "./game-del
 import { stripeAccountRow, stripeAccountWithBalance } from "./stripe-account-api.ts";
 import { stripeFormTargets } from "./stripe.ts";
 import { waitEndsText } from "./email-codes.ts";
-import { action, type ButtonWords, secondaryButton, primaryButton, textLink, visibilityButton } from "./components/actions.ts";
+import { action, type SecondaryButtonWords, secondaryButton, primaryButton, textLink, visibilityButton } from "./components/actions.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
 import { paneParts, stack, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import type { ControlMarkup } from "./components/control-markup.ts";
@@ -238,7 +238,7 @@ function settingsPane(id: string, title: string, items: LayoutItem[], corner?: {
 }
 
 /** A row's small button that opens a sheet. */
-const opens = (button: ButtonWords, sheetId: string): ControlMarkup => secondaryButton(button, { type: "button", isSmall: true, controls: sheetId });
+const opens = (button: SecondaryButtonWords, sheetId: string): ControlMarkup => secondaryButton(button, { type: "button", isSmall: true, controls: sheetId });
 /** A row's ⋯, hanging a dropdown of what's done less often. */
 const more = (what: string, menuId: string): ControlMarkup => secondaryButton(action("more", `More for ${what}`), { type: "button", isSmall: true, isLabelHidden: true, controls: menuId, isExpanded: false });
 

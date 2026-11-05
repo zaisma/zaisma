@@ -21,13 +21,14 @@ export const COMPONENT_GROUPS: { group: ComponentGroup; name: string }[] = [
 ];
 
 /**
- * Each group's subgroups, a page of the gallery each (/design/<group>/<subgroup>), in gallery order. A group with none listed (Layout) is
- * one page, and its components name none.
+ * Each group's subgroups, a page of the gallery each (/design/<group>/<subgroup>), in gallery order.
  */
 export const COMPONENT_SUBGROUPS: { group: ComponentGroup; subgroup: string; name: string }[] = [
   { group: "foundations", subgroup: "look", name: "Look" },
   { group: "foundations", subgroup: "pictures", name: "Pictures" },
   { group: "foundations", subgroup: "backgrounds", name: "Backgrounds" },
+  { group: "layout", subgroup: "page", name: "Page" },
+  { group: "layout", subgroup: "inside", name: "Inside" },
   { group: "actions", subgroup: "buttons", name: "Buttons" },
   { group: "actions", subgroup: "words", name: "Words" },
   { group: "inputs", subgroup: "fields", name: "Fields" },
@@ -54,31 +55,27 @@ export const COMPONENT_SUBGROUPS: { group: ComponentGroup; subgroup: string; nam
   { group: "over-a-game", subgroup: "sheets", name: "Sheets" },
 ];
 
-/** A group's subgroups in gallery order; none for a group that's one page. */
+/** A group's subgroups in gallery order. */
 export const subgroupsOf = (group: ComponentGroup) => COMPONENT_SUBGROUPS.filter((each) => each.group === group);
 
-/** A page of the gallery: a group's subgroup, or a group that's one page (Layout). */
+/** A page of the gallery: a group's subgroup. */
 export interface GalleryPlace {
   group: ComponentGroup;
-  subgroup?: string;
+  subgroup: string;
 }
 
-/** Every page of the gallery in order: a page per subgroup, and one for a group with none. */
-export const GALLERY_PLACES = (): GalleryPlace[] =>
-  COMPONENT_GROUPS.flatMap(({ group }) => {
-    const subgroups = subgroupsOf(group);
-    return subgroups.length ? subgroups.map(({ subgroup }) => ({ group, subgroup })) : [{ group }];
-  });
+/** Every page of the gallery in order: a page per subgroup. */
+export const GALLERY_PLACES = (): GalleryPlace[] => COMPONENT_GROUPS.flatMap(({ group }) => subgroupsOf(group).map(({ subgroup }) => ({ group, subgroup })));
 
 /**
- * Where a page of the gallery is: Foundations' first subgroup at /design, a group with none at /design/<group>, every other subgroup at
- * /design/<group>/<subgroup>. A group without its subgroup is its first.
+ * Where a page of the gallery is: Foundations' first subgroup at /design, every other subgroup at /design/<group>/<subgroup>. A group
+ * without its subgroup is its first.
  */
 export const galleryPagePath = (group: ComponentGroup, subgroup?: string): string => {
-  const first = subgroupsOf(group)[0]?.subgroup;
+  const first = subgroupsOf(group)[0]!.subgroup;
   const shown = subgroup ?? first;
   if (group === "foundations" && shown === first) return "/design";
-  return shown ? `/design/${group}/${shown}` : `/design/${group}`;
+  return `/design/${group}/${shown}`;
 };
 
 export interface ComponentExample {
@@ -99,8 +96,8 @@ export interface Component {
   /** Lowercase words joined by dashes, unique: the anchor #<slug> and the frame path /design/frame/<slug>. */
   slug: string;
   group: ComponentGroup;
-  /** Its subgroup's slug, one COMPONENT_SUBGROUPS lists for its group: the gallery page it's on. None for a group that's one page. */
-  subgroup?: string;
+  /** Its subgroup's slug, one COMPONENT_SUBGROUPS lists for its group: the gallery page it's on. */
+  subgroup: string;
   /** The slug of the component on its page it comes right after, when that one is defined later (in another file); otherwise it comes in the order defined. */
   after?: string;
   /** One plain line on when to use it. */
@@ -135,8 +132,7 @@ const inOrder = (components: Component[]): Component[] => {
 export const COMPONENTS = (): Component[] =>
   COMPONENT_GROUPS.flatMap(({ group }) => {
     const ofGroup = inOrder([...componentsBySlug.values()].filter((each) => each.group === group));
-    const subgroups = subgroupsOf(group);
-    return subgroups.length ? subgroups.flatMap(({ subgroup }) => ofGroup.filter((each) => each.subgroup === subgroup)) : ofGroup;
+    return subgroupsOf(group).flatMap(({ subgroup }) => ofGroup.filter((each) => each.subgroup === subgroup));
   });
 
 export const componentBySlug = (slug: string): Component | undefined => componentsBySlug.get(slug);

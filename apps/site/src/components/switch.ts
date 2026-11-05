@@ -378,6 +378,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
             sw.pickTab(tab);
             shutOtherFolders();
             clearTimeout(leaving);
+            document.dispatchEvent(new Event("zaisma-leaving-page"));
             leaving = setTimeout(function () { location.assign(tab.href); }, slideMs(slab));
             return;
           }
@@ -635,6 +636,7 @@ const MOTIONS: { token: string; use: string }[] = [
   { token: "--motion-state", use: "a state fading, and anything leaving" },
   { token: "--motion-page-switch", use: "moving to the next page" },
   { token: "--motion-arrive", use: "a layer arriving" },
+  { token: "--motion-float", use: "a floating pane coming and going" },
   { token: "--motion-glide", use: "a slab gliding, a size changing" },
   { token: "--motion-settle", use: "a flare settling" },
   { token: "--motion-world", use: "a game's world fading in" },
@@ -642,6 +644,7 @@ const MOTIONS: { token: string; use: string }[] = [
   { token: "--motion-loop-slow", use: "a slower light looping" },
   { token: "--ease-standard", use: "easing in and out, with no overshoot" },
   { token: "--ease-glide", use: "starting fast and settling" },
+  { token: "--ease-settle", use: "sliding across and settling a touch past its place" },
   { token: "--ease-leave", use: "gathering speed on the way out" },
   { token: "--ease-spring", use: "swinging a little past its place and back" },
   { token: "--spring", use: "the same spring, by its short name" },

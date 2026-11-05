@@ -1056,6 +1056,8 @@ const STATE_STYLES = `
 .state-note > .ico { width: 24px; height: 24px; color: var(--marked); }
 .state-note.done > .ico { color: var(--tag-new-ink); }
 .state-words { display: grid; gap: var(--gap-words-words); max-width: 46ch; }
+/* The note keeps its own even room above and below: a pane's edge adds no margin to its words, which it would on one side only where a hidden list stands before it. */
+.state-note :is(.state-title, .state-text) { --pad-words: 0px; --edge-room: 0px; }
 .state-title { margin: 0; font: var(--type-name); color: var(--ink); }
 .state-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 .state-action { justify-self: stretch; display: grid; margin-top: calc(var(--gap-block-block) - var(--gap-words-control)); }
@@ -1493,7 +1495,7 @@ export function details(options: DetailsOptions): Raw {
 }
 
 /** A game's own pane on its page, as the game page lays it out: its name and maker, its Key details, Play, then its Details. */
-function gamePaneExample(facts: GameKeyDetails = { playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }], playedAtMs: Date.now() - 3 * 24 * HOUR_MS, updatedAtMs: Date.now() - 26 * HOUR_MS, updatesHref: "#details" }): Raw {
+export function gamePaneExample(facts: GameKeyDetails = { playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }], playedAtMs: Date.now() - 3 * 24 * HOUR_MS, updatedAtMs: Date.now() - 26 * HOUR_MS, updatesHref: "#details" }): Raw {
   return glassPane({
     paneWidth: "fit",
     label: "Ashen Crown",

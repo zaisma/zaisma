@@ -42,8 +42,8 @@ describe("pagesForChangedFiles", () => {
     expect(pagesForChangedFiles(["docs/NAMING.md"], ["/browse"])).toEqual([]);
   });
   it("maps a changed component file to the gallery pages that show its components", () => {
-    const source = 'component({ name: "QR code", slug: "qr-code", group: "data", subgroup: "pictures", summary: "" }); component({ name: "Thing", slug: "thing", group: "layout", summary: "" });';
-    expect(pagesForChangedFiles(["apps/site/src/components/qr-code.ts"], ["/design/data/pictures", "/design/layout", "/design/inputs/fields"], () => source)).toEqual(["/design/data/pictures", "/design/layout"]);
+    const source = 'component({ name: "QR code", slug: "qr-code", group: "data", subgroup: "pictures", summary: "" }); component({ name: "Thing", slug: "thing", group: "layout", subgroup: "inside", summary: "" });';
+    expect(pagesForChangedFiles(["apps/site/src/components/qr-code.ts"], ["/design/data/pictures", "/design/layout/inside", "/design/inputs/fields"], () => source)).toEqual(["/design/data/pictures", "/design/layout/inside"]);
   });
 });
 

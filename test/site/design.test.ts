@@ -6,6 +6,8 @@ import { COMPONENTS, COMPONENT_STYLES, hoverOnlyWherePointing } from "../../apps
 import { MATERIAL_STYLES } from "../../apps/site/src/components/materials.ts";
 import { COMPONENT_GROUPS, GALLERY_PLACES, component, galleryPagePath } from "../../apps/site/src/components/component.ts";
 import { TOKEN_STYLES } from "../../apps/site/src/components/tokens.ts";
+import { gameMedia } from "../../apps/site/src/components/game-media.ts";
+import { STAND_IN_COVER_PICTURES } from "../../apps/site/src/generated/stand-in-placeholders.generated.ts";
 import { GALLERY_STYLES } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
@@ -13,7 +15,7 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
@@ -175,7 +177,7 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
+    const VARIANTS: Record<string, string> = { gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
     // Not markup: an action's words and icon, and styles shared by what shows an icon alone.
     const NOT_MARKUP = new Set(["action", "iconAloneFace", "tabIconsAlone"]);
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
@@ -213,8 +215,8 @@ describe("the gallery", () => {
     const slugs = COMPONENTS().map((each) => each.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z]+(-[a-z]+)*$/);
-    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
-    expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
+    expect(() => component({ name: "Again", slug: "primary-button", group: "actions", subgroup: "buttons", summary: "", styles: "", examples: [] })).toThrow(/Two components/);
+    expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", subgroup: "buttons", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
   it("never moves what you point at or press, only what's inside it, so the pointer can't slip off as it moves", () => {
@@ -497,8 +499,8 @@ describe("the gallery", () => {
     expect(fields.text).toContain('<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="false"><span>Actions</span>');
     expect(fields.text).toContain('href="/design/actions/words"');
     expect(fields.text).toMatch(/<button [^>]*data-sidebar-button[^>]*aria-controls="gallery-places" aria-expanded="true"/);
-    expect((await page("/design/layout")).response.status).toBe(200);
-    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/materials?theme=dark"]] as const) {
+    expect((await page("/design/layout/inside")).response.status).toBe(200);
+    for (const [path, location] of [["/design/inputs", "/design/inputs/fields"], ["/design/layout", "/design/layout/page"], ["/design/foundations", "/design"], ["/design/foundations/look", "/design"], ["/design/panes?theme=dark", "/design/panes/materials?theme=dark"]] as const) {
       const response = await SELF.fetch(`${SITE}${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(308);
       expect(response.headers.get("location"), path).toBe(location);
@@ -633,7 +635,7 @@ describe("components", () => {
     // the passkey, Google and Discord buttons are square between and only the last of the stack is cut at the foot, wherever it's scrolled to.
     expect(glassScriptSource).toContain('function contentRectOf(el, holder)');
     // The box that scrolls round it, never itself: a table capped in height scrolls inside itself, and sits where it sits.
-    expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll")');
+    expect(glassScriptSource).toContain('el.parentElement && el.parentElement.closest(".own-scroll, .scrolls")');
     // The scroller's offsets are read with the rest of a pass's measures, before anything is drawn (scrollOf).
     expect(glassScriptSource).toContain("top: p.top - scrolled.scrollTop");
     expect(glassScriptSource).toContain("bottom: p.bottom + scrolled.scrollHeight - scrolled.clientHeight - scrolled.scrollTop");
@@ -641,17 +643,20 @@ describe("components", () => {
     expect(glassScriptSource).not.toContain("p = rectOf(holder), ends");
   });
 
-  it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
-    // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
-    // rectangles and cut corners to the pass round the shader, whose arrays are that long.
-    expect(MOST_GLASS_PANE_COUNT).toBeLessThanOrEqual(16);
-    expect(BACKDROP_SCRIPT).toContain('document.querySelectorAll("[data-glass]:not([data-cut-line])")');
-    expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
-    expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
-    expect(BACKDROP_SCRIPT).toContain('window.zaismaCorners(el, "pane")');
+  it("stops a page at a phone's notch, and only asks for the whole screen where a game plays", async () => {
+    const { text } = await page("/signin");
+    expect(text).toContain('<meta name="viewport" content="width=device-width,initial-scale=1">');
+    expect(text).not.toContain("viewport-fit=cover");
+    expect(text).not.toContain("black-translucent");
+  });
+
+  it("draws nothing in the backdrop for the glass, so nothing trails a pane on a scroll", () => {
+    // The browser moves glass ahead of anything a page can draw: a backdrop only runs its shader, and asks for no frame when glass moves.
+    expect(backdropScriptSource).not.toContain("iGlassPanes");
+    expect(BACKDROP_SCRIPT).not.toContain("zaismaWatch.scroll");
+    expect(BACKDROP_SCRIPT).toContain("mainImage(color, gl_FragCoord.xy + zaismaViewOffset)");
+    // What a developer's shader can read stays: it still builds, with no glass told to it.
     expect(SHADER_HEAD).toContain(`uniform vec4 iGlassPanes[${MOST_GLASS_PANE_COUNT}];`);
-    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
-    // Every shader keeps its own mainImage: the pass calls it once a pixel.
     expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);
   });
 
@@ -1315,6 +1320,74 @@ describe("layout", () => {
     expect(PANE_PARTS_STYLES).toContain(".pane-head-end, .pane-foot-end { display: flex; margin-inline-start: auto; }");
   });
 
+  it("folds covers and cards to one across where two can't have their least width", () => {
+    for (const itemSize of ["cover", "card"]) expect(GRID_STYLES).toContain(`.layout-grid.item-${itemSize} { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--size-${itemSize})), 1fr)); }`);
+  });
+
+  it("centers a State note in what holds it: a pane's edge adds no margin to its words", () => {
+    expect(COMPONENTS().find((each) => each.slug === "state-note")!.styles).toContain(".state-note :is(.state-title, .state-text) { --pad-words: 0px; --edge-room: 0px; }");
+  });
+
+  it("puts up to six covers on one line, going by what holds them, and refuses a seventh", () => {
+    const whenEmpty = data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." });
+    const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
+    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
+    expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
+    // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
+    expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }");
+    expect(tokensSource).toContain("--size-cover: 180px");
+    expect(tokensSource).toContain("--gap-control-stack: 8px");
+  });
+
+  it("gives a bench screen its own bezel, so it draws with no bench round it", () => {
+    expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
+  });
+
+  it("keeps what's in a carving clear of its slant, wherever it's beside another control", () => {
+    expect(COMPONENT_STYLES()).toContain('.carving[data-slanted~="start"] { --slant-start: calc(var(--control-slant) / 2); }');
+    expect(COMPONENT_STYLES()).toContain('.carving[data-slanted~="end"] { --slant-end: calc(var(--control-slant) / 2); }');
+    expect(COMPONENT_STYLES()).toContain("right: calc(var(--pad-inside-words) + var(--slant-end, 0px));");
+  });
+
+  it("presses only the thumb whose own label is busy, never every thumb on a page with something busy", () => {
+    expect(COMPONENT_STYLES()).not.toContain(', :has(input[aria-busy="true"]), .is-held) .thumb');
+  });
+
+  it("places no control by hand: what's at a holder's edge comes from a layout piece", () => {
+    // Taken out of its flow by a rule of its own, a control keeps whatever gap someone typed, and the edge rule cuts its corner from another.
+    const problems = [...COMPONENT_STYLES().replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector = "", rules = ""]) => /position:\s*(absolute|fixed)/.test(rules) && selector.split(",").some((part) => /\.(cut-btn|tertiary-btn)(:[a-z-]+)?\s*$/.test(part.trim())))
+      .map(([, selector = ""]) => selector.trim());
+    expect(problems).toEqual([]);
+  });
+
+  it("puts a control in a carving in its one place, cut along the carving's corner wherever its face stands", () => {
+    const styles = COMPONENT_STYLES();
+    expect(styles).toContain(".carving-end { position: absolute; z-index: 5; top: var(--pad-frame-compact);");
+    expect(styles).not.toContain(".field > .cut-btn {");
+    expect(styles).not.toContain(".well > .well-end {");
+    expect(styles).not.toContain(".find > .tertiary-btn {");
+    // An icon in a field or a search is centered by its own place, wherever the field stands.
+    for (const holder of [".field", ".find"]) expect(styles).toMatch(new RegExp(`\\${holder} > \\.ico \\{[^}]*top: 50%; transform: translateY\\(-50%\\);`));
+    expect(layoutComponents.carvingEnd(actions.secondaryButton("Copy")).html).toMatch(/^<span class="carving-end">/);
+    expect(COMPONENTS().some((each) => each.slug === "carving-end" && each.group === "layout")).toBe(true);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toContain('<span class="carving-end"><button');
+    expect(glassScriptSource).toContain('el.parentElement.classList.contains("toggle-btn") ? el.parentElement : el');
+  });
+
+  it("keeps a track and its rail in one holder, so what holds it never puts its gap between them", () => {
+    expect(track({ whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), id: "covers", itemSize: "cover", items: [block("a")] }).html).toMatch(/^<div class="track-holder"><div class="layout-track item-cover"/);
+    expect(TRACK_STYLES).toContain(".track-holder { display: flex; flex-direction: column; min-width: 0; }");
+  });
+
+  it("lays a track's pictures closer than its covers, by what it says it holds", () => {
+    expect(TRACK_STYLES).toContain(".layout-track.item-picture { gap: var(--gap-control-stack); }");
+    expect(TRACK_STYLES).not.toContain("media-well");
+    expect(gameMedia({ id: "media", gameTitle: "Ashen Crown", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["verdant"]! }, { mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["kestrel"]! }] }).html).toContain('class="layout-track item-picture"');
+  });
+
   it("takes only named sizes: a grid's cells, a track's covers, columns' halves, never a number of a page's", () => {
     expect(grid({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
@@ -1388,7 +1461,7 @@ describe("layout", () => {
     expect(markup).toContain('id="filled-later"');
     expect(STACK_STYLES).toContain(".stack-cell:is(:empty, :has(> [hidden]:only-child)) { display: none; }");
     // @ts-expect-error: a grid's cell is a block or words, never a bare control.
-    grid({ itemSize: "figure", items: [{ kind: "control", markup: actions.secondaryButton("Keep", { type: "button" }) }] });
+    grid({ itemSize: "card", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ kind: "control", markup: actions.secondaryButton("Keep", { type: "button" }) }] });
     // @ts-expect-error: a column holds a pane or a stack, never a bare control.
     columns({ columns: [actions.secondaryButton("Keep", { type: "button" }), html`<p>Beside</p>`] });
   });
