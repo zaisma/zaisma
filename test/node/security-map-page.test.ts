@@ -7,7 +7,7 @@ import { buildDemoPage, buildPage, MAXIMUM_PAGE_BYTES } from "../../scripts/secu
 // @ts-expect-error: a plain JavaScript script without types
 import { demoScenarios } from "../../scripts/security-map/page/demo-data.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { escapeHtml, summaryLineOf } from "../../scripts/security-map/page/render.mjs";
+import { escapeHtml, summaryLineOf, thinLineOf } from "../../scripts/security-map/page/render.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { pageDataHashOf, pageDataOf, pageDataOfMapDir, shieldStateOf } from "../../scripts/security-map/page-data.mjs";
 import {
@@ -123,6 +123,48 @@ describe("what needs attention", () => {
   });
 });
 
+describe("the thin spots", () => {
+  const wayOf = (way_id: string, defense_score: number, damage_score: number) => ({ way_id, way_line: `Way ${way_id}.`, defense_score, damage_score, defense_reason: "PLANTED_DEFENSE_REASON", damage_reason: "PLANTED_DAMAGE_REASON", anchors: [], score_stale_reason: null });
+  const promises = [
+    promiseOf({ ways_to_break: [wayOf("far", 3, 4), wayOf("open", 1, 5), wayOf("vault", 4, 5), wayOf("near", 3, 3)] }),
+    promiseOf({ sector_id: "money", rollout_position: 2, ways_to_break: [wayOf("money", 3, 5)] }),
+  ];
+  const thinOf = (items: unknown[]) => dataOf(items, { promises }).thin_ways.map((way: { way_line: string }) => way.way_line);
+
+  it("are the ways reaching many games or money past one lock or less, worst harm first, then the weakest lock", () => {
+    expect(thinOf([])).toEqual(["Way open.", "Way money.", "Way far."]);
+    expect(dataOf([], { promises }).work_ahead.thin_way_count).toBe(3);
+  });
+
+  it("leave the list only for a proven, open item on that way at its full weight", () => {
+    const onMoney = (fields: Record<string, unknown>) => itemOf({ sector_id: "money", way_id: "money", defense_score: 3, damage_score: 5, ...fields });
+    expect(thinOf([onMoney({})])).toEqual(["Way open.", "Way far."]);
+    expect(thinOf([onMoney({ defense_score: 5, damage_score: 2 })])).toContain("Way money.");
+    expect(thinOf([onMoney({ item_kind: "question" })])).toContain("Way money.");
+    expect(thinOf([onMoney({ item_state: "done" })])).toContain("Way money.");
+    expect(thinOf([onMoney({ sector_id: "rooms" })])).toContain("Way money.");
+  });
+
+  it("never move a shield or the summary, and carry only the way's line and its steps", () => {
+    const data = dataOf([], { promises });
+    expect(data.shield_state).toBe("whole");
+    expect(data.ahead_count).toBe(0);
+    expect(data.thin_ways[0]).toEqual({ sector_id: "rooms", sector_name: expect.any(String), way_line: "Way open.", harm_level: "everyone", harm_line: "Harm words 5", lock_level: "open", lock_line: "Lock words 1" });
+  });
+
+  it("show under the shield as a line and a list, and not at all when there are none", () => {
+    const html: string = buildPage(dataOf([], { promises }));
+    expect(html).toContain(thinLineOf(3));
+    expect(html).toContain("Behind one lock");
+    expect(html).toContain("Way far.");
+    expect(html).not.toContain("PLANTED");
+    expect(thinLineOf(1)).toBe("1 way to break would reach many games or money past one lock.");
+    const none = buildPage(dataOf([], { promises: [promiseOf({ ways_to_break: [wayOf("near", 3, 3)] })] }));
+    expect(none).not.toContain("Behind one lock");
+    expect(none).not.toContain("past one lock");
+  });
+});
+
 describe("the built page", () => {
   it("carries only the named fields: no reason, anchor, proof, finding or score reaches it", () => {
     const html: string = buildPage(dataOf([itemOf({ defense_score: 1, damage_score: 5 })]));
@@ -175,6 +217,8 @@ describe("the built page", () => {
     expect(new Set(statesOf("whole"))).toEqual(new Set(["whole"]));
     expect(new Set(statesOf("broken"))).toEqual(new Set(["whole", "cracked", "chipped", "torn"]));
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "nothing").page_data.attention_count).toBe(0);
+    expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "nothing").page_data.thin_ways).toEqual([]);
+    expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "whole").page_data.thin_ways.length).toBeGreaterThan(0);
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "many").page_data.attention_count).toBeGreaterThan(30);
     const html: string = buildDemoPage();
     expect(Buffer.byteLength(html)).toBeLessThan(MAXIMUM_PAGE_BYTES);

@@ -13,6 +13,9 @@ const DEMO_SCALES = {
 
 const demoWay = (sectorId, index, defense_score, damage_score) => ({ way_id: `${sectorId}-way-${index}`, way_line: `Sample way ${index} this promise could break, in a plain sentence.`, defense_score, damage_score, score_stale_reason: null });
 
+/** A thin way in the first four sectors: harm that reaches far, behind one lock. */
+const thinWaysOf = (sectorId, index) => (index < 4 ? [demoWay(sectorId, 4, 3, index < 3 ? 5 : 4)] : []);
+
 const DEMO_PROMISES = SECTORS.map(({ sector_id, sector_name }, index) => ({
   sector_id,
   rollout_position: index + 1,
@@ -23,8 +26,10 @@ const DEMO_PROMISES = SECTORS.map(({ sector_id, sector_name }, index) => ({
     { strength_kind: "tested", strength_line: "Sample tests on every merge.", strength_stale_reason: null },
     { strength_kind: "trusted", strength_line: "A sample service kept by someone else.", strength_stale_reason: null },
   ],
-  ways_to_break: [demoWay(sector_id, 1, 3, 1), demoWay(sector_id, 2, 4, 3), demoWay(sector_id, 3, 5, 5)],
+  ways_to_break: [demoWay(sector_id, 1, 3, 1), demoWay(sector_id, 2, 4, 3), demoWay(sector_id, 3, 5, 5), ...thinWaysOf(sector_id, index)],
 }));
+
+const PROMISES_WITH_NO_THIN_WAYS = DEMO_PROMISES.map((promise) => ({ ...promise, ways_to_break: promise.ways_to_break.slice(0, 3) }));
 
 function demoItem(sector_id, itemNumber, { defense_score, damage_score, item_state = "next", item_kind = "item", calls = [], waits_on = [] }) {
   return {
@@ -56,10 +61,10 @@ function manyItems() {
 
 const dataOf = (items, extra = {}) => pageDataOf({ scales: DEMO_SCALES, promises: DEMO_PROMISES, items, grid: null, patterns: null, lastReviewDate: "2026-11-03", ...extra });
 
-/** The states to judge: every shield whole, one sector in each broken state, nothing needing attention, and many items ahead. */
+/** The states to judge: every shield whole with thin spots left, one sector in each broken state, nothing at all, and many items ahead. */
 export const demoScenarios = () => [
   { scenario_id: "whole", scenario_name: "Every shield whole", page_data: dataOf(WATCH_ITEMS) },
   { scenario_id: "broken", scenario_name: "Cracked, chipped, torn", page_data: dataOf(EACH_BROKEN_ITEMS) },
-  { scenario_id: "nothing", scenario_name: "Nothing at all", page_data: dataOf([]) },
+  { scenario_id: "nothing", scenario_name: "Nothing at all", page_data: dataOf([], { promises: PROMISES_WITH_NO_THIN_WAYS }) },
   { scenario_id: "many", scenario_name: "Many items ahead", page_data: dataOf(manyItems(), { grid: { failures: [{}, {}, {}], doors_not_tried: [] }, patterns: { findings: Array.from({ length: 35 }, () => ({})) } }) },
 ];
