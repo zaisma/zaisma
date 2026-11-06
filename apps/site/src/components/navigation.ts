@@ -1302,18 +1302,17 @@ component({
    keeping the pane's margin at its end too. */
 .game-row { container-type: inline-size; --game-row-words-inset: var(--pad-words); }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
-   from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
-.game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
+   from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get; one that scrolls has its rail flush along the well's foot. */
+.game-row-well { padding-block: 0; --rail-inset: 0px; }
 /* All in view: the frame gap round the cards and between them, as in a track. */
 .game-row-well.all-in-view { padding: var(--pad-frame); }
 .game-row-well.all-in-view .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 .game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
 .game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
-.game-row-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
-/* Its rail runs inside the well, the frame gap from its sides and from the covers above it. */
+/* Its rail runs along the well's foot from edge to edge, the frame gap under the covers, its ends cut with the well's corners. */
 .game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
-.game-row-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
+.game-row-well > .track-holder > .rail.sideways > .rail-line { left: 0; right: 0; }
 .game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
