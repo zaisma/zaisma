@@ -367,7 +367,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   window.addEventListener("resize", placeAll);
   window.addEventListener("scroll", placeAll, { passive: true, capture: true });
   function resetOnceGone(sheet) {
-    if (getComputedStyle(sheet).display === "none") { reset(sheet); return; }
+    var display = getComputedStyle(sheet).display;
+    if (!display || display === "none" || !sheet.addEventListener) { reset(sheet); return; }
     var isDone = false, fallback = setTimeout(gone, 700);
     function ended(event) { if (event.target === sheet && event.propertyName === "display") gone(); }
     function gone() { if (isDone) return; isDone = true; clearTimeout(fallback); sheet.removeEventListener("transitionend", ended); if (!sheet.open) reset(sheet); }
