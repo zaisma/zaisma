@@ -80,7 +80,6 @@ jobs:
       changed_test_files: ${{ steps.diff.outputs.changed_test_files }}
       is_checked_in_queue: ${{ steps.queue.outputs.is_checked_in_queue }}
       preview_snapshot_key: ${{ steps.snapshot.outputs.key }}
-      preview_snapshot_key_prefix: ${{ steps.snapshot-name.outputs.artifact_name }}
       is_preview_snapshot_ready: ${{ steps.snapshot.outputs.is_ready }}
       preview_snapshot_artifact_name: ${{ steps.snapshot.outputs.artifact_name }}
       preview_snapshot_artifact_run_id: ${{ steps.snapshot.outputs.artifact_run_id }}
@@ -152,7 +151,6 @@ jobs:
         run: |
           seed_hash="$(git ls-files -s -- scripts/preview examples review-set/listing-cases brand ':!scripts/preview/background.mjs' ':!scripts/preview/memory.mjs' ':!scripts/preview/feedback-*' ':!scripts/preview/bench' ':!scripts/preview/servers.mjs' ':!scripts/preview/seed-snapshot.mjs' | sha256sum | cut -c1-16)"
           echo "prefix=preview-test-data-v1-$seed_hash-" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=preview-test-data-v1-$seed_hash" >> "$GITHUB_OUTPUT"
           echo "now_sec=$(date +%s)" >> "$GITHUB_OUTPUT"
       - id: snapshot-lookup
         uses: actions/cache/restore@v4
@@ -179,11 +177,23 @@ jobs:
           echo "key=$PREFIX$NOW_SEC" >> "$GITHUB_OUTPUT"
           artifact_run_id=""
           if [ "$EVENT_NAME" = merge_group ]; then
-            artifact_run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=${PREFIX%-}&per_page=30" --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id == .workflow_run.repository_id) | select((.created_at | fromdate) > ($NOW_SEC - 72000))] | sort_by(.created_at) | last | .workflow_run.id // empty" || true)"
+            # The artifact is named by its snapshot's key, which ends in when the test data was made: the caches of every branch
+            # name those keys (newest first), so the 20 hours count from the making, however late a pull request handed it on.
+            made_keys="$(gh api "repos/$GITHUB_REPOSITORY/actions/caches?key=$PREFIX&sort=created_at&direction=desc&per_page=30" --jq ".actions_caches[].key" || true)"
+            for made_key in $made_keys; do
+              made_at_sec="${made_key#"$PREFIX"}"
+              case "$made_at_sec" in ''|*[!0-9]*) continue ;; esac
+              [ $((NOW_SEC - made_at_sec)) -lt 72000 ] || continue
+              artifact_run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$made_key&per_page=30" --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | .workflow_run.id // empty" || true)"
+              if [ -n "$artifact_run_id" ]; then
+                artifact_name="$made_key"
+                break
+              fi
+            done
           fi
           if [ -n "$artifact_run_id" ]; then
-            echo "The preview's test data is ready: the snapshot its pull request's run $artifact_run_id made."
-            echo "artifact_name=${PREFIX%-}" >> "$GITHUB_OUTPUT"
+            echo "The preview's test data is ready: the snapshot $artifact_name, which its pull request's run $artifact_run_id handed on."
+            echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
             echo "artifact_run_id=$artifact_run_id" >> "$GITHUB_OUTPUT"
             echo "is_ready=true" >> "$GITHUB_OUTPUT"
           else
@@ -572,11 +582,12 @@ jobs:
         with:
           path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
           key: ${{ needs.changes.outputs.preview_snapshot_key }}
-      # For this pull request's merge group, which can't read this branch's cache (What changed). A day is past the 20 hours a snapshot is used.
+      # For this pull request's merge group, which can't read this branch's cache (What changed), named by the snapshot's key. A day
+      # is past the 20 hours a snapshot is used.
       - if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ needs.changes.outputs.preview_snapshot_key_prefix }}
+          name: ${{ needs.changes.outputs.preview_snapshot_key }}
           path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
           include-hidden-files: true
           retention-days: 1
@@ -629,6 +640,19 @@ jobs:
           path: .wrangler/preview
           run-id: ${{ needs.changes.outputs.preview_snapshot_artifact_run_id }}
           github-token: ${{ github.token }}
+      # A pull request that found its snapshot in the cache left no artifact of it (Preview test data skipped), and its merge group
+      # can't read this branch's cache: without one, the queue makes the test data again before its Layout check and Every screen
+      # start, and a run that reaches pages passes 5:00. So the first share hands the snapshot on as Preview test data does,
+      # before the preview starts and changes it.
+      - if: github.event_name == 'pull_request' && matrix.shard == 1 && needs.seed.result == 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.changes.outputs.preview_snapshot_key }}
+          path: ${{ env.PREVIEW_SNAPSHOT_PATHS }}
+          include-hidden-files: true
+          retention-days: 1
+          compression-level: 1
+          overwrite: true
       - run: npm run preview:start
       # The pages this pull request's earlier runs passed, by fingerprint, which this run skips as they are (layout-check.test.ts,
       # PASSED_PATH). The merge queue's and main's runs measure every page (LAYOUT_CHECK_FRESH), so a cached pass never stands in for main.
