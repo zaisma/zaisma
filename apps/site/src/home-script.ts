@@ -1,4 +1,4 @@
-import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
+import { KEPT_PLAYED_GAME_COUNT, SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { DEVICE_KIND_SOURCE } from "./device-kind.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -44,9 +44,22 @@ function make(tag, className, text) { const node = document.createElement(tag); 
 function iconNode(markup) { const holder = make("span"); holder.innerHTML = markup; return holder.firstElementChild; }
 
 /* ---- What this device and account have played ---- */
-let played = [];
-try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at })); } catch {}
-const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms);
+function readPlayedHere() {
+  try { return JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at, is_on_account: entry.is_on_account === true })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch { return []; }
+}
+let played = readPlayedHere();
+// A signed-in player's Continue playing is the account's, as the page was drawn with it (home.ts), and stays as it first painted. What this
+// device played that the account doesn't have, or played later, goes to the account once (is_on_account, once it's taken), so the next
+// visit shows it from its first paint. A full list keeps only what's newer than its oldest: anything older the account would drop again.
+// Drawn for an account by the server's own word, not the sign-in cookie, which can outlive its session.
+const isAccountsList = DATA.account_played !== null;
+const accountPlayedAtMs = new Map((DATA.account_played || []).map((entry) => [entry.slug, entry.played_at_ms]));
+const keptFromMs = accountPlayedAtMs.size >= ${KEPT_PLAYED_GAME_COUNT} ? Math.min(...accountPlayedAtMs.values()) : 0;
+const newerThanAccount = (list) => list.filter((entry) => bySlug[entry.slug] && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs));
+const playedOnlyHere = isAccountsList ? newerThanAccount(played).filter((entry) => !entry.is_on_account) : [];
+const playedHere = played;
+if (isAccountsList) played = DATA.account_played.slice();
+const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
 
 /* ---- The world behind the glass ---- */
 const root = document.documentElement;
@@ -200,7 +213,6 @@ function coverFor(game, list, at) {
 let sort = "played";
 function fillContinue() {
   const row = $("home-continue"), list = playedList();
-  // An account's covers from the server stay while its list is on its way.
   row.hidden = !list.length && !$("track-continue").querySelector(".cover");
   if (!list.length) return;
   if (sort === "updated") list.sort((a, b) => (bySlug[b.slug].big_update_at_ms || 0) - (bySlug[a.slug].big_update_at_ms || 0));
@@ -263,10 +275,26 @@ document.addEventListener("keydown", (event) => {
 // they are from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing the news keeps it closed on this device, in the cookie and here.
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
-fillContinue();
+// A guest's comes from the cookie, which a device that played before the cookie kept it is missing: filled in here. An account's page
+// prepared ahead (prerendered or fetched as the pointer rested on its link, prepared-pages.ts) or kept by the browser to go back to was
+// drawn before a game played since: it opens with them.
+function showPlayedSince(list) {
+  if (!list.length) return;
+  const playedAtMs = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
+  for (const entry of list) playedAtMs.set(entry.slug, Math.max(playedAtMs.get(entry.slug) || 0, entry.played_at_ms));
+  played = [...playedAtMs].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
+  fillContinue();
+}
+if (!isAccountsList) fillContinue();
+else if (document.documentElement.hasAttribute("data-prepared-ahead")) showPlayedSince(newerThanAccount(playedHere));
+addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  if (isAccountsList) showPlayedSince(newerThanAccount(readPlayedHere()));
+  else { played = readPlayedHere(); fillContinue(); }
+});
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
-keepPlayedCookie([...played].sort((a, b) => b.played_at_ms - a.played_at_ms));
+keepPlayedCookie([...playedHere].sort((a, b) => b.played_at_ms - a.played_at_ms));
 const news = $("home-news");
 if (news) {
   const id = news.querySelector("[data-announcement-id]").dataset.announcementId;
@@ -282,13 +310,13 @@ if (news) {
   const close = news.querySelector('button[name="banner_close"]');
   if (close) close.addEventListener("click", () => { news.hidden = true; showGuest(); remember(); });
 }
-if (isSignedIn) {
-  fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
-    if (!answer) return;
-    const merged = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
-    for (const entry of answer.played) merged.set(entry.slug, Math.max(merged.get(entry.slug) || 0, entry.played_at_ms));
-    played = [...merged].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
-    fillContinue();
+if (playedOnlyHere.length) {
+  const sent = playedOnlyHere.slice(0, ${KEPT_PLAYED_GAME_COUNT});
+  fetch("/api/me/played", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ played: sent.map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms })) }) }).then((response) => {
+    if (!response.ok) return;
+    // Marked on the list as it is now: the game page may have changed it since.
+    const isSent = (entry) => sent.some((each) => each.slug === entry.slug && each.played_at_ms === (entry.played_at_ms ?? entry.at));
+    try { localStorage.setItem(PLAYED_KEY, JSON.stringify(JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => (isSent(entry) ? { ...entry, is_on_account: true } : entry)))); } catch {}
   }).catch(() => {});
 }
 })();`);
