@@ -33,6 +33,8 @@ const PICTURE_OR_ICON = /(^|[\s>+~(])(img|svg|video|canvas|iframe|picture|\.pict
  * than built.
  */
 const NOT_MADE_OF_MATERIALS = new Map<string, string>([
+  [".floating-pane.filter-menu.is-stepping | overflow", "a Filter menu stepping between its ways holds what's past its easing height inside it, for that step alone"],
+  [".floating-pane.filter-menu.is-stepping > .floating-body | overflow", "a Filter menu stepping between its ways holds what's past its easing height inside it, for that step alone"],
   ["html:has(.world-page), body:has(> .world-page) | height", "the world's page is a window tall and never scrolls"],
   ["html:has(.world-page), body:has(> .world-page) | overflow", "the world's page is a window tall and never scrolls"],
   [".world-page .world-pane > .glass-pane > .pane-in | overflow", "a pane over the live world scrolls inside itself on a short screen"],
