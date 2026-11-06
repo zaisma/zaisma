@@ -1568,11 +1568,11 @@ describe("friends", () => {
     expect(page).not.toContain("secret-game");
     expect(page).toContain('href="/@Quiet_Comet"');
 
-    // The game page says who's playing it, in its key details; joining them is the rooms pane's.
+    // The game page says who's playing it, in its key details, with Join beside them when their room would let you in.
     const here = await (await ana.go("/g/arena-game/friends")).text();
     expect(here).toContain('<dt>Friends playing</dt>');
     expect(here).toContain('<span class="one-line">Quiet_Comet</span>');
-    expect(here).not.toContain("?room=ROOMAA");
+    expect(here).toContain('href="/g/arena-game?room=ROOMAA"');
     // Glass: only gallery components.
     expect(pageProblems(here)).toEqual([]);
     expect(await (await ana.go("/g/secret-game/friends")).text()).toBe("");
@@ -3343,8 +3343,9 @@ describe("recently played", () => {
     expect((pageDataOf(home, "home-data") as { games: { slug: string }[] }).games.map((game) => game.slug)).toContain("hop");
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
-    // Patch notes are a section of the one scroll: a heading, dated entries, the notes.
-    expect(page).toMatch(/id="updates"[\s\S]*?<h2>Updates<\/h2>[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
+    // Patch notes are the Updates tab's part: dated entries, the notes.
+    expect(page).toContain('href="#updates"');
+    expect(page).toMatch(/id="updates"[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
     expect(pageDataOf(await (await SELF.fetch(`${SITE}/g/hop?play`)).text(), "game-page-data").autoplay).toBe("always");
   });
