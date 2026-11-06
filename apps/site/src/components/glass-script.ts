@@ -839,9 +839,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var panes = isEveryPaneDue ? Array.prototype.slice.call(document.querySelectorAll(PANE)) : Array.from(edgedPanes);
     isEveryPaneDue = false; edgedPanes.clear();
     runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
-    // A well's track that scrolls (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and
-    // again as it scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
-    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track").forEach(function (track) {
+    // A well's track or grid (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and again as
+    // a track scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
+    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track, [data-cut-line] > .layout-grid, [data-cut-line] > .grid-one-line > .layout-grid").forEach(function (track) {
       var pieces = [];
       Array.prototype.forEach.call(track.children, function (cell) { var piece = edgedPieceOf(cell); if (piece) pieces.push(piece); });
       track.edgedPieces = pieces;

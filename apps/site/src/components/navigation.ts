@@ -1295,7 +1295,7 @@ component({
 .game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
 /* All in view: the frame gap round the cards and between them, as in a track. */
 .game-row-well.all-in-view { padding: var(--pad-frame); }
-.game-row-well.all-in-view > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
+.game-row-well.all-in-view .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 .game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
 .game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
