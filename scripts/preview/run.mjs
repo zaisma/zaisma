@@ -867,7 +867,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
                   Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
-  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
+  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Try the demo, Add-ons; as Card_Keeper, who owns it and the
                   Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
                   ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
   Standing        ${SITE}/dashboard/harbor-lights/details#links  (as New_Studio: 12 of 20 returning players, so its own-site link waits,

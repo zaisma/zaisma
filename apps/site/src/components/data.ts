@@ -169,8 +169,8 @@ export const KEY_DETAILS_STYLES = `
 .key-detail-under.good { color: var(--tag-new-ink); }
 /* Names on one line that end in an ellipsis rather than run past the pane. */
 .key-detail-under:has(> .one-line) { display: flex; }
-/* Join after friends' names: on a line of its own under them, a control's gap from the words. */
-.key-detail-under:has(> .key-detail-join) { flex-direction: column; align-items: flex-start; gap: var(--gap-words-control); }
+/* Join after friends' names, on their line, a control's gap from the words. */
+.key-detail-under:has(> .key-detail-join) { align-items: center; gap: var(--gap-words-control); }
 /* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
 .row-cell:not(:last-child) > .key-details { padding-inline-end: 0; }
 `;
@@ -399,6 +399,8 @@ interface ListRowParts {
   titleIcon?: { icon: IconName; label: string; isHidden?: boolean };
   /** What sits at its end: a Tag (a version's state is VERSION_STATE_TAGS') or a few words. */
   end?: Raw | string;
+  /** Its end's words are the number rows are compared by (a room's 31/40): in the title's size and ink, figures lined up. */
+  isEndAnAmount?: boolean;
   /** A Usage meter's track under its lines, its numbers said in the detail: a game's hosting this month. */
   meter?: UsageMeterOptions;
   /** The gallery's fixed states. */
@@ -617,7 +619,7 @@ function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; sho
     // What a meter row opens says so on its name's line, so the meter under it has the row's whole width.
     const opens = row.href || (row.press && (row.meter || row.action || row.press.hasChevron)) ? html`<span class="list-row-go${isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(isNewTab ? "out-of-page" : "chevron-right")}</span>` : "";
     const side = (row.href || row.press) && row.action ? html`<span class="list-row-action list-row-side">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : "";
-    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
+    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}${row.isEndAnAmount ? " is-amount" : ""}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
       ? html`<a class="list-row flush-row is-link${row.isAway ? " is-away" : ""}${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}${row.meter ? "" : opens}</a>${side}`
       : row.press
@@ -826,6 +828,7 @@ component({
 .list-row-meter { display: grid; }
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.list-row-end.is-amount { font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
 /* A row pressed as a whole keeps its own buttons, siblings of the press, just before its arrow: what's worth doing without opening it (a player's Mute, a friend's Join). They take a column as wide as they are, in the row's own columns, so its words stop short of them whatever they are, and its arrow keeps the same place as any other row's. */
 .list-rows > li:has(> .list-row-side) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: var(--gap-words-control); align-items: center; }

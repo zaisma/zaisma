@@ -429,7 +429,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         ? [{ kind: "control" as const, markup: primaryButton(action("buy"), { id: "buy-game", type: "button", isBig: true, trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isDisabled: true }) }];
   const demoSlug = isForSale ? view.demoGameSlug : null;
-  const otherGameLink = demoSlug ? secondaryButton("Play the demo", { href: `/g/${demoSlug}?play`, isBig: true, isFullWidth: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true, isFullWidth: true }) : null;
+  const otherGameLink = demoSlug ? secondaryButton("Try the demo", { href: `/g/${demoSlug}?play`, isBig: true, isFullWidth: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true, isFullWidth: true }) : null;
   // Under Play: a paid game's demo or a demo's full game, then Share and Report, small. The page itself is the game's details.
   const smallActions = [
     { kind: "control" as const, markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
@@ -438,17 +438,16 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   // Play (or Buy) fills the row, Share and Report small at its end; a paid game's demo or a demo's full game goes under it.
   const paneActions = stack({
     items: [
-      // Play and Share and Report share one line on every screen. A paid game's Buy, with its price, can't on the narrowest phone, so there
-      // Share and Report stay a pair, under it side by side.
+      // Play and Share and Report share one line on every screen. With a paid game's demo (or a demo's full game) under it, Share and Report
+      // go beside that instead, so Buy, with its price, has its line.
       {
         kind: "block",
         markup: !mainAction.length
           ? row({ widths: "fit", alignment: "end", label: "Share and Report", items: smallActions })
-          : isForSale
-            ? row({ widths: "lead-fills", label: "Buy, Share and Report", items: [...mainAction, { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Share and Report", items: smallActions }) }] })
+          : otherGameLink
+            ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, ...smallActions] }) }] })
             : row({ widths: "lead-fills", label: "Play, Share and Report", items: [...mainAction, ...smallActions] }),
       },
-      ...(otherGameLink ? [{ kind: "control" as const, markup: otherGameLink }] : []),
     ],
   });
   // A paid game's Buy says what's needed, and the buy sheet makes the account.
