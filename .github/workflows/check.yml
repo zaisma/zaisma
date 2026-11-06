@@ -167,6 +167,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          EVENT_NAME=merge_group
+          MATCHED_KEY=""
           made_at_sec="${MATCHED_KEY#"$PREFIX"}"
           if [ -n "$MATCHED_KEY" ] && [ $((NOW_SEC - made_at_sec)) -lt 72000 ]; then
             echo "The preview's test data is ready: $MATCHED_KEY."
@@ -665,7 +667,7 @@ jobs:
         env:
           LAYOUT_CHECK: "1"
           LAYOUT_CHECK_SHARD: ${{ matrix.shard }}/8
-          LAYOUT_CHECK_FRESH: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          LAYOUT_CHECK_FRESH: "1"
       # Saved when a page failed too: only passes are in it, so the next push measures the failed page and skips the rest.
       - if: ${{ always() && github.event_name == 'pull_request' && hashFiles('.wrangler/layout-check-passed.json') != '' }}
         uses: actions/cache/save@v4
@@ -682,7 +684,7 @@ jobs:
   sweep:
     name: Every screen (${{ matrix.shard }} of 6)
     needs: [changes, seed]
-    if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 4
     strategy:
