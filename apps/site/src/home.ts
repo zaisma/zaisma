@@ -370,6 +370,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
       games: browserGames,
+      // The account's Continue playing as the page shows it, for the script to add this device's to without redrawing what's there.
+      account_played: accountPlayed,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
       icons: { people: icon("people").html },
       parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html },

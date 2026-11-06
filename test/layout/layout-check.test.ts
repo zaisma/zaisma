@@ -11,7 +11,7 @@ import { stack, type LayoutMarkup } from "../../apps/site/src/components/layout.
 const forged = (markup: { html: string }) => raw(markup.html) as unknown as LayoutMarkup;
 import { dropdown } from "../../apps/site/src/components/panes.ts";
 import { LAYOUT_RULE_TIERS } from "../../apps/site/src/components/layout-measure.ts";
-import { MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
+import { CHECKED_PAGES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../apps/site/src/components/checked-pages.ts";
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
@@ -42,8 +42,8 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026): they take that much fewer pages. */
-const BROKEN_ON_PURPOSE_COSTS_SEC = [65, 185, 75];
+/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026; the first share 20 more for its two Continue playing tests, Nov 6): they take that much fewer pages. */
+const BROKEN_ON_PURPOSE_COSTS_SEC = [85, 185, 75];
 const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: BROKEN_ON_PURPOSE_COSTS_SEC }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 const isSecondShare = !shard || shard.startsWith("2/");
@@ -150,7 +150,7 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures).toEqual([]);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home while its played list is on its way", async () => {
+  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home as it first painted while its played list is on its way, when this device played one of its games too", async () => {
     const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
     try {
       const { browserContextId } = await chrome.send("Target.createBrowserContext");
@@ -158,16 +158,45 @@ describe.skipIf(!sites)("the layout check", () => {
       const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
       const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
       const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, returnByValue: true })).result.value;
       // The list is asked for after the shelf is first filled, and never answered here, so this is what a slow connection shows until it comes.
-      const isAsked = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") done(); }));
+      let onAsked = () => {};
+      chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") onAsked(); });
+      const homeAsked = async () => { const isAsked = new Promise<void>((done) => { onAsked = done; }); await send("Page.navigate", { url: `${sites!.site}/` }); await isAsked; };
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
-      await send("Page.navigate", { url: `${sites!.site}/` });
-      await isAsked;
-      const { result } = await send("Runtime.evaluate", { expression: `document.getElementById("home-continue").hidden`, returnByValue: true });
-      expect(result.value).toBe(false);
+      await homeAsked();
+      expect(await evaluate(`document.getElementById("home-continue").hidden`)).toBe(false);
+      const covers = `[...document.querySelectorAll("#track-continue .cover-art")].map((art) => art.getAttribute("href"))`;
+      const painted: string[] = await evaluate(covers);
+      expect(painted.length).toBeGreaterThan(1);
+      // This device played the account's oldest game long ago: the covers stay the account's, in its order, never this device's one alone.
+      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(painted.at(-1)!.slice(3))}, played_at_ms: 1 }])), true`);
+      await homeAsked();
+      expect(await evaluate(covers)).toEqual(painted);
     } finally {
       await chrome.close();
     }
+  }, 300_000);
+
+  it.skipIf(!isFirstShare)("measures an account's home as its test data stands while the same account plays a game in the tab beside it, and keeps that play off the account", async () => {
+    // Buying plays Tiny Farm as Moss_Runner, which the game page keeps on the device and the account; the home beside it shows the account's Continue playing.
+    const pagesSideBySide = ["Home, signed in", "Buying, a first card"].map((name) => CHECKED_PAGES.find((page) => page.name === name));
+    const playedOf = async () => {
+      const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+      try {
+        const { browserContextId } = await chrome.send("Target.createBrowserContext");
+        await signIn(chrome, browserContextId, sites!.site, "Moss_Runner");
+        const { cookies } = await chrome.send("Storage.getCookies", { browserContextId });
+        const response = await fetch(`${sites!.site}/api/me/played`, { headers: { cookie: cookies.map((cookie: { name: string; value: string }) => `${cookie.name}=${cookie.value}`).join("; ") } });
+        return ((await response.json()) as { played: unknown[] }).played;
+      } finally {
+        await chrome.close();
+      }
+    };
+    const playedBefore = await playedOf();
+    const { failures } = (await checkPages({ ...sites!, pages: pagesSideBySide, sizes: SCREEN_SIZES.filter((size) => size.name === "Phone"), themes: ["light"], tabCount: 2, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    expect(failures.map((failure) => `${failure.page}: ${failure.check}: ${failure.element}: ${failure.said}`)).toEqual([]);
+    expect(await playedOf()).toEqual(playedBefore);
   }, 300_000);
 
   it.skipIf(!isFirstShare)("catches a sheet on a page with no button on the Screens bench, and passes one with its own", async () => {

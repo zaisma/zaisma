@@ -1,4 +1,4 @@
-import { SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
+import { KEPT_PLAYED_GAME_COUNT, SIZED_IMAGE_WIDTHS_PX } from "@zaisma/core";
 import { DEVICE_KIND_SOURCE } from "./device-kind.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -46,7 +46,15 @@ function iconNode(markup) { const holder = make("span"); holder.innerHTML = mark
 /* ---- What this device and account have played ---- */
 let played = [];
 try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at })); } catch {}
-const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms);
+// An account's list (the page's, then the one fetched below) with this device's: each game at its latest play.
+function addPlayed(list) {
+  const merged = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
+  for (const entry of list) merged.set(entry.slug, Math.max(merged.get(entry.slug) || 0, entry.played_at_ms));
+  played = [...merged].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
+}
+// From the start, so the account's covers the page first painted stay as they are unless this device played a game since.
+addPlayed(DATA.account_played);
+const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
 
 /* ---- The world behind the glass ---- */
 const root = document.documentElement;
@@ -285,9 +293,7 @@ if (news) {
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {
     if (!answer) return;
-    const merged = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
-    for (const entry of answer.played) merged.set(entry.slug, Math.max(merged.get(entry.slug) || 0, entry.played_at_ms));
-    played = [...merged].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
+    addPlayed(answer.played);
     fillContinue();
   }).catch(() => {});
 }
