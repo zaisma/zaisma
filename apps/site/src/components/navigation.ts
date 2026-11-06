@@ -7,7 +7,7 @@ import { tabIconsAlone } from "./switch.ts";
 import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
 import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCardSeeAll, gameGrid, type DropdownItem } from "./panes.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCard, gameGrid, type DropdownItem } from "./panes.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { listRows, stateNote } from "./data.ts";
 import { carving } from "./materials.ts";
@@ -1264,7 +1264,7 @@ export function gameRow(options: GameRowOptions): Raw {
   // Past its cap it ends on See all, its art the covers after the last shown (then from the list's start, to fill it).
   const pictures = options.seeAll?.coverPictures ?? [];
   const seeAllCard = options.seeAll && options.seeAll.gameCount > shown.length && shown.length
-    ? gameCardSeeAll({ href: options.seeAll.href, gameCount: options.seeAll.gameCount, coverPictures: [...pictures.slice(shown.length), ...pictures.slice(0, shown.length)] })
+    ? gameCard({ title: "See all", picture: null, href: options.seeAll.href, facts: {}, seeAll: { gameCount: options.seeAll.gameCount, coverPictures: [...pictures.slice(shown.length), ...pictures.slice(0, shown.length)] } })
     : undefined;
   const items = seeAllCard ? [...shown, { kind: "block" as const, markup: seeAllCard }] : shown;
   return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row" id="${options.id}" aria-labelledby="${titleId}">${stack({

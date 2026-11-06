@@ -244,7 +244,8 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       // The glass itself: its slab, the layer it paints its tint and blur on, and pinned glass, which blurs its own box.
-      const isTheGlass = /^\.glass(::before|\.pinned)?$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+      // And a slab over art in a carving: there's no pane's blur under it, so it blurs the art itself (materials.ts).
+      const isTheGlass = /^(\.glass(::before|\.pinned)?|\.carving\.holds-art \.slab:not\(\.lit\))$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
       const blur = /(?:^|[;\s])backdrop-filter:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       if (blur && !/^none\b/.test(blur) && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
       if (/(?:^|[;\s])background(?:-color|-image)?:[^;]*var\(--glass-/.test(declarations) && !isTheGlass) problems.push(`${selectors.trim()}: paints with the glass's tokens`);

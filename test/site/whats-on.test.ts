@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ShowGame } from "../../apps/site/src/home.ts";
-import { MAXIMUM_WHATS_ON_CARD_COUNT, pickWhatsOnCards, postEvent, postPick, endEntry, type WhatsOnEntry } from "../../apps/site/src/whats-on.ts";
+import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, pickWhatsOnCards, postEvent, postNews, postPick, endEntry, whatsOnLineup, type WhatsOnEntry } from "../../apps/site/src/whats-on.ts";
 import "../../apps/site/src/index.ts";
 
 /** What's on at Zaisma (apps/site/src/whats-on.ts): fills itself, never empty with games, the same for everyone, and new each week. */
@@ -65,6 +65,24 @@ describe("What's on's events", () => {
     await expect(postEvent(env, { title: "A", wideArtBase64: PNG_BASE64, linkUrl: "javascript:alert(1)", endsAt: endsAt() }, "test")).rejects.toThrow(/link_url/);
     await expect(postEvent(env, { title: "A", wideArtBase64: PNG_BASE64, linkUrl: "//elsewhere.test", endsAt: endsAt() }, "test")).rejects.toThrow(/link_url/);
     await expect(postEvent(env, { title: "A", wideArtBase64: PNG_BASE64, linkUrl: "/games", endsAt: new Date(Date.now() + 90 * DAY_MS).toISOString() }, "test")).rejects.toThrow(/ends_at/);
+  });
+
+  it("gives the strip to the newest event, and puts an older one with a poster and player news among the cards, never every card", async () => {
+    const older = await postEvent(env, { title: "Night races", wideArtBase64: PNG_BASE64, cardArtBase64: PNG_BASE64, linkUrl: "/games?genre=racing", startsAt: new Date(Date.now() - 50 * 60_000).toISOString(), endsAt: endsAt() }, "test");
+    await postEvent(env, { title: "No poster", wideArtBase64: PNG_BASE64, linkUrl: "/games", startsAt: new Date(Date.now() - 55 * 60_000).toISOString(), endsAt: endsAt() }, "test");
+    const newest = await postEvent(env, { title: "Zombie weekend", wideArtBase64: PNG_BASE64, linkUrl: "/games", endsAt: endsAt() }, "test");
+    const news = await postNews(env, { title: "Winter jam winners", linkUrl: "/forum", startsAt: new Date(Date.now() - 40 * 60_000).toISOString(), endsAt: endsAt() }, "test");
+    const { event, entryCards } = await currentWhatsOn(env);
+    expect(event?.id).toBe(newest.id);
+    expect(entryCards.map((card) => [card.id, card.entryKind, card.art?.imageUrl ?? null])).toEqual([[older.id, "event", `/whats-on-art/${older.id}/card`], [news.id, "news", null]]);
+    const games = [{ game: game("one"), tagWords: null }, { game: game("two"), tagWords: null }];
+    expect(whatsOnLineup(entryCards, games, 3).map((card) => card.cardKind)).toEqual(["entry", "entry", "game"]);
+    expect(whatsOnLineup(entryCards, games, 2).map((card) => card.cardKind)).toEqual(["entry", "game"]);
+    expect(whatsOnLineup(entryCards, [], 2).map((card) => card.cardKind)).toEqual(["entry", "entry"]);
+    const poster = await SELF.fetch(`https://zaisma.test/whats-on-art/${older.id}/card`);
+    expect(poster.headers.get("Content-Type")).toBe("image/png");
+    await poster.arrayBuffer();
+    await expect(postNews(env, { title: "", linkUrl: "/forum", endsAt: endsAt() }, "test")).rejects.toThrow(/title/);
   });
 
   it("refuses a pick of a game players can't find, and ends an entry once", async () => {

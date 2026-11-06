@@ -62,7 +62,7 @@ export function pictureRow(people: FramedPerson[], pictureSize: PictureSize, opt
 }
 
 /** Names as a sentence: "Liam", "Liam and Sofia", "Liam, Sofia and Noah"; past three, the three a picture row shows and how many more. */
-export const nameList = (names: string[]) =>
+const nameList = (names: string[]) =>
   names.length === 1 ? names[0]! : names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 /** A number keeps its unit: a no-break space between them, so nothing reads "48 / MB" or "3 / days ago". */

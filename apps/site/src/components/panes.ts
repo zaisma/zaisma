@@ -134,6 +134,10 @@ export interface GameCardOptions {
   hasHighPriority?: boolean;
   /** Pointed at or pressed: the gallery's still copies. */
   state?: "is-pointed" | "is-pressed";
+  /** An event's poster (What's on): its picture is the whole card, the event's own art, with no line under it; facts are left unsaid. */
+  isPoster?: boolean;
+  /** The card a list ends on past its cap: its picture four of the list's covers (coverPictures), its line See all and gameCount. */
+  seeAll?: { gameCount: number; coverPictures: (ShownPicture | null)[] };
 }
 
 /**
@@ -163,7 +167,7 @@ export function gameCardActions(nameMarkup: Raw, playHref: string, detailsHref: 
  * An event's poster among game cards (What's on): Zaisma's own art filling the whole card, its name and dates drawn in it, with no line under
  * it, the card one link. It's the same size as a game card beside it, so a line of them stays even; title is what a screen reader hears.
  */
-export function gameCardPoster(options: { title: string; picture: ShownPicture; href: string; isEager?: boolean; state?: "is-pointed" | "is-pressed" }): Raw {
+function posterMarkup(options: { title: string; picture: ShownPicture; href: string; isEager?: boolean; state?: "is-pointed" | "is-pressed" }): Raw {
   return html`<div class="cover is-poster sleek-cast${options.state ? ` ${options.state}` : ""}"><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${options.title}">${CUT_LINE}<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture, { isEager: options.isEager, shownSizes: "(max-width: 760px) 300px, 360px" })}</span>${EDGE_LIGHT}</a></div></div>`;
 }
 
@@ -174,7 +178,7 @@ export const SEE_ALL_CARD_COVER_COUNT = 4;
  * The card a list ends on when it holds more than it shows (a Game row past its cap): a game card's shape and Sleek glass, its art four of
  * the list's covers small, two by two, and its line See all and how many games the whole list holds. It opens the whole list.
  */
-export function gameCardSeeAll(options: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] }): Raw {
+function seeAllMarkup(options: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] }): Raw {
   const tiles = options.coverPictures.slice(0, SEE_ALL_CARD_COVER_COUNT);
   const countWords = `${options.gameCount.toLocaleString("en-US")} ${options.gameCount === 1 ? "game" : "games"}`;
   const mosaic = html`<span class="cover-mosaic carving-art" data-cut-line="0">${tiles.map((tilePicture) => html`<span class="cover-mosaic-tile">${tilePicture ? picture(tilePicture, { shownSizes: "(max-width: 760px) 100px, 130px" }) : ""}</span>`)}</span>`;
@@ -188,6 +192,8 @@ export function gameCardSeeAll(options: { href: string; gameCount: number; cover
  * Pointed at, the art's foot catches the light (Edge light), in the game's tint, and the art brightens; in focus beside the list, it stays lit.
  */
 export function gameCard(options: GameCardOptions): Raw {
+  if (options.seeAll) return seeAllMarkup({ href: options.href, gameCount: options.seeAll.gameCount, coverPictures: options.seeAll.coverPictures });
+  if (options.isPoster && options.picture) return posterMarkup({ title: options.title, picture: options.picture, href: options.href, isEager: options.isEager, state: options.state });
   const facts = options.facts, isPlaceholder = options.picture === null;
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
@@ -592,7 +598,7 @@ const COVER_STYLES = `
    its own, and the glass runs on under the art as the plate that holds its title and facts. */
 /* The glass is a holder the edge rule cuts (data-cut-line), so what sits at its edges, Play and Details, is cut along its corners at its frame gap.
    Sleek draws no rim, so the cut's drawn line stays out of the way. */
-.cover-glass { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; min-width: 0; clip-path: var(--cut-shape, none); --rail-inset: var(--pad-frame-compact); }
+.cover-glass { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; min-width: 0; clip-path: var(--cut-shape); --rail-inset: var(--pad-frame-compact); }
 .cover-glass > .cut-line { position: absolute; inset: 0; visibility: hidden; }
 .cover-glass.sleek > .cover-art.carving { box-shadow: none; }
 .cover-glass.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
@@ -620,10 +626,10 @@ const COVER_STYLES = `
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 /* See all's art: four covers two by two, the card's glass between them; the art's own cut takes the outer corners. */
 .cover-mosaic { position: absolute; inset: 0; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: var(--pad-frame-compact); }
-.cover-mosaic-tile { position: relative; overflow: hidden; background: var(--glass-thick); }
+.cover-mosaic-tile { position: relative; overflow: hidden; }
 .cover-mosaic-tile > .picture { position: absolute; inset: 0; }
 .cover-mosaic-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover.is-see-all .cover-meta .count > .ico { width: 0.6em; height: 0.9em; margin-left: 2px; }
+.cover.is-see-all .cover-meta .count > .ico { width: 0.6em; height: 0.9em; margin-left: var(--pad-frame-compact); }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }
@@ -1135,9 +1141,9 @@ component({
   render: gameCard,
   examples: [
     { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }] } }) }] }) },
-    { label: "An event's poster beside a game: all art, the card one link, the same size", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCardPoster({ title: "Night races, till Sunday", picture: { imageUrl: "/design/event-poster-example.svg", widthPx: 960, heightPx: 640, placeholderDataUrl: null }, href: "#" }) }, { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }] }) },
+    { label: "An event's poster beside a game: all art, the card one link, the same size", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Night races, till Sunday", picture: { imageUrl: "/design/event-poster-example.svg", widthPx: 960, heightPx: 640, placeholderDataUrl: null }, href: "#", facts: {}, isPoster: true }) }, { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }] }) },
     { label: "News for players: a game card's shape, tagged News", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Winter jam winners", picture: null, href: "#", facts: { tagWords: "News" } }) }] }) },
-    { label: "See all: the card a list ends on past its cap, four of its covers in its art", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCardSeeAll({ href: "#", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES).slice(0, SEE_ALL_CARD_COVER_COUNT) }) }] }) },
+    { label: "See all: the card a list ends on past its cap, four of its covers in its art", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCard({ title: "See all", picture: null, href: "#", facts: {}, seeAll: { gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES).slice(0, SEE_ALL_CARD_COVER_COUNT) } }) }] }) },
     { label: "Every fact at once: the same shape as any card, its name cut short and one thing at its end", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCard({ title: "The Last Lighthouse Keeper: Tides of the Northern Reach", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#", facts: { playerCount: 412, tagWords: "Updated", priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }, { username: "Noah" }, { username: "Mia" }], deviceNote: "Needs a keyboard" } }) }] }) },
     {
       label: "In a list: every card the same shape, its facts in their corners",

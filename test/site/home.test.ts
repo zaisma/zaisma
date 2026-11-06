@@ -57,9 +57,9 @@ describe("the home page", () => {
   it("opens a first visit on the line flat on the backdrop, What's on alone, then each row of games on a pane of its own", async () => {
     const { text } = await homePage();
     expect(text).toMatch(/<div class="stack-cell[^"]*" id="home-first-visit"><div class="backdrop-words"><h1>One place to play every kind of game\.<\/h1><p>Press Play, install nothing, bring your friends\.<\/p>/);
-    expect(text).toMatch(/<section class="glass glass-pane full"[^>]*aria-label="Playing now"><svg[\s\S]*?<section class="game-row" id="playing-now"/);
+    // Playing now's games are all in What's on here, so its row drops out; Popular is a pane of its own.
     expect(text).toMatch(/<section class="glass glass-pane full"[^>]*aria-label="Popular"><svg[\s\S]*?<section class="game-row" id="popular"/);
-    const whatsOn = text.slice(text.indexOf('id="home-first-visit"'), text.indexOf('id="playing-now"'));
+    const whatsOn = text.slice(text.indexOf('id="home-first-visit"'), text.indexOf('aria-label="Popular"'));
     expect(coverSlugs(whatsOn)).toHaveLength(3);
     expect(whatsOn).toContain("is-lead-wide");
     expect(text).not.toContain('id="never-played"');
@@ -68,7 +68,7 @@ describe("the home page", () => {
   it("shows nothing of Zaisma's on a cover: tags sit on the title's line, in place of the count", async () => {
     const { text } = await homePage();
     expect(text).not.toContain("cover-mark");
-    expect(text).toMatch(/<div class="cover-meta"><span class="cover-name one-line">[^<]*<\/span><span class="tag new"/);
+    expect(text).toMatch(/<div class="cover-meta"><span class="cover-name-line"><span class="cover-name one-line">[^<]*<\/span><\/span><span class="tag new"/);
     for (const art of text.matchAll(/<a class="cover-art[\s\S]*?<\/a>/g)) expect(art[0]).not.toContain('class="tag');
   });
 
@@ -82,7 +82,8 @@ describe("the home page", () => {
     // Play and Details' icon end the title's line, and no card says what kind of game it is.
     expect(lead).toMatch(/<div class="cover-meta has-actions">[\s\S]*?cover-name[\s\S]*?href="\/g\/home-three\?play"/);
     expect(text).not.toContain('class="cover-actions"><div class="layout-row');
-    const side = text.slice(text.indexOf('class="lead-and-side-side"'), text.indexOf('id="playing-now"'));
+    const sideStart = text.indexOf('class="lead-and-side-side"');
+    const side = text.slice(sideStart, text.indexOf('<section class="glass glass-pane', text.indexOf('id="whats-on"', sideStart)));
     expect(coverSlugs(side)).toHaveLength(2);
     expect(coverSlugs(side)).not.toContain("home-three");
     expect(text).toContain('id="never-played"');

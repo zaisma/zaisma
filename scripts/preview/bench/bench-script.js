@@ -5,7 +5,7 @@
   const $ = (selector, within = document) => within.querySelector(selector);
   const $$ = (selector, within = document) => [...within.querySelectorAll(selector)];
   const GROUP = "main";
-  const GAP_PX = 4, BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_PX_AT_FULL_SIZE*/23;
+  const GAP_PX = 4, BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_AT_FULL_SIZE_PX*/23;
   const SLOW_RATE = 0.25, REPLAY_PAUSE_MS = 450, CATCH_UP_MS = 800;
 
   const screens = Object.fromEntries($$("[data-bench-screen]").map((figure) => [figure.dataset.benchScreen, { figure, name: figure.dataset.benchScreen, widthPx: Number(figure.dataset.widthPx), heightPx: Number(figure.dataset.heightPx), frame: $("iframe", figure), view: $(".bench-view", figure), body: $(".bench-body", figure), address: null, pending: [] }]));

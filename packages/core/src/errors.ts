@@ -151,7 +151,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID.", messageForPeople: "The game has no such version. Reload the page." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, and a What's on entry's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned.", messageForPeople: "This version is still being scanned. It usually takes under a minute." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published.", messageForPeople: "This version didn't pass review, so it can't be published." },
 

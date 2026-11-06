@@ -6,7 +6,7 @@ import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { leadAndSide, stack, stackOfOne, type LayoutItem } from "./components/layout.ts";
 import { MAXIMUM_GAME_ROW_CARD_COUNT, gameRow } from "./components/navigation.ts";
-import { backdropWords, eventBanner, gameCard, gameCardPoster, type GameCardOptions } from "./components/panes.ts";
+import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
 import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards, whatsOnLineup, type WhatsOnLineupCard } from "./whats-on.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
@@ -341,7 +341,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     card.cardKind === "game"
       ? coverOf(card.game, ownedGameIds, { tagWords: card.tagWords, isEager: true, hasHighPriority: !yourGame && coverIndex === 0 })
       : card.entryKind === "event" && card.art
-        ? gameCardPoster({ title: card.title, picture: card.art, href: card.linkUrl, isEager: true })
+        ? gameCard({ title: card.title, picture: card.art, href: card.linkUrl, isEager: true, facts: {}, isPoster: true })
         : gameCard({ title: card.title, picture: card.art, href: card.linkUrl, isEager: true, facts: { tagWords: "News" } });
   const whatsOnRow = gameRow({ id: "whats-on", trackId: "track-whats-on", title: "What's on", allInView: { isLeadWide: !yourGame }, items: whatsOnLine.map((card, coverIndex) => ({ kind: "block" as const, markup: lineupCardOf(card, coverIndex) })) });
   const yourGamePlayedAtMs = yourGame ? accountPlayed.find((entry) => entry.slug === yourGame.slug)?.played_at_ms : undefined;

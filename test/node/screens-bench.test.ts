@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CHECKED_PAGES } from "../../apps/site/src/components/checked-pages.ts";
-import { PHONE_BEZEL_PX_AT_FULL_SIZE } from "../../apps/site/src/components/screens.ts";
+import { PHONE_BEZEL_AT_FULL_SIZE_PX } from "../../apps/site/src/components/screens.ts";
 import { STEEL_PAGES } from "../../apps/site/src/steel-pages.ts";
 import { BENCH_PLACES, PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
 // @ts-expect-error: a Node script with no types of its own.
@@ -67,7 +67,7 @@ describe("the bench's places and states", () => {
     expect(names.length).toBe(new Set(names).size);
   });
   it("size a phone's bezel in the script as its styles do", () => {
-    expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain(`BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_PX_AT_FULL_SIZE*/${PHONE_BEZEL_PX_AT_FULL_SIZE};`);
+    expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain(`BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_AT_FULL_SIZE_PX*/${PHONE_BEZEL_AT_FULL_SIZE_PX};`);
   });
   it("stop a page on a turned phone at the notch's bar alone, so its other side reaches the screen's edge", () => {
     expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain("screen.frame.width = screen.widthPx - sideBarPx;");
