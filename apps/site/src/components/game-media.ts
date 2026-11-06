@@ -27,6 +27,11 @@ export interface GameMediaOptions {
   items: GameMediaItem[];
   /** In the row's place while it has none: an Empty state. */
   whenEmpty: EmptyNoteMarkup;
+  /**
+   * Row: wells of one size side by side. Featured: the first one large across the width, the rest in a row under it (the top of a game's
+   * page, beside its name and Play). Either way a well opens the light box on itself.
+   */
+  arrangement?: "row" | "featured";
 }
 
 
@@ -41,9 +46,10 @@ const itemLabel = (mediaItem: GameMediaItem, itemIndex: number, itemCount: numbe
  * One in the row: its picture in a carved well, a game card's well (square, cut only by the edge rule; pointed at, its foot lights; pressed,
  * it sinks in place), a video's length in a glass tag at its bottom right. It opens the light box on itself.
  */
-function mediaWell(options: GameMediaOptions, mediaItem: GameMediaItem, itemIndex: number): Raw {
+function mediaWell(options: GameMediaOptions, mediaItem: GameMediaItem, itemIndex: number, isLead = false): Raw {
   const mark = mediaItem.mediaKind === "picture" ? "" : html`<span class="cover-mark at-length">${tag(lengthWords(mediaItem.playDurationSec), "glass", { icon: "play" })}</span>`;
-  return html`<button type="button" class="media-well cover-art carving holds-art" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights aria-controls="${options.id}-viewer" data-media-to="${String(itemIndex)}" aria-label="${itemLabel(mediaItem, itemIndex, options.items.length)}">${CUT_LINE}<span class="cover-picture carving-art" data-cut-line="0">${picture(posterOf(mediaItem), { shownSizes: "(max-width: 760px) 100vw, 480px", largestPx: 1440 })}</span>${EDGE_LIGHT}${mark}</button>`;
+  // The lead well of a featured row reaches its pane's corner, so the edge rule cuts it there; the rest keep square corners.
+  return html`<button type="button" class="media-well cover-art carving holds-art" data-cut-line="0"${isLead ? "" : raw(" data-cut-square")} data-edge-light="bottom" data-lights aria-controls="${options.id}-viewer" data-media-to="${String(itemIndex)}" aria-label="${itemLabel(mediaItem, itemIndex, options.items.length)}">${CUT_LINE}<span class="cover-picture carving-art" data-cut-line="0">${picture(posterOf(mediaItem), { shownSizes: "(max-width: 760px) 100vw, 480px", largestPx: 1440 })}</span>${EDGE_LIGHT}${mark}</button>`;
 }
 
 /** One mediaItem shown large in the light box: a picture whole, a video in a Video player, or a YouTube video in YouTube's player over its poster. */
@@ -80,6 +86,10 @@ export function gameMediaViewer(options: GameMediaOptions): Raw {
 
 /** A game's media on its page: the row of wells, and the light box they open. */
 export function gameMedia(options: GameMediaOptions): Raw {
+  if (options.arrangement === "featured" && options.items.length > 1) {
+    const [first, ...rest] = options.items;
+    return html`<div class="game-media is-featured">${mediaWell(options, first!, 0, true)}${track({ whenEmpty: NO_EMPTY_NOTE, id: `${options.id}-track`, itemSize: "thumbnail", label: "More screenshots and videos", items: rest.map((mediaItem, restIndex) => ({ kind: "block" as const, markup: mediaWell(options, mediaItem, restIndex + 1) })) })}${gameMediaViewer(options)}</div>`;
+  }
   // One alone isn't a row: its well takes the width, with no rail kept for scrolling that can't happen.
   if (options.items.length === 1) return html`<div class="game-media">${mediaWell(options, options.items[0]!, 0)}${gameMediaViewer(options)}</div>`;
   return html`<div class="game-media">${track({ whenEmpty: options.whenEmpty, id: `${options.id}-track`, itemSize: "picture", label: "Screenshots and videos", items: options.items.map((mediaItem, itemIndex) => ({ kind: "block" as const, markup: mediaWell(options, mediaItem, itemIndex) })) })}${options.items.length ? gameMediaViewer(options) : ""}</div>`;
@@ -233,6 +243,8 @@ component({
 /* One alone: its well as wide as what holds it. */
 /* The wells (a track, or one well across the width) and the light box they open, one piece; the closed light box takes no room. */
 .game-media { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Featured: the first well large across the width, the rest a row of small ones under it, a control row's gap between. */
+.game-media.is-featured { gap: var(--gap-control-stack); }
 /* The strip: small wells side by side, scrolling sideways when they don't fit, the one shown lit along its foot. */
 .media-strip { display: flex; gap: var(--gap-control-row); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .media-strip::-webkit-scrollbar { display: none; }
@@ -267,6 +279,7 @@ component({
   render: gameMedia,
   examples: [
     { label: "A trailer first, a YouTube video (Blender's Big Buck Bunny, CC BY 3.0) with YouTube's own thumbnail, then screenshots: press one to open the light box on it", isWide: true, markup: mediaPane({ id: "example-media", gameTitle: "Kestrel", items: STAND_IN_MEDIA, whenEmpty: NO_EMPTY_NOTE }) },
+    { label: "Featured: the first large, the rest in a row under it, as the top of a game's page shows them", isWide: true, markup: mediaPane({ id: "example-media-featured", gameTitle: "Kestrel", items: STAND_IN_MEDIA, whenEmpty: NO_EMPTY_NOTE, arrangement: "featured" }) },
     { label: "Screenshots only", isWide: true, markup: mediaPane({ id: "example-media-shots", gameTitle: "Hollow Tide", items: STAND_IN_MEDIA.filter((mediaItem) => mediaItem.mediaKind === "picture"), whenEmpty: NO_EMPTY_NOTE }) },
     { label: "One screenshot: its well takes the width, and its light box has no strip", markup: mediaPane({ id: "example-media-one", gameTitle: "Verdant", items: [STAND_IN_MEDIA[3]!], whenEmpty: NO_EMPTY_NOTE }) },
   ],

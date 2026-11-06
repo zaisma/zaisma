@@ -150,6 +150,8 @@ export interface SelectFieldOptions {
   error?: string;
   /** data-* attributes on the hidden field it sends, as on a button: what a page's script reads when a pick changes it ({ label: "Mode" } is data-label="Mode"). */
   dataAttributes?: Record<string, string>;
+  /** Its label said only to screen readers, where the choices say what they are on their own (Any region, Europe): no line above it. */
+  isLabelHidden?: boolean;
   /** The gallery's fixed states: focused, or open, its list over the field. */
   state?: "is-focused" | "is-open";
 }
@@ -179,7 +181,7 @@ export function selectField(options: SelectFieldOptions): ControlMarkup {
     )}</div>`,
   });
   const sizes = html`<span class="select-sizes" aria-hidden="true">${options.placeholder ? html`<span>${options.placeholder}</span>` : ""}${options.choices.map((choice) => html`<span>${choice.label}</span>`)}</span>`;
-  return controlMarkup(html`<div class="cut-field" data-select><label class="words-margin" id="${id}-label" for="${id}">${options.label}</label>
+  return controlMarkup(html`<div class="cut-field" data-select><label class="${options.isLabelHidden ? "sr" : "words-margin"}" id="${id}-label" for="${id}">${options.label}</label>
 <span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<button type="button" class="select-button carving-control" id="${id}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-choices"${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${id}-error"` : ""}><span class="select-value${picked ? "" : " is-placeholder"}">${picked?.label ?? options.placeholder ?? ""}</span>${sizes}</button><span class="select-chev">${icon("chevron-down")}</span></span>
 ${list}<input type="hidden" name="${options.name}" value="${picked?.choiceValue ?? ""}"${options.isDisabled ? raw(" disabled") : ""}${Object.entries(options.dataAttributes ?? {}).map(([attributeName, attributeValue]) => html` data-${attributeName}="${attributeValue}"`)}>
 ${options.error ? html`<p class="field-error words-margin" id="${id}-error">${options.error}</p>` : ""}</div>`, "field", { hasOwnWords: true });
@@ -348,6 +350,7 @@ component({
   render: selectField,
   examples: [
     { label: "Picked: try it", markup: examplePane(selectField({ id: "example-select-region", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest" })) },
+    { label: "Its label for screen readers only, where the choices name themselves (a game's Rooms tab: Any region)", markup: examplePane(selectField({ id: "example-select-quiet", name: "room_region", label: "Region", isLabelHidden: true, choices: [{ label: "Any region", choiceValue: "" }, { label: "Europe (59)", choiceValue: "europe" }, { label: "North America (3)", choiceValue: "north_america" }] })) },
     { label: "Nothing picked yet", markup: examplePane(selectField({ id: "example-select-placeholder", name: "room_region", label: "Where rooms run", choices: REGIONS, placeholder: "Pick a region" })) },
     { label: "With an icon", markup: examplePane(selectField({ id: "example-select-icon", name: "room_region", label: "Where rooms run", choices: REGIONS, pickedValue: "nearest", icon: "globe" })) },
     { label: "With a data attribute a script reads: a room list's filter", markup: examplePane(selectField({ id: "example-select-filter", name: "room_mode", label: "Mode", choices: [{ label: "Any", choiceValue: "" }, { label: "Classic", choiceValue: "Classic" }, { label: "Hardcore", choiceValue: "Hardcore" }], dataAttributes: { label: "Mode" } })) },

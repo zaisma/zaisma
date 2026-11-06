@@ -91,7 +91,8 @@ export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
     developer: null,
     pictures: [],
     updates: [],
-    otherGames: [],
+    developerGames: [],
+    likeGames: [],
     liveRooms: null,
     // The developer's own computer: their links open as an established developer's would, and no search engine is near it.
     searchEnginesEnabled: false,
