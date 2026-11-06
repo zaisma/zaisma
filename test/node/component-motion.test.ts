@@ -39,6 +39,17 @@ describe("a Filter menu's step between its ways and a way's choices", () => {
   });
 });
 
+describe("a control's icon for each state, and a copy field's tick", () => {
+  it("lie in one place and cross-fade as the state changes, never swapping in one frame", () => {
+    const pairRules = rulesNaming("[data-shown-when=");
+    expect(pairRules.length).toBeGreaterThan(0);
+    expect(pairRules.filter((rule) => /display:\s*none|visibility:\s*hidden/.test(rule.body)).map((rule) => rule.selector)).toEqual([]);
+    expect(styles).toContain(".ico-pair > .ico { grid-area: 1 / 1; transition: opacity var(--motion-state), color var(--motion-state); }");
+    expect(rulesNaming(".well-end-note").filter((rule) => /display:\s*none/.test(rule.body))).toEqual([]);
+    expect(styles).toContain(".copy-field.is-copied .carving-end > .tertiary-btn .ico { opacity: 0; }");
+  });
+});
+
 describe("a rail", () => {
   it("fades in from nothing as it's shown and stays until it has faded as it's hidden, never in one frame", () => {
     expect(rulesNaming(".rail")).toContainEqual(expect.objectContaining({ selector: expect.stringMatching(/(^|\n)\.rail$/), body: expect.stringContaining("transition: opacity var(--motion-arrive), display var(--motion-arrive) allow-discrete;") }));

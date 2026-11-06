@@ -810,7 +810,7 @@ component({
 /* It's a carving (materials.ts): its look, its words' inset, its focus ring and its scrolling are the carving's. */
 .well { display: flex; align-items: center; min-width: 0; color: var(--ink); }
 .well > .well-body { flex: 1; min-width: 0; }
-.well-end-note { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; color: var(--ink); }
+.well-end-note { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .well > .cut-line { z-index: 4; pointer-events: none; }
 `,
   render: well,
