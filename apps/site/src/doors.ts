@@ -276,6 +276,8 @@ const BUY_FIELDS: Readonly<Record<string, DoorShape>> = {
   passkey_tap: gameData(16 * 1024),
   password: text(4096),
   purchase_pin: text(40),
+  buying_public_key_base64: orNothing(text(100)),
+  buying_signature_base64: orNothing(text(100)),
   setup_intent_id: text(200),
   payment_method_id: text(200),
   sale_id: text(100),

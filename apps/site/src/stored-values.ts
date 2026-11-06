@@ -239,6 +239,8 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
   // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.
   "game_items.local_prices", "purchases.item_name", "purchases.deleted_game_slug", "purchases.deleted_game_title",
+  // A browser's buying key: exactly a P-256 public key in base64url (buy.ts, buyingPublicKeyOf), kept only after a confirm and never shown.
+  "buying_keys.public_key_base64", "purchase_confirmations.buying_public_key_base64",
   // Arrays of counts Zaisma's code adds up (player-performance.ts).
   "performance_days.loading_counts", "performance_days.frame_rate_seconds", "performance_days.memory_counts",
 ];

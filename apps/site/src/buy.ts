@@ -11,6 +11,7 @@ import { isPastLevel,
   hashPurchasePin,
   isBlockedInCountry,
   isPurchasePin,
+  fromB64url,
   isWithdrawalLineShownFor,
   isOldEnoughFor,
   itemByName,
@@ -59,9 +60,9 @@ import type { Env } from "./env.ts";
  * card and purchase PIN. Signed-in players only, by the session cookie, from zaisma.com's own pages; never the
  * developer API. Every answer that refuses is { error: { code, message } }.
  *
- *   POST   /api/buy/:slug/start                           { item_name, item_count, game_account_id, tester_token } → the sheet
- *   POST   /api/buy/confirm                               { passkey_tap | purchase_pin | password }: confirms it's them, when the sheet asked
- *   POST   /api/buy/purchases/:purchase_id/pay-with-saved-card  → completed, or action_needed (3-D Secure)
+ *   POST   /api/buy/:slug/start                           { item_name, item_count, game_account_id, tester_token, buying_public_key_base64 } → the sheet
+ *   POST   /api/buy/confirm                               { passkey_tap | purchase_pin | password, buying_public_key_base64 }: confirms it's them, when the sheet asked
+ *   POST   /api/buy/purchases/:purchase_id/pay-with-saved-card  { buying_public_key_base64, buying_signature_base64 } → completed, or action_needed (3-D Secure)
  *   POST   /api/buy/purchases/:purchase_id/wallet-intent  → what Apple Pay or Google Pay pays
  *   GET    /api/buy/purchases/:purchase_id                the purchase, asking Stripe while it's pending
  *   POST   /api/payment-methods/setup                     → a card setup (receipts go to the account's email)
@@ -70,10 +71,15 @@ import type { Env } from "./env.ts";
  *   PUT    /api/account/purchase-pin                      { purchase_pin, password }
  *   DELETE /api/account/purchase-pin
  *
- * Pressing Buy is the confirmation. A saved-card buy asks the player to confirm it's them (confirmation_reason on the
- * sheet's answer) only when:
+ * Pressing Buy is the confirmation, in a browser the player has confirmed a buy in before. Each browser makes its own
+ * buying key (an ECDSA P-256 pair, kept in IndexedDB with a private half no code can read out); a confirm in it keeps
+ * the public half on the account (buying_keys), and from then on the sheet signs each saved-card buy with it
+ * (buyingSignedText). A saved-card buy asks the player to confirm it's them (confirmation_reason on the sheet's answer)
+ * only when:
  *   purchase_pin  the account has a purchase PIN: every buy asks, like a lock on a shared computer. The confirm covers
  *                 one buy: the pay call uses it up. It is good for 15 minutes unused, so none is left lying about.
+ *   new_device    no buying key of the account's signs this buy: once per browser, and the confirm keeps its key. A
+ *                 browser that can't keep a key confirms each buy, its confirm covering one, as with a purchase PIN.
  *   old_sign_in   they last signed in over 30 days ago on this session (signedInAtMs; 0 when unknown).
  *   big_spend     this buy would take the last 24 hours of buying past USD 100.00 (about: purchases are priced in
  *                 their currency, counted at APPROXIMATE_USD_PER_CURRENCY_UNIT). Abandoned sheets don't count: a
@@ -202,15 +208,58 @@ function refuseIfBlocked(game: Parameters<typeof isBlockedInCountry>[0], country
   if (isBlockedInCountry(game, countryCode)) refuse(451, "game_unavailable", `A legal notice under your country's law (${countryName(countryCode!)}) blocks this game here. It's still available everywhere else.`);
 }
 
-/** Whether this session confirmed a buy in the last 15 minutes (and, for a purchase PIN account, hasn't spent it on a buy yet). */
-async function isConfirmedHere(env: Env, session: Session, accountId: string, nowMs: number): Promise<boolean> {
+/**
+ * Whether this session confirmed a buy in the last 15 minutes (and, when the confirm covers one buy, hasn't spent it on
+ * a buy yet). A buy no kept key signs counts only a confirm that kept no key: one made in a browser that couldn't keep one.
+ */
+async function isConfirmedHere(env: Env, session: Session, accountId: string, isBuyingKeyKnown: boolean, nowMs: number): Promise<boolean> {
   if (!session.sessionId) return false;
-  const row = await env.DB.prepare("SELECT confirmed_at_ms FROM purchase_confirmations WHERE session_id = ? AND account_id = ?").bind(session.sessionId, accountId).first<{ confirmed_at_ms: number }>();
+  const row = await env.DB.prepare("SELECT confirmed_at_ms FROM purchase_confirmations WHERE session_id = ? AND account_id = ? AND (? = 1 OR buying_public_key_base64 IS NULL)")
+    .bind(session.sessionId, accountId, isBuyingKeyKnown ? 1 : 0)
+    .first<{ confirmed_at_ms: number }>();
   return Boolean(row && nowMs - row.confirmed_at_ms < CONFIRMATION_DURATION_MS);
 }
 
+/** A buying key's public half (P-256, raw, 65 bytes) and a signature with it (raw r and s, 64 bytes), base64url. */
+const BUYING_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9_-]{87}$/;
+const BUYING_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{86}$/;
+const BUYING_KEY_ALGORITHM = { name: "ECDSA", namedCurve: "P-256" } as const;
+
+/** What a browser's buying key signs to pay for one purchase: the purchase alone, so a signature pays for nothing else. */
+const buyingSignedText = (purchaseId: string) => `zaisma-buy:${purchaseId}`;
+
+/** The buying key the body names, refused with bad_buying_key when it isn't one; null when the browser sent none. */
+function buyingPublicKeyOf(body: Record<string, unknown>): string | null {
+  const publicKey = body.buying_public_key_base64;
+  if (publicKey === undefined || publicKey === null) return null;
+  if (typeof publicKey !== "string" || !BUYING_PUBLIC_KEY_PATTERN.test(publicKey)) refuse(400, "bad_buying_key", "buying_public_key_base64 is a P-256 public key, raw, in base64url.");
+  return publicKey as string;
+}
+
+/** Whether this buying key was kept for the account by a confirm in its browser. */
+async function isBuyingKeyKept(env: Env, accountId: string, publicKey: string | null): Promise<boolean> {
+  if (!publicKey) return false;
+  return (await env.DB.prepare("SELECT 1 AS is_kept FROM buying_keys WHERE account_id = ? AND public_key_base64 = ?").bind(accountId, publicKey).first()) !== null;
+}
+
+/** Whether one of the account's kept buying keys signed this purchase, as the pay call's body carries it. Notes the key used. */
+async function isSignedByBuyingKey(env: Env, accountId: string, purchaseId: string, body: Record<string, unknown>, nowMs: number): Promise<boolean> {
+  const publicKey = buyingPublicKeyOf(body);
+  const signature = body.buying_signature_base64;
+  if (!publicKey || typeof signature !== "string" || !BUYING_SIGNATURE_PATTERN.test(signature) || !(await isBuyingKeyKept(env, accountId, publicKey))) return false;
+  let isSigned = false;
+  try {
+    const key = await crypto.subtle.importKey("raw", fromB64url(publicKey)!, BUYING_KEY_ALGORITHM, false, ["verify"]);
+    isSigned = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, fromB64url(signature)!, new TextEncoder().encode(buyingSignedText(purchaseId)));
+  } catch {
+    // Not a point on the curve: no key signed it.
+  }
+  if (isSigned) await env.DB.prepare("UPDATE buying_keys SET used_at_ms = ? WHERE account_id = ? AND public_key_base64 = ?").bind(nowMs, accountId, publicKey).run();
+  return isSigned;
+}
+
 /** Why a saved-card buy asks the player to confirm it's them: the sheet's confirmation_reason. */
-type ConfirmationReason = "purchase_pin" | "old_sign_in" | "big_spend";
+type ConfirmationReason = "purchase_pin" | "new_device" | "old_sign_in" | "big_spend";
 
 /**
  * About how much the player's buying in the last 24 hours comes to, in US cents, with the sale being bought now:
@@ -230,21 +279,24 @@ async function spendInLastDayUsdMinorUnits(env: Env, playerId: string, sale: { i
 
 /**
  * The one rule for a saved-card buy, for the sheet's answer and for the pay call alike: why the player must confirm
- * it's them first (a purchase PIN on the account, then a sign-in over 30 days old, then a day's buying past USD 100.00),
- * or null when pressing Buy is enough, or when they already confirmed here (see the comment at the top).
+ * it's them first (a purchase PIN on the account, then a browser with no kept buying key, then a sign-in over 30 days
+ * old, then a day's buying past USD 100.00), or null when pressing Buy is enough, or when they already confirmed here
+ * (see the comment at the top). The sheet's answer knows the key only by name; the pay call by its signature.
  */
-async function confirmationReasonFor(env: Env, session: Session, account: Account, hasPurchasePin: boolean, sale: { id: string; currencyCode: string; paidMinorUnits: number }, nowMs: number): Promise<ConfirmationReason | null> {
+async function confirmationReasonFor(env: Env, session: Session, account: Account, hasPurchasePin: boolean, isBuyingKeyKnown: boolean, sale: { id: string; currencyCode: string; paidMinorUnits: number }, nowMs: number): Promise<ConfirmationReason | null> {
   let reason: ConfirmationReason | null = null;
   if (hasPurchasePin) reason = "purchase_pin";
+  else if (!isBuyingKeyKnown) reason = "new_device";
   else if (session.signedInAtMs === 0 || nowMs - session.signedInAtMs > SIGN_IN_MAXIMUM_AGE_MS) reason = "old_sign_in";
   else if ((await spendInLastDayUsdMinorUnits(env, account.player_id, sale, nowMs)) > PURCHASE_PIN_LIMITS.dailySpendLimitUsdMinorUnits) reason = "big_spend";
-  if (reason && (await isConfirmedHere(env, session, account.id, nowMs))) return null;
+  if (reason && (await isConfirmedHere(env, session, account.id, isBuyingKeyKnown, nowMs))) return null;
   return reason;
 }
 
 /** What the pay call says when it refuses for a missing confirm: why, and how to confirm. */
 function confirmationNeededMessage(reason: ConfirmationReason): string {
   if (reason === "purchase_pin") return "Your account has a purchase PIN, so every buy needs it. Confirm it's you first, with your purchase PIN, passkey or password.";
+  if (reason === "new_device") return "This is the first buy with your saved card on this device. Confirm it's you first, with your passkey or password.";
   if (reason === "old_sign_in") return `You last signed in more than ${PURCHASE_PIN_LIMITS.signInMaximumAgeDays} days ago. Confirm it's you first, with your passkey or password.`;
   return `This buy would take your buying in the last 24 hours past USD ${(PURCHASE_PIN_LIMITS.dailySpendLimitUsdMinorUnits / 100).toFixed(2)}. Confirm it's you first, with your passkey or password.`;
 }
@@ -300,8 +352,8 @@ async function startBuying(request: Request, env: Env, slug: string, body: Recor
     { gameId: game.id, playerId: account.player_id, gameItem, itemCount, gameAccountId: gameAccountId as string | null, priceMinorUnits: price.priceMinorUnits, currencyCode: price.currencyCode, stripeAccountId: seller.stripe_account_id, isEuWithdrawalLineShown },
     nowMs,
   );
-  const [card, passkeys, pin] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id), pinOf(env, account.id)]);
-  const confirmationReason = await confirmationReasonFor(env, session, account, Boolean(pin?.purchase_pin_hash), { id: purchaseId, currencyCode: price.currencyCode, paidMinorUnits: totalMinorUnits }, nowMs);
+  const [card, passkeys, pin, isBuyingKeyKnown] = await Promise.all([savedCardOf(env, account.id), passkeysFor(env.DB, account.id), pinOf(env, account.id), isBuyingKeyKept(env, account.id, buyingPublicKeyOf(body))]);
+  const confirmationReason = await confirmationReasonFor(env, session, account, Boolean(pin?.purchase_pin_hash), isBuyingKeyKnown, { id: purchaseId, currencyCode: price.currencyCode, paidMinorUnits: totalMinorUnits }, nowMs);
   return {
     purchase_id: purchaseId,
     item: { item_name: gameItem.item_name, title: gameItem.title, description: gameItem.description, item_kind: gameItem.item_kind, item_category: gameItem.item_category },
@@ -339,6 +391,7 @@ const pinOf = (env: Env, accountId: string) =>
 async function confirmBuying(request: Request, env: Env, session: Session, account: Account, body: Record<string, unknown>, nowMs: number): Promise<string[]> {
   const given = ["passkey_tap", "purchase_pin", "password"].filter((name) => body[name] !== undefined);
   if (given.length !== 1) return refuse(400, "bad_request", "Send one of passkey_tap, purchase_pin or password.");
+  const buyingPublicKey = buyingPublicKeyOf(body);
   let confirmedSession = session;
   let cookies: string[] = [];
   let method: "passkey" | "purchase_pin" | "password";
@@ -375,10 +428,18 @@ async function confirmBuying(request: Request, env: Env, session: Session, accou
   }
   if (!confirmedSession.sessionId) return refuse(409, "session_needed", "Sign in again to buy here.");
   await env.DB.prepare(
-    "INSERT INTO purchase_confirmations (session_id, account_id, confirmation_method, confirmed_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (session_id) DO UPDATE SET account_id = excluded.account_id, confirmation_method = excluded.confirmation_method, confirmed_at_ms = excluded.confirmed_at_ms",
+    "INSERT INTO purchase_confirmations (session_id, account_id, confirmation_method, confirmed_at_ms, buying_public_key_base64) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session_id) DO UPDATE SET account_id = excluded.account_id, confirmation_method = excluded.confirmation_method, confirmed_at_ms = excluded.confirmed_at_ms, buying_public_key_base64 = excluded.buying_public_key_base64",
   )
-    .bind(confirmedSession.sessionId, account.id, method, nowMs)
+    .bind(confirmedSession.sessionId, account.id, method, nowMs, buyingPublicKey)
     .run();
+  // This browser's buying key is kept on the account: its next saved-card buys are one press.
+  if (buyingPublicKey) {
+    await env.DB.prepare(
+      "INSERT INTO buying_keys (account_id, public_key_base64, confirmed_at_ms, used_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (account_id, public_key_base64) DO UPDATE SET confirmed_at_ms = excluded.confirmed_at_ms",
+    )
+      .bind(account.id, buyingPublicKey, nowMs, nowMs)
+      .run();
+  }
   return cookies;
 }
 
@@ -398,14 +459,17 @@ async function payWithSavedCard(request: Request, env: Env, session: Session, ac
   await pendingCheck(sale);
   await refuseIfSaleBlocked(env, request, body, sale);
   const hasPurchasePin = Boolean((await pinOf(env, account.id))?.purchase_pin_hash);
-  const confirmationReason = await confirmationReasonFor(env, session, account, hasPurchasePin, { id: sale.id, currencyCode: sale.currency_code!, paidMinorUnits: sale.paid_minor_units! }, nowMs);
+  const isBuyingKeyKnown = await isSignedByBuyingKey(env, account.id, sale.id, body, nowMs);
+  const confirmationReason = await confirmationReasonFor(env, session, account, hasPurchasePin, isBuyingKeyKnown, { id: sale.id, currencyCode: sale.currency_code!, paidMinorUnits: sale.paid_minor_units! }, nowMs);
   if (confirmationReason) return refuse(403, "purchase_confirmation_needed", confirmationNeededMessage(confirmationReason));
   const card = await savedCardOf(env, account.id);
   if (!card) return refuse(409, "no_saved_card", "You have no saved card. Add one, or pay with Apple Pay or Google Pay.");
-  if (hasPurchasePin) {
+  if (hasPurchasePin || !isBuyingKeyKnown) {
     // One confirm, one buy: taken in one statement, so two pay calls at once can't both spend it.
-    const taken = await env.DB.prepare("DELETE FROM purchase_confirmations WHERE session_id = ? AND account_id = ? AND confirmed_at_ms > ?").bind(session.sessionId, account.id, nowMs - CONFIRMATION_DURATION_MS).run();
-    if (!taken.meta.changes) return refuse(403, "purchase_confirmation_needed", confirmationNeededMessage("purchase_pin"));
+    const taken = await env.DB.prepare("DELETE FROM purchase_confirmations WHERE session_id = ? AND account_id = ? AND confirmed_at_ms > ? AND (? = 1 OR buying_public_key_base64 IS NULL)")
+      .bind(session.sessionId, account.id, nowMs - CONFIRMATION_DURATION_MS, isBuyingKeyKnown ? 1 : 0)
+      .run();
+    if (!taken.meta.changes) return refuse(403, "purchase_confirmation_needed", confirmationNeededMessage(hasPurchasePin ? "purchase_pin" : "new_device"));
   }
   const customer = await playerCustomerFor(env, account.id);
   const stripeAccountId = sale.stripe_account_id!;
