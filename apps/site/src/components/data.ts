@@ -8,6 +8,7 @@ import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 import { slab } from "./materials.ts";
 import { loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { progress } from "./reading.ts";
+import { SCREEN_QUERIES } from "./tokens.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -831,7 +832,7 @@ component({
 .list-rows > li:has(> .list-row-side) > .list-row > .list-row-go { grid-column: 4; margin-inline-start: var(--gap-words-control); }
 .list-row-side { grid-area: 1 / 3; position: relative; z-index: 2; margin: 0; }
 /* On a phone, upright or on its side, a link's own buttons (Join, Accept) take the place of its arrow, for the name's room; the whole row still opens. A row that opens choices keeps its chevron: it's the only way to them. */
-@media (max-width: 760px), (orientation: landscape) and (max-height: 500px) {
+@media ${SCREEN_QUERIES.phone} {
   .list-rows > li > .list-row.is-link:has(+ .list-row-side) { --row-end: 0px; }
   .list-rows > li > .list-row.is-link:has(+ .list-row-side) > .list-row-go { display: none; }
 }

@@ -1,7 +1,48 @@
 
 
+/**
+ * The screens a piece may ask about (docs/DESIGN.md, Screens): each named once, spelled once, with what it is. A media query about the
+ * screen's size or shape is one of these or it fails the style rules (test/node/style-rules.test.ts, "asks only the named screens"), so a
+ * phone on its side gets what every other piece gives it and no piece invents a breakpoint of its own. What goes by the room a piece is
+ * given is a container query, and free.
+ */
+export const SCREEN_QUERIES = {
+  /** A phone either way up (and any window as small): where phones take a phone's sizes. */
+  phone: "(max-width: 760px), (max-height: 500px)",
+  /** A phone upright, never on its side: under 761px wide and upright, or tall enough not to be a phone on its side. */
+  phoneUpright: "(max-width: 760px) and ((orientation: portrait) or (min-height: 501px))",
+  /** A phone on its side: a landscape screen too short for a laptop. */
+  phoneSideways: "(orientation: landscape) and (max-height: 500px)",
+  /** Anything but a phone upright: wider than one, or a phone on its side. */
+  notPhoneUpright: "(min-width: 761px), (orientation: landscape) and (max-height: 500px)",
+  /** Neither way a phone: a tablet, a laptop or larger. */
+  notPhone: "(min-width: 761px) and (min-height: 501px)",
+  /** Under 761px wide: an upright phone or a narrow window. A phone on its side isn't one; a piece that asks this is the same there as on a laptop. */
+  narrow: "(max-width: 760px)",
+  /** A touch screen, or a screen as narrow as a phone: where the backdrop bleeds past the edges a finger drags. */
+  touchOrNarrow: "(pointer: coarse), (max-width: 760px)",
+  /** Where the header is a rail down the left: a phone on its side, with width to spare and little height. */
+  headerRail: "(orientation: landscape) and (max-height: 500px) and (max-width: 64em)",
+  /** Where the header folds its tabs to icons: a screen narrower than a laptop. */
+  headerSmall: "(max-width: 64em)",
+  /** A screen narrower than a narrow holder (NARROW_HOLDER_WIDTH): a small phone, where a row's buttons show their icons alone. */
+  narrowHolder: "(max-width: 28rem)",
+  /** A small phone upright: where the color picker stacks its parts. */
+  phoneSmall: "(max-width: 480px)",
+  /** A phone a little wider: where a game's screenshots shrink to fit two across. */
+  phoneMedium: "(max-width: 520px)",
+  /** A phone or a small tablet upright: where an urgent card takes the screen's width less its frame gap. */
+  phoneLarge: "(max-width: 640px)",
+  /** An upright screen, taller than wide: where the live world shows its upright picture. */
+  upright: "(max-aspect-ratio: 3/4)",
+  /** A short screen (a laptop with its browser's bars, a phone on its side): where a store's large cover gives up room. */
+  short: "(max-height: 52em)",
+  /** Any screen but a very short one: where Confirm it's you keeps its full head. */
+  notVeryShort: "not (max-height: 30em)",
+} as const;
+
 /** Where the header is a rail down the left: a phone on its side, with width to spare and little height. */
-export const HEADER_RAIL_MEDIA = "(orientation: landscape) and (max-height: 500px) and (max-width: 64em)";
+export const HEADER_RAIL_MEDIA = SCREEN_QUERIES.headerRail;
 
 /** The cut corners of a kind of slab (the cut tokens), as a clip-path, for a frame that isn't glass the edge rule cuts (a demo's box). */
 export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
@@ -11,7 +52,7 @@ export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
 
 /** The glass's two kinds, as tokens: light glass with dark words, and smoked glass with light words. */
 /** A phone, either way up: where a notice over a game is one line. */
-export const NOTICE_STRIP_MEDIA = "(max-width: 760px), (orientation: landscape) and (max-height: 500px)";
+export const NOTICE_STRIP_MEDIA = SCREEN_QUERIES.phone;
 
 export const LIGHT_GLASS = `color-scheme: light;
   --glass-ground: #E7E4DF;
