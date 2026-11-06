@@ -599,7 +599,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
         placed.max = placed.whole - placed.view;
         // Under the header, or the whole way down beside it where it's a rail.
-        if (above) { var aboveRect = above.getBoundingClientRect(); placed.top = Math.round((aboveRect.height > aboveRect.width ? 0 : aboveRect.bottom) + GUTTER_PX) + "px"; }
+        // Beside a header that's a rail down the screen's side (a phone on its side), the stylesheet places it, clear of the screen's corners.
+        if (above) { var aboveRect = above.getBoundingClientRect(); placed.top = aboveRect.height > aboveRect.width ? "" : Math.round(aboveRect.bottom + GUTTER_PX) + "px"; }
         // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
         // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are square, as
         // anything in a box is by the edge rule; where the box reaches a cut corner, that end is cut, stopping where its slant keeps that
@@ -635,7 +636,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         return placed;
       },
       putPlace: function (placed) {
-        if (placed.top) bar.style.top = placed.top;
+        if (placed.top !== undefined) bar.style.top = placed.top;
         if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
@@ -1174,11 +1175,11 @@ component({
 }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height) + 10px); bottom: 10px; }
+  .rail[data-rail="page"] { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height) + 10px); bottom: max(10px, var(--screen-corner-room)); }
 }
-/* Beside the header's rail on a phone on its side, it runs the screen's whole height, clear of the notch. */
+/* Beside the header's rail on a phone on its side, it runs the screen's whole height, clear of the notch and the screen's rounded corners. */
 @media ${HEADER_RAIL_MEDIA} {
-  html:not(.is-playing):has(> body > .top.has-tab-row) .rail[data-rail="page"] { top: max(var(--pad-frame), var(--corner-room)); bottom: max(var(--pad-frame), var(--corner-room)); right: calc(var(--safe-right) + (var(--pad-pane) - var(--rail-reach)) / 2); }
+  html:not(.is-playing):has(> body > .top.has-tab-row) .rail[data-rail="page"] { top: max(var(--pad-frame), var(--corner-room), var(--screen-corner-room)); bottom: max(var(--pad-frame), var(--corner-room), var(--screen-corner-room)); right: calc(var(--safe-right) + (var(--pad-pane) - var(--rail-reach)) / 2); }
 }
 /* By touch, a finger on it drags the thumb instead of the page. A finger held on it never selects the words beside it, opens the phone's
    callout or flashes a tap's highlight. */

@@ -360,6 +360,10 @@ html { -webkit-tap-highlight-color: transparent; }
 /* A phone's sizes, upright or on its side (a landscape phone is a phone's height, not a laptop's). */
 :root[data-cutout-side="left"] { --safe-right: 0px; }
 :root[data-cutout-side="right"] { --safe-left: 0px; }
+/* A phone's screen corners are rounded, up to about a 55px radius: what runs down the screen's edge (the page's rail) stops this far from
+   its top and foot, so the corner's curve never cuts it. A mouse's screen has square corners: no room needed. */
+:root { --screen-corner-room: 0px; }
+@media (pointer: coarse) { :root { --screen-corner-room: 36px; } }
 @media (max-width: 760px), (max-height: 500px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 3rem; --type-title: 600 2rem/1.04 var(--display); --type-heading: 600 1.625rem/1.1 var(--display); --type-section: 600 1.25rem/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }
