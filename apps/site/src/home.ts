@@ -2,10 +2,9 @@ import { type DeviceKind, friendsNowOf, type FriendsInGame, AGE_BAND_FLOOR_YEARS
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { secondaryButton } from "./components/actions.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
-import { grid, leadAndSide, stack, stackOfOne, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
+import { grid, leadAndSide, stack, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
 import { MAXIMUM_GAME_ROW_CARD_COUNT, gameRow } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
@@ -368,9 +367,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
     ? [{ kind: "block", markup: gameRow({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAllHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
     : [];
   // Past the rows, the whole of Browse: every game, every kind.
-  const browseAll: LayoutItem = { kind: "block", markup: glassPane({ paneWidth: "full", isCompact: true, label: "Browse", body: stackOfOne(secondaryButton("Browse every game", { href: "/games", isFullWidth: true })) }) };
   // What else is here: each kind of list on its own Game row, each its own pane.
-  const whatElse: LayoutItem[] = [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeGameRow(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds)), browseAll];
+  const whatElse: LayoutItem[] = [...friendsSection, ...rows.map(({ id, title, titleHref, list }) => homeGameRow(id, title, titleHref, forDeviceFirst(list, deviceKind), ownedGameIds))];
   const body = games.length >= MINIMUM_SHELF_GAME_COUNT
     ? html`<div id="home-games">${isReturning ? html`<h1 class="sr">Games on Zaisma</h1>` : ""}${stack({
         items: [
