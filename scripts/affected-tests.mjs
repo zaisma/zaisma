@@ -311,13 +311,19 @@ const CI_WORKER_COUNT = 4;
 const VITEST_START_SEC = 8;
 const WORKERS_FILE_SETUP_SEC = 4.5;
 const NODE_FILE_SETUP_SEC = 0.5;
+/**
+ * What each file costs a run on top of that: vitest transforming and importing it, which shard-weights.json's times leave out. Measured
+ * on GitHub's runners, Nov 6, 2026: 20 changed files took 19 s to transform and 16 s to import in each run, and a run took 62 s where
+ * the plan without it said 42 s, so three runners took four runs each and ran past the job's limit.
+ */
+const FILE_LOAD_SEC = 1.75;
 
 /**
  * "New tests ten times" on as many runners as keep each within its budget: { include: [{ runner, runner_count, run_count }] }, ten runs in all.
  * A file's cost comes from test/shard-weights.json, as the test shards' does, and four files run at once.
  */
 export function repeatRunnerPlan(changedTestFiles, durationMsByFile) {
-  const costsSec = changedTestFiles.map((path) => (durationMsByFile[path] ?? 300) / 1000 + (/^test\/(node|layout|load)\//.test(path) ? NODE_FILE_SETUP_SEC : WORKERS_FILE_SETUP_SEC));
+  const costsSec = changedTestFiles.map((path) => (durationMsByFile[path] ?? 300) / 1000 + FILE_LOAD_SEC + (/^test\/(node|layout|load)\//.test(path) ? NODE_FILE_SETUP_SEC : WORKERS_FILE_SETUP_SEC));
   const runSec = VITEST_START_SEC + Math.max(...costsSec, costsSec.reduce((sum, costSec) => sum + costSec, 0) / CI_WORKER_COUNT);
   const runnerCount = Math.min(REPEAT_COUNT, Math.max(1, Math.ceil((runSec * REPEAT_COUNT) / REPEAT_RUNNER_BUDGET_SEC)));
   return { include: Array.from({ length: runnerCount }, (_, index) => ({ runner: index + 1, runner_count: runnerCount, run_count: Math.floor(REPEAT_COUNT / runnerCount) + (index < REPEAT_COUNT % runnerCount ? 1 : 0) })) };
