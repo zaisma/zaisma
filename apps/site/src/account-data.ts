@@ -72,6 +72,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   waiting_sign_in_deletions: { file_path: null, reason: "A deleted account's sign-in, by its ID alone, until Supabase takes it." },
   session_proofs: { file_path: null, reason: "How each signed-in session last proved it's the owner, kept a day." },
   purchase_confirmations: { file_path: null, reason: "When each signed-in session last confirmed a buy, kept a day." },
+  buying_keys: { file_path: null, reason: "Public keys of the browsers a buy was confirmed in, which sign nothing without that browser." },
   stripe_connect_states: { file_path: null, reason: "One-time links to connect a Stripe account, kept for minutes." },
   security_places: { file_path: null, reason: "Fingerprints of where API keys were used, never readable back." },
   room_keys: { file_path: null, reason: "Counts of room passes, kept a day." },

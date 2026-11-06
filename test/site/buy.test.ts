@@ -97,9 +97,29 @@ async function tool(name: string, toolArguments: Record<string, unknown>): Promi
   return result.structuredContent;
 }
 
-/** A call from zaisma.com's own pages, signed in as accountId (or a guest with null). */
-async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string; email?: string; country?: string | null; bindings?: Record<string, unknown>; cookie?: string; signedInAtMs?: number | null } = {}) {
+/** A browser's buying key, as the sheet makes and keeps one (buy-sheet.ts, buyingKey). */
+interface BuyingKey { pair: CryptoKeyPair; publicKey: string }
+async function newBuyingKey(): Promise<BuyingKey> {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair;
+  return { pair, publicKey: b64url((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer) };
+}
+/** The browser the player's calls come from by default: none, unless a test or its describe sets one. */
+let browserKey: BuyingKey | null = null;
+const signedBy = async (key: BuyingKey, purchaseId: string) =>
+  b64url(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`zaisma-buy:${purchaseId}`)));
+/** What the sheet adds to a call from a browser with a buying key: its public half, and on a pay call its signature. */
+async function withBuyingKey(path: string, body: unknown, key: BuyingKey | null): Promise<unknown> {
+  if (!key) return body;
+  const pay = path.match(/^\/api\/buy\/purchases\/([A-Za-z0-9_-]+)\/pay-with-saved-card$/);
+  if (pay) return { buying_public_key_base64: key.publicKey, buying_signature_base64: await signedBy(key, pay[1]!), ...(body as object) };
+  if (/^\/api\/buy\/([a-z0-9-]+\/start|confirm)$/.test(path)) return { buying_public_key_base64: key.publicKey, ...(body as object) };
+  return body;
+}
+
+/** A call from zaisma.com's own pages, signed in as accountId (or a guest with null), from browserKey's browser unless buyingKey says another. */
+async function player(path: string, init: { method?: string; body?: unknown; accountId?: string | null; origin?: string; sessionId?: string; email?: string; country?: string | null; bindings?: Record<string, unknown>; cookie?: string; signedInAtMs?: number | null; buyingKey?: BuyingKey | null } = {}) {
   const accountId = init.accountId === undefined ? "player-1" : init.accountId;
+  init = { ...init, body: await withBuyingKey(path, init.body, init.buyingKey === undefined ? browserKey : init.buyingKey) };
   const method = init.method ?? (init.body ? "POST" : "GET");
   const country = init.country === undefined ? "DE" : init.country;
   const request = new Request(`${SITE}${path}`, {
@@ -180,8 +200,9 @@ beforeEach(async () => {
     if (path === "/v1/refunds") return Response.json({ id: `re_test_${stripeCalls.length}`, status: "succeeded" });
     return Response.json({ error: { message: `No such call in the stand-in: ${path}` } }, { status: 400 });
   });
+  browserKey = null;
   await env.DB.exec(
-    "DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM passkeys; DELETE FROM passkey_challenges; DELETE FROM wrong_passwords; DELETE FROM device_marks; DELETE FROM accounts;",
+    "DELETE FROM buying_keys; DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM passkeys; DELETE FROM passkey_challenges; DELETE FROM wrong_passwords; DELETE FROM device_marks; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
@@ -205,6 +226,12 @@ const givePassword = () => env.DB.prepare("UPDATE accounts SET password_changed_
 /** The player's address as Supabase knows an account that never added an email. */
 const NO_EMAIL = "player-1@no-mail.zaisma.com";
 const confirmedAt = (confirmedAtMs: number, sessionId = "session-player-1") => env.DB.prepare("INSERT INTO purchase_confirmations (session_id, account_id, confirmation_method, confirmed_at_ms) VALUES (?, 'player-1', 'purchase_pin', ?) ON CONFLICT (session_id) DO UPDATE SET confirmed_at_ms = excluded.confirmed_at_ms").bind(sessionId, confirmedAtMs).run();
+/** A buying key the player's account keeps, as a confirm in its browser leaves it. */
+async function keptBuyingKey(): Promise<BuyingKey> {
+  const key = await newBuyingKey();
+  await env.DB.prepare("INSERT INTO buying_keys (account_id, public_key_base64, confirmed_at_ms, used_at_ms) VALUES ('player-1', ?, ?, ?)").bind(key.publicKey, Date.now(), Date.now()).run();
+  return key;
+}
 const pinState = () => env.DB.prepare("SELECT purchase_pin_hash, purchase_pin_failed_count FROM accounts WHERE id = 'player-1'").first<{ purchase_pin_hash: string | null; purchase_pin_failed_count: number }>();
 const MINUTE_MS = 60_000;
 
@@ -357,6 +384,7 @@ describe("opening the sheet", () => {
   });
 
   it("makes a pending purchase at the player's price, and answers what the sheet shows", async () => {
+    browserKey = await keptBuyingKey();
     await connect();
     await setItem("revive", revive);
     const { status, answer } = await player("/api/buy/tiny-farm/start", { body: { item_name: "revive", item_count: 3, game_account_id: "farmer-42" } });
@@ -445,6 +473,8 @@ describe("paying with the saved card", () => {
     await setItem("revive", revive);
     await setItem("golden_barn", barn);
     await saveCard();
+    // The player's own browser, where a buy was confirmed before.
+    browserKey = await keptBuyingKey();
   });
 
   it("needs a confirm on this device first, and a wrong PIN counts to 5", async () => {
@@ -503,6 +533,52 @@ describe("paying with the saved card", () => {
     expect(second.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
     expect((await player(payUrl(second.answer.purchase_id), { method: "POST", signedInAtMs: Date.now() - 29 * DAY_MS })).answer.status).toBe("completed");
     expect(paymentCount()).toBe(2);
+  });
+
+  it("pays with one press only from a browser whose buying key the account kept, and asks once in a new one", async () => {
+    const newBrowser = await newBuyingKey();
+    const opened = await startRevive({ buyingKey: newBrowser });
+    expect(opened.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "new_device" });
+    expect((await startRevive({ buyingKey: null })).answer.confirmation_reason).toBe("new_device");
+    // Paying there, with no key at all, or with a kept key's signature over another purchase is refused.
+    const otherPurchaseId = await started();
+    const signedForOther = { buying_public_key_base64: browserKey!.publicKey, buying_signature_base64: await signedBy(browserKey!, otherPurchaseId) };
+    for (const init of [{ buyingKey: newBrowser }, { buyingKey: null }, { buyingKey: null, body: signedForOther }]) {
+      const refused = await player(payUrl(opened.answer.purchase_id), { method: "POST", ...init });
+      expect(refused).toMatchObject({ status: 403, answer: { error: { code: "purchase_confirmation_needed" } } });
+      expect(refused.answer.error.message).toContain("first buy with your saved card on this device");
+    }
+    expect(await player(payUrl(opened.answer.purchase_id), { method: "POST", buyingKey: null, body: { buying_public_key_base64: "not-a-key" } })).toMatchObject({ status: 400, answer: { error: { code: "bad_buying_key" } } });
+    expect(paymentCount()).toBe(0);
+
+    // A confirm in the new browser keeps its key: that buy and the next are one press there.
+    await givePassword();
+    expect((await player("/api/buy/confirm", { body: { password: RIGHT_PASSWORD }, buyingKey: newBrowser })).answer).toEqual({ is_confirmed: true });
+    expect((await player(payUrl(opened.answer.purchase_id), { method: "POST", buyingKey: newBrowser })).answer.status).toBe("completed");
+    const next = await startRevive({ buyingKey: newBrowser });
+    expect(next.answer).toMatchObject({ is_confirmation_needed: false, confirmation_reason: null });
+    expect((await player(payUrl(next.answer.purchase_id), { method: "POST", buyingKey: newBrowser })).answer.status).toBe("completed");
+
+    // The confirmed session from a browser without a kept key still confirms first, even within the confirm's 15 minutes.
+    const keyless = await startRevive({ sessionId: "session-after-password", buyingKey: null });
+    expect(keyless.answer.confirmation_reason).toBe("new_device");
+    expect((await player(payUrl(keyless.answer.purchase_id), { method: "POST", sessionId: "session-after-password", buyingKey: null })).answer.error.code).toBe("purchase_confirmation_needed");
+    expect(paymentCount()).toBe(2);
+  });
+
+  it("confirms each buy in a browser that can't keep a buying key, one confirm for one buy", async () => {
+    await givePassword();
+    const opened = await startRevive({ buyingKey: null });
+    expect(opened.answer).toMatchObject({ is_confirmation_needed: true, confirmation_reason: "new_device" });
+    expect((await player("/api/buy/confirm", { body: { password: RIGHT_PASSWORD }, buyingKey: null })).answer).toEqual({ is_confirmed: true });
+    const afterPassword = { sessionId: "session-after-password", buyingKey: null };
+    expect((await player(payUrl(opened.answer.purchase_id), { method: "POST", ...afterPassword })).answer.status).toBe("completed");
+    expect(await confirmationCount()).toBe(0);
+    const second = await startRevive(afterPassword);
+    expect(second.answer.confirmation_reason).toBe("new_device");
+    expect((await player(payUrl(second.answer.purchase_id), { method: "POST", ...afterPassword })).answer.error.code).toBe("purchase_confirmation_needed");
+    expect(paymentCount()).toBe(1);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS key_count FROM buying_keys WHERE public_key_base64 != ?").bind(browserKey!.publicKey).first()).toEqual({ key_count: 0 });
   });
 
   it("asks for the PIN on every buy with a PIN set, and a confirm covers exactly one buy", async () => {

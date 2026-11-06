@@ -132,7 +132,7 @@ beforeEach(async () => {
     return Response.json({ error: { message: `No such call in the stand-in: ${path}` } }, { status: 400 });
   });
   await env.DB.exec(
-    "DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM retired_game_slugs; DELETE FROM accounts;",
+    "DELETE FROM buying_keys; DELETE FROM purchases; DELETE FROM purchase_confirmations; DELETE FROM saved_payment_methods; DELETE FROM stripe_connect_states; DELETE FROM game_items; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM security_events; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM retired_game_slugs; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "player-1", username: "Emma_Clarke", ageBand: "18+" });
@@ -154,6 +154,13 @@ const barn = { title: "Golden Barn", item_kind: "permanent", item_category: "cos
 const saveCard = () => env.DB.prepare("INSERT INTO saved_payment_methods (account_id, stripe_payment_method_id, card_brand, card_last_digits, created_at_ms) VALUES ('player-1', 'pm_test_saved', 'visa', '4242', ?)").bind(Date.now()).run();
 const setPin = async (pin = "482917") => env.DB.prepare("UPDATE accounts SET purchase_pin_hash = ? WHERE id = 'player-1'").bind(await hashPurchasePin(pin)).run();
 const started = async (itemName = "revive") => (await player("/api/buy/tiny-farm/start", { body: { item_name: itemName } })).answer.purchase_id as string;
+/** A buying key the player's account keeps, and the pay call's body signed with it for one purchase (buy.ts, buyingSignedText). */
+async function keptBuyingKey() {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair;
+  const publicKey = b64url((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer);
+  await env.DB.prepare("INSERT INTO buying_keys (account_id, public_key_base64, confirmed_at_ms, used_at_ms) VALUES ('player-1', ?, ?, ?)").bind(publicKey, Date.now(), Date.now()).run();
+  return async (purchaseId: string) => ({ buying_public_key_base64: publicKey, buying_signature_base64: b64url(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`zaisma-buy:${purchaseId}`))) });
+}
 const confirmed = async () => {
   await setPin();
   expect((await player("/api/buy/confirm", { body: { purchase_pin: "482917" } })).answer).toEqual({ is_confirmed: true });
@@ -247,18 +254,19 @@ describe("the total and Stripe's answers (review 17)", () => {
   it("fails the sale on a really declined card, but not when Stripe itself is in trouble: that can be tried again", async () => {
     await setItem("revive", revive);
     await saveCard();
+    const signedFor = await keptBuyingKey();
     const purchaseId = await started();
     charge = { status: "succeeded", failure: "stripe" };
-    const trouble = await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" });
+    const trouble = await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST", body: await signedFor(purchaseId) });
     expect(trouble.answer.error.code).toBe("stripe_unavailable");
     expect(trouble.status).toBeGreaterThanOrEqual(500);
     expect(await statusOf(purchaseId)).toBe("pending");
     charge = { status: "succeeded", failure: null };
-    expect((await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST" })).answer.status).toBe("completed");
+    expect((await player(`/api/buy/purchases/${purchaseId}/pay-with-saved-card`, { method: "POST", body: await signedFor(purchaseId) })).answer.status).toBe("completed");
 
     const declinedId = await started();
     charge = { status: "requires_payment_method", failure: "card" };
-    expect((await player(`/api/buy/purchases/${declinedId}/pay-with-saved-card`, { method: "POST" })).answer.error.code).toBe("payment_declined");
+    expect((await player(`/api/buy/purchases/${declinedId}/pay-with-saved-card`, { method: "POST", body: await signedFor(declinedId) })).answer.error.code).toBe("payment_declined");
     expect(await statusOf(declinedId)).toBe("failed");
   });
 });
