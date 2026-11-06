@@ -169,6 +169,7 @@ export async function whatsOnAnswer(env: Env, nowMs = Date.now()) {
 export async function handleWhatsOnArt(request: Request, env: Env, path: string): Promise<Response | null> {
   const match = path.match(/^\/whats-on-art\/(whats_on_entry_[a-z0-9]+)\/(wide|narrow|card)$/);
   if (!match) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   const object = await env.GAMES.get(whatsOnArtKey(match[1]!, match[2] as ArtSide));
   if (!object) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   return new Response(object.body, { headers: { "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": `public, max-age=${ART_CACHE_DURATION_SEC}`, "X-Content-Type-Options": "nosniff", ETag: object.httpEtag } });

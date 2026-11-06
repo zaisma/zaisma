@@ -2,7 +2,7 @@
 
 The report queue, precedents, chat reviews and the developer forum's queue in a Claude session: pull the latest reports and topics in, talk them through, and decide there. It's at `zaisma.com/admin/mcp`, behind the same Cloudflare Access login as the admin pages (`apps/site/src/admin-mcp.ts`).
 
-Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`, `announcement_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
+Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`, `whats_on_entry_…`, `ban_match_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
 
 ## Tools
 
@@ -104,7 +104,7 @@ A refused call answers `{ "error": { code, message, field, fix, retry_after_sec 
 | `bad_art` | 400 | An event's art isn't a PNG, WebP or JPEG within the size cap. |
 | `bad_text` | 400 | text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks. |
 | `bad_link_url` | 400 | link_url isn't an https address or a path on zaisma.com starting with /. |
-| `bad_link_label` | 400 | link_label isn't 1 to 30 characters, or was given without link_url. |
+| `bad_link_label` | 400 | link_label isn't 1 to 20 characters. |
 | `speed_not_set_up` | 503 | The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with. |
 | `speed_unreadable` | 502 | Analytics Engine didn't answer the speed query. |
 

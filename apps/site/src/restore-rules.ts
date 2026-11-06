@@ -56,7 +56,7 @@ export function restoreRuleOf(backupKey: string): RestoreRule {
   if (area === "forum-held" && areaParts.length === 1) return { kind: "always" };
   if (area === "report-pictures" && areaParts.length === 1 && name.endsWith(".jpg")) return owned("SELECT 1 AS has_owner FROM reports WHERE id = ? AND has_picture = 1", [name.slice(0, -".jpg".length)], "image/jpeg");
   // An event's art, while What's on still has the event.
-  if (area === "whats-on-art" && areaParts.length === 2) return owned("SELECT 1 AS has_owner FROM whats_on_entries WHERE id = ?", [areaParts[1]!]);
+  if (area === "whats-on-art" && areaParts.length === 2) return owned("SELECT 1 AS has_owner FROM whats_on_entries WHERE id = ?", [areaParts[0]!]);
   if (area === "logs") return { kind: "never", reason: "logs last days, and their listing reads metadata older copies lack" };
   if (area === "shader-checks") return { kind: "never", reason: "shader check sheets last a day" };
   if (area === "review-answers") return { kind: "never", reason: "a review's answers last until it ends, and a review asks again without them" };

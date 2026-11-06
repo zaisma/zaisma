@@ -115,11 +115,13 @@ describe("the home page", () => {
     expect(first.response.headers.get("cache-control")).not.toBe("no-store");
   });
 
-  it("shows no news line: an event is the home's one announcement", async () => {
+  it("shows player news as a card among What's on's, tagged News, and never as a line of its own", async () => {
     const now = Date.now();
-    await env.DB.prepare("INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_homenews', 'News for players.', NULL, NULL, ?, ?, ?, 'test')").bind(now - 1000, now + DAY_MS, now).run();
-    expect((await homePage()).text).not.toContain("News for players.");
-    await env.DB.prepare("DELETE FROM announcements WHERE id = 'announcement_homenews'").run();
+    await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_homenews', 'news', 'Jam winners', '/games', ?, ?, ?, 'test')").bind(now - 1000, now + DAY_MS, now).run();
+    const { text } = await homePage();
+    expect(text).toMatch(/id="whats-on"[\s\S]*?Jam winners[\s\S]*?>News</);
+    expect(text).not.toMatch(/class="banner[\s"][^>]*>(?:(?!<\/section>)[\s\S])*?Jam winners/);
+    await env.DB.prepare("DELETE FROM whats_on_entries WHERE id = 'whats_on_entry_homenews'").run();
   });
 
   it("runs an event's art across the top until it ends, in a well on a pane, with its name for a screen reader and its one button, and nothing to close it with", async () => {
@@ -143,7 +145,7 @@ describe("the home page", () => {
 
   it("refuses to be framed by other sites, as every page does", async () => {
     const { response } = await homePage();
-    expect(response.headers.get("Content-Security-Policy") ?? "").toContain("frame-ancestors");
+    expect(response.headers.get("Content-Security-Policy") ?? "").toMatch(/frame-ancestors '(none|self)'(;|$)/);
   });
 });
 

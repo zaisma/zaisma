@@ -145,8 +145,9 @@ Security: list_security_spikes shows the hours when something across Zaisma pass
 
 Bans: ban_account bans an account by its username, its developer side (its games come down; it can still play and export its games) or the whole account (child safety, illegal content: it can't sign in either). The ban carries the cards that paid Zaisma, its Stripe account and its email to new accounts, never a device or network. list_ban_matches shows other accounts that paid with a banned card; a family can share one, so the admin decides each with decide_ban_match. unban_account lifts a ban; its games stay down until each is restored. Bans change things for players and developers: say what you'd do and why, then wait for the admin to agree.
 
+What's on: post_whats_on_event, post_whats_on_news and post_whats_on_pick put art, words and games on zaisma.com's home for every player. Show the admin the exact title, link, dates and art, then wait for the admin to agree.
 
-Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, announcement_…, ban_match_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
+Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, whats_on_entry_…, ban_match_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
 
 /** Who's deciding, for the audit log. */
 interface AdminCaller {
@@ -1335,7 +1336,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     reaches: "zaisma_settings",
     title: "Post an event",
     description:
-      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at. The newest current event holds the strip; another with card_art shows as a poster among What's on's cards. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
+      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at. The newest current event holds the strip; another with card_art shows as a poster among What's on's cards. The art carries the event's name, toward its start, with its end quiet for the button. Ask the admin first.\n" +
       'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
     inputSchema: {
       ...object(
@@ -1365,7 +1366,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     reaches: "zaisma_settings",
     title: "Post news for players",
     description:
-      "Put news for players among What's on's cards, tagged News, from starts_at until ends_at: a collection, a jam's winners, a new way to play. Never a change to Zaisma itself: those go on the developer forum. It comes after events' posters and before picks, and never pushes out every game.\n" +
+      "Put news for players among What's on's cards, tagged News, from starts_at until ends_at: a collection, a jam's winners, a new way to play. Never a change to Zaisma itself: those go on the developer forum. It comes after events' posters and before picks, and never pushes out every game. Ask the admin first.\n" +
       'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
     inputSchema: object(
       {
@@ -1389,7 +1390,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "post_whats_on_pick",
     reaches: "zaisma_settings",
     title: "Pick a game for What's on",
-    description: "Put one listed game among What's on's cards, tagged Pick, from starts_at until ends_at. Picks come first, the newest first.",
+    description: "Put one listed game among What's on's cards, tagged Pick, from starts_at until ends_at. Picks come first, the newest first. Ask the admin first.",
     inputSchema: object(
       {
         game_slug: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 80, description: "The game's link name." },
@@ -1487,6 +1488,10 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   link_label: "bad_link_label",
   starts_at: "bad_time",
   ends_at: "bad_time",
+  wide_art_base64: "bad_art",
+  narrow_art_base64: "bad_art",
+  card_art_base64: "bad_art",
+  game_slug: "bad_slug",
 };
 /** An ID that isn't one of its kind is one that doesn't exist; one of another kind gets wrong_id_kind. */
 const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> = {
@@ -1500,6 +1505,7 @@ const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> 
   answer_post_id: { kind: "post", code: "bad_answer_post_id", fix: "get_topic lists the topic's posts with their IDs; null clears the answer." },
   chat_review_id: { kind: "chat_review", code: "no_chat_review", fix: "list_chat_reviews lists them with their IDs." },
   ban_match_id: { kind: "ban_match", code: "no_ban_match", fix: "list_ban_matches lists them with their IDs." },
+  whats_on_entry_id: { kind: "whats_on_entry", code: "no_whats_on_entry", fix: "list_whats_on lists them with their IDs." },
 };
 
 /** What a schema takes, in words: "one of dismiss, bug", "1 to 500 characters", "true or false". */
