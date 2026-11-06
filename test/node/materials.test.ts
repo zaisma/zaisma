@@ -199,7 +199,6 @@ const NOT_MADE_OF_MATERIALS = new Map<string, string>([
   [".cover-plate > .cover-meta:not(.has-actions) | padding-inline", "a card's name and tag keep the compact frame gap from the line's sides"],
   [".cover-plate:has(.run-wrap) | height", "the player's own game's line holds Play and Details, a small control and its frame"],
   [".cover-mosaic-tile | overflow", "a See all card's small covers are cut to their tiles"],
-  [".cover-mosaic-tile | background", "a See all card's empty tile is the card's own glass"],
   [".backdrop-words | padding-block", "words on no pane keep the room a pane's frame would give them"],
   [".backdrop-words | padding-inline", "words on no pane line up with what's in the panes under them"],
   [".backdrop-words p | margin", "words on no pane: the gap between its two lines"],

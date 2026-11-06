@@ -629,7 +629,6 @@ const COVER_STYLES = `
 .cover-mosaic-tile { position: relative; overflow: hidden; }
 .cover-mosaic-tile > .picture { position: absolute; inset: 0; }
 .cover-mosaic-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover.is-see-all .cover-meta .count > .ico { width: 0.6em; height: 0.9em; margin-left: var(--pad-frame-compact); }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }

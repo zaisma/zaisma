@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
  * fails until it's measured again. A seasonal backdrop gets its own row here before it ships.
  */
 const MEASURED_BACKDROPS = [
-  { themeName: "light", pictureSha256Start: "0b390201cf997cd8", inkLuminance: 0.008, closestLuminance: 0.142 },
+  { themeName: "light", pictureSha256Start: "76aaf1bc3672b4ed", inkLuminance: 0.008, closestLuminance: 0.381 },
   { themeName: "dark", pictureSha256Start: "6c561440dd9a0671", inkLuminance: 0.946, closestLuminance: 0.051 },
 ];
 /** Large words' floor (WCAG): the line, and what the smaller line has to reach until the light backdrop is calmer under it. */
