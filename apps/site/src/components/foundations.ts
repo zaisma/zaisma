@@ -589,7 +589,7 @@ component({
   slug: "backdrop",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, under a midday sky in light and the Milky Way in dark, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, in a pale haze in light and under the Milky Way in dark, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
@@ -603,10 +603,10 @@ component({
 .backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
 .backdrop.is-own.is-drawn { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .backdrop.is-own { transition: none; } }
-.backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
+.backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAADwBACdASogABIAPu1krVAppSQisBgIATAdiWUAxNgQ9KqdKxtJ/0JwEDvwZEwwTAAA/uejEEEw9qPFlbLfs8nFeAxPLv4R2Q4kGgQyY4iDPG9K72poZwtWhUL85RAiByecmBVQA3xZMkWQ4rknPFV0UAkmuq539SzSA7KYBMgw1aAA); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
 [data-theme-choice="dark"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
-[data-theme-choice="light"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
+[data-theme-choice="light"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAADwBACdASogABIAPu1krVAppSQisBgIATAdiWUAxNgQ9KqdKxtJ/0JwEDvwZEwwTAAA/uejEEEw9qPFlbLfs8nFeAxPLv4R2Q4kGgQyY4iDPG9K72poZwtWhUL85RAiByecmBVQA3xZMkWQ4rknPFV0UAkmuq539SzSA7KYBMgw1aAA); }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -636,7 +636,7 @@ html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page
 `,
   render: backdrop,
   examples: [
-    { label: "Zaisma's own: behind every page, a midday sky in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "Zaisma's own: behind every page, a pale haze in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
