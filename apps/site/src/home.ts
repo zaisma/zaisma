@@ -4,12 +4,11 @@ import { currentSession, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
-import { grid, leadAndSide, stack, type LayoutItem, type LayoutMarkup } from "./components/layout.ts";
+import { leadAndSide, stack, stackOfOne, type LayoutItem } from "./components/layout.ts";
 import { MAXIMUM_GAME_ROW_CARD_COUNT, gameRow } from "./components/navigation.ts";
 import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
 import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards } from "./whats-on.ts";
-import { NO_EMPTY_NOTE } from "./markup.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
@@ -282,8 +281,6 @@ function friendsCard(playing: FriendsInGame, games: readonly ShowGame[]): Raw {
   return gameCard({ title: game.title, picture: coverPicture, href: `/g/${game.slug}`, tintColor: listed?.glass_tint_color, joinHref: playing.join && !playing.join.refusal ? joinPath(game.slug, playing.join) : undefined, facts: { friends: names.map((username) => ({ username })) } });
 }
 
-/** A heading and what it heads, inside a pane. */
-const section = (options: { title: string; body: LayoutMarkup }): LayoutMarkup => stack({ items: [{ kind: "words", markup: html`<h2>${options.title}</h2>` }, { kind: "block", markup: options.body }] });
 
 /** The first visit's words, flat on the backdrop, from what Zaisma is. */
 const FIRST_VISIT_LINE = "One place to play every kind of game.";
@@ -333,19 +330,13 @@ export async function home(env: Env, request: Request): Promise<Response> {
     offShelfSlugs: new Set(games.filter((game) => !gamesOnShelves.includes(game)).map((game) => game.slug)),
     nowMs,
   }).slice(0, yourGame ? WHATS_ON_BESIDE_GAME_CARD_COUNT : MAXIMUM_WHATS_ON_CARD_COUNT);
-  const whatsOnSection: LayoutItem = {
-    kind: "block",
-    markup: section({ title: "What's on", body: grid({ itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: !yourGame, whenEmpty: NO_EMPTY_NOTE, items: whatsOnCards.map(({ game, tagWords }, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, { tagWords, isEager: true, hasHighPriority: !yourGame && coverIndex === 0 }) })) }) }),
-  };
+  const whatsOnRow = gameRow({ id: "whats-on", trackId: "track-whats-on", title: "What's on", allInView: { isLeadWide: !yourGame }, items: whatsOnCards.map(({ game, tagWords }, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, { tagWords, isEager: true, hasHighPriority: !yourGame && coverIndex === 0 }) })) });
   const yourGamePlayedAtMs = yourGame ? accountPlayed.find((entry) => entry.slug === yourGame.slug)?.played_at_ms : undefined;
   const isYourGameUpdated = Boolean(yourGame?.big_update_at_ms && yourGamePlayedAtMs && yourGame.big_update_at_ms > yourGamePlayedAtMs);
-  const forTonight = glassPane({
-    paneWidth: "full",
-    label: yourGame ? "Your game and What's on" : "What's on",
-    body: yourGame
-      ? leadAndSide({ lead: { kind: "block", markup: coverOf(yourGame, ownedGameIds, { playHref: `/g/${yourGame.slug}?play`, tagWords: isYourGameUpdated ? "Updated" : undefined, isEager: true, hasHighPriority: true }) }, side: whatsOnSection })
-      : stack({ items: [whatsOnSection] }),
-  });
+  // What's for the player tonight: their game alone on its pane, and What's on as a Game row beside it, each only as tall as it holds.
+  const forTonight = yourGame
+    ? leadAndSide({ lead: { kind: "block", markup: glassPane({ paneWidth: "full", label: "Your game", body: stackOfOne(coverOf(yourGame, ownedGameIds, { playHref: `/g/${yourGame.slug}?play`, tagWords: isYourGameUpdated ? "Updated" : undefined, isEager: true, hasHighPriority: true })) }) }, side: { kind: "block", markup: whatsOnRow } })
+    : whatsOnRow;
   // What else is here. A row whose games all showed higher up would only repeat them, and leaves.
   const shownSlugs = new Set([...(yourGame ? [yourGame.slug] : []), ...whatsOnCards.map(({ game }) => game.slug)]);
   const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);

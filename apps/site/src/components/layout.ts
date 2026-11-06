@@ -541,6 +541,7 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); --header-gap: var(--pad-frame); }
   /* The page's own panes are the bar's gap apart too, so every gap between glass on the page is one. */
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .layout-stack:not(.glass *) > .stack-cell.gap-top-block-block { margin-top: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .lead-and-side-in:not(.glass *) { gap: var(--pad-frame); }
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }
   body > .bar-layout.has-tab-row:not(.searching) { top: var(--pad-frame); bottom: auto; left: max(var(--pad-frame), var(--safe-left), var(--corner-room)); width: var(--header-height); height: calc(100svh - 2 * var(--pad-frame)); transform: none; flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); }
   body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > * { margin: 0; max-width: none; }
@@ -595,7 +596,7 @@ export const GRID_STYLES = `
 export const LEAD_AND_SIDE_STYLES = `
 .lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
 .lead-and-side-lead, .lead-and-side-side { min-width: 0; }
-.lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); }
+.lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); align-items: start; }
 @container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container lead-and-side (min-width: 800px) {
   .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }

@@ -11,7 +11,7 @@ import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type D
 import { listRows, stateNote } from "./data.ts";
 import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
-import { row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
 
 /*
@@ -1233,6 +1233,11 @@ export interface GameRowOptions {
   items: LayoutItem[];
   /** What it says while it has no covers (Continue playing before you've played anything), in place of its row. */
   emptyText?: string;
+  /**
+   * A few cards all in view at once, never scrolling (What's on): on one line where they fit, two at the least, down the well in a column too
+   * narrow for two. isLeadWide makes the first one twice as wide where two fit across (three cards: one leading two).
+   */
+  allInView?: { isLeadWide: boolean };
 }
 
 /** The most games a Game row shows; past them its See all opens the whole list. */
@@ -1267,7 +1272,9 @@ export function gameRow(options: GameRowOptions): Raw {
           : { kind: "words", markup: title },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
+        : options.allInView
+          ? { kind: "block", markup: carving({ kind: "game-row-well all-in-view", body: grid({ itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: options.allInView.isLeadWide, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items: shown }) }) }
+          : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
   })}</section>`) });
 }
@@ -1286,6 +1293,9 @@ component({
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
 .game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
+/* All in view: the frame gap round the cards and between them, as in a track. */
+.game-row-well.all-in-view { padding: var(--pad-frame); }
+.game-row-well.all-in-view > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 .game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
 .game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
