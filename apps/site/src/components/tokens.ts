@@ -27,6 +27,8 @@ export const SCREEN_QUERIES = {
   headerSmall: "(max-width: 64em)",
   /** A screen narrower than a narrow holder (NARROW_HOLDER_WIDTH): a small phone, where a row's buttons show their icons alone. */
   narrowHolder: "(max-width: 28rem)",
+  /** The narrowest phones upright: where a Game row's heading takes a section's size, so it and its See all keep one line. */
+  phoneNarrowest: "(max-width: 360px)",
   /** A small phone upright: where the color picker stacks its parts. */
   phoneSmall: "(max-width: 480px)",
   /** A phone a little wider: where a game's screenshots shrink to fit two across. */
