@@ -313,10 +313,11 @@ const SETTLE = `(async () => {
 })()`;
 
 /**
- * What a page the check measures never sends: a game's play kept with the account (pages.ts, remember), which would change the account's
- * Continue playing under a home measured in the tab beside it as the same account, in whichever order their requests came.
+ * What a page the check measures never sends: a game's play kept with the account (pages.ts, remember; home-script.ts, what only this
+ * device played), which would change the account's Continue playing under a home measured beside it as the same account, in whichever
+ * order their requests came.
  */
-const KEPT_OFF_THE_ACCOUNT_PATTERNS = ["*/api/me/played/*"];
+const KEPT_OFF_THE_ACCOUNT_PATTERNS = ["*/api/me/played", "*/api/me/played/*"];
 
 /** What a phone's and a tablet's browser call themselves (their user agent), for a page that guesses the device from it. */
 const PHONE_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";

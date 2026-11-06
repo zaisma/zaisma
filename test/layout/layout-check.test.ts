@@ -150,29 +150,46 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures).toEqual([]);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home as it first painted while its played list is on its way, when this device played one of its games too", async () => {
+  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home as it first painted when this device played games too, and sends the account only what it hasn't", async () => {
     const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
     try {
       const { browserContextId } = await chrome.send("Target.createBrowserContext");
-      await signIn(chrome, browserContextId, sites!.site, "Many_Things");
+      await signIn(chrome, browserContextId, sites!.site, "Moss_Runner");
       const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
       const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
       const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
-      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, returnByValue: true })).result.value;
-      // The list is asked for after the shelf is first filled, and never answered here, so this is what a slow connection shows until it comes.
-      let onAsked = () => {};
-      chrome.listen(sessionId, (method: string) => { if (method === "Fetch.requestPaused") onAsked(); });
-      const homeAsked = async () => { const isAsked = new Promise<void>((done) => { onAsked = done; }); await send("Page.navigate", { url: `${sites!.site}/` }); await isAsked; };
+      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      // What the home sends the account is held here and never reaches it, so the account's list stays as the test data has it.
+      const sent: string[] = [];
+      let onSent = () => {};
+      chrome.listen(sessionId, (method: string, params: { request: { postData?: string } }) => { if (method === "Fetch.requestPaused") { sent.push(params.request.postData ?? ""); onSent(); } });
+      await send("Page.enable");
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
-      await homeAsked();
-      expect(await evaluate(`document.getElementById("home-continue").hidden`)).toBe(false);
+      // The home's script has run once it has marked the covers the page came with.
+      const home = async () => {
+        const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
+        await send("Page.navigate", { url: `${sites!.site}/` });
+        await loaded;
+        await evaluate(`(async () => { while (!document.querySelector("#home-continue .cover[data-slug]")) await new Promise((done) => requestAnimationFrame(done)); return true; })()`);
+      };
       const covers = `[...document.querySelectorAll("#track-continue .cover-art")].map((art) => art.getAttribute("href"))`;
+      await home();
+      expect(await evaluate(`document.getElementById("home-continue").hidden`)).toBe(false);
       const painted: string[] = await evaluate(covers);
       expect(painted.length).toBeGreaterThan(1);
-      // This device played the account's oldest game long ago: the covers stay the account's, in its order, never this device's one alone.
-      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(painted.at(-1)!.slice(3))}, played_at_ms: 1 }])), true`);
-      await homeAsked();
+      // This device played the account's oldest game long ago: nothing changes and nothing is sent.
+      const oldest = painted.at(-1)!.slice(3);
+      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(oldest)}, played_at_ms: 1 }])), true`);
+      await home();
       expect(await evaluate(covers)).toEqual(painted);
+      // Then a game the account hasn't, just now: the covers still stay as the account's, and that one game goes to the account for next time.
+      const onlyHere: string = await evaluate(`JSON.parse(document.getElementById("home-data").textContent).games.map((game) => game.slug).find((slug) => !${JSON.stringify(painted)}.includes("/g/" + slug))`);
+      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(onlyHere)}, played_at_ms: Date.now() }, { slug: ${JSON.stringify(oldest)}, played_at_ms: 1 }])), true`);
+      const isSent = new Promise<void>((done) => { onSent = done; });
+      await home();
+      expect(await evaluate(covers)).toEqual(painted);
+      await isSent;
+      expect(sent.map((body) => (JSON.parse(body) as { played: { slug: string }[] }).played.map((entry) => entry.slug))).toEqual([[onlyHere]]);
     } finally {
       await chrome.close();
     }
