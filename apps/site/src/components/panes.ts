@@ -2134,6 +2134,9 @@ component({
   .banner-in { grid-template-columns: minmax(0, 1fr); }
   .banner-in > .banner-words { grid-area: 1 / 1; }
   .banner-in:not(.has-close) > .banner-words { padding-block-start: var(--pad-words); }
+  /* Narrow, a banner of words alone (no button, no Close) keeps its margin at the sides and only a frame gap above and below: on a phone
+     its lines, not its padding, decide how tall it is. */
+  .banner-in:not(.has-close, .has-action) > .banner-words.round { --round-pad-block: var(--pad-frame); }
   .banner-in.has-action > .banner-words { padding-block-end: 0; }
   /* The row gives its cells to the banner: Close to the top end corner, the button to a line of its own under the words. */
   .banner-in > .layout-row { display: contents; }

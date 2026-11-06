@@ -723,6 +723,8 @@ if (process.env.PREVIEW_SPENDING_STOP) {
   runSql("UPDATE game_hosting_months SET real_player_count = CASE WHEN game_id = (SELECT id FROM games WHERE slug = 'harbor-lights') THEN 0 ELSE 500 END WHERE month_start_date = date('now', 'start of month')");
 }
 seedFriendsNow();
+// Another developer's games, again this run, so a game page's More like this has games of its kind that aren't Preview_Studio's.
+seedOtherStudio();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
 seedStandingNow();
 // The AI review's states, again this run, for the links under AI review below.
@@ -864,7 +866,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
                   Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
-  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
+  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Try the demo, Add-ons; as Card_Keeper, who owns it and the
                   Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
                   ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
   Standing        ${SITE}/dashboard/harbor-lights/details#links  (as New_Studio: 12 of 20 returning players, so its own-site link waits,
@@ -952,6 +954,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Room list paging  ${SITE}/g/four-in-a-row#rooms  (6 rooms, Load more twice; small rooms, Watch beside Join, matches in
                   progress last with Join grayed)
   Free-use heads-up  ${SITE}/dashboard  (Four in a Row's card: 80% of free hours used)
+  More like this  ${SITE}/g/arena  and  ${SITE}/g/ashfall  (the end of the page: More from Preview_Studio, then More like this, Tall_Pine's games of the same kind)
   Friends playing ${SITE}/g/shard-dodge  and  ${SITE}/g/four-in-a-row  (signed in: who's playing it, under the title, with Join)
   Blocked         ${SITE}/friends#blocked  (Loud_Hornet, an ex-friend you blocked, with Unblock)
   Profiles        ${SITE}/@Preview_Studio  (a developer's: name, bio, links, Made by; signed in as it, Edit profile and
@@ -2091,6 +2094,19 @@ function seedFriendsNow() {
     ...manyFriendsInRoom("cave-crew", "MNYCVE", 2, 16, [7, 8]),
   ];
   runSql(sql.join("; "));
+}
+
+/**
+ * A game page's More like this shows other developers' games of the same kind, and every listed game here is Preview_Studio's: Tall_Pine
+ * (a friend, otherwise only a player) becomes a developer with eight of Browse's other games, given the kinds the preview's own games
+ * have (action, adventure, survival, simulation, role-playing), so Shard Dodge, Arena, Cave Crew, Tiny Farm and Ashfall each get a row.
+ */
+function seedOtherStudio() {
+  const genresBySlug = { "browse-world-1": "action", "browse-world-2": "action,fighting", "browse-world-3": "adventure,survival", "browse-world-4": "survival", "browse-world-5": "simulation", "browse-world-6": "simulation,sandbox", "browse-world-7": "role_playing,adventure", "browse-world-8": "adventure" };
+  runSql([
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_preview_other_studio', 'person', id, ${Date.now()} FROM accounts WHERE username = 'Tall_Pine'`,
+    ...Object.entries(genresBySlug).map(([slug, genres]) => `UPDATE games SET owner_id = 'owner_preview_other_studio', genres = '${genres}' WHERE slug = '${slug}' AND EXISTS (SELECT 1 FROM owners WHERE id = 'owner_preview_other_studio')`),
+  ].join("; "));
 }
 
 function seedFriendRequests() {

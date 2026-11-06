@@ -4,7 +4,7 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName, type ShownPicture } from "./foundations.ts";
 import { tabIconsAlone } from "./switch.ts";
-import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
+import { HEADER_RAIL_MEDIA, SCREEN_QUERIES, cutPolygon } from "./tokens.ts";
 import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
 import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCard, gameGrid, type DropdownItem } from "./panes.ts";
@@ -129,7 +129,7 @@ export function accountButton(options: AccountButtonOptions): Raw {
  * and a laptop with the browser's text at 200%. In em, which media queries take from the browser's text size. How the header's pieces
  * give way is decided by its own room, not the screen's (HEADER_FIT_SCRIPT).
  */
-export const HEADER_SMALL_SCREEN_MEDIA = "(max-width: 64em)";
+export const HEADER_SMALL_SCREEN_MEDIA = SCREEN_QUERIES.headerSmall;
 
 /** Sign in as its icon alone: the row's room is gone with its words, which keep their own padding everywhere else. */
 const signInIconAlone = (signIn: string) => `  ${signIn} > .face > .ico { display: block; }

@@ -8,6 +8,7 @@ import { MARK } from "./icons.ts";
 import { PAINT_PICTURE } from "./data.ts";
 import { EDGE, EDGE_LIGHT, glassPane, picture, tray } from "./foundations.ts";
 import { row, stackOfOne, type LayoutMarkup } from "./layout.ts";
+import { SCREEN_QUERIES } from "./tokens.ts";
 import { sheet, type SheetStep } from "./panes.ts";
 
 /** The menu's sheet, which the Z names and scripts find it by; its first step's name. */
@@ -240,7 +241,7 @@ export function gameScreens(options: { title: string; framePath: string; screenN
   });
 }
 
-const PHONE_SIDEWAYS_MEDIA = "(orientation: landscape) and (max-height: 500px)";
+const PHONE_SIDEWAYS_MEDIA = SCREEN_QUERIES.phoneSideways;
 
 const PLAYING_STYLES = `
 /* Playing: the game's frame fills the screen; the header, background, panes and footer step aside. */
@@ -345,7 +346,7 @@ html.is-playing :is(.zaisma-shard, .sheet, .notice, .playing-card, .dropdown).gl
   .sheet.placement-docked:is(:not([open]), .is-leaving, .is-arriving)::before, .sheet.placement-docked:is(:not([open]), .is-leaving, .is-arriving) > * { opacity: 1; }
   @starting-style { .sheet.placement-docked[open]::before, .sheet.placement-docked[open] > * { opacity: 1; } }
 }
-@media (max-width: 760px) and (min-height: 501px) {
+@media ${SCREEN_QUERIES.phoneUpright} {
   .sheet.placement-docked:not(.in-place) { height: calc(66dvh + var(--dock-overhang)); inset: auto calc(-1 * var(--dock-overhang)) calc(-1 * var(--dock-overhang)); }
   .sheet.placement-docked.placement-docked.placement-docked:not(.in-place) { width: calc(100% + 2 * var(--dock-overhang)); }
   .sheet.placement-docked:not(.in-place) > .sheet-in { padding: calc(var(--dock-bevel) + var(--pad-frame)) calc(var(--dock-overhang) + var(--pad-frame) + var(--safe-right) + var(--corner-room)) var(--dock-overhang) calc(var(--dock-overhang) + var(--pad-frame) + var(--safe-left)); }
@@ -354,7 +355,7 @@ html.is-playing :is(.zaisma-shard, .sheet, .notice, .playing-card, .dropdown).gl
 }
 /* With room for words, its tabs are their words alone; where there's none, their icons alone. */
 @media (min-width: 761px) and (min-height: 501px) { .sheet.placement-docked .tab-switch .ico { display: none; } }
-@media (max-width: 760px), ${PHONE_SIDEWAYS_MEDIA} {
+@media ${SCREEN_QUERIES.phone} {
 ${tabIconsAlone(".sheet.placement-docked .tab-switch")}
 }
 /* A phone on its side: the whole height at the top right. Down its start the tabs' icons, sized as the sideways header's, their well a whole column (zaisma-overlay.ts stacks the Switch). Past its line, over the content, a head naming the tab, then Leave and the tools, square, then Close at its end: each kind of action has its own place. */

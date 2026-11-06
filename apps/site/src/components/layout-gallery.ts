@@ -224,6 +224,8 @@ component({
       }),
     },
     { label: "Plain: two panes, each as tall as what's in it", isWide: true, markup: columns({ columns: [aboutPane(), roomsPane()] }) },
+    { label: "Wide first, and side by side when short: three fifths and two, kept side by side on a phone turned on its side (a game's pictures beside its name and Play)", isWide: true, markup: columns({ split: "wide-first", isSideBySideWhenShort: true, columns: [aboutPane(), gamePaneExample()] }) },
+    { label: "Second first when stacked: one over the other, the second half comes first", markup: columns({ isSecondFirstWhenStacked: true, columns: [aboutPane(), gamePaneExample()] }) },
     { label: "Where both can't have room: one over the other", markup: columns({ columns: [aboutPane(), gamePaneExample()] }) },
   ],
 });

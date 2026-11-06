@@ -3,7 +3,7 @@ import type { Env } from "./env.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
 import { action, secondaryButton } from "./components/actions.ts";
 import { stateNote, listRows, type ListMoreRows, type ListRow } from "./components/data.ts";
-import { checkField, cutField, selectField, tabSwitch, type SwitchTab } from "./components/inputs.ts";
+import { cutField, selectField, tabSwitch } from "./components/inputs.ts";
 import { row, stack, type ControlMarkup, type LayoutItem } from "./components/layout.ts";
 import { playingNowCounts } from "./plays.ts";
 
@@ -47,8 +47,8 @@ export const MAXIMUM_REFRESHED_ROOM_COUNT = MAXIMUM_PAGE_ROOM_COUNT;
 /** The orders the list can be in, as the order select says them. */
 const ROOM_ORDER_CHOICES: { label: string; choiceValue: RoomOrder }[] = [
   { label: "Best to join", choiceValue: "best_to_join" },
-  { label: "Most players", choiceValue: "most_players" },
-  { label: "Fewest players", choiceValue: "fewest_players" },
+  { label: "Biggest", choiceValue: "most_players" },
+  { label: "Smallest", choiceValue: "fewest_players" },
 ];
 
 /** The number on the Rooms tab: the rooms the list shows, full ones too, in the region and labels picked. */
@@ -63,7 +63,63 @@ function shownText(room: ListedRoom): { name: string | null; labels: [string, st
 }
 
 /**
- * The Rooms section's contents, also sent on its own to refresh it (into #rooms-list): the region switch and label filters, the rooms as
+ * How a player picks a room, above the list and kept apart from it, so a refresh of the list never undoes a pick or what's typed: the
+ * order (Best to join, Biggest, Smallest) and the game's own options (a mode, a map), each a small switch; then, apart, the region as one
+ * quiet menu and the box for a room code. The page's script reads data-room-order and data-label-name on a tab, and room_region on the menu.
+ */
+export function roomsChoices(list: RoomPage, picked: Record<string, string> = {}): { choices: LayoutItem[]; finding: LayoutItem[] } {
+  const roomOrder = list.roomOrder;
+  const choices: LayoutItem[] = [];
+  if (list.rooms.length > 1 || roomOrder !== "best_to_join") {
+    choices.push({
+      kind: "control",
+      markup: tabSwitch({
+        label: "Order",
+        switchSize: "small",
+        tabs: ROOM_ORDER_CHOICES.map((choice) => ({ label: choice.label, tabValue: choice.choiceValue, isCurrent: roomOrder === choice.choiceValue, extra: html` data-room-order="${choice.choiceValue}"` })),
+        menuWhenNarrow: selectField({ id: "rooms-order", name: "room_order", label: "Order", isLabelHidden: true, choices: ROOM_ORDER_CHOICES, pickedValue: roomOrder }),
+      }),
+    });
+  }
+  const filters = list.filters
+    .filter((labelFilter) => fine(labelFilter.label))
+    .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
+    .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
+  if (filters.length) {
+    choices.push({
+      kind: "block",
+      markup: row({
+        widths: "fit",
+        label: "The game's options",
+        items: filters.map((labelFilter, filterIndex): LayoutItem => ({
+          kind: "control",
+          markup: tabSwitch({
+            label: labelFilter.label,
+            switchSize: "small",
+            tabs: ["", ...labelFilter.values].map((labelValue) => ({ label: labelValue || `Any ${labelFilter.label.toLowerCase()}`, tabValue: labelValue, isCurrent: (picked[labelFilter.label] ?? "") === labelValue, extra: html` data-label-name="${labelFilter.label}" data-label-value="${labelValue}"` })),
+            menuWhenNarrow: selectField({
+              id: `rooms-label-${filterIndex}`,
+              name: `room_label_${filterIndex}`,
+              label: labelFilter.label,
+              isLabelHidden: true,
+              choices: ["", ...labelFilter.values].map((labelValue) => ({ label: labelValue || `Any ${labelFilter.label.toLowerCase()}`, choiceValue: labelValue })),
+              pickedValue: picked[labelFilter.label] ?? "",
+              dataAttributes: { label: labelFilter.label },
+            }),
+          }),
+        })),
+      }),
+    });
+  }
+  const finding: LayoutItem[] = [];
+  if (list.regions.length > 1 || (list.region && list.regions.length)) {
+    finding.push({ kind: "control", markup: selectField({ id: "rooms-region", name: "room_region", label: "Region", isLabelHidden: true, choices: [{ label: "Any region", choiceValue: "" }, ...list.regions.map((entry) => ({ label: `${entry.name} (${entry.roomCount})`, choiceValue: entry.region }))], pickedValue: list.region ?? "" }) });
+  }
+  return { choices, finding };
+}
+
+/**
+ * The Rooms section's list, also sent on its own to refresh it (into #rooms-list): the rooms as
  * list rows (the first page: open rooms best first, then matches in progress) and a Load more under them while there are more. Its first
  * element carries what the page's script reads: data-count (the number by Rooms), data-playing (for "playing now") and data-shown (the
  * region, labels, order and full-rooms setting it shows).
@@ -73,55 +129,12 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
   const { playerCount } = list.playing;
   const region = list.region ? list.regions.find((entry) => entry.region === list.region) : null;
   const items: LayoutItem[] = [];
-  // Regions to pick from, once rooms run in more than one: each with how many rooms it has. The page's script reads data-region.
-  if (list.regions.length > 1 || (list.region && list.regions.length)) {
-    const tabs: SwitchTab[] = [
-      { label: "All", isCurrent: !list.region, extra: html` data-region=""` },
-      ...list.regions.map((entry) => ({ label: entry.name, badgeCount: entry.roomCount, isCurrent: list.region === entry.region, extra: html` data-region="${entry.region}"` })),
-    ];
-    items.push({ kind: "control", markup: tabSwitch({ label: "Region", switchSize: "small", tabs }) });
-  }
-  // Labels worth filtering by, with only the values that pass the filter. The page's script reads data-label on the field a pick changes.
-  const filters = list.filters
-    .filter((labelFilter) => fine(labelFilter.label))
-    .map((labelFilter) => ({ label: labelFilter.label, values: labelFilter.values.filter(fine) }))
-    .filter((labelFilter) => labelFilter.values.length > 1 || picked[labelFilter.label]);
-  if (filters.length) {
-    const fields = filters.map((labelFilter, filterIndex): LayoutItem => ({
-      kind: "control",
-      markup: selectField({
-        id: `rooms-label-${filterIndex}`,
-        name: `room_label_${filterIndex}`,
-        label: labelFilter.label,
-        choices: [{ label: "Any", choiceValue: "" }, ...labelFilter.values.map((labelValue) => ({ label: labelValue, choiceValue: labelValue }))],
-        pickedValue: picked[labelFilter.label] ?? "",
-        dataAttributes: { label: labelFilter.label },
-      }),
-    }));
-    items.push({ kind: "block", markup: row({ widths: "fit", items: fields }) });
-  }
-  // The order and the full-rooms box, once there's more than one room to order (or one is in use, so it can be undone). The page's script
-  // reads them by their names, room_order and is_hiding_full_rooms.
   const { roomOrder, isHidingFullRooms } = list;
-  if (list.rooms.length > 1 || roomOrder !== "best_to_join" || isHidingFullRooms) {
-    items.push(
-      {
-        kind: "block",
-        markup: row({
-          widths: "fit",
-          items: [
-            { kind: "control", markup: selectField({ id: "rooms-order", name: "room_order", label: "Sort by", choices: ROOM_ORDER_CHOICES, pickedValue: roomOrder }) },
-            { kind: "block", markup: checkField({ id: "rooms-hide-full", name: "is_hiding_full_rooms", checkValue: "true", label: "Hide full rooms", isChecked: isHidingFullRooms }) },
-          ],
-        }),
-      },
-    );
-  }
   const filtered = Object.keys(picked).length > 0;
   const empty = filtered
     ? "No open rooms like that right now. Pick something else, or press Play to start."
     : isHidingFullRooms
-      ? "No open rooms with space right now. Show full rooms too, or press Play to start."
+      ? "No open rooms with space right now. Press Play to start."
     : region || list.region
         ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
         : "Nobody's in an open room right now. Press Play to start.";
@@ -161,7 +174,7 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
   const { name, labels } = shownText(room);
   const labelValues = labels.map(([, labelValue]) => labelValue);
   const title = [name, ...labelValues].filter(Boolean).join(" · ") || filled;
-  const detail = [title === filled ? "" : filled, room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
+  const detail = [room.spectatorCount > 0 ? `${room.spectatorCount} watching` : "", room.location?.countryName ?? ""].filter(Boolean).join(" · ");
   const said = [name, labelValues.join(", ")].filter(Boolean).join(", ");
   const actions: ControlMarkup[] = [
     ...(hasSpace(room) ? [secondaryButton(action("join"), { href: `/g/${slug}?room=${room.roomCode}`, isSmall: true })] : room.isOpen ? [] : [secondaryButton(action("join"), { type: "button", isSmall: true, isDisabled: true })]),
@@ -169,7 +182,8 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
     // The page's script (report.ts) opens the report with the room's code and what it's called.
     ...(said ? [secondaryButton(action("report", `Report the room “${said}”`), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
   ];
-  return { title, detail: detail || undefined, end: hasSpace(room) ? undefined : room.isOpen ? "Full" : "In a match", action: actions.length > 1 ? actions : actions[0] };
+  // How full it is, at the row's end, where the eye compares rooms: "31/40", or Full, or In a match.
+  return { title, detail: detail || undefined, end: hasSpace(room) ? `${room.playerCount}/${room.maximumPlayerCount}` : room.isOpen ? "Full" : "In a match", isEndAnAmount: hasSpace(room), action: actions.length > 1 ? actions : actions[0] };
 }
 
 /** What a field for a room code takes: its six capitals and numbers (no 0, 1, I or O), so nothing else can be typed or pasted in. */
@@ -177,8 +191,8 @@ export const ROOM_CODE_TYPING = { characterPattern: "[2-9A-HJ-NP-Z]", maximumCha
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  const field = cutField({ id: "room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", isShort: true, autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
-  return html`<form method="get" action="/g/${slug}">${row({ widths: "fit", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton(action("join"), { type: "submit" }) }] })}</form>`;
+  const field = cutField({ id: "room-code", name: "room", label: "Room code", isLabelHidden: true, type: "text", placeholder: "Room code", autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton(action("join"), { type: "submit" }) }] })}</form>`;
 }
 
 /**

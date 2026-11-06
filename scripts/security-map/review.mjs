@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { anchorHashes } from "./anchors.mjs";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { generateMap } from "./generate.mjs";
-import { isOpenItem, isQuestionPastLifetime, itemFromNight, itemMatchKeyOf, itemProblems, itemWithUpdate, priorityOfItem, QUESTION_LIFETIME_DAYS, readItems, writeItems } from "./items.mjs";
+import { isOpenItem, isQuestionPastLifetime, isWayWaitingForRescore, itemFromNight, itemMatchKeyOf, itemProblems, itemWithUpdate, priorityOfItem, QUESTION_LIFETIME_DAYS, readItems, writeItems } from "./items.mjs";
 import { commitAndPush, pullClone, run, withFindingStatus, withQueueLines } from "./private-repo.mjs";
 import { isFilledText, isObject, isScore, priorityOf, promiseProblems, readPromises, refreshedAnchors, refreshPromises, rescoreWay, unknownFieldProblems, writePromises } from "./promises.mjs";
 import { SECTORS } from "./schema.mjs";
@@ -93,6 +93,7 @@ export function reviewOutlineOf({ promises, items, reviews, date }) {
     step_budget: STEP_BUDGET_PER_NIGHT,
     last_review: reviews.at(-1) ?? null,
     stale_ways: allWaysOf(promises).filter((way) => way.score_stale_reason).map((way) => ({ way_id: way.way_id, sector_id: way.sector_id, way_line: way.way_line, defense_score: way.defense_score, damage_score: way.damage_score, score_stale_reason: way.score_stale_reason })),
+    rescore_waiting_ways: allWaysOf(promises).filter((way) => isWayWaitingForRescore(way, way.sector_id, items)).map((way) => ({ way_id: way.way_id, sector_id: way.sector_id, way_line: way.way_line, defense_score: way.defense_score, damage_score: way.damage_score })),
     stale_strengths: promises.flatMap((promise) => promise.strengths.filter((strength) => strength.strength_stale_reason).map((strength) => ({ sector_id: promise.sector_id, strength_line: strength.strength_line, strength_stale_reason: strength.strength_stale_reason }))),
     open_items: items.filter(isOpenItem).map(summaryOf),
     accepted_items: items.filter((item) => item.item_state === "accepted").map(summaryOf),

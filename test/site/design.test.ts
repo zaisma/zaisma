@@ -25,6 +25,7 @@ import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/com
 import { SHADER_HEAD, SHADER_LIMITS, SHADER_UPSCALE_SOURCE } from "@zaisma/core";
 import { html } from "../../apps/site/src/html.ts";
 import { NO_EMPTY_NOTE, raw } from "../../apps/site/src/markup.ts";
+import { backgroundFadeProblems, spacingProblems, styleRulesOf } from "./style-rules.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import materialsSource from "../../apps/site/src/components/materials.ts?raw";
 import tokensSource from "../../apps/site/src/components/tokens.ts?raw";
@@ -275,13 +276,8 @@ describe("the gallery", () => {
   it("fades no background by itself: colors fade through registered colors, so nothing flashes as a fade ends", () => {
     // A background color that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
     // Glass fades --glass-shown-tint and every control fades --face-color (foundations.ts) instead.
-    const problems: string[] = [];
-    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1] ?? "";
-      if (/autofill/.test(selectors)) continue; // the browser's own autofill color, held off on purpose
-      if (/(^|,\s*)background(-color)?\s/.test(transition)) problems.push(`${selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim()}: transition: ${transition.trim()}`);
-    }
-    expect(problems).toEqual([]);
+    // The rule is backgroundFadeProblems (test/site/style-rules.ts), shown a fixture that breaks it in test/node/style-rules.test.ts.
+    expect(backgroundFadeProblems(styleRulesOf(COMPONENT_STYLES() + GALLERY_STYLES))).toEqual([]);
   });
 
   it("lets no glass change differently: a rule on anything made of glass that sets a transition starts it with the glass's", async () => {
@@ -313,13 +309,9 @@ describe("the gallery", () => {
   it("spaces everything with the spacing tokens: no gap, padding or margin is a number of its own", async () => {
     // docs/DESIGN.md, Spacing. A length is 0, auto or the tokens (in calc, times plain numbers). What isn't spacing between things
     // (a control's inside, room a box keeps for its scrollbar or for what lifts in it) is NOT_SPACING below, named one by one.
-    const isSpacing = (value: string) => !/(\d|\.)(px|em|rem|vw|vh|%)/.test(value.replace(/var\(--(gap|pad)-[a-z-]+\)/g, ""));
+    // The rule is spacingProblems (test/site/style-rules.ts), shown a fixture that breaks it in test/node/style-rules.test.ts.
     const problems: string[] = [];
-    const checkDeclarations = (where: string, declarations: string) => {
-      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s{])((?:row-|column-)?gap|padding(?:-[a-z]+)*|margin(?:-[a-z]+)*|scroll-padding(?:-[a-z]+)*):\s*([^;}]+)/g)) {
-        if (!isSpacing(value) && !NOT_SPACING.has(`${where} | ${property}`)) problems.push(`${where} | ${property}: ${value.trim()}`);
-      }
-    };
+    const checkDeclarations = (where: string, declarations: string) => problems.push(...spacingProblems(where, declarations, NOT_SPACING));
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const where = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
       // A material's room is its own (materials.ts, materials.test.ts holds the rest).
@@ -1402,7 +1394,7 @@ describe("layout", () => {
   });
 
   it("lays a track's pictures closer than its covers, by what it says it holds", () => {
-    expect(TRACK_STYLES).toContain(".layout-track.item-picture { gap: var(--gap-control-stack); }");
+    expect(TRACK_STYLES).toContain(".layout-track:is(.item-picture, .item-thumbnail) { gap: var(--gap-control-stack); }");
     expect(TRACK_STYLES).not.toContain("media-well");
     expect(gameMedia({ id: "media", gameTitle: "Ashen Crown", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["verdant"]! }, { mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["kestrel"]! }] }).html).toContain('class="layout-track item-picture"');
   });
@@ -1412,7 +1404,7 @@ describe("layout", () => {
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
     // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
-    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)"];
+    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
     const problems: string[] = [];
     for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
       for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {

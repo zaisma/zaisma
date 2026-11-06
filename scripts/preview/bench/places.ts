@@ -79,7 +79,8 @@ export const BENCH_PLACES: BenchPlace[] = [
   {
     placeValue: "game-page", name: "Game page", path: "/g/cave-crew", pathPattern: "^/(g/[^/?]+(/report)?($|\\?(?!play))|t/)", seenBy: "both",
     states: [
-      { stateValue: "rooms", label: "Rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },
+      { stateValue: "rooms", label: "Overview", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },
+      { stateValue: "rooms-tab", label: "Rooms tab", stateKind: "opened", seenBy: "both", checkedPage: "Game page, rooms tab" },
       { stateValue: "game-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Game page, long names" },
       { stateValue: "no-rooms", label: "No rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page, no rooms" },
       { stateValue: "for-sale", label: "For sale", stateKind: "opened", seenBy: "both", checkedPage: "Game page, for sale" },

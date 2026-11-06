@@ -162,7 +162,7 @@ span.hairline { flex: 1; border-top: var(--divider); }
 .words-margin.beside-controls { padding-block: calc((var(--control-height-regular) - 1lh) / 2); }
 .words-margin.beside-controls.compact { padding-block: calc((var(--control-height-small) - 1lh) / 2); }
 /* With nothing beside them, they keep the margin all round. */
-.words-margin.round { padding-block: var(--pad-words); }
+.words-margin.round { padding-block: var(--round-pad-block, var(--pad-words)); }
 /* Words that end in an ellipsis on one line rather than wrapping (a game's title under its cover, a menu's choice). */
 .one-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

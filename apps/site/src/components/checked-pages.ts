@@ -186,6 +186,8 @@ const CHECKED_PAGE_LIST = [
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
   { name: "Game page, no rooms", area: "Playing", path: "/g/shard-dodge", mainActionShows: "everywhere" },
   { name: "Game page, for sale", area: "Playing", path: "/g/ashfall", mainActionShows: "everywhere" },
+  // The Rooms tab opened by its address: the list of rooms in its place, under the game's pane.
+  { name: "Game page, rooms tab", area: "Playing", path: "/g/cave-crew#rooms", shownStateName: "Game page", mainActionShows: "nowhere" },
   // The longest title and description a game can have, and every name on its page at its longest.
   { name: "Game page, long names", area: "Playing", path: "/g/wandering-lighthouse-keeper", account: "Longest_Names_Here", shownStateName: "Game page, no rooms", mainActionShows: "everywhere" },
   { name: "Tester link", area: "Playing", path: "/t/7e57ed00dcafe0a1b2c3", mainActionShows: "everywhere" },

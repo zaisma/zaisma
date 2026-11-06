@@ -1,6 +1,6 @@
 import { Raw, html, raw, type EmptyNoteMarkup } from "../markup.ts";
 import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
-import { BARE_GROUPS, HEADER_RAIL_MEDIA, WORDS_HOLDERS } from "./tokens.ts";
+import { BARE_GROUPS, HEADER_RAIL_MEDIA, SCREEN_QUERIES, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -275,8 +275,11 @@ export interface TrackOptions {
   id: string;
   /** Start to end: blocks, each one cell. A page script may add more of the same. */
   items: LayoutItem[];
-  /** What a cell holds, which names its width: a cover, with words under it, or a picture with an edge of its own and none (a game's screenshots). */
-  itemSize: "cover" | "picture";
+  /**
+   * What a cell holds, which names its width: a cover, with words under it; a picture with an edge of its own and none (a game's
+   * screenshots); or a thumbnail, a small picture under a large one (the rest of a game's screenshots, under its first).
+   */
+  itemSize: "cover" | "picture" | "thumbnail";
   label?: string;
   /** What shows in its place while it has no covers (an Empty state), a page script's included. */
   whenEmpty: EmptyNoteMarkup;
@@ -292,10 +295,21 @@ export interface ColumnsOptions {
   columns: [NotControlMarkup, NotControlMarkup];
   /** The column that stays in view under the header while the other scrolls: a game's details. */
   stickyColumn?: "first" | "second";
+  /** Even: half each. Wide first: the first gets three fifths (a game's pictures beside its name and Play). */
+  split?: "even" | "wide-first";
+  /**
+   * On a screen that's wide but short (a phone turned sideways), the two stay side by side down to a narrower least, so what the
+   * second holds (Play) isn't pushed below the screen by the first.
+   */
+  isSideBySideWhenShort?: boolean;
+  /** One over the other, the second comes first (a game's Rooms tab: the room code before the order and the options, on an upright phone). */
+  isSecondFirstWhenStacked?: boolean;
 }
 
 /** The least a column gets before the two go one over the other: a little more than a phone's width, so what's made for one fits. */
 export const COLUMN_LEAST_PX = 360;
+/** On a phone on its side (SCREEN_QUERIES.phoneSideways), side-by-side columns each get at least this much. */
+export const SHORT_COLUMN_LEAST_PX = 240;
 /** --gap-block-block, for the container query, which can't read a token. */
 const BLOCK_GAP_PX = 24;
 
@@ -304,7 +318,8 @@ const BLOCK_GAP_PX = 24;
  * fits what's in it; one that should take half the screen goes in a column here.
  */
 export function columns(options: ColumnsOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
+  const kinds = [options.stickyColumn ? `sticky-${options.stickyColumn}` : "", options.split === "wide-first" ? "wide-first" : "", options.isSideBySideWhenShort ? "side-by-side-when-short" : "", options.isSecondFirstWhenStacked ? "second-first-when-stacked" : ""].filter(Boolean).join(" ");
+  return asLayout(html`<div class="layout-columns${kinds ? ` ${kinds}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
 }
 
 export interface PanePartsOptions {
@@ -620,10 +635,11 @@ export const TRACK_STYLES = `
 .layout-track { scroll-padding-inline: var(--pad-words); }
 @media (max-width: 760px), (max-height: 500px) { .layout-track { --fade-sideways-px: 28px; } }
 /* Pictures lie closer than game cards do: each has an edge of its own, side by side. */
-.layout-track.item-picture { gap: var(--gap-control-stack); }
+.layout-track:is(.item-picture, .item-thumbnail) { gap: var(--gap-control-stack); }
+.layout-track.item-thumbnail > * { flex: 0 0 clamp(96px, 18cqi, 160px); scroll-snap-align: start; }
 /* With no words under them, they keep no rail's room while they fit: nothing under them needs the words margin, so they sit at the frame gap
    from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
-.layout-track.item-picture:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
+.layout-track:is(.item-picture, .item-thumbnail):not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
 .layout-track:is(.item-cover, .item-picture) > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
@@ -635,8 +651,18 @@ export const COLUMNS_STYLES = `
 .columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
 .columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .columns-in > .column > .glass-pane { width: 100%; }
+/* Words that start a column (a game's name beside its pictures) keep the words' margin above them, as words at a pane's top do, while a
+   block beside them (the pictures) sits at the frame gap. */
+.columns-in > .column > .layout-stack > .stack-cell.is-words:first-child { padding-block-start: var(--pad-words); }
 .layout-columns.sticky-first > .columns-in > .column:first-child, .layout-columns.sticky-second > .columns-in > .column:last-child { position: sticky; top: var(--header-room, var(--pad-pane)); }
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
+.layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 1fr); } .layout-columns.second-first-when-stacked > .columns-in > .column:last-child { order: -1; } }
+@media ${SCREEN_QUERIES.phoneSideways} { @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short.second-first-when-stacked > .columns-in > .column:last-child { order: 0; } } }
+/* Wide but short (a phone on its side): side by side again from a narrower least, ${SHORT_COLUMN_LEAST_PX}px each. */
+@media ${SCREEN_QUERIES.phoneSideways} {
+  @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short > .columns-in { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .layout-columns.side-by-side-when-short.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+}
 `;
 
 export const CARVING_END_STYLES = `

@@ -18,6 +18,8 @@ import { HEADER_RAIL_MEDIA } from "./tokens.ts";
 export interface CutFieldOptions {
   /** For a few characters (a room code): a short field, with room beside it for its button. */
   isShort?: boolean;
+  /** Its label said only to screen readers, where its use is plain from where it stands (a room code's box beside the rooms): no line above it. */
+  isLabelHidden?: boolean;
   name: string;
   label: string;
   type: "text" | "email" | "search" | "password";
@@ -62,7 +64,7 @@ export function cutField(options: CutFieldOptions): ControlMarkup {
   const hintId = `${id}-hint`;
   const className = ["field", "carving", "layered", "is-used", "sized", options.icon ? "" : "no-icon", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
-  return controlMarkup(html`<div class="cut-field${options.isShort ? " is-short" : ""}"><label class="words-margin" for="${id}">${options.label}</label>
+  return controlMarkup(html`<div class="cut-field${options.isShort ? " is-short" : ""}"><label class="${options.isLabelHidden ? "sr" : "words-margin"}" for="${id}">${options.label}</label>
 <span class="${className}" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.inputMode ? html` inputmode="${options.inputMode}"` : ""}${options.pattern ? html` pattern="${options.pattern}"` : ""}${options.characterPattern ? html` data-characters="${options.characterPattern}"` : ""}${options.maximumCharacterCount !== undefined ? html` maxlength="${options.maximumCharacterCount}"` : ""}${options.isUppercase ? raw(' data-uppercase autocapitalize="characters"') : ""}${options.isRequired ? raw(" required") : ""}${options.isReadOnly ? raw(" readonly") : ""}${options.isDisabled ? raw(" disabled") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : options.hint ? html` aria-describedby="${hintId}"` : ""}>${isPassword ? carvingEnd(passwordToggle({ isPasswordShown: Boolean(options.isPasswordShown), controls: id, ...(options.isDisabled ? { isDisabled: true } : {}) })) : ""}</span>
 ${options.error ? html`<p class="field-error words-margin" id="${errorId}">${options.error}</p>` : options.hint ? html`<p class="field-hint words-margin" id="${hintId}">${options.hint}</p>` : ""}</div>`, "field", { hasOwnWords: true });
 }
