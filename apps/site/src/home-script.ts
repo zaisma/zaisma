@@ -44,8 +44,10 @@ function make(tag, className, text) { const node = document.createElement(tag); 
 function iconNode(markup) { const holder = make("span"); holder.innerHTML = markup; return holder.firstElementChild; }
 
 /* ---- What this device and account have played ---- */
-let played = [];
-try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at, is_on_account: entry.is_on_account === true })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch {}
+function readPlayedHere() {
+  try { return JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at, is_on_account: entry.is_on_account === true })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch { return []; }
+}
+let played = readPlayedHere();
 // A signed-in player's Continue playing is the account's, as the page was drawn with it (home.ts), and stays as it first painted. What this
 // device played that the account doesn't have, or played later, goes to the account once (is_on_account, once it's taken), so the next
 // visit shows it from its first paint. A full list keeps only what's newer than its oldest: anything older the account would drop again.
@@ -53,7 +55,8 @@ try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) 
 const isAccountsList = DATA.account_played !== null;
 const accountPlayedAtMs = new Map((DATA.account_played || []).map((entry) => [entry.slug, entry.played_at_ms]));
 const keptFromMs = accountPlayedAtMs.size >= ${KEPT_PLAYED_GAME_COUNT} ? Math.min(...accountPlayedAtMs.values()) : 0;
-const playedOnlyHere = isAccountsList ? played.filter((entry) => !entry.is_on_account && bySlug[entry.slug] && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs)) : [];
+const newerThanAccount = (list) => list.filter((entry) => bySlug[entry.slug] && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs));
+const playedOnlyHere = isAccountsList ? newerThanAccount(played).filter((entry) => !entry.is_on_account) : [];
 const playedHere = played;
 if (isAccountsList) played = DATA.account_played.slice();
 const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
@@ -273,15 +276,22 @@ document.addEventListener("keydown", (event) => {
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
 // A guest's comes from the cookie, which a device that played before the cookie kept it is missing: filled in here. An account's page
-// drawn ahead (prerendered as the pointer rested on its link, prepared-pages.ts) was drawn before a game played since: it opens with them.
-const isDrawnAhead = (performance.getEntriesByType("navigation")[0]?.activationStart || 0) > 0;
-if (!isAccountsList) fillContinue();
-else if (isDrawnAhead && playedOnlyHere.length) {
+// prepared ahead (prerendered or fetched as the pointer rested on its link, prepared-pages.ts) or kept by the browser to go back to was
+// drawn before a game played since: it opens with them.
+function showPlayedSince(list) {
+  if (!list.length) return;
   const playedAtMs = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
-  for (const entry of playedOnlyHere) playedAtMs.set(entry.slug, Math.max(playedAtMs.get(entry.slug) || 0, entry.played_at_ms));
+  for (const entry of list) playedAtMs.set(entry.slug, Math.max(playedAtMs.get(entry.slug) || 0, entry.played_at_ms));
   played = [...playedAtMs].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
   fillContinue();
 }
+if (!isAccountsList) fillContinue();
+else if (document.documentElement.hasAttribute("data-prepared-ahead")) showPlayedSince(newerThanAccount(playedHere));
+addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  if (isAccountsList) showPlayedSince(newerThanAccount(readPlayedHere()));
+  else { played = readPlayedHere(); fillContinue(); }
+});
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 keepPlayedCookie([...playedHere].sort((a, b) => b.played_at_ms - a.played_at_ms));
