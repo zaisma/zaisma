@@ -92,6 +92,7 @@ export function failureLines(result) {
     ...result.typecheck_failures.map((failure) => ({ failure_kind: "typecheck", check_name: "typecheck", detail: `${failure.file}:${failure.line}: ${failure.message}` })),
     ...result.pattern_failures.map((failure) => ({ failure_kind: "pattern", check_name: "patterns", detail: failure })),
     ...result.layout_failures.map((failure) => ({ failure_kind: "layout", check_name: `layout ${failure.split(" ")[0]}`, detail: failure })),
+    ...(result.motion_failures ?? []).map((failure) => ({ failure_kind: "motion", check_name: "motion", detail: failure })),
     ...(result.budget?.hard_limits ?? []).map((limit) => ({ failure_kind: "over_budget", check_name: "whole run", detail: limit.line })),
     ...(result.outcome === "handed_to_github" ? [{ failure_kind: "handed_to_github", check_name: "whole run", detail: result.busy_reason }] : []),
   ];

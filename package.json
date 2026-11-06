@@ -32,6 +32,7 @@
     "brand": "node scripts/brand.mjs",
     "guild-seal": "node scripts/guild-seal.mjs",
     "layout:check": "node scripts/layout-check.mjs",
+    "motion:sheet": "node scripts/motion-sheet.mjs",
     "bench:check": "node scripts/bench-press-check.mjs",
     "page:probe": "node scripts/page-probe.mjs",
     "components:minify": "node scripts/minify-components.mjs",
