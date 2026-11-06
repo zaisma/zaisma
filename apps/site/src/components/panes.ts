@@ -1098,7 +1098,9 @@ component({
 .carving.game-grid.has-groups > .game-grid-group[hidden] { display: none; }
 .carving.game-grid.has-groups > .game-grid-group > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 .game-grid-group.is-after-line { display: flex; flex-direction: column; gap: var(--pad-frame); }
-.game-grid-group.is-after-line > .divider { margin: 0; max-width: none; padding-inline: var(--pad-frame); }
+/* The line between the groups reads as their heading, in a card's name's ink and size, twice the frame gap from the cards round it, so on a
+   phone, between cards the screen's width, it isn't missed. */
+.game-grid-group.is-after-line > .divider { margin: 0; max-width: none; padding: var(--pad-frame); font: var(--type-name); color: var(--ink); }
 `,
   render: gameGrid,
   examples: [
