@@ -23,9 +23,9 @@ float motes(vec2 p, float size, float chance, float seed) {
 `;
 
 /**
- * Zaisma's own background: mountain ranges in mist, seen from high up, with a fixed camera. By day (iDark 0) a temperate midday: blue sky,
- * white fog, ranges turning from pale blue to muted green as they near, birds at every distance, and a high sun that now and then breaks
- * through, its rays filtered by clouds. By night (iDark 1) the same ranges under the Milky Way, blue with distance and black up close, with
+ * Zaisma's own background: mountain ranges in mist, seen from high up, with a fixed camera. By day (iDark 0) a pale haze, as even as the
+ * night: a soft blue sky, white fog, ranges in one cool blue-grey, from nearly the sky's color far off to soft slate up close, faint birds at
+ * every distance, and a high sun that now and then breaks through, its rays filtered by clouds. By night (iDark 1) the same ranges under the Milky Way, blue with distance and black up close, with
  * fog that carries on the horizon's color and a quiet shooting star now and then. Only the fog, cloud, light, birds and stars move. iDark
  * eases between the two, so a change of theme fades. It draws near to far and stops at what hides the rest. On Zaisma's own pages the runner
  * (BACKDROP_SCRIPT) draws it in parts: ridgelines and slopes stored once, since the camera never moves; fog, cloud and rays drawn small each
@@ -48,7 +48,7 @@ const float RANGE_SHIFT[7] = float[7](0.0, 0.0, 0.0, 0.41, 0.83, 0.0, 0.0);
 const float MIST_LEVEL[7] = float[7](0.55, 0.47, 0.37, 0.34, 0.28, 0.17, 0.02);
 const float FOG_LEVEL[7] = float[7](0.53, 0.43, 0.35, 0.32, 0.25, 0.15, 0.0);
 const float FOG_DRIFT[7] = float[7](0.7, -0.8, 1.0, -0.9, -1.1, 1.25, -1.4);
-const vec3 DAY_RANGE[7] = vec3[7](vec3(0.70, 0.82, 0.92), vec3(0.56, 0.74, 0.86), vec3(0.44, 0.66, 0.76), vec3(0.385, 0.615, 0.69), vec3(0.33, 0.57, 0.62), vec3(0.25, 0.49, 0.48), vec3(0.18, 0.40, 0.36));
+const vec3 DAY_RANGE[7] = vec3[7](vec3(0.80, 0.87, 0.94), vec3(0.74, 0.82, 0.91), vec3(0.68, 0.77, 0.88), vec3(0.64, 0.74, 0.86), vec3(0.59, 0.70, 0.83), vec3(0.53, 0.65, 0.80), vec3(0.47, 0.59, 0.76));
 const vec3 NIGHT_RANGE[7] = vec3[7](vec3(0.0575, 0.1, 0.155), vec3(0.0391, 0.068, 0.1054), vec3(0.0253, 0.044, 0.0682), vec3(0.019, 0.033, 0.0512), vec3(0.01265, 0.022, 0.0341), vec3(0.0069, 0.012, 0.0186), vec3(0.00276, 0.0048, 0.00744));
 float rangeShape(int l, float x) {
   if (l == 0) return peak(x, 0.31, 0.09, 0.1) + peak(x, 0.38, 0.05, 0.04) + peak(x, 0.77, 0.07, 0.075) + peak(x, 0.08, 0.09, 0.05) + peak(x, 0.56, 0.08, 0.05) + peak(x, 0.93, 0.08, 0.06) + peak(x, 0.68, 0.05, 0.03);
@@ -165,7 +165,7 @@ float birdFront(vec2 p, vec2 at, float size, float beat, float id) {
   vec2 shoulder = vec2(0.08, 0.02), elbow = shoulder + vec2(0.5, 0.36 * inner + 0.1), tip = elbow + vec2(0.5, 0.42 * outer - 0.08);
   return smoothstep(aa, -aa, min(min(segment(d, shoulder, elbow, 0.08, 0.05), segment(d, elbow, tip, 0.05, 0.01)), length(d - vec2(0.0, -0.01)) - 0.12));
 }
-vec3 birdColor(float distant) { return mix(vec3(0.10, 0.18, 0.26), vec3(0.44, 0.56, 0.68), distant); }
+vec3 birdColor(float distant) { return mix(vec3(0.34, 0.42, 0.54), vec3(0.64, 0.72, 0.82), distant); }
 // A star in a grid of cells: each cell holds at most one, at a random spot, some brighter than others, twinkling a little.
 float star(vec2 p, float cells, float rarity) {
   vec2 id = floor(p * cells), f = fract(p * cells) - 0.5; float r = h2(id); vec2 o = vec2(h2(id + 3.1), h2(id + 7.3)) - 0.5;
@@ -187,15 +187,15 @@ void mainImage(out vec4 o, in vec2 f) {
   vec2 uv = f / iResolution.xy; float ar = iResolution.x / iResolution.y, y = uv.y, g = uv.x * ar, t = iTime, day = 1.0 - iDark;
   // A narrow screen shows the middle of the scene, a little squeezed, so its mountains keep their shape.
   float x = 0.5 + (uv.x - 0.5) * clamp(ar / 1.78, 0.56, 1.0); vec2 p = vec2(g, y); float onePixel = 1.0 / iResolution.y;
-  vec3 sky = mix(vec3(0.30, 0.58, 0.92), vec3(0.014, 0.026, 0.06), iDark), glow = mix(vec3(0.78, 0.90, 0.98), vec3(0.115, 0.20, 0.31), iDark);
-  vec3 mist = mix(vec3(0.93, 0.96, 0.98), vec3(0.13, 0.1937, 0.2761), iDark), lit = mix(vec3(1.0), vec3(0.1665, 0.248, 0.3534), iDark);
+  vec3 sky = mix(vec3(0.58, 0.72, 0.88), vec3(0.014, 0.026, 0.06), iDark), glow = mix(vec3(0.86, 0.92, 0.97), vec3(0.115, 0.20, 0.31), iDark);
+  vec3 mist = mix(vec3(0.94, 0.96, 0.985), vec3(0.13, 0.1937, 0.2761), iDark), lit = mix(vec3(1.0), vec3(0.1665, 0.248, 0.3534), iDark);
   // The sun, high on the right: now and then it breaks through, and passing clouds dim it and its rays.
   vec2 sun = vec2(0.5 * ar + 0.16 * min(ar, 1.78), 0.9), toSun = p - sun; float sunDistance = length(toSun), phase = fract(t / 90.0), breaking = smoothstep(0.0, 0.14, phase) * smoothstep(0.42, 0.26, phase);
   vec3 shown = vec3(0.0); float covered = 0.0;
   if (day > 0.01) {
     float ang = atan(toSun.y, toSun.x), veil = 0.5 + 0.5 * sin(t * 0.37) * sin(t * 0.23 + 1.0), strength = (0.34 + 0.66 * breaking) * mix(0.62, 1.0, veil), reach = 0.0025 + 0.0085 * breaking * mix(0.65, 1.0, veil);
     float spikes = pow(abs(cos(ang * 6.0 + 0.3)), 150.0) + 0.5 * pow(abs(cos(ang * 6.0 + 1.87)), 220.0);
-    vec3 light = vec3(1.0, 0.98, 0.9) * spikes * exp(-sunDistance * sunDistance / reach) * strength * 0.8 + vec3(1.0, 0.99, 0.94) * (smoothstep(0.02, 0.009, sunDistance) * strength + exp(-sunDistance * sunDistance / 0.0045) * strength * 0.5);
+    vec3 light = vec3(1.0, 0.98, 0.9) * spikes * exp(-sunDistance * sunDistance / reach) * strength * 0.5 + vec3(1.0, 0.99, 0.94) * (smoothstep(0.02, 0.009, sunDistance) * strength + exp(-sunDistance * sunDistance / 0.0045) * strength * 0.5);
     if (breaking > 0.001) light += vec3(1.0, 0.98, 0.9) * sceneBeam(toSun, sunDistance, g, y, t) * exp(-sunDistance * sunDistance / 1.1) * breaking * 0.17;
     shown += light * day;
     // Birds at every distance: these fly in front of all the ranges.
@@ -224,7 +224,7 @@ void mainImage(out vec4 o, in vec2 f) {
     if (density > 0.001) {
       float amount = l == 0 ? mix(0.55, 0.22, iDark) : l == 1 ? mix(0.85, 0.5, iDark) : l == 2 ? mix(0.85, 0.68, iDark) : l == 3 ? 0.85 : l == 4 ? 0.9 : l == 5 ? mix(0.85, 0.7, iDark) : mix(0.55, 0.16, iDark);
       vec3 bankMist = l == 0 ? mix(mix(glow, mist, 0.7), mist, iDark) : mist, bankLit = l == 0 ? mix(mix(glow, lit, 0.6), lit, iDark) : lit;
-      behind(shown, covered, mix(bankMist, bankLit, (1.0 - density) * 0.45), density * amount * mix(0.8, 0.74, iDark));
+      behind(shown, covered, mix(bankMist, bankLit, (1.0 - density) * 0.45), density * amount * mix(0.62, 0.74, iDark));
     }
     float edge = max(l == 0 ? mix(0.0045, 0.0025, iDark) : 0.0016, onePixel * 1.1), depth, cover;
     if (!sceneRange(l, g, x, y, edge, depth, cover)) continue;
@@ -233,7 +233,7 @@ void mainImage(out vec4 o, in vec2 f) {
     color = mix(color, vec3(1.0, 0.98, 0.86), day * smoothstep(0.012, 0.0, depth) * exp(-sunDistance * sunDistance / 0.5) * (0.06 + 0.14 * breaking));
     float fade = l == 0 ? mix(0.75, 0.42, iDark) : l == 1 ? mix(0.55, 0.42, iDark) : l == 2 ? 0.5 : l == 3 ? 0.48 : l == 4 ? 0.45 : l == 5 ? 0.42 : 0.3;
     vec3 rangeMist = l == 0 ? mix(mix(glow, mist, 0.6), mist, iDark) : mist;
-    behind(shown, covered, mix(color, rangeMist, smoothstep(MIST_LEVEL[l] + 0.16, MIST_LEVEL[l] - 0.04, y) * fade * mix(0.88, 0.72, iDark)), cover);
+    behind(shown, covered, mix(color, rangeMist, smoothstep(MIST_LEVEL[l] + 0.16, MIST_LEVEL[l] - 0.04, y) * fade * mix(0.7, 0.72, iDark)), cover);
   }
   if (covered < 0.995) {
     vec3 air = mix(glow, sky, smoothstep(0.56, mix(0.98, 1.12, iDark), y));
