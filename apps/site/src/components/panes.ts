@@ -607,7 +607,9 @@ const COVER_STYLES = `
    small control's height. */
 .cover-plate:has(.run-wrap) { height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
 /* With Play, Details or Join on it, the line is the controls' height: its name on their center line, never taller than them. */
-.cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row { align-items: center; }
+/* The line never wraps: the card is one fixed shape, so with faces and Join beside it the name gives up its room and ends in an ellipsis. */
+.cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row { align-items: center; flex-wrap: nowrap; }
+.cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words { flex: 1 1 0; min-width: 0; }
 .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words, .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words > * { padding-block: 0; }
 .cover-name-line { display: flex; align-items: center; gap: var(--gap-words-words); flex: 1 1 0; min-width: 0; }
 .cover-name-line > .picture-row { flex: none; }

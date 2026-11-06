@@ -500,7 +500,7 @@ component({
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.tiny { --control-height: var(--control-height-tiny); }
-.cut-btn.tiny > .face { gap: var(--pad-frame-compact); --slab-words: 4px; font: var(--type-note); }
+.cut-btn.tiny > .face { gap: var(--pad-frame-compact); --slab-words: 14px; font: var(--type-note); }
 .cut-btn.is-full { display: flex; width: 100%; }
 /* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
 .cut-btn > .face { flex: auto; gap: 8px; }

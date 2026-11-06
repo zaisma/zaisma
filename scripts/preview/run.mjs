@@ -2019,6 +2019,14 @@ function seedFriendsNow() {
     Array.from({ length: roomCount }, (_, i) => `('${prefix}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(i / 32)]}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[i % 32]}', 1, ${maximumPlayerCount})`).map(
       (values) => `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, column1, column2, column3, 1, 'NL', 'EU', ${later}, ${later} FROM (VALUES ${values})`,
     );
+  const ifManyMade = `WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Many_Friend_8')`;
+  const manyFriendsInRoom = (slug, roomCode, playerCount, maximumPlayerCount, friendNumbers) => [
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, friend_joins_enabled, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${playerCount}, ${maximumPlayerCount}, 1, 1, 'NL', 'EU', ${later}, ${later} ${ifManyMade}`,
+    ...friendNumbers.flatMap((friendNumber) => [
+      `INSERT OR REPLACE INTO presences (account_id, seen_at_ms, game_id, game_seen_at_ms) SELECT ${account(`Many_Friend_${friendNumber}`)}, ${later}, ${game(slug)}, ${later} ${ifManyMade}`,
+      `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${player(`Many_Friend_${friendNumber}`)}, ${later}, ${later} ${ifManyMade}`,
+    ]),
+  ];
   const sql = [
     ...["Moss_Runner", "Kit_Spark", "Quiet_Comet", "Tall_Pine", "Swift_Otter", "Red_Lantern"].map((name) => `INSERT OR REPLACE INTO presences (account_id, seen_at_ms) SELECT ${account(name)}, ${later} ${ifMade}`),
     `UPDATE presences SET game_id = ${game("rocket-lab")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Quiet_Comet")}`,
@@ -2046,6 +2054,9 @@ function seedFriendsNow() {
     `UPDATE live_rooms SET spectator_count = 3, maximum_spectator_count = 20 WHERE room_code IN ('MTCH22', 'MTCH23')`,
     // Some of the small rooms take spectators too, so Watch sits beside Join.
     `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
+    // Many friends in one game (Home, full): six of Many_Things's friends in one Arena room and two in Cave Crew, so a card shows several faces and how many more.
+    ...manyFriendsInRoom("arena", "MNYFRD", 6, 8, [1, 2, 3, 4, 5, 6]),
+    ...manyFriendsInRoom("cave-crew", "MNYCVE", 2, 16, [7, 8]),
   ];
   runSql(sql.join("; "));
 }
