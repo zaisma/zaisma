@@ -305,7 +305,7 @@ function roomsTabItems(slug: string, rooms: RoomPage): LayoutItem[] {
 }
 
 /** How many covers each of a game page's shelves holds, More from <developer> and More like this. */
-export const GAME_PAGE_SHELF_GAME_COUNT = 8;
+export const GAME_PAGE_SHELF_GAME_COUNT = 4;
 
 /**
  * A game page's two shelves from the showcase: the developer's other games, newest first, and More like this: other developers' games

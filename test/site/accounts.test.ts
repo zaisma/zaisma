@@ -1568,11 +1568,11 @@ describe("friends", () => {
     expect(page).not.toContain("secret-game");
     expect(page).toContain('href="/@Quiet_Comet"');
 
-    // The game page says who's playing it, in its key details; joining them is the rooms pane's.
+    // The game page says who's playing it, in its key details, with Join beside them when their room would let you in.
     const here = await (await ana.go("/g/arena-game/friends")).text();
     expect(here).toContain('<dt>Friends playing</dt>');
     expect(here).toContain('<span class="one-line">Quiet_Comet</span>');
-    expect(here).not.toContain("?room=ROOMAA");
+    expect(here).toContain('href="/g/arena-game?room=ROOMAA"');
     // Glass: only gallery components.
     expect(pageProblems(here)).toEqual([]);
     expect(await (await ana.go("/g/secret-game/friends")).text()).toBe("");
