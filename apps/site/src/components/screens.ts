@@ -2,7 +2,6 @@ import { html, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { tag } from "./foundations.ts";
-import { INSPECTED_COMPONENTS } from "./inspected-components.ts";
 
 /*
  * Screens: the bench's look. One page on a phone, the same phone turned and a laptop, side by side, as one live page: what's wrong on any of
@@ -80,7 +79,7 @@ export function benchLayout(options: BenchLayoutOptions): Raw {
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = ${JSON.stringify(INSPECTED_COMPONENTS)};
+  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {

@@ -157,7 +157,7 @@ const PAGE_SWEEP_LIMIT_MS = 60_000;
 describe("the gallery", () => {
   it("reads every component's source: none is left out of the checks below", () => {
     // Modules with no markup, styles or pieces of their own to check: plain lists and data.
-    const READ_ELSEWHERE = new Set(["components/index.ts", "components/component.ts", "components/checked-pages.ts", "components/layout-measure.ts", "components/shaders.ts", "components/action-list.ts", "components/gallery-sheet.ts", "components/inspected-components.ts"]);
+    const READ_ELSEWHERE = new Set(["components/index.ts", "components/component.ts", "components/checked-pages.ts", "components/layout-measure.ts", "components/shaders.ts", "components/action-list.ts", "components/gallery-sheet.ts"]);
     expect(COMPONENT_FILES.length).toBeGreaterThan(20);
     expect(COMPONENT_FILES.filter((file) => !SOURCES[file] && !READ_ELSEWHERE.has(file))).toEqual([]);
   });

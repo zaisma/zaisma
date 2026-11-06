@@ -29,7 +29,12 @@ import { chromeToRun, MEASURE_ONLY, previewSites } from "./layout-check.mjs";
 import { DURATION_HARD_SEC, budgetLine, readMachineState, releaseRunTurn, startBudgetWatch, waitForRunTurn } from "./check-budget.mjs";
 import { runAtLowPriority } from "./preview/memory.mjs";
 import { BENCH_PLACES, readyStates } from "./preview/bench/places.ts";
-import { INSPECTED_COMPONENTS } from "../apps/site/src/components/inspected-components.ts";
+import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** The inspector's component names, by class (screens.ts, LAYOUT_INSPECT_SCRIPT): read from its script, so the two never differ. */
+export const INSPECTED_COMPONENTS = JSON.parse(/var COMPONENTS = (\{[^}]*\});/.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../apps/site/src/components/screens.ts"), "utf8"))[1]);
 
 /** The screens it moves on: the smallest phone the site takes, that phone turned, and a laptop. Each is a bench screen (its mark's name). */
 export const MOTION_SCREENS = [
