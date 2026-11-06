@@ -45,15 +45,17 @@ function iconNode(markup) { const holder = make("span"); holder.innerHTML = mark
 
 /* ---- What this device and account have played ---- */
 let played = [];
-try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch {}
+try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at, is_on_account: entry.is_on_account === true })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch {}
 // A signed-in player's Continue playing is the account's, as the page was drawn with it (home.ts), and stays as it first painted. What this
-// device played that the account doesn't have, or played later, goes to the account, so the next visit shows it from its first paint.
-// A full list keeps only what's newer than its oldest: anything older the account would drop again.
-const accountPlayedAtMs = new Map(DATA.account_played.map((entry) => [entry.slug, entry.played_at_ms]));
-const keptFromMs = DATA.account_played.length >= ${KEPT_PLAYED_GAME_COUNT} ? Math.min(...accountPlayedAtMs.values()) : 0;
-const playedOnlyHere = isSignedIn ? played.filter((entry) => bySlug[entry.slug] && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs)) : [];
+// device played that the account doesn't have, or played later, goes to the account once (is_on_account, once it's taken), so the next
+// visit shows it from its first paint. A full list keeps only what's newer than its oldest: anything older the account would drop again.
+// Drawn for an account by the server's own word, not the sign-in cookie, which can outlive its session.
+const isAccountsList = DATA.account_played !== null;
+const accountPlayedAtMs = new Map((DATA.account_played || []).map((entry) => [entry.slug, entry.played_at_ms]));
+const keptFromMs = accountPlayedAtMs.size >= ${KEPT_PLAYED_GAME_COUNT} ? Math.min(...accountPlayedAtMs.values()) : 0;
+const playedOnlyHere = isAccountsList ? played.filter((entry) => !entry.is_on_account && bySlug[entry.slug] && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs)) : [];
 const playedHere = played;
-if (isSignedIn) played = DATA.account_played.slice();
+if (isAccountsList) played = DATA.account_played.slice();
 const playedList = () => played.filter((entry) => bySlug[entry.slug]).sort((a, b) => b.played_at_ms - a.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
 
 /* ---- The world behind the glass ---- */
@@ -271,7 +273,7 @@ document.addEventListener("keydown", (event) => {
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
 // A guest's comes from the cookie, which a device that played before the cookie kept it is missing: filled in here.
-if (!isSignedIn) fillContinue();
+if (!isAccountsList) fillContinue();
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 keepPlayedCookie([...playedHere].sort((a, b) => b.played_at_ms - a.played_at_ms));
@@ -290,5 +292,13 @@ if (news) {
   const close = news.querySelector('button[name="banner_close"]');
   if (close) close.addEventListener("click", () => { news.hidden = true; showGuest(); remember(); });
 }
-if (playedOnlyHere.length) fetch("/api/me/played", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ played: playedOnlyHere.slice(0, ${KEPT_PLAYED_GAME_COUNT}) }) }).catch(() => {});
+if (playedOnlyHere.length) {
+  const sent = playedOnlyHere.slice(0, ${KEPT_PLAYED_GAME_COUNT});
+  fetch("/api/me/played", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ played: sent.map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms })) }) }).then((response) => {
+    if (!response.ok) return;
+    // Marked on the list as it is now: the game page may have changed it since.
+    const isSent = (entry) => sent.some((each) => each.slug === entry.slug && each.played_at_ms === (entry.played_at_ms ?? entry.at));
+    try { localStorage.setItem(PLAYED_KEY, JSON.stringify(JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => (isSent(entry) ? { ...entry, is_on_account: true } : entry)))); } catch {}
+  }).catch(() => {});
+}
 })();`);

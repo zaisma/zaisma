@@ -159,10 +159,16 @@ describe.skipIf(!sites)("the layout check", () => {
       const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
       const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
       const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
-      // What the home sends the account is held here and never reaches it, so the account's list stays as the test data has it.
+      // What the home sends the account never reaches it, so the account's list stays as the test data has it.
       const sent: string[] = [];
       let onSent = () => {};
-      chrome.listen(sessionId, (method: string, params: { request: { postData?: string } }) => { if (method === "Fetch.requestPaused") { sent.push(params.request.postData ?? ""); onSent(); } });
+      // Answered as the account would, without reaching it, so the device marks what it sent.
+      chrome.listen(sessionId, (method: string, params: { requestId: string; request: { postData?: string } }) => {
+        if (method !== "Fetch.requestPaused") return;
+        sent.push(params.request.postData ?? "");
+        send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: "content-type", value: "application/json" }], body: btoa('{"ok":true}') }).catch(() => {});
+        onSent();
+      });
       await send("Page.enable");
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
       // The home's script has run once it has marked the covers the page came with.
@@ -189,6 +195,10 @@ describe.skipIf(!sites)("the layout check", () => {
       await home();
       expect(await evaluate(covers)).toEqual(painted);
       await isSent;
+      // Taken once, it's never sent again, whatever the account's list keeps (a game hidden for age, a play the account drops as too old).
+      await evaluate(`(async () => { while (!JSON.parse(localStorage.getItem("zaisma:played")).some((entry) => entry.is_on_account)) await new Promise((done) => requestAnimationFrame(done)); return true; })()`);
+      await home();
+      expect(await evaluate(covers)).toEqual(painted);
       expect(sent.map((body) => (JSON.parse(body) as { played: { slug: string }[] }).played.map((entry) => entry.slug))).toEqual([[onlyHere]]);
     } finally {
       await chrome.close();
