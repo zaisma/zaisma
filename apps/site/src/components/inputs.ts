@@ -89,7 +89,7 @@ component({
    its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
    drawn in close and its face shaded from above. */
 /* The thumb (materials.ts) sits in the track's flow, so the track is as tall as it; it's moved along by its offset. */
-.slider-thumb { position: relative; z-index: 2; display: block; left: calc((100% - var(--thumb)) * var(--fill)); pointer-events: none; }
+.slider-thumb { position: relative; z-index: 2; display: block; left: calc((100% - var(--thumb)) * var(--fill)); pointer-events: none; transition: filter var(--motion-state); }
 .slider:not(.is-disabled):hover .slider-thumb, .slider.is-pointed .slider-thumb { filter: var(--thumb-cast-pointed); }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
