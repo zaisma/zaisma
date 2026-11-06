@@ -151,7 +151,7 @@ const cardLabel = (options: GameCardOptions): string =>
 
 /** A card's title line with a small Join at its end (gameCard's joinHref), in place of players now, so the card grows no taller than its title. */
 function gameCardJoin(nameMarkup: Raw, joinHref: string): Raw {
-  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(secondaryButton("Join", { href: joinHref, isSmall: true }))] })}</div>`;
+  return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(secondaryButton("Join", { href: joinHref, isTiny: true }))] })}</div>`;
 }
 
 /** A card's title line with Play and Details at its end (gameCard's playHref), small, so the card grows no taller than its title: Details is its icon alone. */
@@ -573,10 +573,13 @@ const COVER_STYLES = `
 .cover-glass > .cut-line { position: absolute; inset: 0; visibility: hidden; }
 .cover-glass.sleek > .cover-art.carving { box-shadow: none; }
 .cover-glass.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
-/* Its plate is one line, the same height on every card whatever it holds (a small control's, Play or Join), so every card is one shape. */
+/* Its plate is one line, the same height on every card whatever it holds, so every card is one shape. */
 /* What has an edge on it (Play, Details, Join) sits the compact frame gap from the glass's sides and foot; its words keep a little more. */
-.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact); --pad-words: var(--pad-frame-compact); }
+.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-tiny) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact); --pad-words: var(--pad-frame-compact); }
 .cover-plate > .cover-meta:not(.has-actions) { padding-inline: var(--pad-frame-compact); }
+/* Every card in a list has a tiny control's line (Join is tiny); only the player's own game, standing alone, holds Play and Details at a
+   small control's height. */
+.cover-plate:has(.run-wrap) { height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
 /* With Play, Details or Join on it, the line is the controls' height: its name on their center line, never taller than them. */
 .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row { align-items: center; }
 .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words, .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words > * { padding-block: 0; }
