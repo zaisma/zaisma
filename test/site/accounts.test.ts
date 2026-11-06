@@ -3343,8 +3343,9 @@ describe("recently played", () => {
     expect((pageDataOf(home, "home-data") as { games: { slug: string }[] }).games.map((game) => game.slug)).toContain("hop");
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
-    // Patch notes are a section of the one scroll: a heading, dated entries, the notes.
-    expect(page).toMatch(/id="updates"[\s\S]*?<h2>Updates<\/h2>[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
+    // Patch notes are the Updates tab's part: dated entries, the notes.
+    expect(page).toContain('href="#updates"');
+    expect(page).toMatch(/id="updates"[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
     expect(pageDataOf(await (await SELF.fetch(`${SITE}/g/hop?play`)).text(), "game-page-data").autoplay).toBe("always");
   });
