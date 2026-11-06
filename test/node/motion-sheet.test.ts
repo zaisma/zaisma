@@ -11,8 +11,8 @@ import { findFlashes, findJitter, findPops, findSiblingsThatDiffer, lightnessGap
 import { findChrome } from "../../scripts/chrome.mjs";
 
 type Values = number[];
-/** A piece's values: opacity, blur, backdrop blur, translate x and y, scale, x, y, width, height, the three durations and looping. */
-const at = ({ opacity = 1, translateY = 0, y = 100, height = 50, opacityMs = 0, moveMs = 0, isLooping = 0, isInView = 1 } = {}): Values => [opacity, 0, 0, 0, translateY, 1, 10, y, 200, height, opacityMs, moveMs, 0, isLooping, isInView, 1];
+/** A piece's values: opacity, blur, backdrop blur, translate x and y, scale, x, y, width, height, the three durations, looping, in view, painted, covered and scrolled in a box. */
+const at = ({ opacity = 1, translateY = 0, y = 100, height = 50, opacityMs = 0, moveMs = 0, isLooping = 0, isInView = 1, isCovered = 0, isScrolledInBox = 0 } = {}): Values => [opacity, 0, 0, 0, translateY, 1, 10, y, 200, height, opacityMs, moveMs, 0, isLooping, isInView, 1, isCovered, isScrolledInBox];
 const recording = (series: [number, Values, string | null, string | null][], options: { frameCount?: number; component?: string; isInserted?: boolean; animations?: unknown[]; parsedFrame?: number } = {}) => ({
   kind: "enter",
   frames_ms: Array.from({ length: options.frameCount ?? 30 }, (_, index) => index * 16),
@@ -49,6 +49,25 @@ describe("what the motion sheet finds in a recording", () => {
       pieces: [{ piece_id: 0, component: "Sheet", label: "#share", is_inserted: false, parent_piece_id: null }, { piece_id: 1, component: "Secondary button", label: '"Copy"', is_inserted: false, parent_piece_id: 0 }],
       changes: [[[0, at({ opacity: 0 }), null, null], [1, at(), null, null]], [[0, at({ opacity: 0 }), null, null], [1, at(), null, null]]] };
     expect(findPops(pane).map((failure: { piece: string }) => failure.piece)).toEqual(["Sheet #share"]);
+  });
+
+  it("leaves alone what steps under an opaque cover over the window, on either side of the step (a typing bar's veil)", () => {
+    expect(findPops(recording([[0, at(), null, null], [5, at({ opacity: 0, isCovered: 1 }), null, null]]))).toEqual([]);
+    expect(findPops(recording([[0, at({ opacity: 0, isCovered: 1 }), null, null], [5, at(), null, null]]))).toEqual([]);
+    expect(findPops(recording([[0, at(), null, null], [5, at({ opacity: 0 }), null, null]]))).toHaveLength(1);
+  });
+
+  it("leaves alone a move carried by a box it's in scrolling (a switch's row bringing a tab into view), but not one that steps by itself", () => {
+    expect(findPops(recording([[0, at(), null, null], [5, at({ y: 130, isScrolledInBox: 1 }), null, null]]))).toEqual([]);
+    expect(findPops(recording([[0, at(), null, null], [5, at({ y: 130 }), null, null]]))[0]).toMatchObject({ property: "place_px" });
+    const animations = [{ piece_id: 0, property_group: "move", duration_ms: 150, easing: "ease-out", is_looping: false, first_frame: 1, last_frame: 3 }];
+    expect(findJitter(recording([[0, at(), null, null], [10, at({ y: 103, isScrolledInBox: 1 }), null, null]], { animations }))).toEqual([]);
+  });
+
+  it("counts a move on what it counts no piece for (a page past its pieces) as moving, so what that move carries isn't jitter", () => {
+    const series: [number, Values, null, null][] = [[0, at({ moveMs: 200 }), null, null], [8, at({ y: 104, moveMs: 200 }), null, null], [12, at({ y: 104 }), null, null]];
+    expect(findJitter(recording(series, { animations: [{ piece_id: null, property_group: "move", duration_ms: 200, easing: "ease-out", is_looping: false, first_frame: 1, last_frame: 10 }] }))).toEqual([]);
+    expect(findJitter(recording(series))).toHaveLength(1);
   });
 
   it("leaves the page arriving alone: what comes in while it's still read", () => {
@@ -90,6 +109,14 @@ describe("what the motion sheet finds in a recording", () => {
     expect(siblingEntries(recording([], { animations: [{ piece_id: 0, property_group: "opacity", duration_ms: 0, easing: "linear", is_looping: false, first_frame: 0, last_frame: 1 }] }), "A")).toEqual([]);
   });
 
+  it("names a part with no name of its own by the component it's in, so a sheet's edge and a menu's are no siblings", () => {
+    const parts = { kind: "enter", frames_ms: [0, 16], parsed_frame: 0, changes: [[], [], [], []],
+      pieces: [{ piece_id: 0, component: "Sheet", label: "#a", is_inserted: false, parent_piece_id: null }, { piece_id: 1, component: "svg.edge", label: "<svg.edge>", is_inserted: false, parent_piece_id: 0 },
+        { piece_id: 2, component: "Floating pane", label: "#b", is_inserted: false, parent_piece_id: null }, { piece_id: 3, component: "svg.edge", label: "<svg.edge>", is_inserted: false, parent_piece_id: 2 }],
+      animations: [1, 3, null].map((pieceId) => ({ piece_id: pieceId, property_group: "opacity", duration_ms: 200, easing: "ease", is_looping: false, first_frame: 0, last_frame: 1 })) };
+    expect(siblingEntries(parts, "A").map((entry: { component: string }) => entry.component)).toEqual(["Sheet svg.edge", "Floating pane svg.edge"]);
+  });
+
   it("measures lightness between colours", () => {
     expect(lightnessGap("rgb(255, 255, 255)", "rgb(0, 0, 0)")).toBeCloseTo(1);
     expect(lightnessGap("rgb(240, 240, 240)", "rgb(250, 250, 250)")).toBeLessThan(0.1);
@@ -113,7 +140,7 @@ const SCRIPT = `for (const button of document.querySelectorAll("[aria-pressed]")
   const isOn = button.getAttribute("aria-pressed") !== "true"; button.setAttribute("aria-pressed", String(isOn));
   const el = document.getElementById(button.dataset.target); el.classList.toggle(button.dataset.class, isOn);
 });`;
-const page = (extraStyle: string, extraScript: string) => `<!doctype html><html><head><style>${STYLE}${extraStyle}</style></head><body><main>
+const page = (extraStyle: string, extraScript: string, extraMarkup = "") => `<!doctype html><html><head><style>${STYLE}${extraStyle}</style></head><body><main>${extraMarkup}
 <button aria-pressed="false" data-target="pane" data-class="is-open">Pane</button><button aria-pressed="false" data-target="icon" data-class="is-turned">Icon</button>
 <button aria-pressed="false" data-target="sheet-a" data-class="is-open">Sheet A</button><button aria-pressed="false" data-target="sheet-b" data-class="is-open">Sheet B</button>
 <div class="glass-pane" id="pane">A pane</div><div class="icon-holder"><svg class="icon" id="icon" width="24" height="24"><circle cx="12" cy="12" r="10"/></svg></div>
@@ -121,8 +148,28 @@ const page = (extraStyle: string, extraScript: string) => `<!doctype html><html>
 /** Breaks each rule: the pane pops, the icon nudges 3px after its move ends, and sheet B enters on another curve. A flash is timed in milliseconds, which a busy runner's frames can stretch, so it's proven on recordings above. */
 const FAULTY = page(`.glass-pane { display: none; } .glass-pane.is-open { display: block; } #sheet-b, #sheet-b.is-open { transition: opacity 320ms linear, visibility 0s 320ms; } #sheet-b.is-open { transition: opacity 320ms linear; }`,
   `document.getElementById("icon").addEventListener("transitionend", (event) => setTimeout(() => { event.target.style.marginTop = event.target.classList.contains("is-turned") ? "3px" : "0px"; }, 200));`);
-/** Moves well: the pane fades, the icon rests where its move ends, both sheets enter alike, and the page has one background. */
-const CLEAN = page(`.glass-pane { opacity: 0; visibility: hidden; transition: opacity 200ms ease-out, visibility 0s 200ms; } .glass-pane.is-open { opacity: 1; visibility: visible; transition: opacity 200ms ease-out; }`, "");
+/**
+ * A layer whose glass is its ::before (a sheet's, a floating pane's), fading while the layer itself paints nothing, and a mover a script slides
+ * frame by frame, saying so (data-move-duration-ms) or not.
+ */
+const GLASS_AND_MOVER = {
+  style: `.floating-pane { position: absolute; left: 240px; top: 80px; width: 160px; height: 100px; display: none; transition: display 200ms allow-discrete; }
+.floating-pane::before { content: ""; position: absolute; inset: 0; background: #fff; opacity: 0; transition: opacity 200ms ease-out; }
+.floating-pane.is-open { display: block; } .floating-pane.is-open::before { opacity: 1; } @starting-style { .floating-pane.is-open::before { opacity: 0; } }
+#mover { position: absolute; left: 20px; top: 460px; width: 40px; height: 40px; background: #889; }`,
+  markup: `<button aria-pressed="false" data-target="glass" data-class="is-open">Glass</button><button role="switch" aria-checked="false" data-slides="mover">Slide</button><div class="floating-pane" id="glass"></div><div id="mover"></div>`,
+  script: (isSaid: boolean) => `document.querySelector("[data-slides]").addEventListener("click", (event) => {
+  const button = event.currentTarget, mover = document.getElementById("mover"), isOn = button.getAttribute("aria-checked") !== "true"; button.setAttribute("aria-checked", String(isOn));
+  const from = isOn ? 0 : 240, to = isOn ? 240 : 0, startMs = performance.now(), ms = 300;
+  ${isSaid ? 'mover.setAttribute("data-move-duration-ms", String(ms));' : ""}
+  (function frame() { const t = Math.min(1, (performance.now() - startMs) / ms), e = t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t); mover.style.transform = "translateX(" + (from + (to - from) * e) + "px)";
+    if (t < 1) requestAnimationFrame(frame); else mover.removeAttribute("data-move-duration-ms"); })();
+});`,
+};
+/** Moves well: the pane fades, the icon rests where its move ends, both sheets enter alike, the glass fades, the mover says it moves, and the page has one background. */
+const CLEAN = page(`.glass-pane { opacity: 0; visibility: hidden; transition: opacity 200ms ease-out, visibility 0s 200ms; } .glass-pane.is-open { opacity: 1; visibility: visible; transition: opacity 200ms ease-out; }${GLASS_AND_MOVER.style}`, GLASS_AND_MOVER.script(true), GLASS_AND_MOVER.markup);
+/** A mover a script slides without saying so: its steps are a pop. */
+const UNSAID_MOVER = page(GLASS_AND_MOVER.style, GLASS_AND_MOVER.script(false), GLASS_AND_MOVER.markup);
 
 const chromePath = findChrome() as Promise<string | null>;
 const folder = temporaryFolder("zaisma-motion-test-");
@@ -148,7 +195,12 @@ describe("the motion sheet in Chrome, on fixture pages", async () => {
 
   it.skipIf(!path || typeof WebSocket !== "function")("passes the page that moves well", async () => {
     const { failures, run_count: runCount } = await run("clean", CLEAN);
-    expect(runCount).toBe(9);
+    expect(runCount).toBe(13);
     expect(failures).toEqual([]);
+  }, 90_000);
+
+  it.skipIf(!path || typeof WebSocket !== "function")("finds a script's slide that doesn't say it moves", async () => {
+    const { failures } = await run("unsaid-mover", UNSAID_MOVER);
+    expect(failures.filter((failure: { kind: string; piece: string }) => failure.kind === "pop" && failure.piece.startsWith("div #mover")).length).toBeGreaterThan(0);
   }, 90_000);
 });

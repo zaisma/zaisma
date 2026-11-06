@@ -265,6 +265,8 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   function leaveSheet(sheet, closeArguments) {
     if (sheet.classList.contains("is-leaving")) return;
     sheet.classList.add("is-leaving");
+    // What's in it hears it go (a field in the typing bar lowers its bar, which the sheet's own fade can't carry).
+    sheet.dispatchEvent(new Event("zaisma:sheet-leaving"));
     forget(sheet);
     var timer = setTimeout(done, 400);
     function end(event) { if (event.target === sheet && event.propertyName === "opacity") done(); }

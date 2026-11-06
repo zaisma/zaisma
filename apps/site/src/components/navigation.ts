@@ -821,6 +821,22 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   var isSmallScreen = window.matchMedia("(max-width: 760px), (max-height: 500px)"), boxes = [], dueBoxes = null;
   function fadePx() { return isSmallScreen.matches ? 20 : 34; }
   window.zaismaScrollFadePx = fadePx;
+  // A fade's edges ease in and out over --motion-glide as an animation of their own, never a transition: a transition here would take the
+  // place of the box's own (a menu's body fading out as it closes, whose choices then went in one frame). change() sets the new length;
+  // until a box is eased (isFadeEased) it's there at once.
+  var GLIDE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-glide")) || 0.45) * 1000, isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)"), fadeRuns = new WeakMap();
+  function easeFade(box, name, change) {
+    var runs = fadeRuns.get(box); if (!runs) { runs = {}; fadeRuns.set(box, runs); }
+    var isEased = box.isFadeEased && !isReducedMotion.matches && box.animate, from = isEased ? getComputedStyle(box).getPropertyValue(name).trim() : "";
+    if (runs[name]) { runs[name].cancel(); runs[name] = null; }
+    change();
+    if (!isEased) return;
+    var to = getComputedStyle(box).getPropertyValue(name).trim(), frames = {};
+    if (!from || to === from) return;
+    frames[name] = [from, to];
+    runs[name] = box.animate(frames, { duration: GLIDE_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
+  }
+  function setFade(box, name, px) { var value = px + "px"; if (box.style.getPropertyValue(name) === value) return; easeFade(box, name, function () { box.style.setProperty(name, value); }); }
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -832,11 +848,12 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
     // away (the --fade transition) once there's nothing more.
     var top = read.scrollTop > 0.5 ? fadePx() : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? fadePx() : 0;
-    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    setFade(box, "--fade-top", Math.max(0, top)); setFade(box, "--fade-bottom", Math.max(0, bottom));
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", isScrollable);
     box.classList.toggle("is-scrollable", isScrollable);
+    box.isFadeEased = true;
   }
   // Boxes syncing together are all read before any is written: one at a time, each write would make the next read lay the page out again.
   function syncAll(list) {
@@ -918,7 +935,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       var scrollLeft = row.scrollLeft, scrolledBefore = scrollLeft, scrolledAfter = reach.whole - reach.width - scrollLeft;
       return reach.start === null ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(scrollLeft - reach.start, scrolledBefore), after: Math.max(reach.end - scrollLeft - reach.width, scrolledAfter) };
     }
-    function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
+    function side(name, property, isOn) { if (row.classList.contains(name) !== isOn) easeFade(row, property, function () { row.classList.toggle(name, isOn); }); }
+    function fades() { var span = shownSpan(); side("more-left", "--fade-left", span.before > 2); side("more-right", "--fade-right", span.after > 2); return span; }
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
     function start() { if (here && !isStarted && row.scrollWidth - row.clientWidth > 1) { isStarted = true; row.showWhole(here, false); } }
@@ -960,7 +978,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     window.zaismaWatch.fontArrived(ends);
     ends();
     // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
-    requestAnimationFrame(function () { requestAnimationFrame(function () { row.classList.add("fades-ease"); }); });
+    requestAnimationFrame(function () { requestAnimationFrame(function () { row.isFadeEased = true; }); });
   });
 })();
 `;

@@ -342,7 +342,7 @@ export const PIN_FIELD_SCRIPT = String.raw`/* pin fields */(function () {
  * The field stays where it is in the page, so it keeps its focus and the keyboard stays up. window.zaismaTypingBar shows it in the gallery.
  */
 export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
-  var media = window.matchMedia("(orientation: landscape) and (max-height: 500px) and (pointer: coarse)"), root = document.documentElement, view = window.visualViewport, held = null, typed = null, cover = null, veil = null, pendingTimer = 0, settling = 0, pinning = 0, isLeaving = false;
+  var media = window.matchMedia("(orientation: landscape) and (max-height: 500px) and (pointer: coarse)"), root = document.documentElement, view = window.visualViewport, held = null, typed = null, cover = null, veil = null, pendingTimer = 0, waitCount = 0, settling = 0, pinning = 0, isLeaving = false;
   var TEXT = /^(text|search|email|url|tel|password|number)$/;
   function isTyped(el) { return el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && TEXT.test(el.type))) && !el.readOnly && !el.disabled; }
   // Centered in what shows above the keyboard, every frame while it's up: a phone pans what shows as the keyboard moves, and tells late.
@@ -412,7 +412,7 @@ export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
     }
     settling = requestAnimationFrame(look);
   }
-  function stopWaiting() { clearTimeout(pendingTimer); cancelAnimationFrame(settling); settling = 0; }
+  function stopWaiting() { waitCount += 1; clearTimeout(pendingTimer); cancelAnimationFrame(settling); settling = 0; }
   function lift(el) {
     stopWaiting(); isLeaving = false;
     if (held) { takeDown(); setGround(el); putUp(el); reveal(); return; }
@@ -424,7 +424,11 @@ export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
     }
     if (veil) { under(); return; }
     veil = makeVeil(false); veil.offsetWidth; veil.classList.add("is-shown");
-    pendingTimer = setTimeout(under, veilMs());
+    // Only once it's whole: a timer of its length can end a frame before its fade does, and what changes under it would show through.
+    var waitNumber = waitCount, shown = veil;
+    function whole(event) { if (event && (event.target !== shown || event.propertyName !== "opacity")) return; shown.removeEventListener("transitionend", whole); clearTimeout(pendingTimer); if (waitNumber === waitCount) under(); }
+    shown.addEventListener("transitionend", whole);
+    pendingTimer = setTimeout(whole, veilMs() + 100);
   }
   function drop() {
     if (isLeaving) return;
@@ -445,6 +449,8 @@ export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
     setTimeout(function () { document.removeEventListener("click", swallow, true); }, 700);
   }, true);
   media.addEventListener("change", function () { if (!media.matches) drop(); });
+  // A sheet that closes round the field (Esc, Close) takes the bar down with it, the bar falling as it does when the field is left.
+  document.addEventListener("zaisma:sheet-leaving", function (event) { if (held && event.target.contains(held)) drop(); }, true);
   window.zaismaTypingBar = { lift: lift };
 })();
 `;
@@ -915,11 +921,13 @@ export const WHEEL_SCRIPT = String.raw`/* wheel fields */(function () {
 `;
 
 const FIELD_STYLES = `
-/* The typing bar (TYPING_BAR_SCRIPT). While it's up, nothing around it may hold what's fixed inside it or clip it, under its cover. The field keeps its own glass and cut. */
+/* The typing bar (TYPING_BAR_SCRIPT). While it's up, nothing around it may hold what's fixed inside it, clip it or fade it (a sheet closing round it), under its cover. The field keeps its own glass and cut. */
 .is-typing body { background: var(--typing-ground); }
 .is-typing body *:not(.is-typing-bar, .is-typing-bar *, .typing-cover) { visibility: hidden !important; }
 .is-typing :is(.is-typing-bar, .typing-cover) { visibility: visible !important; }
-.is-typing :has(.is-typing-bar) { transition: none !important; animation: none !important; clip-path: none !important; -webkit-mask: none !important; mask: none !important; transform: none !important; translate: none !important; filter: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; contain: none !important; container-type: normal !important; perspective: none !important; will-change: auto !important; }
+.is-typing :has(.is-typing-bar) { opacity: 1 !important; transition: none !important; animation: none !important; clip-path: none !important; -webkit-mask: none !important; mask: none !important; transform: none !important; translate: none !important; filter: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; contain: none !important; container-type: normal !important; perspective: none !important; will-change: auto !important; }
+/* A sheet closing round it (a phone's Back closes it at once) stays shown while the bar falls, its other looks still not easing. */
+.is-typing dialog:has(.is-typing-bar) { transition: display var(--motion-arrive) allow-discrete, overlay var(--motion-arrive) allow-discrete !important; }
 .typing-cover { position: fixed; z-index: 2147482999; top: 0; left: 0; width: 100%; height: 100lvh; background: var(--typing-ground); }
 .is-typing-bar.is-typing-bar { position: fixed !important; z-index: 2147483000 !important; top: var(--typing-top, 0px) !important; left: var(--typing-left, 0px) !important; right: auto !important; bottom: auto !important; width: min(var(--typing-shown-width, 100vw) - 2 * max(var(--pad-frame), var(--safe-left), var(--safe-right)), var(--typing-width)) !important; max-width: none !important; flex: none !important; margin: 0 !important; box-sizing: border-box; }
 .is-typing-bar, .is-typing-bar * { transition: none !important; }

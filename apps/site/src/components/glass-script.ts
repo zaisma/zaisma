@@ -706,7 +706,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (glide && glide.sizeKey !== sizeKey) { glide.sizeKey = sizeKey; glide.toShape = controlOutline(el, w, h); glide.fromShape = controlOutline(el, w, h, glide.from); }
       var shape = glide ? glide.toShape : controlOutline(el, w, h);
       if (glide) {
-        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
+        // A mover that draws it each frame says how far along it is (progress), so its shape keeps to the mover's own clock.
+        var t = glide.progress !== undefined ? glide.progress : Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
         // A mover that draws it each frame itself (isDriven: a switch's slab) has it drawn once a frame, not twice.
         if (t >= 1) glide = null; else if (!glide.isDriven) requestAnimationFrame(draw);
@@ -762,9 +763,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // redrawCut() draws it again where it is now, ending any glide: a mover that stops a move part way (a switch's slab put straight on its tab
     // when its room changes size) leaves no shape half blended. redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape
     // those attributes gave, on its mover's ease (a cubic ease-out by default), so its shape lands as it does; a mover that draws each frame
-    // itself (isDriven) calls redrawCut({ isFrame: true }) for the glide's next step.
+    // itself (isDriven) calls redrawCut({ isFrame: true, progress }) for the glide's next step, progress (0 to 1) its own clock's.
     el.redrawCut = function (move) {
-      if (move && move.isFrame) { draw(); return; }
+      if (move && move.isFrame) { if (glide && move.progress !== undefined) glide.progress = move.progress; draw(); return; }
       glide = move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() } : null;
       draw();
     };

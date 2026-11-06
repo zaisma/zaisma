@@ -8,6 +8,9 @@
 //   - jitter: a box that moves after the run's last transition has ended;
 //   - siblings that differ: two uses of one component that enter or leave with different durations or curves;
 //   - a flash: a page's background, a label or a piece that holds a value for under FLASH_DURATION_LIMIT_MS before changing again.
+// A move a script makes frame by frame says how long it runs while it runs (data-move-duration-ms on what it moves), read as a transition is;
+// what a box's own scroll carries, or what changes under an opaque layer over the whole window, is no pop. A page's own controls are pressed
+// in turn across its components, each scrolled to the middle of the screen first.
 // Each failure says the piece, the state, the screen and theme, the run and the frame. With --pictures, each run's frames are saved as one
 // strip, for the art-director reviewer.
 //
@@ -58,6 +61,8 @@ const QUIET_MS = 600;
 const LONGEST_LOAD_MS = 6000;
 const LONGEST_RUN_MS = 2500;
 const SHORTEST_RUN_MS = 400;
+/** How long a page settles after the motion sheet scrolls a control into view, before the run that presses it. */
+const SCROLL_SETTLE_MS = 400;
 /** The most of a page's own controls pressed when the bench lists no state for it. */
 export const MOST_PRESSES_PER_PAGE = 12;
 /** How long a local run goes before it stops and says what's left: under the budget's hard limit, and within npm run check half of it, with room for the rest. */
@@ -78,9 +83,11 @@ const MOVING_COMPONENTS = { "floating-pane": "Floating pane", "playing-card": "C
  * frame is its first paint.
  * A recording is { kind, frames_ms, parsed_frame, pieces: [{ piece_id, component, label }], changes, animations }. changes[piece_id] lists
  * [frame, values, text, background] each time a piece's values change, values being VALUE_NAMES; animations lists each animation seen:
- * { piece_id, property_group, duration_ms, easing, is_looping, first_frame, last_frame }.
+ * { piece_id, property_group, duration_ms, easing, is_looping, first_frame, last_frame }, piece_id null where its target is no piece (past
+ * MOST_PIECES). is_covered says a piece lies under an opaque layer over the whole window; is_scrolled_in_box that a box
+ * it's in scrolled into that frame.
  */
-export const VALUE_NAMES = ["opacity", "blur_px", "backdrop_blur_px", "translate_x_px", "translate_y_px", "scale", "x_px", "y_px", "width_px", "height_px", "opacity_duration_ms", "move_duration_ms", "blur_duration_ms", "is_looping", "is_in_view", "is_painted"];
+export const VALUE_NAMES = ["opacity", "blur_px", "backdrop_blur_px", "translate_x_px", "translate_y_px", "scale", "x_px", "y_px", "width_px", "height_px", "opacity_duration_ms", "move_duration_ms", "blur_duration_ms", "is_looping", "is_in_view", "is_painted", "is_covered", "is_scrolled_in_box"];
 export const SAMPLER_SOURCE = `(() => {
   if (window.__zaismaMotion) return;
   const COMPONENTS = ${JSON.stringify({ ...INSPECTED_COMPONENTS, ...MOVING_COMPONENTS })};
@@ -89,13 +96,19 @@ export const SAMPLER_SOURCE = `(() => {
   const LABELS = "button, a, h1, h2, h3, label, .tag, [role='status'], [role='tab']";
   const MOST_PIECES = 500;
   const GROUP_OF = (name) => /^opacity$/.test(name) ? 0 : /filter/.test(name) ? 2 : /^(transform|translate|scale|rotate|left|top|right|bottom|inset.*|width|height|max-height|max-width|min-height|min-width|margin.*|padding.*|grid-template.*|flex.*)$/.test(name) ? 1 : -1;
-  let pieces = [], byElement = new Map(), changes = [], lastValues = [], frames = [], scrolls = [], animations = new Map(), kind = null, frame = -1, parsedFrame = null, lastMoveMs = 0, startMs = 0;
+  const scrolledBoxes = new Set();
+  document.addEventListener("scroll", (event) => { if (kind && event.target.nodeType === 1) scrolledBoxes.add(event.target); }, { capture: true, passive: true });
+  let openedOrder = new WeakMap(), openedCount = 0, pieces = [], byElement = new Map(), changes = [], lastValues = [], frames = [], scrolls = [], animations = new Map(), kind = null, frame = -1, parsedFrame = null, lastMoveMs = 0, startMs = 0;
   const nameOf = (el) => { if (el === document.documentElement) return "Page"; for (const name of el.classList || []) if (COMPONENTS[name]) return COMPONENTS[name]; const first = el.classList && el.classList[0]; return el.tagName.toLowerCase() + (first ? "." + first : ""); };
   const labelOf = (el) => { if (el === document.documentElement) return "the page"; const words = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 32); return (el.id ? "#" + el.id : "") + (words ? (el.id ? " " : "") + JSON.stringify(words) : el.id ? "" : "<" + el.tagName.toLowerCase() + (el.classList && el.classList.length ? "." + [...el.classList].slice(0, 2).join(".") : "") + ">"); };
   const add = (el, isInserted = false) => { if (!el || byElement.has(el) || pieces.length >= MOST_PIECES || el.closest("[data-motion-ignore]")) return; byElement.set(el, pieces.length); pieces.push({ el, piece_id: pieces.length, component: nameOf(el), label: labelOf(el), isLabel: el.matches(LABELS), isLayer: el.matches(LAYERS) || el === document.documentElement, isInserted }); changes.push([]); lastValues.push(null); };
   // What's put in the page while a run records is read from that frame on, and known to have come in then.
   new MutationObserver((records) => { if (!kind) return; for (const record of records) for (const node of record.addedNodes) { if (node.nodeType !== 1) continue; for (const el of [node, ...node.querySelectorAll(LAYERS + ", " + PIECES)]) if (el.matches(LAYERS + ", " + PIECES)) add(el, frame > (parsedFrame ?? Infinity)); } }).observe(document, { childList: true, subtree: true });
-  const scan = () => { add(document.documentElement); for (const selector of [LAYERS, PIECES]) for (const el of document.querySelectorAll(selector)) { if (pieces.length >= MOST_PIECES) return; add(el); } };
+  // The order layers open in: a dialog as it's opened, a popover put in the page already open (a veil), in the order they happened.
+  new MutationObserver((records) => { for (const record of records) { const opened = record.type === "attributes" ? (record.target.open ? [record.target] : []) : [...record.addedNodes].filter((node) => node.nodeType === 1 && node.matches(":popover-open")); for (const el of opened) if (!openedOrder.has(el)) openedOrder.set(el, ++openedCount); } }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
+  // A run's first scan takes what's in view first, so a long page's MOST_PIECES are what the run can show; later scans add what came in.
+  const isNearView = (el) => { const box = el.getBoundingClientRect(); return box.bottom > -innerHeight / 2 && box.top < innerHeight * 1.5 && box.right > 0 && box.left < innerWidth; };
+  const scan = (isInViewFirst = false) => { add(document.documentElement); const found = [LAYERS, PIECES].flatMap((selector) => [...document.querySelectorAll(selector)]); for (const el of isInViewFirst ? [...found.filter(isNearView), ...found.filter((el) => !isNearView(el))] : found) { if (pieces.length >= MOST_PIECES) return; add(el); } };
   const blurOf = (text) => { const found = /blur\\(([\\d.]+)px\\)/.exec(text || ""); return found ? Number(found[1]) : 0; };
   const moveOf = (style) => {
     let tx = 0, ty = 0, scale = 1;
@@ -114,6 +127,15 @@ export const SAMPLER_SOURCE = `(() => {
     if (parsedFrame === null && document.readyState !== "loading") parsedFrame = frame;
     if (frame % 5 === 0) scan();
     const running = [];
+    // A move a script makes frame by frame (a switch's slab) says how long it runs while it runs (data-move-duration-ms): read as a move.
+    for (const el of document.querySelectorAll("[data-move-duration-ms]")) {
+      const durationMs = Number(el.getAttribute("data-move-duration-ms")) || 0;
+      add(el);
+      running.push({ target: el, groups: [1], durationMs, isLooping: false, pseudo: null });
+      let seen = animations.get(el); if (!seen) { seen = new Map(); animations.set(el, seen); }
+      const record = seen.get(1); if (record) record.last_frame = frame;
+      else seen.set(1, { piece_id: byElement.has(el) ? byElement.get(el) : null, pseudo_element: null, property_group: "move", property_names: ["data-move-duration-ms"], duration_ms: durationMs, easing: "script", is_looping: false, is_started_in_run: true, first_frame: frame, last_frame: frame });
+    }
     for (const animation of document.getAnimations()) {
       if (animation.playState !== "running" && animation.playState !== "pending") continue;
       const effect = animation.effect; const target = effect && effect.target; if (!target) continue;
@@ -130,15 +152,24 @@ export const SAMPLER_SOURCE = `(() => {
         const key = animation; let seen = animations.get(key); if (!seen) { seen = new Map(); animations.set(key, seen); }
         const record = seen.get(group); if (record) record.last_frame = frame;
         // One that began before this run (an entrance still ending as a close starts) is the run before's, for comparing siblings.
-        else seen.set(group, { piece_id: byElement.get(target), pseudo_element: effect.pseudoElement || null, property_group: ["opacity", "move", "blur"][group], property_names: names, duration_ms: round(durationMs, 0), easing, is_looping: isLooping, is_started_in_run: animation.startTime === null || animation.startTime >= startMs - 20, first_frame: frame, last_frame: frame });
+        else seen.set(group, { piece_id: byElement.has(target) ? byElement.get(target) : null, pseudo_element: effect.pseudoElement || null, property_group: ["opacity", "move", "blur"][group], property_names: names, duration_ms: round(durationMs, 0), easing, is_looping: isLooping, is_started_in_run: animation.startTime === null || animation.startTime >= startMs - 20, first_frame: frame, last_frame: frame });
       }
     }
     const opacityOf = new Map();
     const effective = (el) => { if (!el || el.nodeType !== 1) return 1; if (opacityOf.has(el)) return opacityOf.get(el); const own = Number(getComputedStyle(el).opacity); const value = own * effective(el.parentElement); opacityOf.set(el, value); return value; };
+    // What lies under an opaque layer over the whole window (a typing bar's veil) can't be seen to come or go: a layer opened over the
+    // page covers it, and one opened after another top layer covers that one too (openedOrder: which opened first, even in one frame).
+    const topLayers = [...document.querySelectorAll(":popover-open, dialog:modal")];
+    for (const el of topLayers) if (!openedOrder.has(el)) openedOrder.set(el, ++openedCount);
+    const covers = topLayers.filter((el) => { const r = el.getBoundingClientRect(), fill = /rgba?\\(([^)]+)\\)/.exec(getComputedStyle(el).backgroundColor); const alpha = fill ? fill[1].split(",").map(Number)[3] : 0; return r.left <= 0 && r.top <= 0 && r.right >= innerWidth && r.bottom >= innerHeight && fill && (alpha === undefined || alpha >= 0.99) && effective(el) >= 0.99; });
+    const isCovered = (el) => { if (!covers.length) return false; const holder = el.closest(":popover-open, dialog:modal"); return covers.some((cover) => cover !== holder && !cover.contains(el) && (!holder || openedOrder.get(cover) > openedOrder.get(holder))); };
+    // A box that scrolled since the last frame (a switch's row bringing a tab whole into view) carries what's in it: the scroll, never a pop.
+    const boxesScrolled = [...scrolledBoxes]; scrolledBoxes.clear();
+    const isInScrolledBox = (el) => boxesScrolled.some((box) => box !== el && box.contains(el));
     let isMoving = false;
     for (const piece of pieces) {
       const el = piece.el;
-      if (!el.isConnected) { if (lastValues[piece.piece_id] && lastValues[piece.piece_id][0] !== 0) { const gone = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; changes[piece.piece_id].push([frame, gone, null, null]); lastValues[piece.piece_id] = gone; } continue; }
+      if (!el.isConnected) { if (lastValues[piece.piece_id] && lastValues[piece.piece_id][0] !== 0) { const gone = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; changes[piece.piece_id].push([frame, gone, null, null]); lastValues[piece.piece_id] = gone; } continue; }
       const style = getComputedStyle(el); const box = el.getBoundingClientRect();
       const isShown = box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
       const [tx, ty, scale] = moveOf(style);
@@ -147,11 +178,11 @@ export const SAMPLER_SOURCE = `(() => {
       for (const run of running) if (run.pseudo !== "::backdrop" && (run.target === el || (!run.pseudo && run.target.contains(el)))) { if (run.isLooping) isLooping = 1; else for (const group of run.groups) durations[group] = Math.max(durations[group], run.durationMs); }
       // What the piece paints itself, or its ::before or ::after does for a layer (a floating pane's glass is its ::before): a holder that
       // paints nothing can't pop, whatever its opacity does; what's in it is judged.
-      const paints = (look) => !/rgba\(.*,\s*0\)$|^transparent$/.test(look.backgroundColor) || (look.backdropFilter && look.backdropFilter !== "none") || look.boxShadow !== "none" || (parseFloat(look.borderTopWidth) > 0 && !/rgba\(.*,\s*0\)$/.test(look.borderTopColor)) || look.backgroundImage !== "none";
+      const paints = (look) => !/rgba\\(.*,\\s*0\\)$|^transparent$/.test(look.backgroundColor) || (look.backdropFilter && look.backdropFilter !== "none") || look.boxShadow !== "none" || (parseFloat(look.borderTopWidth) > 0 && !/rgba\\(.*,\\s*0\\)$/.test(look.borderTopColor)) || look.backgroundImage !== "none";
       const pseudoLook = piece.isLayer ? ["::before", "::after"].map((pseudo) => getComputedStyle(el, pseudo)).find((look) => look.content !== "none" && paints(look)) : null;
       const isPainted = /^(svg|img|canvas|video|input|textarea|select|html)$/i.test(el.tagName) || paints(style) || Boolean(pseudoLook) || [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
       const ownOpacity = isShown ? effective(el) * (pseudoLook && !paints(style) ? Number(pseudoLook.opacity) : 1) : 0;
-      const values = [round(ownOpacity, 2), round(blurOf(style.filter), 1), round(blurOf(style.backdropFilter || style.webkitBackdropFilter), 1), half(tx), half(ty), round(scale, 3), half(box.x), half(box.y), half(box.width), half(box.height), round(durations[0], 0), round(durations[1], 0), round(durations[2], 0), isLooping, isShown && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth ? 1 : 0, isPainted ? 1 : 0];
+      const values = [round(ownOpacity, 2), round(blurOf(style.filter), 1), round(blurOf(style.backdropFilter || style.webkitBackdropFilter), 1), half(tx), half(ty), round(scale, 3), half(box.x), half(box.y), half(box.width), half(box.height), round(durations[0], 0), round(durations[1], 0), round(durations[2], 0), isLooping, isShown && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth ? 1 : 0, isPainted ? 1 : 0, isCovered(el) ? 1 : 0, isInScrolledBox(el) ? 1 : 0];
       const text = piece.isLabel ? (el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 60) : null;
       const background = piece.isLayer ? (el === document.documentElement ? painted(style) : style.backgroundColor) : null;
       const last = lastValues[piece.piece_id];
@@ -164,12 +195,16 @@ export const SAMPLER_SOURCE = `(() => {
     }
     if (isMoving || running.some((run) => !run.isLooping)) lastMoveMs = nowMs;
   };
-  const loop = (nowMs) => { if (!kind) return; sample(nowMs); requestAnimationFrame(loop); };
+  // Each frame is read once it's drawn, at the frame's own time: read as the frame starts, it would see a script's move (a switch's slab,
+  // moved in its own frame callback after this one) a frame late, and a frame that ran long would seem to cover the next frame's time.
+  const afterDrawing = new MessageChannel(); let frameDueMs = null;
+  afterDrawing.port1.onmessage = () => { if (!kind || frameDueMs === null) return; const dueMs = frameDueMs; frameDueMs = null; sample(dueMs); };
+  const loop = (nowMs) => { if (!kind) return; frameDueMs = nowMs; afterDrawing.port2.postMessage(0); requestAnimationFrame(loop); };
   window.__zaismaMotion = {
-    start(runKind) { pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; scrolls = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
+    start(runKind) { openedOrder = new WeakMap(); pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; scrolls = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(true); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
     quiet() { return { frame_count: frame + 1, still_ms: Math.round(performance.now() - lastMoveMs), run_ms: Math.round(performance.now() - startMs) }; },
     finish() {
-      const recording = { kind, frames_ms: frames, scrolls_px: scrolls, parsed_frame: parsedFrame ?? 0, pieces: pieces.map(({ el, piece_id, component, label, isInserted }) => { let walk = el.parentElement; while (walk && !byElement.has(walk)) walk = walk.parentElement; return { piece_id, component, label, is_inserted: isInserted, parent_piece_id: walk ? byElement.get(walk) : null }; }), changes, animations: [...animations.values()].flatMap((seen) => [...seen.values()]).filter((record) => record.piece_id !== undefined) };
+      const recording = { kind, frames_ms: frames, scrolls_px: scrolls, parsed_frame: parsedFrame ?? 0, pieces: pieces.map(({ el, piece_id, component, label, isInserted }) => { let walk = el.parentElement; while (walk && !byElement.has(walk)) walk = walk.parentElement; return { piece_id, component, label, is_inserted: isInserted, parent_piece_id: walk ? byElement.get(walk) : null }; }), changes, animations: [...animations.values()].flatMap((seen) => [...seen.values()]) };
       kind = null;
       return recording;
     },
@@ -213,6 +248,10 @@ export function findPops(recording) {
 /** A piece's values count as in view unless the sampler said otherwise (a recording from before it said). */
 const isInView = (values) => values[VALUE_NAMES.indexOf("is_in_view")] !== 0;
 const isPainted = (values) => values[VALUE_NAMES.indexOf("is_painted")] !== 0;
+/** Under an opaque layer over the whole window (a recording from before it said: never). */
+const isCovered = (values) => values[VALUE_NAMES.indexOf("is_covered")] === 1;
+/** Moved by a box it's in scrolling that frame. */
+const isScrolledInBox = (values) => values[VALUE_NAMES.indexOf("is_scrolled_in_box")] === 1;
 /** Whether the page scrolled into this frame: every box moved with it. */
 const isScrolled = (recording, frame) => { const scrolls = recording.scrolls_px; return Boolean(scrolls && scrolls[frame] && scrolls[frame - 1] && (scrolls[frame][0] !== scrolls[frame - 1][0] || scrolls[frame][1] !== scrolls[frame - 1][1])); };
 
@@ -245,11 +284,13 @@ function popsOf(recording) {
         if (valueOf(before, "is_looping") || valueOf(after, "is_looping")) continue;
         // Only what's on the screen can be seen to pop: a piece out of view, or one laid out only as it scrolls near, can't.
         if (!isInView(before) && !isInView(after)) continue;
+        // Under a cover on either side of the step, what's seen is the cover coming or going (judged as a piece of its own), never this.
+        if (isCovered(before) || isCovered(after)) continue;
         // A holder that paints nothing of its own can't be seen to come or go: what's in it is judged instead.
         if (property === "opacity" && !(valueOf(after, "opacity") > 0 ? isPainted(after) : isPainted(before))) continue;
         // A place or size that steps while the page loads is the layout check's (nothing moves after the first paint), and one while the
         // page scrolls is the scroll.
-        if ((property === "place_px" || property === "size_px") && (recording.kind === "load" || recording.kind === "switch" || isScrolled(recording, frame))) continue;
+        if ((property === "place_px" || property === "size_px") && (recording.kind === "load" || recording.kind === "switch" || isScrolled(recording, frame) || isScrolledInBox(after))) continue;
         const isShownBoth = valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0;
         if ((property === "place_px" || property === "size_px" || property === "translate_px" || property === "scale") && !isShownBoth) continue;
         if (property !== "opacity" && !isShownBoth) continue;
@@ -297,7 +338,7 @@ export function findJitter(recording) {
     for (let frame = settledFrame + 1; frame < frames.length; frame += 1) {
       const before = series[frame - 1]?.values, after = series[frame]?.values;
       if (!before || !after || valueOf(before, "is_looping") || valueOf(after, "is_looping")) continue;
-      if (!(valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0) || !isInView(after) || isScrolled(recording, frame)) continue;
+      if (!(valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0) || !isInView(after) || isCovered(after) || isScrolled(recording, frame) || isScrolledInBox(after)) continue;
       const moveStep = Math.max(stepOf("place_px", before, after), stepOf("translate_px", before, after)), sizeStep = stepOf("size_px", before, after);
       const step = Math.max(moveStep, sizeStep);
       if (step < JITTER_STEP_PX) continue;
@@ -347,7 +388,7 @@ export function findFlashes(recording) {
     const words = segments((values, text) => text).filter((segment) => segment.value !== null);
     for (let index = 1; index + 1 < words.length; index += 1) {
       const segment = words[index];
-      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && isInView(segment.values) && segment.value !== words[index - 1].value && segment.value !== words[index + 1].value) {
+      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && isInView(segment.values) && !isCovered(segment.values) && segment.value !== words[index - 1].value && segment.value !== words[index + 1].value) {
         found.push({ kind: "flash", piece: name, component, property: "words", frame: segment.frame, at_ms: frames[segment.frame], said: `says ${JSON.stringify(segment.value)} for ${Math.round(segment.duration_ms)} ms between ${JSON.stringify(words[index - 1].value)} and ${JSON.stringify(words[index + 1].value)}` });
         break;
       }
@@ -356,7 +397,7 @@ export function findFlashes(recording) {
     for (let index = 1; index + 1 < shown.length; index += 1) {
       const segment = shown[index];
       const isAnimated = valueOf(segment.values, "opacity_duration_ms") > 0 || valueOf(segment.values, "is_looping");
-      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && !isAnimated && segment.frame > recording.parsed_frame && (isInView(segment.values) || isInView(shown[index - 1].values)) && (isPainted(segment.values) || isPainted(shown[index - 1].values))) {
+      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && !isAnimated && segment.frame > recording.parsed_frame && (isInView(segment.values) || isInView(shown[index - 1].values)) && !isCovered(segment.values) && !isCovered(shown[index - 1].values) && (isPainted(segment.values) || isPainted(shown[index - 1].values))) {
         found.push({ kind: "flash", piece: name, component, property: "shown", frame: segment.frame, at_ms: frames[segment.frame], said: `is ${segment.value} for ${Math.round(segment.duration_ms)} ms, then ${shown[index + 1].value} again` });
         break;
       }
@@ -390,8 +431,17 @@ export function findSiblingsThatDiffer(entries) {
 
 /** A recording's animations as sibling entries: every finite one of a named piece. */
 export function siblingEntries(recording, where) {
-  return recording.animations.filter((record) => !record.is_looping && record.duration_ms > 0 && record.is_started_in_run !== false).map((record) => ({
-    component: `${recording.pieces[record.piece_id].component}${record.pseudo_element ? ` ${record.pseudo_element}` : ""}`, piece: `${pieceName(recording, record.piece_id)}${record.pseudo_element ? ` ${record.pseudo_element}` : ""}`, run: recording.kind, property_group: record.property_group,
+  // A part with no component name of its own (svg.edge, any glass's edge) is named by the component it's in: a sheet's edge and a menu's are
+  // no siblings.
+  const nameOf = (pieceId) => {
+    const own = recording.pieces[pieceId].component;
+    if (/^[A-Z]/.test(own)) return own;
+    for (let walk = recording.pieces[pieceId].parent_piece_id; walk !== null && walk !== undefined; walk = recording.pieces[walk].parent_piece_id) if (/^[A-Z]/.test(recording.pieces[walk].component)) return `${recording.pieces[walk].component} ${own}`;
+    return own;
+  };
+  // An animation on what the run counts no piece for (a page past MOST_PIECES) still says when things move, but names nothing to compare.
+  return recording.animations.filter((record) => record.piece_id !== null && record.piece_id !== undefined && !record.is_looping && record.duration_ms > 0 && record.is_started_in_run !== false).map((record) => ({
+    component: `${nameOf(record.piece_id)}${record.pseudo_element ? ` ${record.pseudo_element}` : ""}`, piece: `${pieceName(recording, record.piece_id)}${record.pseudo_element ? ` ${record.pseudo_element}` : ""}`, run: recording.kind, property_group: record.property_group,
     duration_ms: record.duration_ms, easing: record.easing, frame: record.first_frame, at_ms: recording.frames_ms[record.first_frame] ?? 0, where,
   }));
 }
@@ -425,7 +475,14 @@ const MARK_PRESSES = `(() => {
   const toggles = "main [aria-controls], main [popovertarget], main [role='switch'], main [aria-pressed], main [role='tab'], main [aria-expanded]";
   const isFree = (el) => !el.closest("[data-motion-ignore], dialog, [popover], form[method='post']") && el.getBoundingClientRect().width > 0;
   // What toggles or opens something first, then the page's other plain buttons (never a form's send), which may open a layer by script.
-  const found = [...new Set([...document.querySelectorAll(toggles), ...document.querySelectorAll("main button[type='button']")])].filter(isFree).slice(0, ${MOST_PRESSES_PER_PAGE});
+  const candidates = [...new Set([...document.querySelectorAll(toggles), ...document.querySelectorAll("main button[type='button']")])].filter(isFree);
+  // Taken in turn from each component they're in, so a page of many Toggles still presses its Switch and its menus.
+  const COMPONENT_CLASSES = ${JSON.stringify(Object.keys({ ...INSPECTED_COMPONENTS, ...MOVING_COMPONENTS }))};
+  const componentOf = (el) => { for (let walk = el; walk && walk !== document.body; walk = walk.parentElement) for (const name of walk.classList || []) if (COMPONENT_CLASSES.includes(name)) return name; return ""; };
+  const byComponent = new Map();
+  for (const el of candidates) { const key = componentOf(el); if (!byComponent.has(key)) byComponent.set(key, []); byComponent.get(key).push(el); }
+  const found = [];
+  for (let turn = 0; found.length < ${MOST_PRESSES_PER_PAGE} && [...byComponent.values()].some((list) => list.length > turn); turn += 1) for (const list of byComponent.values()) if (list[turn] && found.length < ${MOST_PRESSES_PER_PAGE}) found.push(list[turn]);
   return found.map((el, index) => { el.setAttribute("data-motion-press", String(index)); return { stateValue: "press-" + index, label: ((el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 40)) || el.tagName.toLowerCase(), presses: "[data-motion-press='" + index + "']" }; });
 })()`;
 
@@ -499,6 +556,7 @@ export async function moveThroughPages({ chromePath, site, pages, looks, picture
           const finish = async (page, stateName, runKind, fileName) => {
             const recording = { ...(await evaluate("window.__zaismaMotion.finish()")), kind: runKind };
             runCount += 1;
+            if (process.env.MOTION_DUMP_FOLDER) writeFileSync(join(process.env.MOTION_DUMP_FOLDER, `${fileName}-${screen.screenName}-${theme}-${runKind}.json`), JSON.stringify(recording));
             const found = recordingFailures(recording).map((failure) => ({ page: page.name, state: stateName, run: runKind, screen: screen.name, theme, ...failure }));
             failures.push(...found);
             siblings.push(...siblingEntries(recording, where(stateName)));
@@ -546,6 +604,8 @@ export async function moveThroughPages({ chromePath, site, pages, looks, picture
               await load(state.path, profile, `${state.label}, its page loading`, `${fileName}-page`);
               atPath = `${state.path} ${profile ?? "guest"}`;
             }
+            // A press of the page's own control is watched where it is: scrolled to the middle of the screen, settled, before the run.
+            if (state.presses?.startsWith("[data-motion-press") && (await evaluate(`(() => { const control = document.querySelector(${JSON.stringify(state.presses)}); if (!control) return false; control.scrollIntoView({ block: "center", behavior: "instant" }); return true; })()`).catch(() => false))) await wait(SCROLL_SETTLE_MS);
             for (const isEntering of [true, false]) {
               await film();
               await evaluate(`window.__zaismaMotion.start(${JSON.stringify(isEntering ? "enter" : "leave")})`);

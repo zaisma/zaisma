@@ -117,8 +117,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
     var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
     function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
-    // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass. One clock moves it: each frame its
-    // place is set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
+    // The slab slides as one piece of glass, its size easing with its place where its tabs differ in width. One clock moves it: each frame its
+    // place and size are set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
     // so nothing trails it. It eases in and out to its tab with no overshoot (cubic-bezier(.4, 0, .2, 1)), landing on a whole device pixel,
     // so it never jumps as it starts, swings back past its place or snaps a pixel as it settles. --slide-ms long.
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -145,19 +145,25 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // switch) moves where it lands without cutting the slide short.
     function slide(el, to, ms) {
       var carrier = el === slab ? pageGlide : null, ease = carrier ? carrier.ease : slideEase;
-      // Carrying the page, its clock starts on the first frame after the press, so the time the press took to draw isn't a jump at the start.
-      var from = el.slideAt || to, startMs = carrier ? null : performance.now(), id = (el.slideId || 0) + 1; el.slideId = id; el.slideTarget = to;
-      (function frame() {
+      // Its clock is the frames' own: it starts on the first frame after the press, so the time the press took to draw (a slow phone's first
+      // frame) is never a jump at the start, and each step is the time between the frames shown, whatever else ran in them.
+      var from = el.slideAt || to, startMs = null, id = (el.slideId || 0) + 1; el.slideId = id; el.slideTarget = to;
+      // A move by script says how long it runs while it runs (the motion sheet reads it as it reads a transition).
+      el.setAttribute("data-move-duration-ms", String(Math.round(ms)));
+      (function frame(frameMs) {
         if (el.slideId !== id) return;
-        var t = startMs === null ? 0 : Math.min(1, (performance.now() - startMs) / ms), e = ease(t); to = el.slideTarget;
+        var t = startMs === null || frameMs === undefined ? 0 : Math.min(1, (frameMs - startMs) / ms), e = ease(t); to = el.slideTarget;
         // Stopped on the way (a wheel, a touch), the page keeps where it is, and whatever follows the page says where the slab goes.
         if (carrier && carrier.isOn) window.scrollTo(window.scrollX, carrier.fromY + (carrier.toY - carrier.fromY) * e);
         // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
-        if (el.redrawCut) el.redrawCut({ isFrame: true });
+        if (el.redrawCut) el.redrawCut({ isFrame: true, progress: t });
         // Between pixels as it moves (its own layer moves it smoothly there; whole steps stuttered where it goes slowly), on one as it lands.
-        place(el, { pos: t < 1 ? from.pos + (to.pos - from.pos) * e : to.pos, size: to.size, across: to.across === undefined ? undefined : t < 1 ? (from.across || 0) + (to.across - (from.across || 0)) * e : to.across, width: to.width });
-        if (t < 1) { requestAnimationFrame(function () { if (startMs === null) startMs = performance.now(); frame(); }); return; }
+        // Its size eases with its place, so a slab moving between tabs of different widths (a full switch's) never takes the new width at once.
+        var blend = function (start, end) { return t < 1 && start !== undefined ? start + (end - start) * e : end; };
+        place(el, { pos: blend(from.pos, to.pos), size: blend(from.size, to.size), across: to.across === undefined ? undefined : blend(from.across || 0, to.across), width: to.width === undefined ? undefined : blend(from.width, to.width) });
+        if (t < 1) { requestAnimationFrame(function (nowMs) { if (startMs === null) startMs = nowMs; frame(nowMs); }); return; }
         // Landed, it's cut again where it rests, so its corners are always the edge rule's for the place it's in.
+        el.removeAttribute("data-move-duration-ms");
         el.slideTarget = null; if (el.redrawCut) el.redrawCut();
         if (carrier && carrier.isOn) carrier.land();
       })();
@@ -243,7 +249,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         slide(el, to, ms);
         return;
       }
-      el.slideId = (el.slideId || 0) + 1; el.slideTarget = null; place(el, to); if (el.redrawCut) el.redrawCut();
+      el.slideId = (el.slideId || 0) + 1; el.slideTarget = null; el.removeAttribute("data-move-duration-ms"); place(el, to); if (el.redrawCut) el.redrawCut();
     }
     function slideMs(el) { return el === slab && pageGlide ? pageGlide.ms : parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
     // A stacked switch's place within this page: the page carries the move. Its distance sets the time, 400ms up to a screen and longer past that,
@@ -517,7 +523,8 @@ component({
   clip-path: none; font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 /* Its tabs are at least its size's control height, less its inset, so it lines up with the controls beside it at any text size. */
 /* Across, it's as wide as its tabs, one line each, and its tabs are all one width, the widest's, so the slab is one size on every tab and
-   only slides: glass doesn't change size as it moves. Past the room it has, its Well stays put, a carving can't move or
+   only slides: glass doesn't change size as it moves. A full switch in less room than that (the sign-in pane on a phone) gives its tabs
+   their words' widths, and the slab's size eases with its slide (SWITCH_SCRIPT), never stepping in one frame. Past the room it has, its Well stays put, a carving can't move or
    fade, and what's in it scrolls inside it, fading at its ends, with the rail under the well. */
 .well.switch-well { align-items: stretch; width: max-content; max-width: 100%; min-height: 0; }
 .well.switch-well > .well-body { min-width: 0; padding: 0; font: inherit; }
