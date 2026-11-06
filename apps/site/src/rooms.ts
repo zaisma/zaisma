@@ -133,6 +133,8 @@ export function roomsPanel(game: Pick<Game, "slug">, list: RoomPage, picked: Rec
   const filtered = Object.keys(picked).length > 0;
   const empty = filtered
     ? "No open rooms like that right now. Pick something else, or press Play to start."
+    : isHidingFullRooms
+      ? "No open rooms with space right now. Press Play to start."
     : region || list.region
         ? `No open rooms in ${region?.name ?? "that region"} right now. Pick another region, or press Play to start.`
         : "Nobody's in an open room right now. Press Play to start.";

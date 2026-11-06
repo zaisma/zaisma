@@ -155,7 +155,7 @@ describe("room browsing on the game page", () => {
     expect(page).toContain('id="rooms-list"');
     // Codes stay in the links; a player with a code types it into the box.
     expect(page).toContain('<form method="get" action="/g/arena">');
-    expect(page).toContain('id="room-code" name="room" type="text" placeholder="ABC234" autocomplete="off" pattern="[2-9A-HJ-NP-Z]{6}" data-characters="[2-9A-HJ-NP-Z]" maxlength="6" data-uppercase autocapitalize="characters" required');
+    expect(page).toContain('id="room-code" name="room" type="text" placeholder="Room code" autocomplete="off" pattern="[2-9A-HJ-NP-Z]{6}" data-characters="[2-9A-HJ-NP-Z]" maxlength="6" data-uppercase autocapitalize="characters" required');
     expect(page).not.toContain(">BCDFGH<");
 
     const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
@@ -215,7 +215,10 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const list = await roomsList();
-    expect(list).toContain('<button type="button" class="flush-row quiet" data-lights data-region="EU" aria-pressed="false"><span>Europe</span><span class="tag count" data-cut-line="0" data-cut-square><svg class="cut-line" aria-hidden="true"><polygon/></svg>12</span></button>');
+    // The region is one menu above the list, on the page: each region with how many rooms it has.
+    const pageHtml = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(pageHtml).toContain('name="room_region"');
+    expect(pageHtml).toContain("Europe (12)");
     expect(list).toContain('<span class="list-row-title">31 of 40 players</span>');
     // Only the first six rooms, the list scrolling inside itself past them, and Load more for the rest.
     expect(list).toContain('class="list-rows hairlines scrolls own-scroll is-capped" style="--shown-row-count:6"');
@@ -227,7 +230,7 @@ describe("room browsing on the game page", () => {
     expect(pageProblems(list)).toEqual([]);
 
     const na = await roomsList("?region=NA");
-    expect(na).toContain('<button type="button" class="flush-row quiet" data-lights data-region="NA" aria-pressed="true"><span>North America</span>');
+    expect(na).toContain('data-shown="NA|[]|best_to_join|false"');
     // The number by Rooms follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
     expect(na.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(1);
@@ -360,15 +363,14 @@ describe("room browsing on the game page", () => {
 
     // The page's route: the panel shows the pick, the Load more carries it, and the number by Rooms counts the full rooms too.
     const full = await roomsList();
-    expect(full).toContain('name="room_order" value="best_to_join"');
-    expect(full).toContain("Best to join");
-    expect(full).toContain('name="is_hiding_full_rooms" value="true"');
-    expect(full).not.toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
+    // The order is a switch above the list (a menu on a phone), on the page; full rooms show, where the order puts them.
+    const orderPage = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(orderPage).toContain('name="room_order" value="best_to_join"');
+    expect(orderPage).toContain("Best to join");
+    expect(orderPage).toContain('data-room-order="most_players"');
     expect(full).toContain('data-shown="|[]|best_to_join|false"');
     expect(full).toContain('href="/g/arena/rooms?cursor=6"');
     const fewestPanel = await roomsList("?room_order=fewest_players&is_hiding_full_rooms=true");
-    expect(fewestPanel).toContain('name="room_order" value="fewest_players"');
-    expect(fewestPanel).toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
     expect(fewestPanel).toContain('data-shown="|[]|fewest_players|true"');
     expect(fewestPanel).toContain("cursor=6&amp;room_order=fewest_players&amp;is_hiding_full_rooms=true");
     expect(fewestPanel).toContain('data-count="12"');
@@ -394,7 +396,6 @@ describe("room browsing on the game page", () => {
     await env.DB.exec("UPDATE live_rooms SET player_count = maximum_player_count");
     const none = await roomsList("?is_hiding_full_rooms=true");
     expect(none).toContain("No open rooms with space right now.");
-    expect(none).toMatch(/name="is_hiding_full_rooms"[^>]* checked/);
   });
 
   it("carries the region and labels picked into the next page, and tells no sentences about rooms past the list", async () => {
@@ -431,7 +432,7 @@ describe("room browsing on the game page", () => {
     await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
     const list = await roomsList();
     // Its name, how full it is and Join, with no other mark, below the room with players.
-    expect(list).toMatch(/\?room=BCDFGH[\s\S]*<span class="list-row-title">Northwatch<\/span><span class="list-row-detail"><span class="list-row-fact">0\u00a0of 8\u00a0players\u00a0·<\/span>[\s\S]*<a class="shell cut-btn small" href="\/g\/arena\?room=NRTHWC">/);
+    expect(list).toMatch(/\?room=BCDFGH[\s\S]*<span class="list-row-title">Northwatch<\/span>[\s\S]*?<span class="list-row-end is-amount">0\/8<\/span>[\s\S]*?<a class="shell cut-btn small" href="\/g\/arena\?room=NRTHWC">/);
     expect(list).toContain('data-count="2"');
     // Nobody's playing in it: 3 playing now.
     expect(list).toContain('data-playing="3"');
@@ -474,14 +475,16 @@ describe("room browsing on the game page", () => {
     expect(list).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.
     expect(list).not.toContain("coolkid");
-    expect(list).toMatch(/<span class="list-row-title">Hardcore<\/span><span class="list-row-detail"><span class="list-row-fact">2\u00a0of 8\u00a0players<\/span>/);
-    // The filter: Any and each value; the page's script reads data-label on the field a pick changes.
-    expect(list).toContain('<input type="hidden" name="room_label_0" value="" data-label="Mode">');
-    expect(list).toMatch(/data-choice-value="Classic" aria-selected="false"[\s\S]*data-choice-value="Hardcore"/);
+    expect(list).toMatch(/<span class="list-row-title">Hardcore<\/span>[\s\S]*?<span class="list-row-end is-amount">2\/8<\/span>/);
+    // The filter, on the page above the list: Any and each value, as tabs and, for a phone, a menu; the page's script reads both.
+    const labelsPage = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(labelsPage).toContain('<input type="hidden" name="room_label_0" value="" data-label="Mode">');
+    expect(labelsPage).toMatch(/data-choice-value="Classic" aria-selected="false"[\s\S]*data-choice-value="Hardcore"/);
+    expect(labelsPage).toContain('data-label-name="Mode" data-label-value="Classic"');
+    expect(pageProblems(list)).toEqual([]);
     expect(pageProblems(list)).toEqual([]);
     const classic = await roomsList(`?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`);
     expect(classic.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(2);
-    expect(classic).toContain('value="Classic" data-label="Mode">');
   });
 
   it("reports a room's name with the name as it was, without pausing the game, and a person can hide it", async () => {
