@@ -320,7 +320,8 @@ export function gamePageShelves(game: Pick<Game, "slug" | "owner_id" | "genres">
   const likeGames = others
     .filter((otherGame) => !isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug) && otherGame.genres.some((genre) => genres.has(genre)))
     .sort((first, second) => weekPlayerCount(second) - weekPlayerCount(first) || (second.first_published_at_ms ?? 0) - (first.first_published_at_ms ?? 0));
-  return { developerGames: others.filter(isTheDevelopers).slice(0, GAME_PAGE_SHELF_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT) };
+  const developerGames = others.filter((otherGame) => isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug));
+  return { developerGames: developerGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT) };
 }
 
 /** A description's first sentence, for the line under a game's name: up to GAME_LINE_MAXIMUM_LETTER_COUNT letters, cut at a word. */
@@ -1241,7 +1242,7 @@ if (friendsHere && /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) {
   }).catch(() => {});
 }
 // Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds. The
-// region the player picked is remembered on this device, and "Show more" stays open across updates.
+// rooms already loaded stay open across updates.
 const roomsPanel = document.getElementById("rooms");
 let isRoomsSeen = false;
 if (roomsPanel) new IntersectionObserver((entries) => { isRoomsSeen = entries.some((entry) => entry.isIntersecting); if (isRoomsSeen) refreshRooms(); }).observe(roomsPanel);
@@ -1252,9 +1253,9 @@ let roomsLabels = {};
 const roomOrders = ${JSON.stringify(ROOM_ORDERS)};
 const askedFor = new URLSearchParams(location.search);
 let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get("room_order") : roomOrders[0];
-let isHidingFullRooms = askedFor.get("is_hiding_full_rooms") === "true";
+// Full rooms always show, last in every order: nothing on the page hides them any more, so an old link's setting is let go.
+const isHidingFullRooms = false;
 const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|" + isHidingFullRooms;
-try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
 function justLeft() {
@@ -1300,7 +1301,13 @@ async function refreshRooms(force) {
     if (fresh && scrolledTo) fresh.scrollTop = scrolledTo;
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
-    if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector(".key-detail-value").textContent = playing.toLocaleString("en-US"); }
+    if (line) {
+      line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
+      line.querySelector(".key-detail-value").textContent = playing.toLocaleString("en-US");
+      // The live line holding it shows once it has something to say: people playing, or friends.
+      const liveLine = document.getElementById("live-line");
+      if (liveLine && !line.hidden) liveLine.hidden = false;
+    }
   } catch {} finally {
     hideStale(false);
   }
@@ -1359,11 +1366,10 @@ if (roomsPanel) {
       refreshRooms(true);
       return;
     }
-    // The region's menu, remembered on this device.
+    // The region's menu.
     const regionPick = e.target.closest('input[name="room_region"]');
     if (!regionPick) return;
     roomsRegion = regionPick.value;
-    try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
     refreshRooms(true);
   });
 }

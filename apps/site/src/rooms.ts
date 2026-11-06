@@ -183,7 +183,7 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
     ...(said ? [secondaryButton(action("report", `Report the room “${said}”`), { type: "button", isLabelHidden: true, isSmall: true, dataAttributes: { "report-room": room.roomCode, "room-name": said } })] : []),
   ];
   // How full it is, at the row's end, where the eye compares rooms: "31/40", or Full, or In a match.
-  return { title, detail: detail || undefined, end: hasSpace(room) ? `${room.playerCount}/${room.maximumPlayerCount}` : room.isOpen ? "Full" : "In a match", isEndAnAmount: hasSpace(room), action: actions.length > 1 ? actions : actions[0] };
+  return { title, detail: detail || undefined, end: hasSpace(room) ? (title === filled ? undefined : `${room.playerCount}/${room.maximumPlayerCount}`) : room.isOpen ? "Full" : "In a match", isEndAnAmount: hasSpace(room), action: actions.length > 1 ? actions : actions[0] };
 }
 
 /** What a field for a room code takes: its six capitals and numbers (no 0, 1, I or O), so nothing else can be typed or pasted in. */
