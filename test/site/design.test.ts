@@ -1387,7 +1387,7 @@ describe("layout", () => {
   });
 
   it("lays a track's pictures closer than its covers, by what it says it holds", () => {
-    expect(TRACK_STYLES).toContain(".layout-track.item-picture { gap: var(--gap-control-stack); }");
+    expect(TRACK_STYLES).toContain(".layout-track:is(.item-picture, .item-thumbnail) { gap: var(--gap-control-stack); }");
     expect(TRACK_STYLES).not.toContain("media-well");
     expect(gameMedia({ id: "media", gameTitle: "Ashen Crown", whenEmpty: data.stateNote({ stateKind: "empty", text: "None yet." }), items: [{ mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["verdant"]! }, { mediaKind: "picture", picture: STAND_IN_COVER_PICTURES["kestrel"]! }] }).html).toContain('class="layout-track item-picture"');
   });
@@ -1397,7 +1397,7 @@ describe("layout", () => {
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
     // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
-    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)"];
+    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
     const problems: string[] = [];
     for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
       for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {
