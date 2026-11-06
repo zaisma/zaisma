@@ -13,7 +13,8 @@ import { SIDEBAR_SCRIPT } from "../../apps/site/src/components/navigation.ts";
 describe("the components' script", () => {
   it("is current: run npm run components:minify after changing a component's script", async () => {
     expect(readFileSync(GENERATED_PATH, "utf8")).toBe(await minifiedModuleSource(FIRST_PAINT_PIECES, FIRST_PAINT_SCRIPT_SOURCE, LOOK_SCRIPT_SOURCE, COMPONENT_SCRIPT_SOURCE));
-  });
+    // Minifying every script twice over (esbuild, then terser) takes about a second here and a few on GitHub's runners.
+  }, 20_000);
 
   it("is the minified one: a good deal smaller than the source, and it still parses", () => {
     for (const [script, source] of [[FIRST_PAINT_SCRIPT, FIRST_PAINT_SCRIPT_SOURCE], [LOOK_SCRIPT, LOOK_SCRIPT_SOURCE], [COMPONENT_SCRIPT, COMPONENT_SCRIPT_SOURCE]] as const) {

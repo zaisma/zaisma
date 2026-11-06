@@ -20,7 +20,7 @@ export const GENERATED_PATH = join(ROOT, "apps/site/src/generated/components-scr
  */
 async function minified(source) {
   const { code } = await transform(source, { minify: true, target: "es2020", legalComments: "none" });
-  const folded = await minify(code, { ecma: 2020, compress: { passes: 3, typeofs: false }, mangle: true, format: { comments: false } });
+  const folded = await minify(code, { ecma: 2020, compress: { typeofs: false }, mangle: true, format: { comments: false } });
   return folded.code;
 }
 
