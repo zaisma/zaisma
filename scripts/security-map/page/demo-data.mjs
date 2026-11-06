@@ -11,7 +11,7 @@ const DEMO_SCALES = {
   damage_steps: ["One player", "A few", "One game's players", "Many games", "Everyone, or money"].map((step_example, index) => ({ step_score: index + 1, step_example })),
 };
 
-const demoWay = (sectorId, index, defense_score, damage_score) => ({ way_id: `${sectorId}-way-${index}`, way_line: `Sample way ${index} this promise could break, in a plain sentence.`, defense_score, damage_score, score_stale_reason: null });
+const demoWay = (sectorId, index, defense_score, damage_score) => ({ way_id: `${sectorId}-way-${index}`, way_line: `Sample way ${index} this promise could break, in a plain sentence.`, defense_score, damage_score, scored_at: "2026-11-01T12:00:00.000Z", score_stale_reason: null });
 
 /** A thin way in the first four sectors: harm that reaches far, behind one lock. */
 const thinWaysOf = (sectorId, index) => (index < 4 ? [demoWay(sectorId, 4, 3, index < 3 ? 5 : 4)] : []);
@@ -52,7 +52,10 @@ const EACH_BROKEN_ITEMS = [
   demoItem("rooms", 3, { defense_score: 2, damage_score: 1 }),
 ];
 
-const WATCH_ITEMS = [demoItem("rooms", 4, { defense_score: 4, damage_score: 2 }), demoItem("accounts", 5, { defense_score: 5, damage_score: 1 })];
+/** A done item on the first sector's thin way, so that way shows fixed and waiting for a fresh look. */
+const DONE_ITEM = { ...demoItem(SECTORS[0].sector_id, 6, { defense_score: 3, damage_score: 5, item_state: "done" }), way_id: `${SECTORS[0].sector_id}-way-4`, done_at: "2026-11-03T12:00:00.000Z" };
+
+const WATCH_ITEMS = [demoItem("rooms", 4, { defense_score: 4, damage_score: 2 }), demoItem("accounts", 5, { defense_score: 5, damage_score: 1 }), DONE_ITEM];
 
 function manyItems() {
   const shapes = [{ defense_score: 2, damage_score: 2 }, { defense_score: 3, damage_score: 4 }, { defense_score: 4, damage_score: 3 }, { defense_score: 1, damage_score: 2 }, { defense_score: 4, damage_score: 1 }];
@@ -61,7 +64,7 @@ function manyItems() {
 
 const dataOf = (items, extra = {}) => pageDataOf({ scales: DEMO_SCALES, promises: DEMO_PROMISES, items, grid: null, patterns: null, lastReviewDate: "2026-11-03", ...extra });
 
-/** The states to judge: every shield whole with thin spots left, one sector in each broken state, nothing at all, and many items ahead. */
+/** The states to judge: every shield whole with thin spots left and one way fixed, waiting for a fresh look, one sector in each broken state, nothing at all, and many items ahead. */
 export const demoScenarios = () => [
   { scenario_id: "whole", scenario_name: "Every shield whole", page_data: dataOf(WATCH_ITEMS) },
   { scenario_id: "broken", scenario_name: "Cracked, chipped, torn", page_data: dataOf(EACH_BROKEN_ITEMS) },

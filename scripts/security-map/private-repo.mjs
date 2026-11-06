@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
-import { isOpenItem, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
+import { anchorHashes } from "./anchors.mjs";
+import { isOpenItem, isWayWaitingForRescore, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
 import { lastReviewDateOf, pageDataHashOf, pageDataOfMapDir } from "./page-data.mjs";
+import { isFilledText, isObject, promiseProblems, readPromises, rescoreWay, unknownFieldProblems } from "./promises.mjs";
 import { publicPromisesNextStepOf } from "./public-promises.mjs";
 import { caseRefOf, withVerdict } from "./schema.mjs";
 
@@ -28,7 +30,11 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *   node scripts/security-map/private-repo.mjs item-claim <item_id> --launch-id <id>    a next item doing, for the session of that launch
  *   node scripts/security-map/private-repo.mjs item-back <item_id>    a doing item back to next
  *   node scripts/security-map/private-repo.mjs item-settle <item_id> --from <answers.json>    calls answered: a list of call_line and answer_line
- *   node scripts/security-map/private-repo.mjs item-done <item_id> --test <path>    a doing item done, with the test on origin/main that guards it
+ *   node scripts/security-map/private-repo.mjs item-done <item_id> --test <path> (--rescore <rescore.json> | --rescore-later)
+ *        a doing item done, with the test on origin/main that guards it, and the way it's about rescored on
+ *        origin/main's code with the fact that changed (defense_score, defense_reason, damage_score,
+ *        damage_reason, changed_because, and added_anchors for code the fix added), in one commit; --rescore-later leaves the way fixed and waiting
+ *        for its rescore. Run again with --rescore on a done item to rescore a way that's waiting.
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security), --dry (say
  * what a change would do, change nothing), --date <YYYY-MM-DD> (mark-fixed, default today in UTC).
@@ -187,6 +193,12 @@ export function commitAndPush(mapDir, { message, paths = [] }) {
   return { committed_paths: staged, pushed: true };
 }
 
+/** The ways an item closed after their last score, waiting for item-done --rescore or the next review. */
+function rescoreWaitingWayIdsOf(mapDir) {
+  const items = readItems(mapDir);
+  return readPromises(mapDir).promises.flatMap((promise) => promise.ways_to_break.filter((way) => isWayWaitingForRescore(way, promise.sector_id, items)).map((way) => way.way_id));
+}
+
 /** What the coordinator reads at the top of every run: the queue's work lines, whether the map page is behind the records, the last daily review's day and what the printed promises need. */
 export function readState(mapDir) {
   const pageData = pageDataOfMapDir(mapDir);
@@ -198,6 +210,7 @@ export function readState(mapDir) {
     page_data_hash: pageDataHash,
     last_review_date: lastReviewDateOf(mapDir),
     open_item_count: readItems(mapDir).filter(isOpenItem).length,
+    rescore_waiting_way_ids: rescoreWaitingWayIdsOf(mapDir),
     is_map_page_behind: Boolean(pageLines.map_page_url && pageDataHash && pageDataHash !== pageLines.map_page_shows_data_hash),
     public_promises_next_step: publicPromisesNextStepOf(mapDir),
   };
@@ -330,18 +343,97 @@ export function settleItemCalls(mapDir, { itemId, answers, now, isDry = false })
   return changeItem(mapDir, { itemId, isDry, message: "calls settled", change: (item) => itemWithCallsSettled(item, answers, { now }) });
 }
 
-/** Refuses a test that isn't on the public origin/main, since a done item's proof must be live code. */
-export function finishItem(mapDir, { itemId, testPath, date, now, repoRoot = REPO_ROOT, isDry = false }) {
+const RESCORE_FIELDS = ["defense_score", "defense_reason", "damage_score", "damage_reason", "changed_because"];
+/** The code a fix added that the way now rests on, so a later change to it makes the score stale. */
+const ADDED_ANCHOR_FIELDS = ["source_path", "symbol_name"];
+
+/** Everything wrong with a closed item's rescore of its way; [] when it's whole. The scores' range is promiseProblems'. */
+export function rescoreProblems(rescore) {
+  if (!isObject(rescore)) return [`The rescore is an object with ${RESCORE_FIELDS.join(", ")} and, if the fix added code the way rests on, added_anchors`];
+  const problems = unknownFieldProblems(rescore, [...RESCORE_FIELDS, "added_anchors"], "the rescore");
+  for (const field of RESCORE_FIELDS) if (rescore[field] === undefined) problems.push(`the rescore has no ${field}`);
+  for (const field of ["defense_reason", "damage_reason", "changed_because"]) if (rescore[field] !== undefined && !isFilledText(rescore[field])) problems.push(`the rescore has an empty ${field}`);
+  if (rescore.added_anchors !== undefined) {
+    if (!Array.isArray(rescore.added_anchors)) problems.push("the rescore needs added_anchors as a list of source_path and symbol_name");
+    else rescore.added_anchors.forEach((anchor, index) => {
+      if (!isObject(anchor)) return problems.push(`the rescore's added anchor ${index + 1} isn't an object`);
+      problems.push(...unknownFieldProblems(anchor, ADDED_ANCHOR_FIELDS, `the rescore's added anchor ${index + 1}`));
+      if (!isFilledText(anchor.source_path) || !isFilledText(anchor.symbol_name)) problems.push(`the rescore's added anchor ${index + 1} needs source_path and symbol_name`);
+    });
+  }
+  return problems;
+}
+
+/** The way with the rescore's added anchors after its own, each new one unstamped until rescoreWay stamps it. */
+function wayWithAddedAnchors(way, addedAnchors = []) {
+  const known = new Set(way.anchors.map((anchor) => anchor.anchor_id));
+  const added = addedAnchors.map(({ source_path, symbol_name }) => ({ anchor_id: `${source_path}:${symbol_name}`, source_path, symbol_name, source_hash_sha256: null })).filter((anchor) => !known.has(anchor.anchor_id) && known.add(anchor.anchor_id));
+  return { ...way, anchors: [...way.anchors, ...added] };
+}
+
+/** Each anchor's hash in origin/main's code, so a rescore rests on what's live, not on this checkout. */
+function liveAnchorHashes(repoRoot, anchors) {
+  const sourceByPath = new Map(anchors.map((anchor) => [anchor.source_path, runOrNull("git", ["show", `origin/main:${anchor.source_path}`], repoRoot)]));
+  return anchorHashes(repoRoot, anchors, sourceByPath);
+}
+
+/**
+ * An item finished: done with its guarding test on the public origin/main, and the way it's about rescored on
+ * origin/main's code through rescoreWay, the item and the way's promise in one commit. With isRescoreLater the
+ * way stays as it was and the page shows it fixed, waiting for its rescore. A done item takes a rescore of a way
+ * still waiting for one (an item closed by mark-fixed or a review too); one already rescored changes nothing.
+ */
+export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescoreLater = false, date, now, repoRoot = REPO_ROOT, isDry = false }) {
   if (!testPath) throw new Error("item-done needs --test <path>: the test in zaisma/zaisma that now guards it, like test/node/guard.test.ts.");
+  if (Boolean(rescore) === isRescoreLater) throw new Error("item-done needs one of --rescore <rescore.json> (the way rescored with the fact that changed: defense_score, defense_reason, damage_score, damage_reason, changed_because) or --rescore-later (the way left waiting for the next review's rescore).");
+  if (rescore) {
+    const problems = rescoreProblems(rescore);
+    if (problems.length) throw new Error(`The rescore would break its shape: ${problems.join("; ")}.`);
+  }
   run("git", ["fetch", "--quiet", "origin", "main"], repoRoot);
   if (runOrNull("git", ["cat-file", "-e", `origin/main:${testPath}`], repoRoot) === null) throw new Error(`${testPath} isn't on origin/main yet. Close the item once its pull request is live.`);
   const commit = run("git", ["rev-parse", "origin/main"], repoRoot);
-  return changeItem(mapDir, { itemId, isDry, message: "done", change: (item) => itemDoneWithTest(item, { testPath, date, now, commit }) });
+  const item = readItem(mapDir, itemId);
+  const next = item.item_state === "done" ? item : itemDoneWithTest(item, { testPath, date, now, commit });
+  const itemProblemList = itemProblems(next);
+  if (itemProblemList.length) throw new Error(`The item would break its shape: ${itemProblemList.join("; ")}.`);
+  const stored = readPromises(mapDir);
+  const promise = stored.promises.find((candidate) => candidate.sector_id === next.sector_id);
+  const wayIndex = promise?.ways_to_break.findIndex((way) => way.way_id === next.way_id) ?? -1;
+  if (wayIndex === -1) throw new Error(`${itemId} is about way ${next.way_id}, and promises/${next.sector_id}.json has no way with that way_id.`);
+  const way = promise.ways_to_break[wayIndex];
+  const isWaiting = isWayWaitingForRescore(way, next.sector_id, [next]);
+  const wayRescore = !isWaiting ? "already_rescored" : rescore ? "rescored" : "waiting";
+  const writes = [];
+  if (JSON.stringify(next) !== JSON.stringify(item)) writes.push({ path: itemFilePathOf(itemId), record: next });
+  if (wayRescore === "rescored") {
+    const changedBecause = `${rescore.changed_because.trim()} ${itemId} closed, guarded by ${testPath} at ${commit.slice(0, 12)}.`;
+    const { added_anchors, ...scores } = rescore;
+    const anchoredWay = wayWithAddedAnchors(way, added_anchors);
+    const currentHashes = liveAnchorHashes(repoRoot, anchoredWay.anchors);
+    const missing = anchoredWay.anchors.filter((anchor) => !currentHashes[anchor.anchor_id]).map((anchor) => anchor.anchor_id);
+    if (missing.length) throw new Error(`The way would rest on code origin/main doesn't have: ${missing.join(", ")}. Name a function, method or const as it is on main.`);
+    promise.ways_to_break[wayIndex] = rescoreWay(anchoredWay, { ...scores, changed_because: changedBecause, now, currentHashes });
+    const problems = promiseProblems(stored);
+    if (problems.length) throw new Error(`The promises would break their shape: ${problems.join("; ")}.`);
+    writes.push({ path: `promises/${next.sector_id}.json`, record: promise });
+  }
+  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: way.way_id, way_rescore: wayRescore, ...(wayRescore === "rescored" ? { new_defense_score: rescore.defense_score, new_damage_score: rescore.damage_score } : {}) };
+  if (isDry) return { ...answer, is_dry: true };
+  if (!writes.length) return { ...answer, is_changed: false };
+  for (const { path, record } of writes) writeFileSync(join(mapDir, path), `${JSON.stringify(record, null, 2)}\n`);
+  const message = [item.item_state !== "done" ? "done" : null, wayRescore === "rescored" ? `${way.way_id} rescored` : null].filter(Boolean).join(", ");
+  try {
+    return { ...answer, is_changed: true, ...commitAndPush(mapDir, { message: `${itemId}: ${message}`, paths: writes.map(({ path }) => path) }) };
+  } catch (error) {
+    restoreClone(mapDir);
+    throw error;
+  }
 }
 
 function readArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, launchId: null, fromPath: null, paths: [], positional: [] };
+  const options = { mapDir: defaultMapDir(), isDry: false, isJson: false, date: new Date().toISOString().slice(0, 10), message: null, testPath: null, note: null, launchId: null, fromPath: null, rescorePath: null, isRescoreLater: false, paths: [], positional: [] };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === "--dry") options.isDry = true;
@@ -354,7 +446,9 @@ function readArguments(argv) {
     else if (flag === "--note") options.note = rest[++index];
     else if (flag === "--launch-id") options.launchId = rest[++index];
     else if (flag === "--from") options.fromPath = rest[++index];
-    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> and --path <path> (commit), --test <path> (mark-fixed, item-done), --note <text> (mark-fixed), --launch-id <id> (item-claim), --from <path> (item-settle).`);
+    else if (flag === "--rescore") options.rescorePath = rest[++index];
+    else if (flag === "--rescore-later") options.isRescoreLater = true;
+    else if (flag.startsWith("--")) throw new Error(`Unknown option ${flag}. Options: --map-dir <path>, --dry, --json, --date <YYYY-MM-DD>, --message <text> and --path <path> (commit), --test <path> (mark-fixed, item-done), --note <text> (mark-fixed), --launch-id <id> (item-claim), --from <path> (item-settle), --rescore <path> or --rescore-later (item-done).`);
     else options.positional.push(flag);
   }
   if (!COMMANDS.includes(command)) throw new Error(`Say one of: ${COMMANDS.join(", ")}.`);
@@ -368,6 +462,7 @@ function printRead(state, pullResult) {
   console.log(`Clone: ${pullResult}`);
   console.log(`Queue: ${state.queue_items.length}${state.queue_items.length ? `\n  ${state.queue_items.join("\n  ")}` : " (empty)"}`);
   console.log(`Open items: ${state.open_item_count} (\`items\` says where each stands)`);
+  console.log(`Ways waiting for a rescore: ${state.rescore_waiting_way_ids.length ? state.rescore_waiting_way_ids.join(", ") : "none"}`);
   console.log(`Last daily review: ${state.last_review_date ?? "none yet"}`);
   if (!state.map_page_url) console.log("Map page: not published yet");
   else console.log(`Map page: ${state.map_page_url}
@@ -411,7 +506,7 @@ async function main() {
     else if (command === "item-claim") result = claimItem(mapDir, { itemId: options.positional[0], launchId: options.launchId, isDry: options.isDry });
     else if (command === "item-back") result = putItemBack(mapDir, { itemId: options.positional[0], isDry: options.isDry });
     else if (command === "item-settle") result = settleItemCalls(mapDir, { itemId: options.positional[0], answers: JSON.parse(readFileSync(options.fromPath, "utf8")), now: new Date().toISOString(), isDry: options.isDry });
-    else if (command === "item-done") result = finishItem(mapDir, { itemId: options.positional[0], testPath: options.testPath, date: options.date, now: new Date().toISOString(), isDry: options.isDry });
+    else if (command === "item-done") result = finishItem(mapDir, { itemId: options.positional[0], testPath: options.testPath, rescore: options.rescorePath ? JSON.parse(readFileSync(options.rescorePath, "utf8")) : null, isRescoreLater: options.isRescoreLater, date: options.date, now: new Date().toISOString(), isDry: options.isDry });
   }
   console.log(JSON.stringify(result, null, 2));
 }
