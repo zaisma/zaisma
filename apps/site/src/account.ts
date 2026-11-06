@@ -529,6 +529,8 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (problem) return done(await accountPage(env, session, false, problem, undefined, again));
     if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on Zaisma's side. Try again in a minute.", 502));
     await markPasswordChanged(env.DB, account.id);
+    // Every browser confirms its next saved-card buy again, under the new password.
+    await env.DB.prepare("DELETE FROM buying_keys WHERE account_id = ?").bind(account.id).run();
     await logAccountChange(request, env, account, account.password_changed_at_ms === null ? "password_added" : "password_changed");
     // This device gets a session made with the new password, and every other device is signed out: Zaisma refuses
     // any session from before this one (the backstop), and Supabase is asked to sign the others out too.

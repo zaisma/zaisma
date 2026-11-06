@@ -203,6 +203,51 @@ async function call(path, body, method) {
   }
 }
 
+// This browser's buying key (buy.ts, at the top): an ECDSA P-256 pair made once and kept in IndexedDB, its private half
+// unreadable even to this script. A confirm here keeps its public half on the account, and the sheet signs each saved-card
+// buy with it, so the next ones are one press. A browser that can't keep one (no IndexedDB, say) sends none and confirms each buy.
+const toBase64 = (buffer) => btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(buffer)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+let buyingKeyLoad = null;
+function buyingKey() {
+  buyingKeyLoad = buyingKeyLoad || (async () => {
+    try {
+      const store = await new Promise((resolve, reject) => {
+        const opening = indexedDB.open("zaisma-buying", 1);
+        opening.onupgradeneeded = () => opening.result.createObjectStore("keys");
+        opening.onsuccess = () => resolve(opening.result);
+        opening.onerror = () => reject(opening.error);
+      });
+      const ask = (mode, act) => new Promise((resolve, reject) => {
+        const asked = act(store.transaction("keys", mode).objectStore("keys"));
+        asked.onsuccess = () => resolve(asked.result);
+        asked.onerror = () => reject(asked.error);
+      });
+      let pair = await ask("readonly", (keys) => keys.get("buying"));
+      if (!pair) {
+        // Two tabs making one at once keep whichever was stored last, and both use that one.
+        const made = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+        await ask("readwrite", (keys) => keys.add(made, "buying")).catch(() => {});
+        pair = await ask("readonly", (keys) => keys.get("buying"));
+      }
+      if (!pair) return null;
+      return { pair: pair, publicKey: toBase64(await crypto.subtle.exportKey("raw", pair.publicKey)) };
+    } catch {
+      return null;
+    }
+  })();
+  return buyingKeyLoad;
+}
+async function buyingSignature(purchaseId) {
+  const key = await buyingKey();
+  if (!key) return {};
+  try {
+    const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode("zaisma-buy:" + purchaseId));
+    return { buying_public_key_base64: key.publicKey, buying_signature_base64: toBase64(signature) };
+  } catch {
+    return {};
+  }
+}
+
 // Stripe.js runs only in Zaisma's Stripe frames (/buy/stripe-frame), never on this page: a frame gets its source when the sheet first
 // needs it (a card to enter, a wallet, a bank's check), then is asked by postMessage, at this origin only, and answers the same way.
 const frameLoads = {};
@@ -262,6 +307,8 @@ async function start() {
   const body = { item_name: asked.itemName, item_count: asked.itemCount, game_account_id: asked.gameAccountId };
   if (buyData.tester_token) body.tester_token = buyData.tester_token;
   if (buyData.is_preview && /^[A-Z]{2}$/.test(query.get("preview_country") || "")) body.preview_country_code = query.get("preview_country");
+  const key = await buyingKey();
+  if (key) body.buying_public_key_base64 = key.publicKey;
   const answer = await call("/api/buy/" + buyData.slug + "/start", body);
   if (asking !== asked) return;
   if (answer.error) return refused(answer.error);
@@ -353,6 +400,7 @@ byId("buy-other-card").querySelector("button").addEventListener("click", () => e
 // Why the player is asked to confirm it's them, in the start answer's words (the pay call asking again has none).
 const REASON_WORDS = {
   purchase_pin: "Your account asks for your purchase PIN for every buy.",
+  new_device: "This is the first buy with your saved card on this device.",
   old_sign_in: "It's been a while since you signed in here.",
   big_spend: "That's a lot for one day.",
 };
@@ -376,6 +424,8 @@ async function sendProof(proof) {
   } else {
     body = { password: proof.password };
   }
+  const key = await buyingKey();
+  if (key) body.buying_public_key_base64 = key.publicKey;
   const answer = await call("/api/buy/confirm", body);
   if (!answer.error) { sale.is_confirmation_needed = false; return { ok: true }; }
   if (answer.error.code === "purchase_pin_locked") { sale.confirmation_methods.is_purchase_pin_locked = true; return { ok: false, message: answer.error.message, removed_methods: ["purchase_pin"] }; }
@@ -419,7 +469,7 @@ function buyWithSavedCard() {
 }
 async function pay() {
   busy(true);
-  paid(await call("/api/buy/purchases/" + sale.purchase_id + "/pay-with-saved-card"));
+  paid(await call("/api/buy/purchases/" + sale.purchase_id + "/pay-with-saved-card", await buyingSignature(sale.purchase_id)));
 }
 
 async function paid(answer) {
