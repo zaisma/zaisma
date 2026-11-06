@@ -522,7 +522,7 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .cut-btn.in-well:disabled:not([aria-busy="true"]) > .face { opacity: 0.35; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
-@media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+@media (pointer: coarse) { .cut-btn:is(.small, .tiny)::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 @media (max-width: 760px) { .cut-btn.big { --slab-words: 20px; } }
 /* Another way in: its mark before its words, and the way's color mixed into its slab (a brand's color is how you recognize it, so it
    doesn't follow light or dark; mixed in, the words keep the ink's color in either theme). Plain is the glass's own tone, as Google's

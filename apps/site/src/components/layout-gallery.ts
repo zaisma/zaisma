@@ -185,7 +185,7 @@ component({
   styles: LEAD_AND_SIDE_STYLES,
   render: leadAndSide,
   examples: [
-    { label: "Your game and What's on", isWide: true, markup: glassPane({ paneWidth: "full", body: leadAndSide({ lead: block(covers(["ashen-crown"])[0]!.markup), side: block(grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["neon-drift", "hollow-tide"]) })) }) }) },
+    { label: "Your game and What's on", isWide: true, markup: leadAndSide({ lead: block(glassPane({ paneWidth: "full", body: stackOfOne(covers(["ashen-crown"])[0]!.markup) })), side: block(glassPane({ paneWidth: "full", body: stackOfOne(grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["neon-drift", "hollow-tide"]) })) })) }) },
   ],
 });
 

@@ -366,11 +366,9 @@ const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:la
  * The words at a pane's or a tray's top and bottom edge keep its margin there too: the first and last words it holds, however deep in
  * the first and last of what it holds (a form, a stack, a shelf), a row's words there, and a component's own words there.
  */
-function edgeWords(edge: "top" | "bottom", isSideBySide = false): string[] {
-  // Lead and side, side by side: the side's top is at the edge as the lead's is, and the lead's foot as the side's.
-  const besideEdge = edge === "top" ? ".lead-and-side-side" : ".lead-and-side-lead";
+function edgeWords(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
-  const endHere = isSideBySide ? `:is(${end}, ${besideEdge})` : end;
+  const endHere = end;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
@@ -447,10 +445,6 @@ fieldset > legend { float: left; width: 100%; padding-block: 0; }
 :root { --edge-room: 0px; }
 ${rulesOf(edgeWords("top"), "padding-top: calc(var(--pad-words) + var(--edge-room));")}
 ${rulesOf(edgeWords("bottom"), "padding-bottom: calc(var(--pad-words) + var(--edge-room));")}
-@container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) {
-${rulesOf(edgeWords("top", true), "padding-top: calc(var(--pad-words) + var(--edge-room));")}
-${rulesOf(edgeWords("bottom", true), "padding-bottom: calc(var(--pad-words) + var(--edge-room));")}
-}
 `;
 
 export const ROW_STYLES = `
