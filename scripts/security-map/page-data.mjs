@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FINISHED_STATES, isOpenItem, priorityOfItem, readItems } from "./items.mjs";
+import { FINISHED_STATES, isOpenItem, isWayWaitingForRescore, priorityOfItem, readItems } from "./items.mjs";
 import { readPromises } from "./promises.mjs";
 import { SECTORS } from "./schema.mjs";
 
@@ -9,7 +9,8 @@ import { SECTORS } from "./schema.mjs";
  * What the Security map page shows, worked out from the private repo's records. Every field is copied by
  * name, so a reason, an anchor, a proof or a finding id can't reach the page, and a score leaves only as the
  * words and picture of its step. The rules here are the page's: a shield follows its worst open item, and
- * only a proven item moves one.
+ * only a proven item moves one. A way an item closed after its last score shows as fixed and waiting for its
+ * rescore, never as work ahead.
  */
 
 /** A shield's states, from whole to worst. */
@@ -53,13 +54,20 @@ const isThinScore = ({ damage_score, defense_score }) => damage_score >= MINIMUM
 /** An item answers a thin way when it's proven, open, on that way, and scored at the way's harm or more and its lock or less. */
 const isAnsweredBy = (way, sectorId) => (item) => isShieldItem(item) && item.sector_id === sectorId && item.way_id === way.way_id && item.damage_score >= way.damage_score && item.defense_score <= way.defense_score;
 
-/** The thin spots, worst harm first, then the weakest lock, then rollout order. */
+/** The thin spots, worst harm first, then the weakest lock, then rollout order. A way fixed and waiting for its rescore isn't one: its score predates the fix. */
 export function thinWaysOf(promises, items, scales) {
   return [...promises]
     .sort((first, second) => first.rollout_position - second.rollout_position)
-    .flatMap((promise) => promise.ways_to_break.filter((way) => isThinScore(way) && !items.some(isAnsweredBy(way, promise.sector_id))).map((way) => ({ promise, way })))
+    .flatMap((promise) => promise.ways_to_break.filter((way) => isThinScore(way) && !items.some(isAnsweredBy(way, promise.sector_id)) && !isWayWaitingForRescore(way, promise.sector_id, items)).map((way) => ({ promise, way })))
     .sort((first, second) => second.way.damage_score - first.way.damage_score || first.way.defense_score - second.way.defense_score)
     .map(({ promise, way }) => ({ sector_id: promise.sector_id, sector_name: sectorNameOf(promise.sector_id), way_line: way.way_line, ...harmAndLockOf(way, scales) }));
+}
+
+/** The ways an item closed after their last score: fixed, waiting for the rescore that says where they stand now, in rollout order. */
+export function rescoreWaitingWaysOf(promises, items) {
+  return [...promises]
+    .sort((first, second) => first.rollout_position - second.rollout_position)
+    .flatMap((promise) => promise.ways_to_break.filter((way) => isWayWaitingForRescore(way, promise.sector_id, items)).map((way) => ({ sector_id: promise.sector_id, sector_name: sectorNameOf(promise.sector_id), way_line: way.way_line })));
 }
 
 function itemStandingOf(item, items) {
@@ -93,6 +101,7 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
   const countOfPriority = (priority) => shieldItems.filter((item) => priorityOfItem(item) === priority).length;
   const attentionItems = attentionItemsOf(items, scales);
   const thinWays = thinWaysOf(promises, items, scales);
+  const rescoreWaitingWays = rescoreWaitingWaysOf(promises, items);
   const workAhead = {
     fix_now_count: countOfPriority("fix_now"),
     harden_count: countOfPriority("harden"),
@@ -102,6 +111,7 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
     grid_failure_count: (grid?.failures.length ?? 0) + (grid?.doors_not_tried.length ?? 0),
     pattern_finding_count: patterns?.findings.length ?? 0,
     thin_way_count: thinWays.length,
+    rescore_waiting_count: rescoreWaitingWays.length,
     changed_code_count: promises.flatMap((promise) => [...promise.strengths.map((strength) => strength.strength_stale_reason), ...promise.ways_to_break.map((way) => way.score_stale_reason)]).filter(Boolean).length,
   };
   return {
@@ -121,11 +131,12 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
           open_item_count: sectorItems.filter((item) => isShieldItem(item) && priorityOfItem(item) !== "watch").length,
           watch_item_count: sectorItems.filter((item) => isShieldItem(item) && priorityOfItem(item) === "watch").length,
           strengths: promise.strengths.map(({ strength_kind, strength_line }) => ({ strength_kind, strength_line })),
-          ways: promise.ways_to_break.map((way) => ({ way_line: way.way_line, ...harmAndLockOf(way, scales) })),
+          ways: promise.ways_to_break.map((way) => ({ way_line: way.way_line, is_waiting_for_rescore: isWayWaitingForRescore(way, promise.sector_id, items), ...harmAndLockOf(way, scales) })),
         };
       }),
     attention_items: attentionItems,
     thin_ways: thinWays,
+    rescore_waiting_ways: rescoreWaitingWays,
     work_ahead: workAhead,
   };
 }

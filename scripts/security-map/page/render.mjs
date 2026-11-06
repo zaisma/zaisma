@@ -46,6 +46,16 @@ function thinWaysSectionOf({ thin_ways }, idPrefix) {
   return `<section class="section" id="${idPrefix}thin-ways"><h2>Behind one lock</h2><p class="sub">Not cracks, work ahead: each would reach many games or money with one lock or less in the way, and no item answers it yet.</p><ul class="rows">${thin_ways.map(thinRowOf).join("")}</ul></section>`;
 }
 
+const FRESH_LOOK_WORDS = "Fixed, waiting for a fresh look";
+
+const freshLookRowOf = (way) => `<li class="thin"><p class="line">${escapeHtml(way.way_line)}</p><p class="sub">${escapeHtml(way.sector_name)}. ${FRESH_LOOK_WORDS}.</p></li>`;
+
+/** The ways fixed since they were last weighed: shown as done, never behind one lock, until a fresh look settles them. */
+function freshLookSectionOf({ rescore_waiting_ways }, idPrefix) {
+  if (!rescore_waiting_ways.length) return "";
+  return `<section class="section" id="${idPrefix}fresh-look"><h2>Fixed, waiting for a fresh look</h2><p class="sub">The work on each is done and live. A fresh look settles where it stands now.</p><ul class="rows">${rescore_waiting_ways.map(freshLookRowOf).join("")}</ul></section>`;
+}
+
 const attentionRowOf = (item) => `<li class="row">${shieldOf(item.shield_state, item.sector_id)}<div class="row-text"><p class="line">${escapeHtml(item.item_line)}</p><p class="goal">${escapeHtml(item.goal_line)}</p>${marksOf(item)}<p class="sub">${escapeHtml(item.sector_name)}. ${STANDING_WORDS[item.item_standing]}.</p></div></li>`;
 
 function attentionOf(pageData) {
@@ -62,7 +72,7 @@ const CHEVRON = `<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true"><pa
 function promiseOf(sector, idPrefix) {
   const openWords = sector.open_item_count ? `${sector.open_item_count} open` : "Nothing open";
   const openText = sector.watch_item_count ? `${openWords}, ${sector.watch_item_count} on watch.` : `${openWords}.`;
-  const ways = sector.ways.map((way) => `<li class="way"><p>${escapeHtml(way.way_line)}</p>${marksOf(way)}</li>`).join("");
+  const ways = sector.ways.map((way) => `<li class="way"><p>${escapeHtml(way.way_line)}</p>${marksOf(way)}${way.is_waiting_for_rescore ? `<p class="sub">${FRESH_LOOK_WORDS}.</p>` : ""}</li>`).join("");
   const strengths = sector.strengths.map((strength) => `<li><b>${STRENGTH_WORDS[strength.strength_kind]}:</b> ${escapeHtml(strength.strength_line)}</li>`).join("");
   return `<details class="promise" id="${idPrefix}promise-${sector.sector_id}"><summary>${shieldOf(sector.shield_state, sector.sector_id)}<span class="row-text"><span class="line">${escapeHtml(sector.promise_line)}</span><span class="sub">${escapeHtml(sector.sector_name)}. ${openText} ${plural(sector.ways.length, "way", "ways")} it could break.</span></span>${CHEVRON}</summary><div class="promise-body"><div><h3>The only ways it could break</h3><ul class="ways">${ways}</ul></div><div><h3>What it rests on</h3><ul class="rests">${strengths}</ul></div></div></details>`;
 }
@@ -70,7 +80,7 @@ function promiseOf(sector, idPrefix) {
 const promisesOf = (pageData, idPrefix) => `<section class="section"><h2>Promises</h2><div class="rows">${pageData.sectors.map((sector) => promiseOf(sector, idPrefix)).join("")}</div></section>`;
 
 function workAheadOf({ work_ahead }) {
-  const rows = [["Fix now", work_ahead.fix_now_count], ["Harden", work_ahead.harden_count], ["Fix soon", work_ahead.fix_soon_count], ["Watch", work_ahead.watch_count], ["Questions with no proof yet", work_ahead.question_count], ["Failures from the grid, for the next review", work_ahead.grid_failure_count], ["Pattern findings, for the next review", work_ahead.pattern_finding_count], ["Lines whose code changed, for the next review", work_ahead.changed_code_count], ["Ways behind one lock, with no item yet", work_ahead.thin_way_count]];
+  const rows = [["Fix now", work_ahead.fix_now_count], ["Harden", work_ahead.harden_count], ["Fix soon", work_ahead.fix_soon_count], ["Watch", work_ahead.watch_count], ["Questions with no proof yet", work_ahead.question_count], ["Failures from the grid, for the next review", work_ahead.grid_failure_count], ["Pattern findings, for the next review", work_ahead.pattern_finding_count], ["Lines whose code changed, for the next review", work_ahead.changed_code_count], ["Ways behind one lock, with no item yet", work_ahead.thin_way_count], ["Ways fixed, waiting for a fresh look", work_ahead.rescore_waiting_count]];
   return `<section class="section"><h2>Work ahead</h2><dl class="counts">${rows.map(([label, count]) => `<div class="count${count ? "" : " is-zero"}"><dt>${label}</dt><dd>${count}</dd></div>`).join("")}</dl></section>`;
 }
 
@@ -78,7 +88,7 @@ const legendOf = () => `<details class="legend"><summary>What the pictures mean<
 
 const footOf = ({ last_review_date }) => `<footer class="foot"><p>${last_review_date ? `Last daily review: ${escapeHtml(last_review_date)}.` : "No daily review yet."}</p>${legendOf()}</footer>`;
 
-const scenarioBodyOf = (pageData, idPrefix) => `${heroOf(pageData)}${sectorsOf(pageData, idPrefix)}${thinWaysSectionOf(pageData, idPrefix)}${attentionOf(pageData)}${promisesOf(pageData, idPrefix)}${workAheadOf(pageData)}${footOf(pageData)}`;
+const scenarioBodyOf = (pageData, idPrefix) => `${heroOf(pageData)}${sectorsOf(pageData, idPrefix)}${thinWaysSectionOf(pageData, idPrefix)}${freshLookSectionOf(pageData, idPrefix)}${attentionOf(pageData)}${promisesOf(pageData, idPrefix)}${workAheadOf(pageData)}${footOf(pageData)}`;
 
 const pageShell = (css, inner) => `<title>Zaisma Security Map</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n<style>\n${css}</style>\n${artSprite()}\n<main class="page">${inner}</main>\n`;
 

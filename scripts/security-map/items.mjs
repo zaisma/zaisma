@@ -24,7 +24,7 @@ export const QUESTION_LIFETIME_DAYS = 14;
 /** The states a daily review may move an item to: doing is the coordinator's, accepted is Julius's, closed_unproven only comes with age. */
 export const REVIEW_SET_STATES = ["next", "done"];
 
-const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence", "settled_calls", "claimed_by_launch_id"];
+const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence", "settled_calls", "claimed_by_launch_id", "done_at"];
 const SETTLED_CALL_FIELDS = ["call_line", "answer_line", "settled_at"];
 const SETTLE_ANSWER_FIELDS = ["call_line", "answer_line"];
 const EVIDENCE_FIELDS = ["added_at", "evidence_line", "rests_on_commit"];
@@ -43,6 +43,20 @@ export const FINISHED_STATES = ["done", "closed_unproven"];
 const MS_PER_DAY = 86400000;
 
 const isTextList = (value) => Array.isArray(value) && value.every(isFilledText);
+
+/** When an item was closed: its done_at, or for one closed before done_at was kept, its last evidence; null while it isn't done. */
+export const doneAtOf = (item) => (item.item_state === "done" ? (item.done_at ?? item.evidence?.at(-1)?.added_at ?? null) : null);
+
+/**
+ * Whether a way's score is older than the work done on it: an item on that way closed after the way was last
+ * scored. Such a way is fixed and waiting for its rescore, so it isn't work ahead until it's looked at again.
+ */
+export function isWayWaitingForRescore(way, sectorId, items) {
+  return items.some((item) => {
+    const doneAt = doneAtOf(item);
+    return doneAt !== null && item.sector_id === sectorId && item.way_id === way.way_id && (!way.scored_at || doneAt > way.scored_at);
+  });
+}
 
 /** Where an item stands on the priority grid. */
 export const priorityOfItem = (item) => priorityOf(item.defense_score, item.damage_score);
@@ -72,6 +86,7 @@ export function itemProblems(item) {
   if (item.score_stale_reason !== null && !isFilledText(item.score_stale_reason)) problems.push(`${label} needs score_stale_reason as text or null`);
   if (!isTextList(item.calls) || !isTextList(item.waits_on)) problems.push(`${label} needs calls and waits_on as lists of text`);
   if (item.claimed_by_launch_id !== undefined && item.claimed_by_launch_id !== null && !isFilledText(item.claimed_by_launch_id)) problems.push(`${label} needs claimed_by_launch_id as text or null`);
+  if (item.done_at !== undefined && item.done_at !== null && !ISO_TIME.test(item.done_at)) problems.push(`${label} needs done_at as an ISO time or null`);
   if (item.settled_calls !== undefined && !Array.isArray(item.settled_calls)) problems.push(`${label} needs settled_calls as a list`);
   else for (const settled of item.settled_calls ?? []) {
     if (!isObject(settled)) {
@@ -167,6 +182,7 @@ export function itemWithUpdate(item, update, { now, commit, anchors, currentHash
   const hasProof = update.proof_kind !== undefined;
   let next = { ...item, evidence };
   if (update.item_state !== undefined) next.item_state = update.item_state;
+  if (update.item_state === "done" && item.item_state !== "done") next.done_at = now;
   if (update.calls !== undefined) next.calls = update.calls;
   if (update.waits_on !== undefined) next.waits_on = update.waits_on;
   if (hasProof) {
@@ -204,6 +220,7 @@ const itemGuardedBy = (item, { testPath, date, now, commit }) => ({
   proof_line: `${testPath} guards it since ${date}.`,
   test_path: testPath,
   claimed_by_launch_id: null,
+  done_at: now,
   evidence: [...item.evidence, { added_at: now, evidence_line: `Fixed on ${date}, guarded by ${testPath}.`, rests_on_commit: commit }],
 });
 

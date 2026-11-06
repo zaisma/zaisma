@@ -145,6 +145,25 @@ describe("the thin spots", () => {
     expect(thinOf([onMoney({ sector_id: "rooms" })])).toContain("Way money.");
   });
 
+  it("leave the list once an item on the way closes after its last score, and show as fixed, waiting for a fresh look", () => {
+    const scored = promiseOf({ sector_id: "money", rollout_position: 2, ways_to_break: [{ ...wayOf("money", 3, 5), scored_at: "2026-11-04T00:00:00.000Z" }] });
+    const withScored = [promises[0], scored];
+    const doneOnMoney = (done_at: string) => itemOf({ sector_id: "money", way_id: "money", item_state: "done", defense_score: 3, damage_score: 5, done_at });
+    const after = dataOf([doneOnMoney("2026-11-05T00:00:00.000Z")], { promises: withScored });
+    expect(after.thin_ways.map((way: { way_line: string }) => way.way_line)).toEqual(["Way open.", "Way far."]);
+    expect(after.rescore_waiting_ways).toEqual([{ sector_id: "money", sector_name: expect.any(String), way_line: "Way money." }]);
+    expect(after.work_ahead.rescore_waiting_count).toBe(1);
+    expect(after.sectors.find((sector: { sector_id: string }) => sector.sector_id === "money").ways[0].is_waiting_for_rescore).toBe(true);
+    expect(after.shield_state).toBe("whole");
+    const html: string = buildPage(after);
+    expect(html).toContain("Fixed, waiting for a fresh look");
+    expect(html).not.toContain("PLANTED");
+    const rescored = dataOf([doneOnMoney("2026-11-03T00:00:00.000Z")], { promises: withScored });
+    expect(rescored.thin_ways.map((way: { way_line: string }) => way.way_line)).toContain("Way money.");
+    expect(rescored.rescore_waiting_ways).toEqual([]);
+    expect(buildPage(rescored)).not.toContain("<h2>Fixed, waiting for a fresh look</h2>");
+  });
+
   it("never move a shield or the summary, and carry only the way's line and its steps", () => {
     const data = dataOf([], { promises });
     expect(data.shield_state).toBe("whole");
@@ -219,6 +238,7 @@ describe("the built page", () => {
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "nothing").page_data.attention_count).toBe(0);
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "nothing").page_data.thin_ways).toEqual([]);
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "whole").page_data.thin_ways.length).toBeGreaterThan(0);
+    expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "whole").page_data.rescore_waiting_ways.length).toBe(1);
     expect(scenarios.find((scenario: { scenario_id: string }) => scenario.scenario_id === "many").page_data.attention_count).toBeGreaterThan(30);
     const html: string = buildDemoPage();
     expect(Buffer.byteLength(html)).toBeLessThan(MAXIMUM_PAGE_BYTES);
