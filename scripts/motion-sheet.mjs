@@ -283,6 +283,8 @@ export function lastMovingFrame(recording) {
 /** Jitter in one recording: a piece that shows, isn't looping and moves or resizes by JITTER_STEP_PX or more after the last transition. */
 export function findJitter(recording) {
   const found = [];
+  // A box that moves while the page arrives is the layout check's (nothing moves after the first paint): jitter is after a press.
+  if (recording.kind === "load" || recording.kind === "switch") return found;
   const frames = recording.frames_ms;
   const settledFrame = Math.max(lastMovingFrame(recording) + 1, recording.parsed_frame);
   for (const { piece_id: pieceId } of recording.pieces) {
@@ -462,10 +464,13 @@ export async function moveThroughPages({ chromePath, site, pages, looks, picture
         const evaluate = async (expression) => { const { result, exceptionDetails } = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text); return result.value; };
         const frames = [];
         let isFilming = false;
+        // A load's strip starts at the new page's first frame, never the blank tab before it.
+        let filmFromMs = 0;
+        chrome.listen(sessionId, (method, params) => { if (method === "Page.frameNavigated" && !params.frame.parentId && isFilming) { filmFromMs = Date.now() - 50; frames.length = 0; } });
         chrome.listen(sessionId, (method, params) => {
           if (method !== "Page.screencastFrame") return;
           send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
-          if (isFilming) frames.push({ at_ms: params.metadata.timestamp * 1000, jpegBase64: params.data });
+          if (isFilming && params.metadata.timestamp * 1000 >= filmFromMs) frames.push({ at_ms: params.metadata.timestamp * 1000, jpegBase64: params.data });
         });
         try {
           await send("Page.enable");

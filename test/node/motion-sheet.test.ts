@@ -59,6 +59,7 @@ describe("what the motion sheet finds in a recording", () => {
     const animations = [{ piece_id: 0, property_group: "move", duration_ms: 150, easing: "ease-out", is_looping: false, first_frame: 1, last_frame: 9 }];
     const series: [number, Values, null, null][] = [[0, at({ translateY: 20, moveMs: 150 }), null, null], [9, at({ moveMs: 150 }), null, null], [10, at(), null, null], [20, at({ y: 103 }), null, null]];
     const found = findJitter(recording(series, { animations }));
+    expect(findJitter({ ...recording(series, { animations }), kind: "load" })).toEqual([]);
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ kind: "jitter", frame: 20 });
     expect(findJitter(recording([[0, at({ isLooping: 1 }), null, null], [20, at({ y: 103, isLooping: 1 }), null, null]]))).toEqual([]);
