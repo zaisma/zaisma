@@ -155,12 +155,15 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var t = startMs === null || frameMs === undefined ? 0 : Math.min(1, (frameMs - startMs) / ms), e = ease(t); to = el.slideTarget;
         // Stopped on the way (a wheel, a touch), the page keeps where it is, and whatever follows the page says where the slab goes.
         if (carrier && carrier.isOn) window.scrollTo(window.scrollX, carrier.fromY + (carrier.toY - carrier.fromY) * e);
-        // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
-        if (el.redrawCut) el.redrawCut({ isFrame: true, progress: t });
+        // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame. A
+        // slab changing size (a full switch's tabs of different widths) is sized first, so its shape is drawn for the size it shows.
+        var isResizing = from.size !== to.size || (to.width !== undefined && from.width !== to.width);
+        if (el.redrawCut && !isResizing) el.redrawCut({ isFrame: true, progress: t });
         // Between pixels as it moves (its own layer moves it smoothly there; whole steps stuttered where it goes slowly), on one as it lands.
         // Its size eases with its place, so a slab moving between tabs of different widths (a full switch's) never takes the new width at once.
         var blend = function (start, end) { return t < 1 && start !== undefined ? start + (end - start) * e : end; };
         place(el, { pos: blend(from.pos, to.pos), size: blend(from.size, to.size), across: to.across === undefined ? undefined : blend(from.across || 0, to.across), width: to.width === undefined ? undefined : blend(from.width, to.width) });
+        if (el.redrawCut && isResizing) el.redrawCut({ isFrame: true, progress: t });
         if (t < 1) { requestAnimationFrame(function (nowMs) { if (startMs === null) startMs = nowMs; frame(nowMs); }); return; }
         // Landed, it's cut again where it rests, so its corners are always the edge rule's for the place it's in.
         el.removeAttribute("data-move-duration-ms");

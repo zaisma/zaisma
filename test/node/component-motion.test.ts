@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { TYPING_BAR_SCRIPT } from "../../apps/site/src/components/fields.ts";
 import { LAYERS_SCRIPT } from "../../apps/site/src/components/layers.ts";
-import { SCROLL_FADE_SCRIPT } from "../../apps/site/src/components/navigation.ts";
+import { FILTER_MENU_SCRIPT, SCROLL_FADE_SCRIPT } from "../../apps/site/src/components/navigation.ts";
 import { SWITCH_SCRIPT } from "../../apps/site/src/components/switch.ts";
 
 /*
@@ -23,10 +23,27 @@ describe("a scroll box's fades", () => {
   });
 
   it("ease their edges as an animation of their own, from the frame after a box first fades", () => {
-    expect(SCROLL_FADE_SCRIPT).toContain("runs[name] = box.animate(frames, { duration: GLIDE_MS");
+    expect(SCROLL_FADE_SCRIPT).toContain("runs[name] = box.animate(keyframes, { duration: GLIDE_MS");
     expect(SCROLL_FADE_SCRIPT).toContain('setFade(box, "--fade-top", Math.max(0, top)); setFade(box, "--fade-bottom", Math.max(0, bottom));');
     expect(SCROLL_FADE_SCRIPT).toContain('side("more-left", "--fade-left", span.before > 2)');
-    expect(SCROLL_FADE_SCRIPT).toContain("row.isFadeEased = true;");
+    expect(SCROLL_FADE_SCRIPT).toContain("row.isSideFadeEased = true;");
+  });
+});
+
+describe("a Filter menu's step between its ways and a way's choices", () => {
+  it("slides the choices it leaves out over the ones it shows, eases its height with the shadow it casts, and holds what's past it inside", () => {
+    expect(FILTER_MENU_SCRIPT).toContain('runs.push(was.animate([{ transform: "none", opacity: 1 }, { transform: "translateX(" + -side + "px)", opacity: 0 }]');
+    expect(FILTER_MENU_SCRIPT).toContain('runs.push(menu.animate([{ height: fromHeightPx + "px", transform: "translateY(" + shiftPx + "px)" }, { height: toHeightPx + "px", transform: "none" }]');
+    expect(FILTER_MENU_SCRIPT).toContain("window.zaismaCast(menu); step.castFrame = requestAnimationFrame(cast);");
+    expect(styles).toContain(".floating-pane.filter-menu.is-stepping { overflow: clip; }");
+  });
+});
+
+describe("a rail", () => {
+  it("fades in from nothing as it's shown and stays until it has faded as it's hidden, never in one frame", () => {
+    expect(rulesNaming(".rail")).toContainEqual(expect.objectContaining({ selector: expect.stringMatching(/(^|\n)\.rail$/), body: expect.stringContaining("transition: opacity var(--motion-arrive), display var(--motion-arrive) allow-discrete;") }));
+    expect(styles).toContain(".rail.rail:not(.is-on) { opacity: 0; }");
+    expect(styles).toContain("@starting-style { .rail.rail.is-on { opacity: 0; } }");
   });
 });
 

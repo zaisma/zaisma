@@ -426,9 +426,10 @@ export const TYPING_BAR_SCRIPT = `/* typing bar */(function () {
     veil = makeVeil(false); veil.offsetWidth; veil.classList.add("is-shown");
     // Only once it's whole: a timer of its length can end a frame before its fade does, and what changes under it would show through.
     var waitNumber = waitCount, shown = veil;
-    function whole(event) { if (event && (event.target !== shown || event.propertyName !== "opacity")) return; shown.removeEventListener("transitionend", whole); clearTimeout(pendingTimer); if (waitNumber === waitCount) under(); }
+    var fallback = 0;
+    function whole(event) { if (event && (event.target !== shown || event.propertyName !== "opacity")) return; shown.removeEventListener("transitionend", whole); clearTimeout(fallback); if (waitNumber === waitCount) under(); }
     shown.addEventListener("transitionend", whole);
-    pendingTimer = setTimeout(whole, veilMs() + 100);
+    fallback = pendingTimer = setTimeout(whole, veilMs() + 100);
   }
   function drop() {
     if (isLeaving) return;

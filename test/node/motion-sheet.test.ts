@@ -68,6 +68,8 @@ describe("what the motion sheet finds in a recording", () => {
     const series: [number, Values, null, null][] = [[0, at({ moveMs: 200 }), null, null], [8, at({ y: 104, moveMs: 200 }), null, null], [12, at({ y: 104 }), null, null]];
     expect(findJitter(recording(series, { animations: [{ piece_id: null, property_group: "move", duration_ms: 200, easing: "ease-out", is_looping: false, first_frame: 1, last_frame: 10 }] }))).toEqual([]);
     expect(findJitter(recording(series))).toHaveLength(1);
+    // One on something that holds no piece moves nothing the run reads, and settles nothing.
+    expect(findJitter(recording(series, { animations: [{ piece_id: null, holds_pieces: false, property_group: "move", duration_ms: 200, easing: "ease-out", is_looping: false, first_frame: 1, last_frame: 10 }] }))).toHaveLength(1);
   });
 
   it("leaves the page arriving alone: what comes in while it's still read", () => {
@@ -107,6 +109,12 @@ describe("what the motion sheet finds in a recording", () => {
     expect(found[0].said).toContain("320 ms, linear");
     expect(found[0].said).toContain("200 ms, ease-out");
     expect(siblingEntries(recording([], { animations: [{ piece_id: 0, property_group: "opacity", duration_ms: 0, easing: "linear", is_looping: false, first_frame: 0, last_frame: 1 }] }), "A")).toEqual([]);
+  });
+
+  it("never compares a page opened fresh with one switched to from another page, which comes in quicker on purpose", () => {
+    const arrival = (run: string, durationMs: number, where: string) => ({ component: "Glass pane ::before", piece: "Glass pane #a ::before", run, property_group: "opacity", duration_ms: durationMs, easing: "ease", frame: 1, at_ms: 16, where });
+    expect(findSiblingsThatDiffer([arrival("load", 600, "A, Phone, light"), arrival("switch", 250, "B, Phone, light")])).toEqual([]);
+    expect(findSiblingsThatDiffer([arrival("switch", 600, "A, Phone, light"), arrival("switch", 250, "B, Phone, light")])).toHaveLength(1);
   });
 
   it("names a part with no name of its own by the component it's in, so a sheet's edge and a menu's are no siblings", () => {

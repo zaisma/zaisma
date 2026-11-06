@@ -823,20 +823,20 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   window.zaismaScrollFadePx = fadePx;
   // A fade's edges ease in and out over --motion-glide as an animation of their own, never a transition: a transition here would take the
   // place of the box's own (a menu's body fading out as it closes, whose choices then went in one frame). change() sets the new length;
-  // until a box is eased (isFadeEased) it's there at once.
+  // until a box is eased (isEased: a box's own, from its first sync; a row's, from the frame after the page starts) it's there at once.
   var GLIDE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-glide")) || 0.45) * 1000, isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)"), fadeRuns = new WeakMap();
-  function easeFade(box, name, change) {
+  function easeFade(box, name, change, isAsked) {
     var runs = fadeRuns.get(box); if (!runs) { runs = {}; fadeRuns.set(box, runs); }
-    var isEased = box.isFadeEased && !isReducedMotion.matches && box.animate, from = isEased ? getComputedStyle(box).getPropertyValue(name).trim() : "";
+    var isEased = isAsked && !isReducedMotion.matches && box.animate, from = isEased ? getComputedStyle(box).getPropertyValue(name).trim() : "";
     if (runs[name]) { runs[name].cancel(); runs[name] = null; }
     change();
     if (!isEased) return;
-    var to = getComputedStyle(box).getPropertyValue(name).trim(), frames = {};
+    var to = getComputedStyle(box).getPropertyValue(name).trim(), keyframes = {};
     if (!from || to === from) return;
-    frames[name] = [from, to];
-    runs[name] = box.animate(frames, { duration: GLIDE_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
+    keyframes[name] = [from, to];
+    runs[name] = box.animate(keyframes, { duration: GLIDE_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
   }
-  function setFade(box, name, px) { var value = px + "px"; if (box.style.getPropertyValue(name) === value) return; easeFade(box, name, function () { box.style.setProperty(name, value); }); }
+  function setFade(box, name, px) { var value = px + "px"; if (box.style.getPropertyValue(name) === value) return; easeFade(box, name, function () { box.style.setProperty(name, value); }, box.isFadeEased); }
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -846,7 +846,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function put(box, read) {
     var isScrollable = read.scrollHeight > read.clientHeight + 1;
     // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
-    // away (the --fade transition) once there's nothing more.
+    // away (setFade's easing) once there's nothing more.
     var top = read.scrollTop > 0.5 ? fadePx() : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? fadePx() : 0;
     setFade(box, "--fade-top", Math.max(0, top)); setFade(box, "--fade-bottom", Math.max(0, bottom));
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
@@ -935,7 +935,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       var scrollLeft = row.scrollLeft, scrolledBefore = scrollLeft, scrolledAfter = reach.whole - reach.width - scrollLeft;
       return reach.start === null ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(scrollLeft - reach.start, scrolledBefore), after: Math.max(reach.end - scrollLeft - reach.width, scrolledAfter) };
     }
-    function side(name, property, isOn) { if (row.classList.contains(name) !== isOn) easeFade(row, property, function () { row.classList.toggle(name, isOn); }); }
+    function side(name, property, isOn) { if (row.classList.contains(name) !== isOn) easeFade(row, property, function () { row.classList.toggle(name, isOn); }, row.isSideFadeEased); }
     function fades() { var span = shownSpan(); side("more-left", "--fade-left", span.before > 2); side("more-right", "--fade-right", span.after > 2); return span; }
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
@@ -978,7 +978,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     window.zaismaWatch.fontArrived(ends);
     ends();
     // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
-    requestAnimationFrame(function () { requestAnimationFrame(function () { row.isFadeEased = true; }); });
+    requestAnimationFrame(function () { requestAnimationFrame(function () { row.isSideFadeEased = true; }); });
   });
 })();
 `;
@@ -1114,12 +1114,16 @@ component({
    as its side lies from the side, and an end at a square corner is square; the thumb's ends nest in the channel's. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
-.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
+/* It comes and goes with a fade (a box that starts or stops scrolling, the page's own once the page runs past the screen), never in one frame:
+   shown, it starts from nothing; hidden, it stays until it has faded. */
+.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive), display var(--motion-arrive) allow-discrete; }
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
 /* The page's sits in the middle of the page's right gutter, as clear of the screen's edge as of the glass. */
 .rail[data-rail="page"] { position: fixed; z-index: 12; left: auto; right: calc((var(--pad-pane) - var(--rail-reach)) / 2); top: 90px; bottom: 14px; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
+.rail.rail:not(.is-on) { opacity: 0; }
+@starting-style { .rail.rail.is-on { opacity: 0; } }
 /* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
 .own-scroll.is-dragged { scroll-snap-type: none; }
 /* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
@@ -1746,12 +1750,41 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
     if (rule && rule.matches("hr")) rule.hidden = !inUse;
     if (menu.zaismaPlace) menu.zaismaPlace();
   }
+  // A step moves on the pane's own time and curve (--motion-float, --ease-glide), as it opens and closes.
+  var rootStyle = getComputedStyle(document.documentElement), STEP_MS = (parseFloat(rootStyle.getPropertyValue("--motion-float")) || 0.12) * 1000, STEP_EASE = rootStyle.getPropertyValue("--ease-glide").trim() || "cubic-bezier(.2, .8, .2, 1)";
+  // A step still running ends where it was going, before the next one starts.
+  function endStep(menu) {
+    var step = menu.filterStep; if (!step) return;
+    menu.filterStep = null; cancelAnimationFrame(step.castFrame);
+    step.runs.forEach(function (run) { run.cancel(); });
+    step.leaving.hidden = true;
+    ["position", "top", "left", "width"].forEach(function (name) { step.leaving.style.removeProperty(name); });
+    menu.classList.remove("is-stepping");
+  }
   function show(menu, groupName, isFocused) {
-    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])");
+    endStep(menu);
+    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])"), fromHeightPx = menu.offsetHeight;
+    var leftAt = was ? { top: was.offsetTop, left: was.offsetLeft, width: was.offsetWidth } : null;
     menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
     if (menu.zaismaPlace) menu.zaismaPlace();
-    // Into a way's choices it slides in from the end, back to the ways from the start: a short step sideways, never a pop.
-    if (shown && was && shown !== was && !isStill && shown.animate) shown.animate([{ transform: "translateX(" + (groupName ? 12 : -12) + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    // Into a way's choices it slides in from the end, back to the ways from the start, and the ones it leaves slide out the other way over it,
+    // as a sheet's steps do: a short step sideways, never a pop. The pane eases to its new height (the shadow it casts with it), what's
+    // past its edge held inside it meanwhile; under its button it grows down, over it (is-above) up.
+    if (shown && was && shown !== was && !isStill && shown.animate) {
+      var side = groupName ? 12 : -12, toHeightPx = menu.offsetHeight, runs = [];
+      was.hidden = false; was.style.position = "absolute"; was.style.top = leftAt.top + "px"; was.style.left = leftAt.left + "px"; was.style.width = leftAt.width + "px";
+      menu.classList.add("is-stepping");
+      runs.push(shown.animate([{ transform: "translateX(" + side + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: STEP_MS, easing: STEP_EASE }));
+      runs.push(was.animate([{ transform: "none", opacity: 1 }, { transform: "translateX(" + -side + "px)", opacity: 0 }], { duration: STEP_MS, easing: STEP_EASE, fill: "forwards" }));
+      if (toHeightPx !== fromHeightPx) {
+        var shiftPx = menu.classList.contains("is-above") ? toHeightPx - fromHeightPx : 0;
+        runs.push(menu.animate([{ height: fromHeightPx + "px", transform: "translateY(" + shiftPx + "px)" }, { height: toHeightPx + "px", transform: "none" }], { duration: STEP_MS, easing: STEP_EASE }));
+      }
+      var step = menu.filterStep = { leaving: was, runs: runs, castFrame: 0 };
+      // Its shadow is cast again each frame while its height moves, so it keeps to the glass.
+      (function cast() { if (menu.filterStep !== step) return; if (menu.floatCast && window.zaismaCast) window.zaismaCast(menu); step.castFrame = requestAnimationFrame(cast); })();
+      runs[0].finished.then(function () { if (menu.filterStep === step) { endStep(menu); if (window.zaismaCast) window.zaismaCast(menu); } }, function () {});
+    }
     if (isFocused && shown) {
       // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
       var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
@@ -1830,6 +1863,9 @@ component({
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
 .floating-pane.filter-menu { min-width: min(15rem, 100%, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
+/* Stepping between its ways and a way's choices (FILTER_MENU_SCRIPT): what's past the pane's easing height is held inside it, unscrolled. */
+.floating-pane.filter-menu.is-stepping { overflow: clip; }
+.floating-pane.filter-menu.is-stepping > .floating-body { flex: none; overflow: hidden; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
 .filter-group > .ico:last-child, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
 .filter-back { font: var(--type-name); color: var(--ink); }

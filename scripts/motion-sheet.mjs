@@ -19,6 +19,8 @@
 //   npm run motion:sheet -- --only /signin --pictures <folder>  and a strip of frames per run, <folder>/<state>-<screen>-<theme>-<run>.png,
 //                                                               and each settled screen at its own size, <…>-<run>-still.png
 //   npm run motion:sheet -- --only /signin --json
+//   MOTION_DUMP_FOLDER=<folder> npm run motion:sheet -- …     and each run's recording as JSON there, to read what it measured
+// A holder that paints nothing (a pane's body) is judged by the pieces in it, so what's in it but no piece (a paragraph's words) isn't.
 //
 // It runs under the local budget (scripts/check-budget.mjs): one local run at a time, at low priority, watched for time, cores, memory and
 // heat, stopping over a hard limit and never saying PASS then. One Chrome, closed on exit. The whole site runs nowhere locally: --only is
@@ -152,7 +154,8 @@ export const SAMPLER_SOURCE = `(() => {
         const key = animation; let seen = animations.get(key); if (!seen) { seen = new Map(); animations.set(key, seen); }
         const record = seen.get(group); if (record) record.last_frame = frame;
         // One that began before this run (an entrance still ending as a close starts) is the run before's, for comparing siblings.
-        else seen.set(group, { piece_id: byElement.has(target) ? byElement.get(target) : null, pseudo_element: effect.pseudoElement || null, property_group: ["opacity", "move", "blur"][group], property_names: names, duration_ms: round(durationMs, 0), easing, is_looping: isLooping, is_started_in_run: animation.startTime === null || animation.startTime >= startMs - 20, first_frame: frame, last_frame: frame });
+        // One on what's no piece says whether pieces are in what it moves, so only then does it hold the run's motion (lastMovingFrame).
+        else seen.set(group, { piece_id: byElement.has(target) ? byElement.get(target) : null, holds_pieces: !byElement.has(target) && pieces.some((piece) => target.contains(piece.el)), pseudo_element: effect.pseudoElement || null, property_group: ["opacity", "move", "blur"][group], property_names: names, duration_ms: round(durationMs, 0), easing, is_looping: isLooping, is_started_in_run: animation.startTime === null || animation.startTime >= startMs - 20, first_frame: frame, last_frame: frame });
       }
     }
     const opacityOf = new Map();
@@ -174,8 +177,9 @@ export const SAMPLER_SOURCE = `(() => {
       const isShown = box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
       const [tx, ty, scale] = moveOf(style);
       const durations = [0, 0, 0]; let isLooping = 0;
-      // A ::before or ::after's animation is its element's own look; a ::backdrop's is the dim behind it, no part of the element.
-      for (const run of running) if (run.pseudo !== "::backdrop" && (run.target === el || (!run.pseudo && run.target.contains(el)))) { if (run.isLooping) isLooping = 1; else for (const group of run.groups) durations[group] = Math.max(durations[group], run.durationMs); }
+      // A ::before or ::after's animation is its element's own look; a ::backdrop's is the dim behind it, no part of the element. Under
+      // several at once (a pane's fade and a step inside it), the quickest says how fast the piece may change.
+      for (const run of running) if (run.pseudo !== "::backdrop" && (run.target === el || (!run.pseudo && run.target.contains(el)))) { if (run.isLooping) isLooping = 1; else for (const group of run.groups) if (run.durationMs > 0) durations[group] = durations[group] ? Math.min(durations[group], run.durationMs) : run.durationMs; }
       // What the piece paints itself, or its ::before or ::after does for a layer (a floating pane's glass is its ::before): a holder that
       // paints nothing can't pop, whatever its opacity does; what's in it is judged.
       const paints = (look) => !/rgba\\(.*,\\s*0\\)$|^transparent$/.test(look.backgroundColor) || (look.backdropFilter && look.backdropFilter !== "none") || look.boxShadow !== "none" || (parseFloat(look.borderTopWidth) > 0 && !/rgba\\(.*,\\s*0\\)$/.test(look.borderTopColor)) || look.backgroundImage !== "none";
@@ -201,7 +205,7 @@ export const SAMPLER_SOURCE = `(() => {
   afterDrawing.port1.onmessage = () => { if (!kind || frameDueMs === null) return; const dueMs = frameDueMs; frameDueMs = null; sample(dueMs); };
   const loop = (nowMs) => { if (!kind) return; frameDueMs = nowMs; afterDrawing.port2.postMessage(0); requestAnimationFrame(loop); };
   window.__zaismaMotion = {
-    start(runKind) { openedOrder = new WeakMap(); pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; scrolls = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(true); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
+    start(runKind) { frameDueMs = null; openedOrder = new WeakMap(); pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; scrolls = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(true); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
     quiet() { return { frame_count: frame + 1, still_ms: Math.round(performance.now() - lastMoveMs), run_ms: Math.round(performance.now() - startMs) }; },
     finish() {
       const recording = { kind, frames_ms: frames, scrolls_px: scrolls, parsed_frame: parsedFrame ?? 0, pieces: pieces.map(({ el, piece_id, component, label, isInserted }) => { let walk = el.parentElement; while (walk && !byElement.has(walk)) walk = walk.parentElement; return { piece_id, component, label, is_inserted: isInserted, parent_piece_id: walk ? byElement.get(walk) : null }; }), changes, animations: [...animations.values()].flatMap((seen) => [...seen.values()]) };
@@ -279,7 +283,7 @@ function popsOf(recording) {
       for (let frame = Math.max(1, firstFrame); frame < frames.length; frame += 1) {
         const after = series[frame]?.values;
         // A piece first read mid-run came in then: it was nowhere the frame before.
-        const before = series[frame - 1]?.values ?? (frame === firstFrame && recording.pieces[pieceId].is_inserted ? [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] : null);
+        const before = series[frame - 1]?.values ?? (frame === firstFrame && recording.pieces[pieceId].is_inserted ? [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0] : null);
         if (!before || !after || frame <= recording.parsed_frame) continue;
         if (valueOf(before, "is_looping") || valueOf(after, "is_looping")) continue;
         // Only what's on the screen can be seen to pop: a piece out of view, or one laid out only as it scrolls near, can't.
@@ -290,7 +294,9 @@ function popsOf(recording) {
         if (property === "opacity" && !(valueOf(after, "opacity") > 0 ? isPainted(after) : isPainted(before))) continue;
         // A place or size that steps while the page loads is the layout check's (nothing moves after the first paint), and one while the
         // page scrolls is the scroll.
-        if ((property === "place_px" || property === "size_px") && (recording.kind === "load" || recording.kind === "switch" || isScrolled(recording, frame) || isScrolledInBox(after))) continue;
+        if ((property === "place_px" || property === "size_px") && (recording.kind === "load" || recording.kind === "switch" || isScrolled(recording, frame))) continue;
+        // A box's own scroll carries what's in it, never changing its size.
+        if (property === "place_px" && isScrolledInBox(after)) continue;
         const isShownBoth = valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0;
         if ((property === "place_px" || property === "size_px" || property === "translate_px" || property === "scale") && !isShownBoth) continue;
         if (property !== "opacity" && !isShownBoth) continue;
@@ -323,7 +329,7 @@ function popsOf(recording) {
 
 /** The last frame anything in the recording was still being animated (looping animations aside), or -1. */
 export function lastMovingFrame(recording) {
-  return Math.max(-1, ...recording.animations.filter((record) => !record.is_looping).map((record) => record.last_frame));
+  return Math.max(-1, ...recording.animations.filter((record) => !record.is_looping && (record.piece_id !== null || record.holds_pieces !== false)).map((record) => record.last_frame));
 }
 
 /** Jitter in one recording: a piece that shows, isn't looping and moves or resizes by JITTER_STEP_PX or more after the last transition. */
@@ -414,8 +420,9 @@ export function findSiblingsThatDiffer(entries) {
   const found = [];
   const byKey = new Map();
   for (const entry of entries) {
-    // A page arriving (a load or a switch) fades its whole page in: it's compared with other arrivals, never with a sheet that opens.
-    const direction = entry.run === "leave" ? "leaving" : entry.run === "enter" ? "entering" : "arriving with the page";
+    // A page arriving fades its whole page in: it's compared with other arrivals of its kind, never with a sheet that opens, and a page opened
+    // fresh (a load) never with one switched to from another page, which comes in quicker on purpose (foundations.ts, is-page-arriving-fresh).
+    const direction = entry.run === "leave" ? "leaving" : entry.run === "enter" ? "entering" : entry.run === "load" ? "arriving with the page" : "arriving from another page";
     const key = `${entry.component} ${direction} ${entry.property_group}`;
     const first = byKey.get(key);
     if (!first) { byKey.set(key, entry); continue; }

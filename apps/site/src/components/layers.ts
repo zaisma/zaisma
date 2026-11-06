@@ -366,14 +366,22 @@ export const LAYERS_SCRIPT = `/* layers */(function () {
   var resized = window.ResizeObserver ? new ResizeObserver(function (changed) { changed.forEach(function (change) { if (anchors.has(change.target)) place(change.target); }); }) : null;
   window.addEventListener("resize", placeAll);
   window.addEventListener("scroll", placeAll, { passive: true, capture: true });
+  function resetOnceGone(sheet) {
+    if (getComputedStyle(sheet).display === "none") { reset(sheet); return; }
+    var isDone = false, fallback = setTimeout(gone, 700);
+    function ended(event) { if (event.target === sheet && event.propertyName === "display") gone(); }
+    function gone() { if (isDone) return; isDone = true; clearTimeout(fallback); sheet.removeEventListener("transitionend", ended); if (!sheet.open) reset(sheet); }
+    sheet.addEventListener("transitionend", ended);
+  }
   document.addEventListener("close", function (event) {
     var sheet = event.target;
     if (!sheet.matches || !sheet.matches(".sheet")) return;
     // Only raised over a new full screen (raiseOpenSheets), it never closed for anyone listening.
     if (sheet.isBeingRaised) { sheet.isBeingRaised = false; event.stopImmediatePropagation(); return; }
     forget(sheet);
-    // Closing resets its steps and tabs to the first, out of sight, and lets go of the height it kept.
-    reset(sheet);
+    // Closing resets its steps and tabs to the first, out of sight, and lets go of the height it kept: once it's gone, since a sheet the
+    // browser closed at once (a phone's Back) still fades out first.
+    resetOnceGone(sheet);
     var opener = sheet.zaismaOpener, beneath = openSheets[openSheets.length - 1];
     sheet.zaismaOpener = null;
     if (beneath) (opener && opener.isConnected && beneath.contains(opener) ? opener : beneath).focus({ preventScroll: true });

@@ -700,8 +700,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function draw() { runPass(drawLine); }
     function drawLine() {
       var size = sizeOf(el), w = size[0], h = size[1]; if (!w || !h) return;
-      // Gliding, its two outlines (where it was, where it's going) are worked out once, at its size, not again each frame: they read the
-      // page's layout, and only the blend between them changes.
+      // Gliding, its two outlines (where it was, where it's going) are worked out once at its size, not again each frame: they read the
+      // page's layout, and only the blend between them changes. Only a part whose size moves with it (a switch's slab between tabs of
+      // different widths) has them worked out again as its size changes.
       var sizeKey = w + "x" + h;
       if (glide && glide.sizeKey !== sizeKey) { glide.sizeKey = sizeKey; glide.toShape = controlOutline(el, w, h); glide.fromShape = controlOutline(el, w, h, glide.from); }
       var shape = glide ? glide.toShape : controlOutline(el, w, h);
