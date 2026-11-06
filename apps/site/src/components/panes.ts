@@ -177,7 +177,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const endMarkup = tagAtEnd ?? (facts.priceText ? tag(facts.priceText, "plain") : undefined);
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
-  return html`<div class="${className} sleek-cast"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek"><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate">${options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}</div>`}</div></div></div>`;
+  return html`<div class="${className} sleek-cast"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a><div class="cover-plate">${options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}</div>`}</div></div></div>`;
 }
 
 /**
@@ -567,11 +567,19 @@ const COVER_STYLES = `
 .cover { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; min-width: 0; }
 /* A card is one piece of Sleek glass (materials.ts), one fine line round all of it: its art shows through the top of it, smooth, with no edge of
    its own, and the glass runs on under the art as the plate that holds its title and facts. */
-.cover-glass { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; min-width: 0; }
+/* The glass is a holder the edge rule cuts (data-cut-line), so what sits at its edges, Play and Details, is cut along its corners at its frame gap.
+   Sleek draws no rim, so the cut's drawn line stays out of the way. */
+.cover-glass { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; min-width: 0; clip-path: var(--cut-shape, none); --rail-inset: var(--pad-frame-compact); }
+.cover-glass > .cut-line { position: absolute; inset: 0; visibility: hidden; }
 .cover-glass.sleek > .cover-art.carving { box-shadow: none; }
 .cover-glass.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
 /* Its plate is one line, the same height on every card whatever it holds (a small control's, Play or Join), so every card is one shape. */
-.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact) var(--pad-frame); --pad-words: 0px; }
+/* What has an edge on it (Play, Details, Join) sits the compact frame gap from the glass's sides and foot; its words keep a little more. */
+.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact); --pad-words: var(--pad-frame-compact); }
+.cover-plate > .cover-meta:not(.has-actions) { padding-inline: var(--pad-frame-compact); }
+/* With Play, Details or Join on it, the line is the controls' height: its name on their center line, never taller than them. */
+.cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row { align-items: center; }
+.cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words, .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words > * { padding-block: 0; }
 .cover-name-line { display: flex; align-items: center; gap: var(--gap-words-words); flex: 1 1 0; min-width: 0; }
 .cover-name-line > .picture-row { flex: none; }
 /* In a row of cards every card is one height, the tallest's (a track stretches its cards, a grid its cells), and the plate takes what's left,

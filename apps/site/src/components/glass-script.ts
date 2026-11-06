@@ -848,7 +848,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       runBatch(function () { pieces.forEach(cutEdged); });
       if (track.isCutOnScroll) return;
       track.isCutOnScroll = true;
-      track.addEventListener("scroll", function () { (track.edgedPieces || []).forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); }); }, { passive: true });
+      // What the cut lines draw (a card's glass, data-cut-line) is cut by them; anything else edged, by the edge rule above. Both again on scroll.
+      track.addEventListener("scroll", function () {
+        (track.edgedPieces || []).forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); });
+        track.querySelectorAll("[data-cut-line]").forEach(function (piece) { if (piece.redrawCut) piece.redrawCut(); });
+      }, { passive: true });
     });
   }
   // The first edged piece in a track's cell, the cell itself or what's in it: never a control or glass of its own (cut already), nor words.

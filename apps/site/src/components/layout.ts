@@ -370,7 +370,8 @@ function edgeWords(edge: "top" | "bottom", isSideBySide = false): string[] {
   const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
     // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
-    const into = ` > *${endHere}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
+    // Never into a game card either: it's one piece with its own line, not words or rows at the pane's edge.
+    const into = ` > *${endHere}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track, .cover)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -410,7 +411,7 @@ function edgeRows(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
   return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
-    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
+    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}:not(.cover)`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
 }
 
 /** Wider than this, lead and side stand side by side (equal halves, then two thirds and one third from 800px). */
