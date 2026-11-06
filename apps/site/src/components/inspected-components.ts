@@ -1,0 +1,4 @@
+// Plain data with no imports, so a Node script (scripts/motion-sheet.mjs) reads it as it is.
+
+/** The component a class names, for what the inspector and the motion sheet (scripts/motion-sheet.mjs) say a piece is. */
+export const INSPECTED_COMPONENTS: Record<string, string> = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
