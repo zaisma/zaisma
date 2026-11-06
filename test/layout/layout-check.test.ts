@@ -205,6 +205,45 @@ describe.skipIf(!sites)("the layout check", () => {
     }
   }, 300_000);
 
+  it.skipIf(!isFirstShare)("opens an account's home drawn ahead with the game played since it was drawn", async () => {
+    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
+    try {
+      const { browserContextId } = await chrome.send("Target.createBrowserContext");
+      await signIn(chrome, browserContextId, sites!.site, "Moss_Runner");
+      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
+      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
+      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      // Nothing the home sends reaches the account: the test data stays as it is.
+      chrome.listen(sessionId, (method: string, params: { requestId: string }) => { if (method === "Fetch.requestPaused") send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, body: btoa('{"ok":true}') }).catch(() => {}); });
+      await send("Page.enable");
+      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played*", requestStage: "Request" }] });
+      const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
+      await send("Page.navigate", { url: `${sites!.site}/games` });
+      await loaded;
+      // The pointer rests on Home's link, and the home is drawn ahead in a tab of its own.
+      await chrome.send("Target.setDiscoverTargets", { discover: true });
+      const drawnAhead = new Promise<string>((done) => chrome.listen(undefined, (method: string, params: { targetInfo?: { targetId: string; subtype?: string } }) => { if (method === "Target.targetCreated" && params.targetInfo?.subtype === "prerender") done(params.targetInfo.targetId); }));
+      const link: { x: number; y: number } | null = await evaluate(`(() => { const link = [...document.querySelectorAll('a[href="/"]')].find((each) => each.getClientRects().length); if (!link) return null; const box = link.getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; })()`);
+      expect(link).not.toBeNull();
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: link!.x, y: link!.y });
+      const { sessionId: homeSessionId } = await chrome.send("Target.attachToTarget", { targetId: await drawnAhead, flatten: true });
+      const evaluateOnHome = async (expression: string) => (await chrome.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, homeSessionId)).result.value;
+      await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played*", requestStage: "Request" }] }, homeSessionId);
+      chrome.listen(homeSessionId, (method: string, params: { requestId: string }) => { if (method === "Fetch.requestPaused") chrome.send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, body: btoa('{"ok":true}') }, homeSessionId).catch(() => {}); });
+      // A game is played after the home was drawn (the game page keeps it on the device), then Home is pressed.
+      const played = "seaside-stand";
+      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(played)}, played_at_ms: Date.now() }])), true`);
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: link!.x, y: link!.y, button: "left", clickCount: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: link!.x, y: link!.y, button: "left", clickCount: 1 });
+      await evaluateOnHome(`(async () => { while (document.prerendering || !document.querySelector("#home-continue .cover[data-slug]")) await new Promise((done) => requestAnimationFrame(done)); return true; })()`);
+      expect(await evaluateOnHome(`performance.getEntriesByType("navigation")[0].activationStart > 0`)).toBe(true);
+      expect((await evaluateOnHome(`[...document.querySelectorAll("#track-continue .cover")].map((cover) => cover.dataset.slug)`))[0]).toBe(played);
+    } finally {
+      await chrome.close();
+    }
+  }, 300_000);
+
   it.skipIf(!isFirstShare)("measures an account's home as its test data stands while the same account plays a game in the tab beside it, and keeps that play off the account", async () => {
     // Buying plays Tiny Farm as Moss_Runner, which the game page keeps on the device and the account; the home beside it shows the account's Continue playing.
     const pagesSideBySide = ["Home, signed in", "Buying, a first card"].map((name) => CHECKED_PAGES.find((page) => page.name === name));

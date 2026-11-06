@@ -272,8 +272,16 @@ document.addEventListener("keydown", (event) => {
 // they are from its first paint (home.ts, by CLOSED_NEWS_COOKIE); closing the news keeps it closed on this device, in the cookie and here.
 const guest = $("home-guest");
 const showGuest = () => { if (guest && !isSignedIn) guest.hidden = false; };
-// A guest's comes from the cookie, which a device that played before the cookie kept it is missing: filled in here.
+// A guest's comes from the cookie, which a device that played before the cookie kept it is missing: filled in here. An account's page
+// drawn ahead (prerendered as the pointer rested on its link, prepared-pages.ts) was drawn before a game played since: it opens with them.
+const isDrawnAhead = (performance.getEntriesByType("navigation")[0]?.activationStart || 0) > 0;
 if (!isAccountsList) fillContinue();
+else if (isDrawnAhead && playedOnlyHere.length) {
+  const playedAtMs = new Map(played.map((entry) => [entry.slug, entry.played_at_ms]));
+  for (const entry of playedOnlyHere) playedAtMs.set(entry.slug, Math.max(playedAtMs.get(entry.slug) || 0, entry.played_at_ms));
+  played = [...playedAtMs].map(([slug, played_at_ms]) => ({ slug, played_at_ms }));
+  fillContinue();
+}
 // Played on this device before the cookie kept it: kept there from now on, so the next visit's first paint shows it.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 keepPlayedCookie([...playedHere].sort((a, b) => b.played_at_ms - a.played_at_ms));
