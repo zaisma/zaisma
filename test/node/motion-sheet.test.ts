@@ -12,7 +12,7 @@ import { findChrome } from "../../scripts/chrome.mjs";
 
 type Values = number[];
 /** A piece's values: opacity, blur, backdrop blur, translate x and y, scale, x, y, width, height, the three durations and looping. */
-const at = ({ opacity = 1, translateY = 0, y = 100, height = 50, opacityMs = 0, moveMs = 0, isLooping = 0, isInView = 1 } = {}): Values => [opacity, 0, 0, 0, translateY, 1, 10, y, 200, height, opacityMs, moveMs, 0, isLooping, isInView];
+const at = ({ opacity = 1, translateY = 0, y = 100, height = 50, opacityMs = 0, moveMs = 0, isLooping = 0, isInView = 1 } = {}): Values => [opacity, 0, 0, 0, translateY, 1, 10, y, 200, height, opacityMs, moveMs, 0, isLooping, isInView, 1];
 const recording = (series: [number, Values, string | null, string | null][], options: { frameCount?: number; component?: string; isInserted?: boolean; animations?: unknown[]; parsedFrame?: number } = {}) => ({
   kind: "enter",
   frames_ms: Array.from({ length: options.frameCount ?? 30 }, (_, index) => index * 16),

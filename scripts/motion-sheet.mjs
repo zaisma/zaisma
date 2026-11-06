@@ -74,7 +74,7 @@ const MOVING_COMPONENTS = { "floating-pane": "Floating pane", "playing-card": "C
  * [frame, values, text, background] each time a piece's values change, values being VALUE_NAMES; animations lists each animation seen:
  * { piece_id, property_group, duration_ms, easing, is_looping, first_frame, last_frame }.
  */
-export const VALUE_NAMES = ["opacity", "blur_px", "backdrop_blur_px", "translate_x_px", "translate_y_px", "scale", "x_px", "y_px", "width_px", "height_px", "opacity_duration_ms", "move_duration_ms", "blur_duration_ms", "is_looping", "is_in_view"];
+export const VALUE_NAMES = ["opacity", "blur_px", "backdrop_blur_px", "translate_x_px", "translate_y_px", "scale", "x_px", "y_px", "width_px", "height_px", "opacity_duration_ms", "move_duration_ms", "blur_duration_ms", "is_looping", "is_in_view", "is_painted"];
 export const SAMPLER_SOURCE = `(() => {
   if (window.__zaismaMotion) return;
   const COMPONENTS = ${JSON.stringify({ ...INSPECTED_COMPONENTS, ...MOVING_COMPONENTS })};
@@ -83,7 +83,7 @@ export const SAMPLER_SOURCE = `(() => {
   const LABELS = "button, a, h1, h2, h3, label, .tag, [role='status'], [role='tab']";
   const MOST_PIECES = 500;
   const GROUP_OF = (name) => /^opacity$/.test(name) ? 0 : /filter/.test(name) ? 2 : /^(transform|translate|scale|rotate|left|top|right|bottom|inset.*|width|height|max-height|max-width|min-height|min-width|margin.*|padding.*|grid-template.*|flex.*)$/.test(name) ? 1 : -1;
-  let pieces = [], byElement = new Map(), changes = [], lastValues = [], frames = [], animations = new Map(), kind = null, frame = -1, parsedFrame = null, lastMoveMs = 0, startMs = 0;
+  let pieces = [], byElement = new Map(), changes = [], lastValues = [], frames = [], scrolls = [], animations = new Map(), kind = null, frame = -1, parsedFrame = null, lastMoveMs = 0, startMs = 0;
   const nameOf = (el) => { if (el === document.documentElement) return "Page"; for (const name of el.classList || []) if (COMPONENTS[name]) return COMPONENTS[name]; const first = el.classList && el.classList[0]; return el.tagName.toLowerCase() + (first ? "." + first : ""); };
   const labelOf = (el) => { if (el === document.documentElement) return "the page"; const words = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 32); return (el.id ? "#" + el.id : "") + (words ? (el.id ? " " : "") + JSON.stringify(words) : el.id ? "" : "<" + el.tagName.toLowerCase() + (el.classList && el.classList.length ? "." + [...el.classList].slice(0, 2).join(".") : "") + ">"); };
   const add = (el, isInserted = false) => { if (!el || byElement.has(el) || pieces.length >= MOST_PIECES || el.closest("[data-motion-ignore]")) return; byElement.set(el, pieces.length); pieces.push({ el, piece_id: pieces.length, component: nameOf(el), label: labelOf(el), isLabel: el.matches(LABELS), isLayer: el.matches(LAYERS) || el === document.documentElement, isInserted }); changes.push([]); lastValues.push(null); };
@@ -104,7 +104,7 @@ export const SAMPLER_SOURCE = `(() => {
   // Places and sizes to the half pixel: a tenth of a pixel's drift is a rounding, not a move anyone sees.
   const half = (value) => Math.round(value * 2) / 2;
   const sample = (nowMs) => {
-    frame += 1; frames.push(round(nowMs - startMs, 1));
+    frame += 1; frames.push(round(nowMs - startMs, 1)); scrolls.push([Math.round(scrollX), Math.round(scrollY)]);
     if (parsedFrame === null && document.readyState !== "loading") parsedFrame = frame;
     if (frame % 5 === 0) scan();
     const running = [];
@@ -119,7 +119,7 @@ export const SAMPLER_SOURCE = `(() => {
       const durationMs = typeof timing.duration === "number" ? timing.duration : 0;
       const easing = timing.easing && timing.easing !== "linear" ? timing.easing : (keyframes[0] && keyframes[0].easing) || "linear";
       add(target);
-      running.push({ target, groups, durationMs, isLooping });
+      running.push({ target, groups, durationMs, isLooping, pseudo: effect.pseudoElement || null });
       for (const group of groups) {
         const key = animation; let seen = animations.get(key); if (!seen) { seen = new Map(); animations.set(key, seen); }
         const record = seen.get(group); if (record) record.last_frame = frame;
@@ -132,13 +132,20 @@ export const SAMPLER_SOURCE = `(() => {
     let isMoving = false;
     for (const piece of pieces) {
       const el = piece.el;
-      if (!el.isConnected) { if (lastValues[piece.piece_id] && lastValues[piece.piece_id][0] !== 0) { const gone = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]; changes[piece.piece_id].push([frame, gone, null, null]); lastValues[piece.piece_id] = gone; } continue; }
+      if (!el.isConnected) { if (lastValues[piece.piece_id] && lastValues[piece.piece_id][0] !== 0) { const gone = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; changes[piece.piece_id].push([frame, gone, null, null]); lastValues[piece.piece_id] = gone; } continue; }
       const style = getComputedStyle(el); const box = el.getBoundingClientRect();
       const isShown = box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
       const [tx, ty, scale] = moveOf(style);
       const durations = [0, 0, 0]; let isLooping = 0;
-      for (const run of running) if (run.target === el || run.target.contains(el)) { if (run.isLooping) isLooping = 1; else for (const group of run.groups) durations[group] = Math.max(durations[group], run.durationMs); }
-      const values = [isShown ? round(effective(el), 2) : 0, round(blurOf(style.filter), 1), round(blurOf(style.backdropFilter || style.webkitBackdropFilter), 1), half(tx), half(ty), round(scale, 3), half(box.x), half(box.y), half(box.width), half(box.height), round(durations[0], 0), round(durations[1], 0), round(durations[2], 0), isLooping, isShown && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth ? 1 : 0];
+      // A ::before or ::after's animation is its element's own look; a ::backdrop's is the dim behind it, no part of the element.
+      for (const run of running) if (run.pseudo !== "::backdrop" && (run.target === el || (!run.pseudo && run.target.contains(el)))) { if (run.isLooping) isLooping = 1; else for (const group of run.groups) durations[group] = Math.max(durations[group], run.durationMs); }
+      // What the piece paints itself, or its ::before or ::after does for a layer (a floating pane's glass is its ::before): a holder that
+      // paints nothing can't pop, whatever its opacity does; what's in it is judged.
+      const paints = (look) => !/rgba\(.*,\s*0\)$|^transparent$/.test(look.backgroundColor) || (look.backdropFilter && look.backdropFilter !== "none") || look.boxShadow !== "none" || (parseFloat(look.borderTopWidth) > 0 && !/rgba\(.*,\s*0\)$/.test(look.borderTopColor)) || look.backgroundImage !== "none";
+      const pseudoLook = piece.isLayer ? ["::before", "::after"].map((pseudo) => getComputedStyle(el, pseudo)).find((look) => look.content !== "none" && paints(look)) : null;
+      const isPainted = /^(svg|img|canvas|video|input|textarea|select|html)$/i.test(el.tagName) || paints(style) || Boolean(pseudoLook) || [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
+      const ownOpacity = isShown ? effective(el) * (pseudoLook && !paints(style) ? Number(pseudoLook.opacity) : 1) : 0;
+      const values = [round(ownOpacity, 2), round(blurOf(style.filter), 1), round(blurOf(style.backdropFilter || style.webkitBackdropFilter), 1), half(tx), half(ty), round(scale, 3), half(box.x), half(box.y), half(box.width), half(box.height), round(durations[0], 0), round(durations[1], 0), round(durations[2], 0), isLooping, isShown && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth ? 1 : 0, isPainted ? 1 : 0];
       const text = piece.isLabel ? (el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 60) : null;
       const background = piece.isLayer ? (el === document.documentElement ? painted(style) : style.backgroundColor) : null;
       const last = lastValues[piece.piece_id];
@@ -153,10 +160,10 @@ export const SAMPLER_SOURCE = `(() => {
   };
   const loop = (nowMs) => { if (!kind) return; sample(nowMs); requestAnimationFrame(loop); };
   window.__zaismaMotion = {
-    start(runKind) { pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
+    start(runKind) { pieces = []; byElement = new Map(); changes = []; lastValues = []; frames = []; scrolls = []; animations = new Map(); frame = -1; parsedFrame = runKind === "load" ? null : 0; kind = runKind; startMs = performance.now(); lastMoveMs = startMs; scan(); if (runKind !== "load") sample(startMs); requestAnimationFrame(loop); return true; },
     quiet() { return { frame_count: frame + 1, still_ms: Math.round(performance.now() - lastMoveMs), run_ms: Math.round(performance.now() - startMs) }; },
     finish() {
-      const recording = { kind, frames_ms: frames, parsed_frame: parsedFrame ?? 0, pieces: pieces.map(({ el, piece_id, component, label, isInserted }) => { let walk = el.parentElement; while (walk && !byElement.has(walk)) walk = walk.parentElement; return { piece_id, component, label, is_inserted: isInserted, parent_piece_id: walk ? byElement.get(walk) : null }; }), changes, animations: [...animations.values()].flatMap((seen) => [...seen.values()]).filter((record) => record.piece_id !== undefined) };
+      const recording = { kind, frames_ms: frames, scrolls_px: scrolls, parsed_frame: parsedFrame ?? 0, pieces: pieces.map(({ el, piece_id, component, label, isInserted }) => { let walk = el.parentElement; while (walk && !byElement.has(walk)) walk = walk.parentElement; return { piece_id, component, label, is_inserted: isInserted, parent_piece_id: walk ? byElement.get(walk) : null }; }), changes, animations: [...animations.values()].flatMap((seen) => [...seen.values()]).filter((record) => record.piece_id !== undefined) };
       kind = null;
       return recording;
     },
@@ -199,6 +206,9 @@ export function findPops(recording) {
 
 /** A piece's values count as in view unless the sampler said otherwise (a recording from before it said). */
 const isInView = (values) => values[VALUE_NAMES.indexOf("is_in_view")] !== 0;
+const isPainted = (values) => values[VALUE_NAMES.indexOf("is_painted")] !== 0;
+/** Whether the page scrolled into this frame: every box moved with it. */
+const isScrolled = (recording, frame) => { const scrolls = recording.scrolls_px; return Boolean(scrolls && scrolls[frame] && scrolls[frame - 1] && (scrolls[frame][0] !== scrolls[frame - 1][0] || scrolls[frame][1] !== scrolls[frame - 1][1])); };
 
 /**
  * Failures less those whose holder failed the same way, on the same property, in the same frame: a pane that pops is one pop, not one for
@@ -224,11 +234,16 @@ function popsOf(recording) {
       for (let frame = Math.max(1, firstFrame); frame < frames.length; frame += 1) {
         const after = series[frame]?.values;
         // A piece first read mid-run came in then: it was nowhere the frame before.
-        const before = series[frame - 1]?.values ?? (frame === firstFrame && recording.pieces[pieceId].is_inserted ? [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] : null);
+        const before = series[frame - 1]?.values ?? (frame === firstFrame && recording.pieces[pieceId].is_inserted ? [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] : null);
         if (!before || !after || frame <= recording.parsed_frame) continue;
         if (valueOf(before, "is_looping") || valueOf(after, "is_looping")) continue;
         // Only what's on the screen can be seen to pop: a piece out of view, or one laid out only as it scrolls near, can't.
         if (!isInView(before) && !isInView(after)) continue;
+        // A holder that paints nothing of its own can't be seen to come or go: what's in it is judged instead.
+        if (property === "opacity" && !(valueOf(after, "opacity") > 0 ? isPainted(after) : isPainted(before))) continue;
+        // A place or size that steps while the page loads is the layout check's (nothing moves after the first paint), and one while the
+        // page scrolls is the scroll.
+        if ((property === "place_px" || property === "size_px") && (recording.kind === "load" || recording.kind === "switch" || isScrolled(recording, frame))) continue;
         const isShownBoth = valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0;
         if ((property === "place_px" || property === "size_px" || property === "translate_px" || property === "scale") && !isShownBoth) continue;
         if (property !== "opacity" && !isShownBoth) continue;
@@ -274,7 +289,7 @@ export function findJitter(recording) {
     for (let frame = settledFrame + 1; frame < frames.length; frame += 1) {
       const before = series[frame - 1]?.values, after = series[frame]?.values;
       if (!before || !after || valueOf(before, "is_looping") || valueOf(after, "is_looping")) continue;
-      if (!(valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0) || !isInView(after)) continue;
+      if (!(valueOf(before, "opacity") > 0 && valueOf(after, "opacity") > 0) || !isInView(after) || isScrolled(recording, frame)) continue;
       const moveStep = Math.max(stepOf("place_px", before, after), stepOf("translate_px", before, after)), sizeStep = stepOf("size_px", before, after);
       const step = Math.max(moveStep, sizeStep);
       if (step < JITTER_STEP_PX) continue;
@@ -333,7 +348,7 @@ export function findFlashes(recording) {
     for (let index = 1; index + 1 < shown.length; index += 1) {
       const segment = shown[index];
       const isAnimated = valueOf(segment.values, "opacity_duration_ms") > 0 || valueOf(segment.values, "is_looping");
-      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && !isAnimated && segment.frame > recording.parsed_frame && (isInView(segment.values) || isInView(shown[index - 1].values))) {
+      if (segment.duration_ms < FLASH_DURATION_LIMIT_MS && !isAnimated && segment.frame > recording.parsed_frame && (isInView(segment.values) || isInView(shown[index - 1].values)) && (isPainted(segment.values) || isPainted(shown[index - 1].values))) {
         found.push({ kind: "flash", piece: name, component, property: "shown", frame: segment.frame, at_ms: frames[segment.frame], said: `is ${segment.value} for ${Math.round(segment.duration_ms)} ms, then ${shown[index + 1].value} again` });
         break;
       }
