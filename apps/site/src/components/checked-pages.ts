@@ -180,7 +180,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Home", area: "Playing", path: "/", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, signed in", area: "Playing", path: "/", account: "Chat_Owl", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, returning", area: "Playing", path: "/", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
-  { name: "Home, long names", area: "Playing", path: "/", account: "Longest_Names_Here", shownStateName: "Home, returning", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Home, long names", area: "Playing", path: "/", account: "Longest_Names_Here", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, empty", area: "Playing", path: "/", account: "Empty_Handed", shownStateName: "Home, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Home, full", area: "Playing", path: "/", account: "Many_Things", shownStateName: "Home, returning", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Game page", area: "Playing", path: "/g/cave-crew", mainActionShows: "everywhere" },
