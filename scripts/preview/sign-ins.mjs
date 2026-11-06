@@ -22,7 +22,7 @@ export const SIGN_INS = [
   { username: "Loud_Lynx", about: "reported in Arena for a real-life threat and following after a block" },
   { username: "Paused_Maker", about: "a known-image match paused it: its account page says a person at Zaisma needs to look, and it can't make games or post" },
   { username: "Stopped_Fox", about: "its social side was turned off after a report: see /account#social and /friends" },
-  { username: "Card_Keeper", about: "a saved Visa 4242 and owns Straw Hat (granted): Tiny Farm's shop asks once in a new browser to confirm with the password, then buys Revive with one press there (no PIN, signed in just now, small spend), and Straw Hat says it's owned" },
+  { username: "Card_Keeper", about: "a saved Visa 4242 and owns Straw Hat (granted): Tiny Farm's shop buys Revive with one press (no confirm: no PIN, signed in just now, small spend), and Straw Hat says it's owned" },
   { username: "Pin_Keeper", about: "purchase PIN 246810 and no saved card: Tiny Farm's shop asks for the PIN on every buy once a card is saved, after adding a Test card" },
   { username: "Banned_Dev", about: "its developer side is banned: Your games says why, how to appeal and Export everything" },
   { username: "Closed_Player", about: "a closed account: its right password opens the page that says why and how to appeal" },

@@ -862,7 +862,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Who can publish ${SITE}/dashboard  (as Moss_Runner: Publishing opens with the beta; as Preview_Studio: as before) and
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
   Buy sheet       ${SITE}/g/tiny-farm?play  (its shop buttons call Zaisma.items.buy: Revive $1.99 (R$ 9,90 in Brazil), Straw Hat $4.99, Spring Valley $19.99, and Founders Badge,
-                  given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: a browser's first buy confirms with the password, then one press),
+                  given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
                   Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
   Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
