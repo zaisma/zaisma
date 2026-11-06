@@ -61,8 +61,8 @@ import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
 import { glassPane, icon, tag, type IconName } from "./components/foundations.ts";
-import { columns, grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
-import { shelf } from "./components/navigation.ts";
+import { columns, grid, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./components/layout.ts";
+import { gameRow } from "./components/navigation.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { banner, dropdown, gameCard, notice, sheet } from "./components/panes.ts";
 import { person } from "./components/people.ts";
@@ -497,7 +497,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   });
   const pane = (title: string, items: LayoutItem[], isTitleShown = true): Raw =>
     glassPane({ paneWidth: "full", label: title, body: stack({ items: [...(isTitleShown ? [{ kind: "words" as const, markup: html`<h2>${title}</h2>` }] : []), ...items] }) });
-  const coverCard = (otherGame: ShowGame): LayoutItem => ({
+  const coverCard = (otherGame: ShowGame): GridItem => ({
     kind: "block",
     markup: gameCard({ title: otherGame.title, picture: otherGame.cover_picture, href: `/g/${otherGame.slug}`, tintColor: otherGame.glass_tint_color, facts: { playerCount: otherGame.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? otherGame.playing_now_player_count : undefined, priceText: coverPriceText(otherGame, view.ownedPaidGameIds) } }),
   });
@@ -535,10 +535,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         }]) }]
       : []),
     ...(view.developerGames.length && developer
-      ? [{ kind: "block" as const, markup: glassPane({ paneWidth: "full", label: `More from ${developer.name}`, body: stackOfOne(shelf({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.map(coverCard) })) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.map(coverCard) }) }]
       : []),
     ...(view.likeGames.length
-      ? [{ kind: "block" as const, markup: glassPane({ paneWidth: "full", label: "More like this", body: stackOfOne(shelf({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.map(coverCard) })) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.map(coverCard) }) }]
       : []),
   ];
   // Overview, then Rooms (picking a room first is rare: Roblox keeps its servers a tab away) and Updates, each a tab showing its part alone.
