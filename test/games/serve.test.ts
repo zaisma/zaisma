@@ -1,7 +1,10 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { addTesterLink, blobKey, brotliKeyOf, createAccessGrant, createEntryGrant, endPreviewPasses, gameBySlug, manifestKey, revokeTesterLink, sha256Hex } from "@zaisma/core";
-import { isPlainHttpGameAddress, resolveGame } from "../../apps/games/src/index.ts";
+import worker, { isPlainHttpGameAddress, resolveGame } from "../../apps/games/src/index.ts";
+import { GAME_FILE_DOORS } from "../../apps/games/src/doors.ts";
+import { configuredRateLimit, countingRateLimiter } from "../rate-limits.ts";
+import gamesWranglerText from "../../apps/games/wrangler.jsonc?raw";
 
 const G = "https://games.example";
 
@@ -42,6 +45,20 @@ describe("game server", () => {
     expect(res.headers.get("permissions-policy")).toContain("camera=()");
     expect(res.headers.get("set-cookie")).toBeNull();
     expect(res.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("limits each address on every kind of game address", async () => {
+    expect(configuredRateLimit(gamesWranglerText, "LIMIT_BUILDING")).toEqual({ limit: 1000, period: 60 });
+    expect(Object.entries(GAME_FILE_DOORS).filter(([, door]) => !("counts" in door.limit && door.limit.counts === "address")).map(([name]) => name)).toEqual([]);
+    await addGame("counted-one", "live");
+    const limiter = countingRateLimiter(3);
+    const statuses: number[] = [];
+    for (const path of ["/counted-one/", "/counted-one/sfx/beep.mp3", "/counted-one/missing.png", "/counted-one/_zaisma/v1.js", "/no-such-game/x.js"]) {
+      const response = await worker.fetch(new Request(`${G}${path}`, { headers: { "cf-connecting-ip": "203.0.113.9" } }), { ...env, LIMIT_BUILDING: limiter } as never, createExecutionContext());
+      statuses.push(response.status);
+    }
+    expect(statuses.slice(3)).toEqual([429, 429]);
+    expect(new Set(limiter.keys)).toEqual(new Set(["game_files:203.0.113.9"]));
   });
 
   it("sends Strict-Transport-Security on a missing game's 404 too", async () => {

@@ -38,6 +38,7 @@ export * from "./compression.ts";
 export * from "./rooms.ts";
 export * from "./country-blocks.ts";
 export * from "./game-database.ts";
+export * from "./kept-room-restores.ts";
 export * from "./game-storage.ts";
 export * from "./hosting.ts";
 export * from "./credit.ts";

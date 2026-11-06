@@ -1051,7 +1051,7 @@ describe("Kept rooms on the developer's own server", () => {
     noah.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("noah") });
     await until(noah, "welcome");
     noah.say({ type: "message", data: "how" });
-    expect((await until(noah, "message")).data).toEqual({ stoneCount: 3, restored: { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: 0, savedVersionId: null }, isKept: true, roomCode: "KEPTWD" });
+    expect((await until(noah, "message")).data).toEqual({ stoneCount: 3, restored: { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: 0, savedVersionId: null, keptRoomRestore: null }, isKept: true, roomCode: "KEPTWD" });
 
     // room.end() ends it for good: its saved state goes.
     noah.say({ type: "message", data: "end" });
@@ -1059,6 +1059,87 @@ describe("Kept rooms on the developer's own server", () => {
     for (let tryCount = 0; tryCount < 50 && localRoomStates(file).read("KEPTWD"); tryCount++) await new Promise((r) => setTimeout(r, 20));
     expect(localRoomStates(file).read("KEPTWD")).toBeNull();
     await second.own.close();
+  });
+
+  it("keeps a kept room's copies, a minute's newest for a day and an hour's back to 30 days, and goes back and undoes from them", () => {
+    const states = localRoomStates(roomStateFile());
+    const write = (atMs: number, stoneCount: number, code = "KEPTAA", isKept = true) => states.write(code, { stateJson: JSON.stringify({ stoneCount }), matchPlayers: [], savedRoom: savedRoom(isKept), savedAtMs: atMs });
+    const nowMs = Date.now();
+    const twoDaysAgoMs = nowMs - 2 * DAY_MS - (nowMs % 3_600_000);
+    // Three in one old hour: only the newest stays once a later minute thins them.
+    write(twoDaysAgoMs, 1);
+    write(twoDaysAgoMs + 120_000, 2);
+    write(twoDaysAgoMs + 240_000, 3);
+    write(nowMs - 3_600_000, 4);
+    write(nowMs - 1_800_000, 5);
+    write(nowMs - 5000, 6);
+    // Ordinary rooms keep no copies.
+    write(nowMs - 3_600_000, 1, "PLAINA", false);
+    expect(states.restoreKeptRoom("PLAINA", nowMs - 3_600_000)).toEqual({ refusal: "no_kept_room" });
+    expect(states.keptRoomRestores("KEPTAA", nowMs)).toEqual({ earliestRestoreToAt: new Date(twoDaysAgoMs + 240_000).toISOString(), restores: [] });
+    expect(states.restoreKeptRoom("KEPTAA", twoDaysAgoMs + 1000, nowMs)).toMatchObject({ refusal: "bad_time", earliestRestoreToAt: new Date(twoDaysAgoMs + 240_000).toISOString() });
+
+    const { keptRoomRestore } = states.restoreKeptRoom("KEPTAA", nowMs - 2_000_000, nowMs);
+    expect(keptRoomRestore).toMatchObject({ id: expect.stringMatching(/^kept_room_restore_/), roomCode: "KEPTAA", undoesKeptRoomRestoreId: null, restoreToAt: new Date(nowMs - 2_000_000).toISOString() });
+    expect(JSON.parse(states.read("KEPTAA").stateJson)).toEqual({ stoneCount: 4 });
+    expect(states.read("KEPTAA").savedRoom.isKept).toBe(true);
+    expect(states.takeToldRestore("KEPTAA")).toMatchObject({ id: keptRoomRestore.id, erasedPlayerIds: [] });
+    expect(states.takeToldRestore("KEPTAA")).toBeNull();
+
+    const undone = states.undoKeptRoomRestore("KEPTAA", keptRoomRestore.id, nowMs);
+    expect(undone.keptRoomRestore).toMatchObject({ undoesKeptRoomRestoreId: keptRoomRestore.id });
+    expect(JSON.parse(states.read("KEPTAA").stateJson)).toEqual({ stoneCount: 6 });
+    expect(states.undoKeptRoomRestore("KEPTAA", "kept_room_restore_nosuch", nowMs)).toEqual({ refusal: "no_kept_room_restore" });
+    states.remove("KEPTAA");
+    expect(states.keptRoomRestores("KEPTAA", nowMs)).toBeNull();
+  });
+
+  it("goes back from a game server's call: players reconnect and onRestored hears", async () => {
+    const file = roomStateFile();
+    const world = defineGameServer({
+      ticksPerSec: 50,
+      stateSaveIntervalSec: 1,
+      setup: () => ({ stoneCount: 0, restored: null as unknown }),
+      onTick: () => {},
+      onJoin: (_state, _player, room) => room.setKept(true),
+      onRestored: (state, restoreInfo) => void (state.restored = restoreInfo),
+      onMessage(state, player, room, message) {
+        if (message === "build") state.stoneCount++;
+        room.send(player.id, { stoneCount: state.stoneCount, restored: state.restored });
+      },
+      async onRequest(_player: unknown, asked: any, server: any) {
+        if (asked.kind === "list") return server.listKeptRoomRestores(asked.roomCode);
+        if (asked.kind === "undo") return server.undoKeptRoomRestore(asked.roomCode, asked.keptRoomRestoreId!);
+        return server.restoreKeptRoom(asked.roomCode, { restoreToAt: asked.restoreToAt! });
+      },
+    });
+    // A world saved two minutes ago, which a copy keeps.
+    const nowMs = Date.now();
+    localRoomStates(file).write("WRLDAA", { stateJson: JSON.stringify({ stoneCount: 1, restored: null }), matchPlayers: [], savedRoom: savedRoom(true), savedAtMs: nowMs - 120_000, isSavedEmpty: true });
+    const own = startServer({ gameServer: world, gameSlug: "arena", port: 0, origins: [ORIGIN], issuerUrl: ISS, loadPassKeys: async () => [signing.publicKey], roomStateFile: file });
+    onTestFinished(() => void own.close?.());
+    await new Promise((r) => own.httpServer.once("listening", r));
+    const at = (own.httpServer.address() as { port: number }).port;
+    const ask = async (body: unknown) => {
+      const res = await fetch(`http://localhost:${at}/v1/requests/arena`, { method: "POST", headers: { "content-type": "text/plain", origin: ORIGIN }, body: JSON.stringify({ pass: await pass("server"), request: body }) });
+      return { status: res.status, answer: ((await res.json()) as any).answer };
+    };
+    const olivia = connect(ORIGIN, "/v1/rooms/arena/WRLDAA", at);
+    await olivia.open;
+    olivia.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("olivia") });
+    await until(olivia, "welcome");
+    olivia.say({ type: "message", data: "build" });
+    expect((await until(olivia, "message")).data).toMatchObject({ stoneCount: 2 });
+    const momentAt = new Date(nowMs - 60_000).toISOString();
+    const restored = await ask({ kind: "restore", roomCode: "WRLDAA", restoreToAt: momentAt });
+    expect(restored.answer).toMatchObject({ roomCode: "WRLDAA", restoreToAt: momentAt, undoesKeptRoomRestoreId: null });
+    const noah = connect(ORIGIN, "/v1/rooms/arena/WRLDAA", at);
+    await noah.open;
+    noah.say({ type: "hello", protocolVersionNumber: 1, pass: await pass("noah") });
+    await until(noah, "welcome");
+    noah.say({ type: "message", data: "how" });
+    expect((await until(noah, "message")).data).toMatchObject({ stoneCount: 1, restored: { keptRoomRestore: { id: restored.answer.id, erasedPlayerIds: [] } } });
+    expect((await ask({ kind: "list", roomCode: "WRLDAA" })).answer.restores.map((restore: { id: string }) => restore.id)).toEqual([restored.answer.id]);
   });
 
   it("deletes ordinary rooms' states older than a day and keeps kept rooms' and newer ones", () => {

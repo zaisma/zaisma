@@ -32,9 +32,19 @@ export function summaryLineOf({ attention_count, ahead_count }) {
   return ahead_count === 0 ? `${attentionText}.` : `${attentionText}, ${aheadText}.`;
 }
 
-const heroOf = (pageData) => `<header class="hero">${shieldOf(pageData.shield_state, "zaisma")}<h1>${escapeHtml(summaryLineOf(pageData))}</h1></header>`;
+/** The line under the summary while thin spots are left: work ahead, never a crack. */
+export const thinLineOf = (thinWayCount) => `${plural(thinWayCount, "way", "ways")} to break would reach many games or money past one lock.`;
+
+const heroOf = (pageData) => `<header class="hero">${shieldOf(pageData.shield_state, "zaisma")}<h1>${escapeHtml(summaryLineOf(pageData))}</h1>${pageData.thin_ways.length ? `<p class="hero-line">${thinLineOf(pageData.thin_ways.length)}</p>` : ""}</header>`;
 
 const sectorsOf = (pageData, idPrefix) => `<nav class="sectors" aria-label="Sectors">${pageData.sectors.map((sector) => `<a class="sector" href="#${idPrefix}promise-${sector.sector_id}">${shieldOf(sector.shield_state, sector.sector_id)}<b>${escapeHtml(sector.sector_name)}</b></a>`).join("")}</nav>`;
+
+const thinRowOf = (way) => `<li class="thin"><p class="line">${escapeHtml(way.way_line)}</p>${marksOf(way)}<p class="sub">${escapeHtml(way.sector_name)}.</p></li>`;
+
+function thinWaysSectionOf({ thin_ways }, idPrefix) {
+  if (!thin_ways.length) return "";
+  return `<section class="section" id="${idPrefix}thin-ways"><h2>Behind one lock</h2><p class="sub">Not cracks, work ahead: each would reach many games or money with one lock or less in the way, and no item answers it yet.</p><ul class="rows">${thin_ways.map(thinRowOf).join("")}</ul></section>`;
+}
 
 const attentionRowOf = (item) => `<li class="row">${shieldOf(item.shield_state, item.sector_id)}<div class="row-text"><p class="line">${escapeHtml(item.item_line)}</p><p class="goal">${escapeHtml(item.goal_line)}</p>${marksOf(item)}<p class="sub">${escapeHtml(item.sector_name)}. ${STANDING_WORDS[item.item_standing]}.</p></div></li>`;
 
@@ -60,7 +70,7 @@ function promiseOf(sector, idPrefix) {
 const promisesOf = (pageData, idPrefix) => `<section class="section"><h2>Promises</h2><div class="rows">${pageData.sectors.map((sector) => promiseOf(sector, idPrefix)).join("")}</div></section>`;
 
 function workAheadOf({ work_ahead }) {
-  const rows = [["Fix now", work_ahead.fix_now_count], ["Harden", work_ahead.harden_count], ["Fix soon", work_ahead.fix_soon_count], ["Watch", work_ahead.watch_count], ["Questions with no proof yet", work_ahead.question_count], ["Failures from the grid, for the next review", work_ahead.grid_failure_count], ["Pattern findings, for the next review", work_ahead.pattern_finding_count], ["Lines whose code changed, for the next review", work_ahead.changed_code_count]];
+  const rows = [["Fix now", work_ahead.fix_now_count], ["Harden", work_ahead.harden_count], ["Fix soon", work_ahead.fix_soon_count], ["Watch", work_ahead.watch_count], ["Questions with no proof yet", work_ahead.question_count], ["Failures from the grid, for the next review", work_ahead.grid_failure_count], ["Pattern findings, for the next review", work_ahead.pattern_finding_count], ["Lines whose code changed, for the next review", work_ahead.changed_code_count], ["Ways behind one lock, with no item yet", work_ahead.thin_way_count]];
   return `<section class="section"><h2>Work ahead</h2><dl class="counts">${rows.map(([label, count]) => `<div class="count${count ? "" : " is-zero"}"><dt>${label}</dt><dd>${count}</dd></div>`).join("")}</dl></section>`;
 }
 
@@ -68,7 +78,7 @@ const legendOf = () => `<details class="legend"><summary>What the pictures mean<
 
 const footOf = ({ last_review_date }) => `<footer class="foot"><p>${last_review_date ? `Last daily review: ${escapeHtml(last_review_date)}.` : "No daily review yet."}</p>${legendOf()}</footer>`;
 
-const scenarioBodyOf = (pageData, idPrefix) => `${heroOf(pageData)}${sectorsOf(pageData, idPrefix)}${attentionOf(pageData)}${promisesOf(pageData, idPrefix)}${workAheadOf(pageData)}${footOf(pageData)}`;
+const scenarioBodyOf = (pageData, idPrefix) => `${heroOf(pageData)}${sectorsOf(pageData, idPrefix)}${thinWaysSectionOf(pageData, idPrefix)}${attentionOf(pageData)}${promisesOf(pageData, idPrefix)}${workAheadOf(pageData)}${footOf(pageData)}`;
 
 const pageShell = (css, inner) => `<title>Zaisma Security Map</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n<style>\n${css}</style>\n${artSprite()}\n<main class="page">${inner}</main>\n`;
 

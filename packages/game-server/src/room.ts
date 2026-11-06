@@ -718,11 +718,19 @@ export interface RoomReach {
 }
 
 /** What the game server reaches outside rooms besides RoomReach (server.getRoom, kickFromRoom, endRoom), its calls already checked. */
+export type { KeptRoomRestore, KeptRoomRestoreAnswer, KeptRoomRestoreList } from "./room-calls.ts";
+import type { KeptRoomRestoreAnswer, KeptRoomRestoreList } from "./room-calls.ts";
+
 export interface ServerRoomReach extends RoomReach {
   getRoom(roomCode: string): Promise<{ room: LiveRoom; players: RoomPlayer[] } | null>;
   kickFromRoom(roomCode: string, playerId: string, message: string, isKeptOut: boolean): Promise<{ isDone: boolean }>;
   endRoom(roomCode: string, message: string | undefined): Promise<{ isDone: boolean }>;
+  restoreKeptRoom(roomCode: string, restoreToAtMs: number): Promise<KeptRoomRestoreAnswer>;
+  undoKeptRoomRestore(roomCode: string, keptRoomRestoreId: string): Promise<KeptRoomRestoreAnswer>;
+  listKeptRoomRestores(roomCode: string): Promise<KeptRoomRestoreList | null>;
 }
+
+
 
 /**
  * What onRestored hears: when the state it came back with was saved (an ISO time), how many seconds of
@@ -733,15 +741,50 @@ export interface RestoreInfo {
   savedAt: string;
   lostDurationSec: number;
   savedVersionId: string | null;
+  /** The developer's restore that put this kept room's world back at an earlier moment, or null for any other restart. Tell your players your own way. */
+  keptRoomRestore: KeptRoomRestoreInfo | null;
 }
+
+/**
+ * What a kept room's onRestored hears when its world went back to an earlier moment (server.restoreKeptRoom, the API): the
+ * restore's ID, the moment, when it happened and the restore it undid, if any, with ISO times. erasedPlayerIds are players
+ * erased since the moment: the world's state came back with them in it, so drop them from it here.
+ */
+export interface KeptRoomRestoreInfo {
+  /** The restore's ID, for server.undoKeptRoomRestore; null for a deleted world brought back from its last copy, which has no undo. */
+  id: string | null;
+  restoreToAt: string;
+  restoredAt: string;
+  undoesKeptRoomRestoreId: string | null;
+  erasedPlayerIds: string[];
+}
+
+
 
 /**
  * A restored room's restoreInfo, from when its state was saved and the version that saved it. A state
  * saved as the room emptied (isSavedEmpty) lost nothing, however long ago: a kept world waking after a week
  * reads savedAt for the time that passed.
  */
-export function restoreInfoOf(savedAtMs: number, nowMs = Date.now(), savedVersionId: string | null = null, isSavedEmpty = false): RestoreInfo {
-  return { savedAt: new Date(savedAtMs).toISOString(), lostDurationSec: isSavedEmpty ? 0 : Math.max(0, Math.round((nowMs - savedAtMs) / 1000)), savedVersionId };
+export function restoreInfoOf(
+  savedAtMs: number,
+  nowMs = Date.now(),
+  savedVersionId: string | null = null,
+  isSavedEmpty = false,
+  toldRestore: { id: string | null; restoreToAtMs: number; restoredAtMs: number; undoesKeptRoomRestoreId: string | null; erasedPlayerIds: string[] } | null = null,
+): RestoreInfo {
+  return {
+    savedAt: new Date(savedAtMs).toISOString(),
+    lostDurationSec: isSavedEmpty ? 0 : Math.max(0, Math.round((nowMs - savedAtMs) / 1000)),
+    savedVersionId,
+    keptRoomRestore: toldRestore && {
+      id: toldRestore.id,
+      restoreToAt: new Date(toldRestore.restoreToAtMs).toISOString(),
+      restoredAt: new Date(toldRestore.restoredAtMs).toISOString(),
+      undoesKeptRoomRestoreId: toldRestore.undoesKeptRoomRestoreId,
+      erasedPlayerIds: toldRestore.erasedPlayerIds,
+    },
+  };
 }
 
 /**
@@ -1419,6 +1462,21 @@ export function newServer(serverParts: Pick<Server, "database" | "secrets" | "ve
     endRoom: (roomCode, message) => {
       const reach = reachFor("server.endRoom");
       return reach.endRoom(roomCodeOf(roomCode, "server.endRoom"), checks.checkEnd(message));
+    },
+    restoreKeptRoom: async (roomCode, restoreOptions) => {
+      const call = "server.restoreKeptRoom";
+      const reach = reachFor(call);
+      return checks.keptRoomRestoreOf(await reach.restoreKeptRoom(roomCodeOf(roomCode, call), checks.checkRestoreToAt(restoreOptions, call)), call);
+    },
+    undoKeptRoomRestore: async (roomCode, keptRoomRestoreId) => {
+      const call = "server.undoKeptRoomRestore";
+      const reach = reachFor(call);
+      return checks.keptRoomRestoreOf(await reach.undoKeptRoomRestore(roomCodeOf(roomCode, call), checks.checkKeptRoomRestoreId(keptRoomRestoreId, call)), call);
+    },
+    listKeptRoomRestores: async (roomCode) => {
+      const call = "server.listKeptRoomRestores";
+      const listed = await reachFor(call).listKeptRoomRestores(roomCodeOf(roomCode, call));
+      return checks.keptRoomRestoreListOf(listed, call);
     },
   };
 }

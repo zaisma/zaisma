@@ -1,4 +1,5 @@
 import { isPastLevel,
+  ERROR_CODES,
   isStrangerChatWaiting,
   ACCESS_AREAS,
   ACCOUNT_AREAS,
@@ -1870,6 +1871,7 @@ ${email ? html`<p class="lead">${email}</p>` : ""}
 ${banScopeOf(account) === "developer"
       ? html`<p class="note" role="status">${accountBanned({ banScope: "developer", banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason }).messageForPeople} Your games are down; you can still play, and <a href="/dashboard">export your games</a>. Think this is a mistake? Write to <a href="mailto:${APPEAL_EMAIL}?subject=${encodeURIComponent(`Appeal: ${account.username}`)}">${APPEAL_EMAIL}</a> with your username. A person reads every appeal and answers.</p>`
       : ""}
+${account.safety_paused_at_ms !== null && !banScopeOf(account) ? html`<p class="note" role="status">${ERROR_CODES.account_paused.messageForPeople} Chat and friend requests wait too; playing still works.</p>` : ""}
 ${securityAlertsBox(activity.unseen_security_alerts, "/account")}
 ${isAskingForEmail ? emailAskBox({ isConfirmed, backTo: "/account" }) : ""}
 ${noticeAtMs !== null ? wrongPasswordNotice(noticeAtMs, !email && !passkeys.length) : ""}

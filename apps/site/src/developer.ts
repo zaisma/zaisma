@@ -234,6 +234,7 @@ import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
 import { keptRoomsRoute } from "./kept-rooms-api.ts";
+import { keptRoomRestoresRoute } from "./kept-room-restores-api.ts";
 import { roomMessagesRoute, roomsRoute } from "./room-messages-api.ts";
 import { checkSpendingConfirmed, creditRoute } from "./credit-api.ts";
 import { creditPlanRoute } from "./credit-plan-api.ts";
@@ -252,6 +253,7 @@ import { playingNowAnswer } from "./live-world.ts";
 import { whatsOnAnswer } from "./whats-on.ts";
 import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
+import { reportMatch } from "./ncmec.ts";
 import { KNOWN_IMAGE_ALERT, aiReviewSpeedFor, holdForPerson, imageMatcher, passVersionsHeldForGore, publishFacts, publishRouteOf, publishWithReview, pruneVersions, replaceWaitingVersions, requestAiReview, routePublish, usualAiReviewDurations, type PublishFacts } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
@@ -319,6 +321,12 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   DELETE /api/dev/games/:slug/kept-rooms/:room_code   delete one's world: players are sent out, and it waits a week
  *   POST   /api/dev/games/:slug/kept-rooms/:room_code/bring-back   bring a waiting world back
  *   POST   /api/dev/games/:slug/kept-rooms/:room_code/erase-now    erase a waiting world at once, with a passkey tap
+ *   GET    /api/dev/games/:slug/kept-rooms/:room_code/restores     what a world can go back to, and its restores (kept-room-restores-api.ts)
+ *   POST   /api/dev/games/:slug/kept-rooms/:room_code/restores     a world back to a time: { "restore_to_at" }
+ *   POST   /api/dev/games/:slug/kept-rooms/:room_code/restores/:kept_room_restore_id/undo   undo a world's restore
+ *   POST   /api/dev/games/:slug/kept-room-restores                 every world back to a time: { "restore_to_at" }
+ *   GET    /api/dev/games/:slug/kept-room-restores/:kept_room_restore_batch_id        how that went
+ *   POST   /api/dev/games/:slug/kept-room-restores/:kept_room_restore_batch_id/undo   undo it
  *   GET    /api/dev/games/:slug/rooms          the game's live rooms, and one with who's in it (see room-messages-api.ts)
  *   POST   /api/dev/games/:slug/rooms/:room_code/messages|kick|end   a room message to one, remove a player, end it
  *   POST   /api/dev/games/:slug/room-messages  a room message to every room, now or at send_at; GET lists the scheduled, DELETE cancels one
@@ -371,6 +379,8 @@ export interface Caller {
   /** How far Zaisma banned the account (bans.ts), when, and the why the developer reads (null for child safety); banScope null when it isn't banned. */
   banScope: BanScope | null;
   bannedAtMs: number | null;
+  /** When a known-image match paused the account (ncmec.ts): it can't make, upload, publish or post until a person clears it; null when it isn't paused. */
+  safetyPausedAtMs: number | null;
   banReasonForDeveloper: string | null;
   /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts), connect a Stripe account for sales (stripe-account-api.ts) and delete a game other people played (storage-api.ts). */
   isPasskeyConfirmed?: boolean;
@@ -511,6 +521,7 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
     canPublish: account.can_publish === 1,
     banScope: banScopeOf(account),
     bannedAtMs: account.banned_at_ms,
+    safetyPausedAtMs: account.safety_paused_at_ms,
     banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason,
   };
 }
@@ -530,6 +541,13 @@ export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDev
   const words = caller.banReasonForDeveloper ? `Zaisma banned this account's developer side for breaking the content rules: ${caller.banReasonForDeveloper.replace(/\.$/, "")}.` : "Zaisma banned this account's developer side for breaking Zaisma's rules.";
   return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; to appeal, they write to safety@zaisma.com with the username." });
 }
+
+/** The forum calls that post something, refused while the account is paused: votes, follows and bookmarks still work. */
+const PAUSED_FORUM_ROUTES = new Set(["POST /forum", "POST /forum/:topic_id/posts", "POST /forum/media"]);
+
+/** The account_paused refusal: a person needs to look, never why (telling could warn someone sharing abuse material). */
+export const accountPaused = (): ApiError =>
+  new ApiError("account_paused", { message: "A person at Zaisma needs to look at this account. Until then it can't make, upload or publish games, or post on the forum.", fix: "Tell the developer a person at Zaisma will look; don't retry until then. Playing still works. To ask, message safety@zaisma.com with the username." });
 
 /** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
 export async function apiResponse(env: Env, caller: Caller, path: string): Promise<Response> {
@@ -918,6 +936,12 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "DELETE", path: "/games/:slug/kept-rooms/:room_code", answers: fromTool("delete_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/bring-back", answers: fromTool("bring_back_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/erase-now", answers: fromTool("erase_kept_room_now"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/kept-rooms/:room_code/restores", answers: fromTool("list_kept_room_restores"), reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/restores", answers: fromTool("restore_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("restore_to_at") } }),
+  call({ method: "POST", path: "/games/:slug/kept-rooms/:room_code/restores/:kept_room_restore_id/undo", answers: fromTool("undo_kept_room_restore"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game", kept_room_restore_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/kept-room-restores", answers: fromTool("restore_every_kept_room"), reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
+  call({ method: "GET", path: "/games/:slug/kept-room-restores/:kept_room_restore_batch_id", answers: fromTool("get_kept_room_restore_batch"), reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", kept_room_restore_batch_id: "in_game" } }),
+  call({ method: "POST", path: "/games/:slug/kept-room-restores/:kept_room_restore_batch_id/undo", answers: fromTool("undo_every_kept_room_restore"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", kept_room_restore_batch_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/rooms", answers: fromTool("list_rooms"), reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("labels", "cursor") }),
   call({ method: "GET", path: "/games/:slug/rooms/:room_code", answers: fromTool("get_room"), reaches: "game", access: needs("game_access", "read"), pathParts: { slug: "game", room_code: "in_game" } }),
   call({ method: "POST", path: "/games/:slug/rooms/:room_code/messages", answers: fromTool("send_room_message"), reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", room_code: "in_game" }, body: { inputs: plainInputs("message") } }),
@@ -1074,6 +1098,7 @@ export interface CheckedCall {
 async function checkCall(request: Request, env: Env, path: string, apiRoute: ApiRoute, caller: Caller): Promise<CheckedCall> {
   checkAccess(apiRoute, caller);
   if (caller.banScope && !(caller.banScope === "developer" && BANNED_DEVELOPER_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountBanned(caller);
+  if (caller.safetyPausedAtMs !== null && (apiRoute.isPublishing || PAUSED_FORUM_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountPaused();
   if (apiRoute.isPublishing && !caller.canPublish) {
     throw new ApiError("publishing_not_open", {
       message: "Publishing opens with the beta. Until then, only accounts Zaisma adds can make, upload and publish games.",
@@ -1219,7 +1244,7 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
           { tool: "connect_stripe_account", arguments: {}, after_sec: null, reason: "Or a Stripe account that can take payments opens them too. Ask the developer first." },
         ]
       : [];
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, safety_paused_at: iso(caller.safetyPausedAtMs), credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
   if (apiRoute.path === "/storage") return answer(...(await storageRoute(env, method, checked.body, caller)));
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
@@ -1339,6 +1364,7 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
   if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
   if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, { ...caller, banScope: null }, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
+  if (apiRoute.path.startsWith("/games/:slug/kept-room-restores") || apiRoute.path.startsWith("/games/:slug/kept-rooms/:room_code/restores")) return answer(...(await keptRoomRestoresRoute(env, game!, apiRoute.path, caller, checked, request.method)));
   if (apiRoute.path.startsWith("/games/:slug/kept-rooms")) return answer(...(await keptRoomsRoute(request, env, game!, pathValues.room_code, caller)));
   if (apiRoute.path.startsWith("/games/:slug/rooms")) return answer(...(await roomsRoute(request, env, game!, apiRoute.path, pathValues.room_code, caller, checked)));
   if (apiRoute.path.startsWith("/games/:slug/room-messages")) return answer(...(await roomMessagesRoute(request, env, game!, pathValues.scheduled_room_message_id, caller, checked)));
@@ -1529,6 +1555,8 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
       await logCallerEvent(env, caller, "image_refused", { gameId: game.id, subjectName: kind });
       await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+      const matchMessage = matched.findings.filter((finding) => finding.code === KNOWN_IMAGE_CODE).map((finding) => finding.message).join(" ") || null;
+      await reportMatch(env, { where: `a ${kind} image for ${game.slug}`, gameId: game.id, versionId: null, accountId: caller.accountId, incidentUrl: `${env.SITE_ORIGIN}/g/${game.slug}`, connectionAddress: caller.where.connectionAddress, uploadedAtMs: Date.now(), media: [{ path: `${kind} image`, contentType: sniffed.type, matchMessage, isPubliclyAvailable: false, bytes }] });
       throw new ApiError("image_refused", { message: "This image can't be used.", field: "image_base64", fix: "Use a different image." });
     }
     const existing = await imagesForGame(env.DB, game.id);
@@ -2535,6 +2563,10 @@ const HISTORY: Record<string, string | null> = {
   "secret-deleted": "Deleted a secret",
   "kept-room-deleted": "Deleted a kept room",
   "kept-room-brought-back": "Brought a deleted kept room back",
+  "kept-room-restored": "Restored a kept room's world to an earlier time",
+  "kept-room-restore-undone": "Undid a restore of a kept room's world",
+  "kept-rooms-restored": "Restored every kept room's world to an earlier time",
+  "kept-rooms-restore-undone": "Undid a restore of every kept room's world",
   "kept-room-erased-now": "Erased a kept room at once",
   "room-player-kicked": "Removed a player from a live room",
   "room-ended": "Ended a live room",

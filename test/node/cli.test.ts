@@ -248,7 +248,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "ai-review", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "kept-rooms bring-back", "kept-rooms erase-now", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "play-locally", "upload", "shader", "versions", "publish", "ai-review", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "items", "items set", "items remove", "kept-rooms", "kept-rooms delete", "kept-rooms bring-back", "kept-rooms restore", "kept-rooms undo-restore", "kept-rooms restores", "kept-rooms restore-all", "kept-rooms restore-all-status", "kept-rooms undo-restore-all", "kept-rooms erase-now", "rooms", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -652,10 +652,34 @@ describe("kept rooms", () => {
       { room_code: "H4RB9T", name: "Creative Build", saved_size_bytes: 12_500_000, saved_at: "2026-10-20T18:00:00.000Z", last_played_at: "2026-10-20T18:00:00.000Z", created_at: "2026-10-13T18:00:00.000Z" },
       { room_code: "Z2W8PD", name: null, saved_size_bytes: 0, saved_at: null, last_played_at: null, created_at: "2026-10-20T17:59:00.000Z" },
     ],
+    deleted_kept_rooms: [],
+    deleted_kept_room_count: 0,
     kept_rooms_size_bytes: 12_500_000,
     storage_size_bytes: 12_600_000,
     maximum_storage_size_bytes: 10 * 1024 ** 3,
   };
+
+  it("restores a world to a time, undoes it, and says what's next", async () => {
+    const restore = { id: "kept_room_restore_8f3k2m9q1x7c4v6b0n5z", room_code: "H4RB9T", restore_to_at: "2026-10-18T14:04:00.000Z", restored_at: "2026-10-18T18:00:00.000Z", undoes_kept_room_restore_id: null, kept_room_restore_batch_id: null, undo_expires_at: "2026-11-17T18:00:00.000Z" };
+    answers["POST /games/sky-hopper/kept-rooms/H4RB9T/restores"] = { status: 200, body: { kept_room_restore: restore, live_version_published_since: { version_id: "version_1", published_at: "2026-10-18T15:00:00.000Z", message: "The live version went live after this moment." }, next_steps: [] } };
+    const result = await zaisma(["kept-rooms", "restore", "sky-hopper", "H4RB9T", "2026-10-18T14:04:00Z"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "POST", path: "/games/sky-hopper/kept-rooms/H4RB9T/restores", body: { restore_to_at: "2026-10-18T14:04:00Z" } }]);
+    expect(result.stdout).toContain("Restored H4RB9T of sky-hopper to 2026-10-18T14:04:00.000Z.");
+    expect(result.stdout).toContain("The live version went live after this moment.");
+    expect(result.stdout).toContain(`zaisma kept-rooms undo-restore sky-hopper H4RB9T ${restore.id}`);
+  });
+
+  it("restores every world, and reads how it's going", async () => {
+    const batch = { id: "kept_room_restore_batch_8f3k2m9q1x7c4v6b0n5z", restore_to_at: "2026-10-18T14:04:00.000Z", started_at: "2026-10-18T18:00:00.000Z", finished_at: null, undoes_kept_room_restore_batch_id: null, undo_expires_at: "2026-11-17T18:00:00.000Z", kept_room_count: 10, restored_room_count: 3, skipped_room_count: 0, failed_room_count: 1, failed_room_codes: ["H4RB9T"] };
+    answers["POST /games/sky-hopper/kept-room-restores"] = { status: 202, body: { kept_room_restore_batch: batch, live_version_published_since: null, next_steps: [] } };
+    const result = await zaisma(["kept-rooms", "restore-all", "sky-hopper", "2026-10-18T14:04:00Z"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([{ method: "POST", path: "/games/sky-hopper/kept-room-restores", body: { restore_to_at: "2026-10-18T14:04:00Z" } }]);
+    expect(result.stdout).toContain("3 of 10 back");
+    expect(result.stdout).toContain("Failed: H4RB9T");
+    expect(result.stdout).toContain(`zaisma kept-rooms restore-all-status sky-hopper ${batch.id}`);
+  });
 
   it("lists a game's kept rooms with their sizes and the game's storage, or the answer as-is with --json", async () => {
     answers["GET /games/sky-hopper/kept-rooms"] = { status: 200, body: keptRooms };
@@ -696,7 +720,7 @@ describe("kept rooms", () => {
     answers["POST /games/sky-hopper/kept-rooms/K7Q2MX/bring-back"] = { status: 200, body: { is_brought_back: true, next_steps: [] } };
     expect((await zaisma(["kept-rooms", "bring-back", "sky-hopper", "K7Q2MX"])).stdout).toContain("is back, as it was");
     answers["POST /games/sky-hopper/kept-rooms/K7Q2MX/erase-now"] = { status: 200, body: { is_erased: true, next_steps: [] } };
-    expect((await zaisma(["kept-rooms", "erase-now", "sky-hopper", "K7Q2MX"])).stdout).toContain("for good");
+    expect((await zaisma(["kept-rooms", "erase-now", "sky-hopper", "K7Q2MX"])).stdout).toContain("Its last copy can bring it back");
     expect(calls.slice(-2).map((call) => call.path)).toEqual(["/games/sky-hopper/kept-rooms/K7Q2MX/bring-back", "/games/sky-hopper/kept-rooms/K7Q2MX/erase-now"]);
   });
 

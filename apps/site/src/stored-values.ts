@@ -112,6 +112,7 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "room_message_types.message_type", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "deleted_kept_rooms.name", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "live_rooms.labels", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // A send to every room scheduled for later: plain JSON the game server reads, never shown on a page; the API answers it as JSON.
   { stored: "scheduled_room_messages.room_message_json", format: "escaped_text", source: "developer", checked_by: checkedIn("packages/core/src/room-messages.ts", "checkRoomMessage"), saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -182,6 +183,9 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "chat_reviews.text", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.recent_texts_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.ai_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.details_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.ncmec_report_number", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.last_error", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   // What's on's events and news for players, posted through the admin MCP.
   { stored: "whats_on_entries.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
   { stored: "whats_on_entries.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
@@ -218,7 +222,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "games.visibility_after_ai_review", "versions.ai_review_speed", "versions.ai_review_waiting_reason",
   // What the AI review's readers found: only Zaisma's code writes it, and it's only read back into the judge's brief.
   "read_files.evidence_items",
-  "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
+  "accounts.color_theme", "accounts.chat_stopped_reason", "ncmec_reports.report_source", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
@@ -227,7 +231,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "account_watch_items.service_name", "account_watch_kinds.service_name", "account_watch_failures.service_name",
   // What Zaisma's code makes or copies from a checked value: slugs and usernames, content types it sniffed, colors it measured, placeholders it drew, places Cloudflare names, its own keys and records, its own accounts' members and keys (account-watch.ts, told only to Julius, never on a page).
   "api_keys.game_slugs", "connected_app_codes.game_slugs", "webhooks.game_slugs", "retired_game_slugs.slug", "forum_mentions.name", "forum_media.content_type", "game_images.content_type",
-  "game_images.average_color", "game_shaders.average_color", "game_images.placeholder_data_url", "game_shaders.placeholder_data_url", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
+  "kept_room_restores.undo_bookmark", "game_images.average_color", "game_shaders.average_color", "game_images.placeholder_data_url", "game_shaders.placeholder_data_url", "game_shaders.quality_checks", "live_rooms.country", "live_rooms.continent", "precedents.created_by", "review_precedents.created_by", "database_restores.undo_bookmark",
   "domains.hostname", "alert_notices.alert_subject", "account_watch_items.item_label", "file_moves.bucket_name", "versions.r2_prefix", "webhook_deliveries.event_json", "webhooks.signing_secret", "webhooks.sealed_signing_secret", "tester_links.sealed_token", "tester_links.token_sha256", "backup_runs.failure_message", "backup_failed_keys.bucket_name", "backup_failed_keys.failure_message", "restore_runs.failure_message", "restore_kind_counts.key_kind", "stripe_connect_states.state",
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
   // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.

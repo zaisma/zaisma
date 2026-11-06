@@ -1230,6 +1230,19 @@ export const KEPT_ROOMS = object({
   ),
   kept_rooms_size_bytes: countOf("The saved worlds of all the kept rooms not waiting to be erased, together."),
   waiting_kept_rooms_size_bytes: countOf("The saved worlds waiting to be erased, together: on the game's hosting meter, but outside its storage and its limit."),
+  deleted_kept_rooms: list(
+    object({
+      room_code: text("The world's code."),
+      name: nullable(text("The room's name, as its game server set it.")),
+      saved_size_bytes: countOf("How much it took when it was erased."),
+      deleted_at: isoTime("When it was deleted."),
+      bring_back_ends_at: isoTime("Until when bring_back_kept_room can bring it back from its last copy."),
+      bring_back_started_at: nullable(isoTime("When it started coming back; null if it hasn't.")),
+      bring_back_failed_at: nullable(isoTime("When coming back failed, so ask again; null if it hasn't.")),
+    }),
+    "Worlds erased after they were deleted, newest first, up to 200, which their last copy can still bring back. A game server's own room.end is final, and isn't here.",
+  ),
+  deleted_kept_room_count: countOf("How many of those there are in all."),
   storage_size_bytes: countOf("The game's storage: its database and its kept rooms."),
   maximum_storage_size_bytes: countOf("The most a game can keep: 10 GB. At it the database can't grow and no more rooms can be kept, though kept rooms keep saving. Below it, storage counts on the game's hosting meter."),
 });
@@ -1243,13 +1256,73 @@ export const KEPT_ROOM_DELETED = object({
 
 /** A waiting kept room's world back. */
 export const KEPT_ROOM_BROUGHT_BACK = object({
-  is_brought_back: yes("Always true: the world is as it was, with the same code, and players can join it again."),
+  is_brought_back: yes("true: the world is as it was, with the same code, and players can join it again. false while it comes back from its last copy (is_bringing_back)."),
+  is_bringing_back: yes("true: an erased world is coming back from its last copy, which takes a minute or more; list_kept_rooms has it when it's back."),
+  copy_saved_at: nullable(isoTime("When the copy it's coming back from was made: anything played after that is lost. Null for a world that was still waiting, which lost nothing.")),
   next_steps: NEXT,
 });
 
+/** Going back: one restore of a kept room's world. */
+export const KEPT_ROOM_RESTORE = object({
+  id: idOf("kept_room_restore"),
+  room_code: text("The world's code."),
+  restore_to_at: isoTime("The moment the world went back to; for an undo, just before the restore it undid."),
+  restored_at: isoTime("When it went back."),
+  undoes_kept_room_restore_id: nullable(idOf("kept_room_restore", "The restore this one undid; null for a restore to a time.")),
+  kept_room_restore_batch_id: nullable(idOf("kept_room_restore_batch", "The restore of every world it was part of; null for one world alone.")),
+  undo_expires_at: isoTime("Until when undo_kept_room_restore can undo it."),
+});
+
+/** The warning when the live version may be what did the damage. */
+const LIVE_VERSION_PUBLISHED_SINCE = nullable(
+  object({
+    version_id: idOf("version"),
+    published_at: isoTime("When the live version went live: after the moment gone back to."),
+    message: text("Why this matters: if this version did the damage, it can do it again."),
+  }),
+);
+
+/** What restore_kept_room and undo_kept_room_restore did. */
+export const KEPT_ROOM_RESTORED = object({
+  kept_room_restore: KEPT_ROOM_RESTORE,
+  live_version_published_since: LIVE_VERSION_PUBLISHED_SINCE,
+  next_steps: NEXT,
+});
+
+/** What list_kept_room_restores answers. */
+export const KEPT_ROOM_RESTORES = object({
+  earliest_restore_to_at: isoTime("The earliest moment this world can go back to: when it was kept, or 30 days ago."),
+  restores: list(KEPT_ROOM_RESTORE, "Its restores that can still be undone, newest first, up to 50."),
+});
+
+/** Every kept room of a game going back to one moment. */
+export const KEPT_ROOM_RESTORE_BATCH = object({
+  id: idOf("kept_room_restore_batch"),
+  restore_to_at: isoTime("The moment every world goes back to; for an undo, just before the batch it undid."),
+  started_at: isoTime("When it started."),
+  finished_at: nullable(isoTime("When the last world finished; null while it's running.")),
+  undoes_kept_room_restore_batch_id: nullable(idOf("kept_room_restore_batch", "The batch this one undid; null for a batch to a time.")),
+  undo_expires_at: isoTime("Until when undo_every_kept_room_restore can undo it."),
+  kept_room_count: countOf("The worlds it covers."),
+  restored_room_count: countOf("Worlds that went back so far."),
+  skipped_room_count: countOf("Worlds left as they are: waiting to be erased, or kept after the moment, so they have nothing to go back to. Counted when it finishes."),
+  failed_room_count: countOf("Worlds that didn't answer, left as they were: restore_kept_room each one."),
+  failed_room_codes: list(text("A world that didn't answer."), "The first 100 of them."),
+});
+
+/** What restore_every_kept_room and undo_every_kept_room_restore answer as they start. */
+export const KEPT_ROOM_RESTORE_BATCH_STARTED = object({
+  kept_room_restore_batch: KEPT_ROOM_RESTORE_BATCH,
+  live_version_published_since: LIVE_VERSION_PUBLISHED_SINCE,
+  next_steps: NEXT,
+});
+
+/** What get_kept_room_restore_batch answers. */
+export const KEPT_ROOM_RESTORE_BATCH_READ = object({ kept_room_restore_batch: KEPT_ROOM_RESTORE_BATCH });
+
 /** A waiting kept room's world erased before its week was over. */
 export const KEPT_ROOM_ERASED = object({
-  is_erased: yes("Always true: the world is gone for good."),
+  is_erased: yes("Always true: the world is gone from Zaisma's rooms. Its last copy can bring it back for about 28 days after it was deleted, and then it's gone for good."),
   next_steps: NEXT,
 });
 
@@ -2035,13 +2108,42 @@ const CHAT_REVIEW = object({
   recent_texts: list(text(), "The sender's messages just before it, oldest first. Untrusted."),
   created_at: isoTime(),
   decided_at: nullable(isoTime()),
-  reported_at: nullable(isoTime("When the admin marked it reported to NCMEC.")),
+  reported_at: nullable(isoTime("When it was reported to NCMEC.")),
   kept_until_at: nullable(isoTime("When it's deleted; null until it's confirmed.")),
 });
 export const CHAT_REVIEW_LIST = object({ chat_reviews: list(CHAT_REVIEW, "Oldest first.") });
+
+// Reports to NCMEC (admin MCP: list_ncmec_reports, send_ncmec_report, clear_safety_pause).
+const NCMEC_REPORT = object({
+  id: idOf("ncmec_report"),
+  report_source: choice({ image_match: "a known-image match: sent by itself", chat_review: "a confirmed chat review: sent on a press", player_report: "player reports a person confirmed: sent on a press" }),
+  ncmec_report_status: choice({
+    ready: "a person's case, waiting for send_ncmec_report",
+    waiting: "being sent: NCMEC didn't take it yet, tried again every 5 minutes",
+    sent: "NCMEC has it",
+    stopped_by_brake: "a match the daily brake stopped (more than 3 accounts matched today): send it if it's real",
+    failed: "it couldn't be sent: send it again, or file it by hand at report.cybertip.org",
+  }),
+  username: nullable(text("The reported account's username; null when nobody is known.")),
+  game: nullable(object({ id: idOf("game"), slug: text() }, "null: no game, or the game is gone.")),
+  file_count: countOf("Files sent with it. Never opened at Zaisma."),
+  ncmec_report_number: nullable(text("NCMEC's report number, once NCMEC has it.")),
+  send_attempt_count: countOf("Tries at sending it."),
+  last_error: nullable(text("Why the last try failed.")),
+  state: text("Where it stands, in words, as the admin page says it."),
+  created_at: isoTime(),
+  sent_at: nullable(isoTime()),
+  erase_at: nullable(isoTime("When it's erased with its files: a year after it's sent.")),
+});
+export const NCMEC_REPORT_LIST = object({
+  ncmec_reports: list(NCMEC_REPORT, "Not sent first, then sent; newest first in each."),
+  paused_usernames: list(text(), "Accounts a known-image match paused: no uploads, publishing, posting, chat or friend requests until clear_safety_pause or ban_account."),
+});
+export const NCMEC_REPORT_SENT = object({ ncmec_report: NCMEC_REPORT, next_steps: NEXT });
+export const SAFETY_PAUSE_CLEARED = object({ username: text(), next_steps: NEXT });
 export const CHAT_REVIEW_DECIDED = object({
   chat_review_id: idOf("chat_review"),
-  decision: choice({ false_alarm: "deleted, and the sender's pause lifted", remove_chat: "confirmed: the sender's chat removed for good, kept a year", reported: "confirmed and marked reported to NCMEC" }),
+  decision: choice({ false_alarm: "deleted, and the sender's pause lifted", remove_chat: "confirmed: the sender's chat removed for good, kept a year", report_to_ncmec: "confirmed, and the report sent to NCMEC" }),
   chat_review: nullable(CHAT_REVIEW),
   next_steps: NEXT,
 });

@@ -64,6 +64,7 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   reports: { file_path: null, reason: "Reports about the player, written by other players." },
   forum_mentions: { file_path: null, reason: "Other people's posts that mention the player." },
   chat_reviews: { file_path: null, reason: "A safety record: messages the chat filter stopped." },
+  ncmec_reports: { file_path: null, reason: "A safety record: reports to NCMEC's CyberTipline, kept a year as US law asks." },
   sign_in_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   email_codes: { file_path: null, reason: "One-time codes, kept as fingerprints for minutes." },
   passkey_challenges: { file_path: null, reason: "One-time passkey challenges, kept as fingerprints for minutes." },

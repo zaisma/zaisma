@@ -15,7 +15,7 @@ import { MEASURED_SCREEN_NAMES, SCREEN_SIZES, TEXT_SCREEN_NAMES } from "../../ap
 import layoutMeasureSource from "../../apps/site/src/components/layout-measure.ts?raw";
 import layoutCheckSource from "../../scripts/layout-check.mjs?raw";
 // @ts-expect-error: a Node script with no types of its own.
-import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
+import { checkPages, chromeToRun, LAYOUT_CHECK_RUNS, PRESS_CHECK_SCREEN_NAME, layoutCheckShard, pageFingerprint, pagesNamed, previewSites, signIn } from "../../scripts/layout-check.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { openChrome } from "../../scripts/chrome.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -42,9 +42,9 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-/** The first three shares' other tests, in a tab's seconds (each about 45s on three tabs, Nov 4, 2026): they take that much fewer pages. */
-const BROKEN_ON_PURPOSE_COST_SEC = 135;
-const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: [BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC, BROKEN_ON_PURPOSE_COST_SEC] }) : layoutRun.pages) as unknown[];
+/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026): they take that much fewer pages. */
+const BROKEN_ON_PURPOSE_COSTS_SEC = [65, 185, 75];
+const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: BROKEN_ON_PURPOSE_COSTS_SEC }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 const isSecondShare = !shard || shard.startsWith("2/");
 const isThirdShare = !shard || shard.startsWith("3/");
@@ -117,13 +117,13 @@ describe("the merge queue's skip", () => {
 describe.skipIf(!sites)("the layout check", () => {
   it("finds nothing out of line on any page, at any size or theme", async () => {
     const passed = isSkippingPassed ? onlyPassed(readMeasured(PASSED_PATH)) : null;
-    const { failures, checkedCount, secondsByPage, measuredFingerprints, skippedPageNames } = (await checkPages({ ...sites!, pages, sizes: layoutRun.sizes, themes: layoutRun.themes, tiersOf: layoutRun.tiersOf, chromePath: await chromeToRun(), measured: passed, isChangedOnly: isSkippingPassed })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number>; measuredFingerprints: Record<string, string>; skippedPageNames: string[] };
+    const { failures, checkedCount, secondsByPage, measuredFingerprints, skippedPageNames } = (await checkPages({ ...sites!, pages, sizes: layoutRun.sizes, themes: layoutRun.themes, tiersOf: layoutRun.tiersOf, onProgress: (line: string) => process.stderr.write(`${line}\n`), chromePath: await chromeToRun(), measured: passed, isChangedOnly: isSkippingPassed })) as { failures: Failure[]; checkedCount: number; secondsByPage: Record<string, number>; measuredFingerprints: Record<string, string>; skippedPageNames: string[] };
     if (passed) {
       mkdirSync(dirname(PASSED_PATH), { recursive: true });
       writeFileSync(PASSED_PATH, `${JSON.stringify(mergeMeasured(passed, onlyPassed(measuredFingerprints)))}\n`);
       console.log(`Skipped ${skippedPageNames.length} page(s) that passed before as they are.`);
     }
-    // For PAGE_COSTS_SEC in scripts/layout-check.mjs, when the shares stop finishing together.
+    // For the page costs in scripts/layout-check.mjs, when the shares stop finishing together.
     console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
     // A skipped page sends no form, so it's one look per screen and theme.
     const looksOf = (page: { name: string }) => { const only = (page as { screenNames?: string[] }).screenNames; return (only ? (layoutRun.sizes as { name: string }[]).filter((size) => only.includes(size.name)).length : layoutRun.sizes.length) * layoutRun.themes.length; };
@@ -167,7 +167,7 @@ describe.skipIf(!sites)("the layout check", () => {
   it.skipIf(!isFirstShare)("catches a press that answers nothing within 400 ms, in the sweep", async () => {
     const deaf = fullPane('<button type="button" aria-controls="nothing-at-all">Answers nothing</button>');
     const page = { name: "Broken on purpose", path: "/design/example", mainActionShows: "nowhere", markup: deaf };
-    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: LAPTOP, themes: ["light"], tiersOf: RUNS.sweep.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
+    const { failures } = (await checkPages({ ...sites!, pages: [page], sizes: RUNS.sweep.sizes.filter((size) => (size as { name: string }).name === PRESS_CHECK_SCREEN_NAME), themes: ["light"], tiersOf: RUNS.sweep.tiersOf, chromePath: await chromeToRun() })) as { failures: Failure[] };
     expect(failures.some((failure) => /no answer within 400 ms/.test(failure.check) && /Answers nothing/.test(failure.element)), failures.map((failure) => `${failure.check}: ${failure.element}`).join("\n")).toBe(true);
   }, 300_000);
 

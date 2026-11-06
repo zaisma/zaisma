@@ -65,6 +65,7 @@ jobs:
         with:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
+          restore-keys: preview-migrated-
       # The shaders' drawings, as in check.yml.
       - uses: actions/cache@v4
         with:
@@ -122,6 +123,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
+      # Chrome read from the disk, beside what follows: on a fresh runner its first read can take minutes, and the run that needs it waits on it.
+      - run: |
+          (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit_sha || 'main' }}

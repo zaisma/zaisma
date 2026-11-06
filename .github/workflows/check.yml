@@ -445,6 +445,9 @@ jobs:
     env:
       ENGINE_SAMPLE_SHARD: ${{ matrix.shard }}/8
     steps:
+      # Chrome read from the disk, beside what follows: on a fresh runner its first read can take minutes, and the run that needs it waits on it.
+      - run: |
+          (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -462,6 +465,7 @@ jobs:
         with:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
+          restore-keys: preview-migrated-
       - run: npm ci --no-audit --no-fund
       # The browser miniflare's BROWSER binding downloads (Chrome for Testing, under Wrangler's global cache), kept by miniflare's
       # version so a job never depends on a live download. Its version is pinned in miniflare, so nothing else is looked up.
@@ -523,6 +527,7 @@ jobs:
         with:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
+          restore-keys: preview-migrated-
       # The shaders' drawings (SHADER_DRAWINGS in scripts/preview/run.mjs), kept by what makes them.
       - uses: actions/cache@v4
         with:
@@ -595,6 +600,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
+      # Chrome read from the disk, beside what follows: on a fresh runner its first read can take minutes, and the run that needs it waits on it.
+      - run: |
+          (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -658,6 +666,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
+      # Chrome read from the disk, beside what follows: on a fresh runner its first read can take minutes, and the run that needs it waits on it.
+      - run: |
+          (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -752,6 +763,7 @@ jobs:
         with:
           path: .wrangler/preview-migrated
           key: preview-migrated-${{ hashFiles('migrations/**') }}
+          restore-keys: preview-migrated-
       # The shaders' drawings (SHADER_DRAWINGS in scripts/preview/run.mjs), kept by what makes them.
       - uses: actions/cache@v4
         with:

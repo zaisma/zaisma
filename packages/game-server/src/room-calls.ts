@@ -18,7 +18,29 @@ export interface RoomCallLimits {
 }
 
 /** The error a mistake in a room call throws: GameServerError, or the sandbox's copy of it. */
-export type RoomCallErrorClass = new (code: "bad_room_call" | "room_call_unavailable", field: string, message: string, fix: string) => Error;
+export type RoomCallErrorClass = new (code: "bad_room_call" | "room_call_unavailable" | "room_call_limit", field: string, message: string, fix: string) => Error;
+
+/** A kept room's restore, as server.restoreKeptRoom, undoKeptRoomRestore and listKeptRoomRestores answer it, with ISO times. */
+export interface KeptRoomRestore {
+  id: string;
+  roomCode: string;
+  restoreToAt: string;
+  restoredAt: string;
+  undoesKeptRoomRestoreId: string | null;
+  undoExpiresAt: string;
+}
+
+/** What server.listKeptRoomRestores answers: the earliest moment the world can go back to, and its restores, newest first. */
+export interface KeptRoomRestoreList {
+  earliestRestoreToAt: string;
+  restores: KeptRoomRestore[];
+}
+
+/** How a room reach answers a restore: the restore, or why not, which the call throws as an error. */
+export type KeptRoomRestoreAnswer =
+  | { keptRoomRestore: KeptRoomRestore; refusal?: undefined; earliestRestoreToAt?: undefined }
+  | { keptRoomRestore?: undefined; refusal: "no_kept_room" | "no_kept_room_restore" | "no_history" | "limited" | "failed"; earliestRestoreToAt?: undefined }
+  | { keptRoomRestore?: undefined; refusal: "bad_time"; earliestRestoreToAt: string };
 
 /** A send's delivery as the room acts on it: latest-only, with its latestKey, or reliable. */
 export type CheckedDelivery = { isLatestOnly: false } | { isLatestOnly: true; latestKey: string };
@@ -58,6 +80,12 @@ export interface RoomCallChecks {
   checkMoveTo(toRoomCode: unknown, moveOptions: unknown, playerIdsInRoom: readonly string[]): CheckedMove & { toRoomCode: string };
   checkSetInfo(nameAndLabels: unknown): { name?: string | null; labels?: Record<string, string> };
   checkEnd(message: unknown): string | undefined;
+  /** server.restoreKeptRoom's options as the moment to go back to, in epoch milliseconds. */
+  checkRestoreToAt(restoreOptions: unknown, call: string): number;
+  checkKeptRoomRestoreId(keptRoomRestoreId: unknown, call: string): string;
+  /** A room reach's answer as the restore, or thrown as the error the game server's code catches. */
+  keptRoomRestoreOf(answer: KeptRoomRestoreAnswer, call: string): KeptRoomRestore;
+  keptRoomRestoreListOf(listed: KeptRoomRestoreList | null, call: string): KeptRoomRestoreList;
   /** room.sendToRoom: another room's code (never this room's) and the message as plain JSON within the size, copied. */
   checkSendToRoom(toRoomCode: unknown, message: unknown, ownRoomCode: string | null, call: string): { toRoomCode: string; message: unknown };
   /** room.sendToEveryRoom: the message as plain JSON within the size, copied, and which rooms (checkRoomSelection). */
@@ -246,6 +274,36 @@ function roomCallChecksParts(): RoomCallChecksParts {
       return message.slice(0, limits.maximumKickMessageCharacterCount);
     };
 
+    const checkRestoreToAt = (restoreOptions: unknown, call: string): number => {
+      const fix = 'Give { restoreToAt } as an ISO time from the last 30 days, like "2026-10-18T14:05:00Z"; server.listKeptRoomRestores says the earliest.';
+      const { restoreToAt } = closed(restoreOptions, ["restoreToAt"], call);
+      const atMs = typeof restoreToAt === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(restoreToAt) ? Date.parse(restoreToAt) : NaN;
+      if (!Number.isFinite(atMs)) throw mistake(call, call + " needs restoreToAt as an ISO time.", fix);
+      return atMs;
+    };
+
+    const checkKeptRoomRestoreId = (keptRoomRestoreId: unknown, call: string): string => {
+      if (typeof keptRoomRestoreId !== "string" || !keptRoomRestoreId) throw mistake(call, call + " needs a restore's ID.", "Give an id from server.listKeptRoomRestores.");
+      return keptRoomRestoreId;
+    };
+
+    const noKeptRoom = (call: string) => mistake(call, call + " needs a kept room of this game that isn't deleted.", "Give the code of a kept room: its game server calls room.setKept(true).");
+
+    const keptRoomRestoreOf = (answer: KeptRoomRestoreAnswer, call: string): KeptRoomRestore => {
+      if (answer.keptRoomRestore) return answer.keptRoomRestore;
+      if (answer.refusal === "bad_time") throw mistake(call, call + "'s restoreToAt isn't a moment this world can go back to.", "Give a time from " + answer.earliestRestoreToAt + " to now.");
+      if (answer.refusal === "no_kept_room") throw noKeptRoom(call);
+      if (answer.refusal === "no_kept_room_restore") throw mistake(call, call + " needs a restore of this world from the last 30 days.", "Give an id from server.listKeptRoomRestores.");
+      if (answer.refusal === "limited") throw new ErrorClass("room_call_limit", call, "A world can go back up to 5 times a minute.", "Wait a minute, then try again.");
+      if (answer.refusal === "no_history") throw new ErrorClass("room_call_unavailable", call, call + " isn't available here: these rooms keep no history.", "On Zaisma, and on the Node runner with --room-state-file, it works.");
+      throw new ErrorClass("room_call_unavailable", call, "The world didn't answer, so nothing changed.", "Try again in a moment.");
+    };
+
+    const keptRoomRestoreListOf = (listed: KeptRoomRestoreList | null, call: string): KeptRoomRestoreList => {
+      if (!listed) throw noKeptRoom(call);
+      return listed;
+    };
+
     const readRoomMessage = (message: unknown, call: string): unknown => {
       if (message === undefined || message === null) throw mistake(call, `${call} needs a message.`, "Give the message as plain JSON, like { kind: \"blood_moon\" }.");
       const checked = checkRoomData(message, limits.maximumRoomMessageSizeBytes);
@@ -274,7 +332,7 @@ function roomCallChecksParts(): RoomCallChecksParts {
 
     const checkSendToEveryRoom = (message: unknown, roomSelection: unknown, call: string): { message: unknown; labels: Record<string, string> | null } => ({ message: readRoomMessage(message, call), ...checkRoomSelection(roomSelection, call) });
 
-    return { checkBroadcast, checkSend, checkBroadcastBytes, checkSendBytes, checkKick, checkReserve, checkMoveTo, checkSetInfo, checkEnd, checkSendToRoom, checkSendToEveryRoom, checkRoomSelection, tidy, tidyRoomInfo, checkRoomData };
+    return { checkBroadcast, checkSend, checkBroadcastBytes, checkSendBytes, checkKick, checkReserve, checkMoveTo, checkSetInfo, checkEnd, checkRestoreToAt, checkKeptRoomRestoreId, keptRoomRestoreOf, keptRoomRestoreListOf, checkSendToRoom, checkSendToEveryRoom, checkRoomSelection, tidy, tidyRoomInfo, checkRoomData };
   }
 
   return { checksFor };

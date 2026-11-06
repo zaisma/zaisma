@@ -77,6 +77,11 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
+/**
+ * The one screen of the sweep the press check runs on: a laptop (the sweep's screens are the measured ones, and Laptop is measured only at 200%
+ * text, so it is never plainly "Laptop" there). test/node/press-check-screen.test.ts holds that exactly one sweep screen is this one.
+ */
+export const PRESS_CHECK_SCREEN_NAME = `Laptop at ${TEXT_PERCENTS[0]}% text`;
 /** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
@@ -109,46 +114,106 @@ const RUN_TIME_LIMIT_MS = 90_000;
 // On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
-// Each page's time in a tab on GitHub's runners, in seconds, from a merge group's run (a phone and a laptop, in light; measured Nov 4,
-// 2026: the Layout check jobs print it as secondsByPage), by name: every run dealt across runners deals the pages by it (layoutCheckShard),
-// each page's share of the whole being about the same at every screen. A page that isn't here costs UNLISTED_PAGE_COST_SEC.
+// Each page's time in a tab on GitHub's runners, in seconds, from one pull request's run with every page measured (Nov 5, 2026: the jobs print it as
+// "Seconds in a tab per page"), by name: every run dealt across runners deals the pages by it (layoutCheckShard). A page that isn't here
+// costs its run's unlisted cost. The Layout check's are a phone and a laptop's; the sweep's, every measured screen's, the stress accounts too.
 const PAGE_COSTS_SEC = {
-  "Gallery: inputs fields": 57.2,
-  "Gallery: data lists": 50.5,
-  "Gallery: the sidebar over the page": 49.2,
-  "Gallery: over-a-game zaisma-overlay": 49,
-  "Gallery: layout page": 14.3,
-  "Gallery: layout inside": 14.3,
-  Screens: 43.8,
-  "Gallery: navigation bars": 41.1,
-  "Gallery: data pictures": 41.1,
-  "Gallery: panes layers": 30,
-  "Gallery: panes sheets": 23.2,
-  "Gallery: over-a-game sheets": 23.1,
-  "Gallery: inputs choices": 22.2,
-  "Gallery: over-a-game notices": 17.7,
-  "Gallery: panes materials": 17.2,
-  "Developer settings": 16.6,
-  "Game page": 16,
-  "Gallery: panes menus": 14.6,
-  "Gallery: inputs pickers": 14.1,
-  "Developer settings, a game deletion request": 13.6,
-  "Gallery: layout": 13.1,
-  "Developer settings, a spending request": 12.7,
-  "Gallery: data numbers": 12.5,
-  "Home, signed in": 11.1,
-  "Game page, no rooms": 10.8,
-  "Games, signed in": 10.7,
-  Home: 10.4,
-  "Gallery: foundations look": 10.4,
-  Games: 10.3,
-  "Games, a price range": 9.9,
-  "Gallery: navigation scrolling": 8.8,
-  "Game page, for sale": 8.7,
-  "Gallery: actions buttons": 8.7,
-  "Playing a game, the players sheet": 8.5,
+  "Gallery: layout inside": 42.3,
+  "Gallery: the sidebar over the page": 39.1,
+  "Gallery: navigation bars": 31.2,
+  "Gallery: panes layers": 29.5,
+  "Gallery: inputs fields": 28.8,
+  "Gallery: over-a-game zaisma-overlay": 28.3,
+  "Gallery: data pictures": 20.4,
+  "Gallery: over-a-game notices": 19.3,
+  "Gallery: data lists": 19.3,
+  "Developer settings, a request to erase a kept world": 16.3,
+  "Game page": 15,
+  "Gallery: inputs choices": 14,
+  "Games, signed in": 13.9,
+  Games: 13.8,
+  "Gallery: inputs pickers": 13.6,
+  "Gallery: over-a-game sheets": 13.2,
+  "Gallery: panes sheets": 12.6,
+  "Gallery: data numbers": 12.4,
+  "Gallery: navigation scrolling": 12.1,
+  "Gallery: panes materials": 11.9,
+  "Developer settings": 11.5,
+  "Developer settings, a game deletion request": 11,
+  "Game page, no rooms": 8.8,
+  "Sign in, wrong password": 8.1,
+  "Games, a price range": 8,
+  "Gallery: foundations look": 7.6,
+  "Developer settings, a spending request": 7.6,
+  "Gallery: panes menus": 7.3,
+  "Playing a game, the players sheet": 7.1,
+  "Buying, confirm with a PIN": 6.7,
+  "Gallery: panes cards": 6.5,
+  "Buying, a first card": 6.5,
+  "Home, signed in": 6.4,
+  Home: 6.4,
+  "Gallery: navigation places": 6.1,
+  "Buying, as a guest": 6.1,
+  "Gallery: foundations pictures": 5.9,
+  "Games, a search": 5.8,
+  "Game page, for sale": 5.8,
+  "Buying, already owned": 5.8,
+  Screens: 5.5,
+  "Gallery: actions buttons": 5.5,
+  "Buying, can't be bought": 5.4,
+  "Check your email": 5.2,
+  "Content rules": 5.1,
+  "Buying, declined": 5.1,
+  "Report a game": 5,
 };
-const UNLISTED_PAGE_COST_SEC = 4;
+const SWEEP_PAGE_COSTS_SEC = {
+  "Gallery: inputs fields": 87.3,
+  "Gallery: data pictures": 70.5,
+  "Gallery: navigation bars": 66.5,
+  "Gallery: layout inside": 62.6,
+  "Gallery: over-a-game zaisma-overlay": 54.9,
+  "Gallery: data lists": 53.3,
+  "Playing a game, asked to sign in": 48.8,
+  "Gallery: the sidebar over the page": 45.1,
+  "Gallery: panes sheets": 36.4,
+  "Gallery: inputs choices": 51.5,
+  "Gallery: panes materials": 32.8,
+  "Game page": 32.2,
+  "Gallery: panes layers": 32,
+  "Home, long names": 26.5,
+  "Gallery: over-a-game notices": 25.2,
+  "Game page, no rooms": 23.7,
+  "Games, signed in": 23.6,
+  "Games, empty": 23.4,
+  "Home, signed in": 19.9,
+  "Home, empty": 21.7,
+  "Developer settings, a game deletion request": 21.5,
+  "Developer settings, full": 58.6,
+  Games: 21,
+  "Gallery: over-a-game sheets": 20.9,
+  "Games, long names": 20.2,
+  "Gallery: actions buttons": 19.2,
+  "Gallery: panes menus": 19.1,
+  "Gallery: navigation scrolling": 18.9,
+  "Gallery: inputs pickers": 18.9,
+  "Gallery: data numbers": 17,
+  Home: 16.7,
+  "Developer settings": 102.9,
+  "Gallery: foundations look": 16.2,
+  "Games, one genre": 15.4,
+  "Gallery: data reading": 15.1,
+  "Developer settings, a request to erase a kept world": 14.2,
+  "Games, a price range": 14.1,
+  "Game page, long names": 13.8,
+  "Games, full": 13.6,
+  "Tester link": 13.5,
+  "Home, full": 13.5,
+  "Gallery: panes buying": 13.4,
+  "Developer settings, a spending request": 13.1,
+  "Content rules": 21.3,
+  "Buying, confirm with a PIN": 12.1,
+};
+const COSTS_BY_RUN = { pull_request: { page_costs_sec: PAGE_COSTS_SEC, unlisted_page_cost_sec: 4 }, sweep: { page_costs_sec: SWEEP_PAGE_COSTS_SEC, unlisted_page_cost_sec: 8 } };
 
 // The check itself: a change to how it opens, settles or measures a page measures every page again.
 const CHECK_SOURCE = readFileSync(fileURLToPath(import.meta.url), "utf8");
@@ -183,10 +248,11 @@ export function pagesNamed(pages, names) {
  * with the least so far, so the runners finish together. Every page is in exactly one share. headStartSecByShare is other work a share
  * does (the pages broken on purpose), so it takes fewer of these.
  */
-export function layoutCheckShard(pages, shard, { headStartSecByShare = [] } = {}) {
+export function layoutCheckShard(pages, shard, { headStartSecByShare = [], runName = "pull_request" } = {}) {
   const [index, count] = shard.split("/").map(Number);
   if (!Number.isInteger(index) || !Number.isInteger(count) || index < 1 || index > count) throw new Error(`LAYOUT_CHECK_SHARD is "${shard}": it takes a share and a count, like 2/3.`);
-  const costOf = (page) => PAGE_COSTS_SEC[page.name] ?? UNLISTED_PAGE_COST_SEC;
+  const { page_costs_sec: pageCostsSec, unlisted_page_cost_sec: unlistedPageCostSec } = COSTS_BY_RUN[runName];
+  const costOf = (page) => pageCostsSec[page.name] ?? unlistedPageCostSec;
   const shares = Array.from({ length: count }, (_, shareIndex) => ({ costSec: headStartSecByShare[shareIndex] ?? 0, pages: [] }));
   for (const page of [...pages].sort((a, b) => costOf(b) - costOf(a) || (a.name < b.name ? -1 : 1))) {
     const least = shares.reduce((lightest, share) => (share.costSec < lightest.costSec ? share : lightest));
@@ -299,6 +365,8 @@ const PRESS_EVERY_ANSWER = `(async () => {
     // A gallery still shows what a button opens laid in place (a menu, a wheel field's wheels, a search's list), open for good: pressing it
     // changes nothing, by design. A field typed into (a search with its list) answers its typing, not a press: a press only puts the caret in it.
     .filter((el) => !el.matches("input:not([type=button], [type=submit], [type=checkbox], [type=radio]), textarea"))
+    // The folder of a sidebar or switch you're in stays open and does nothing when pressed, by design (switch.ts: "pressing it does nothing").
+    .filter((el) => !el.matches(".switch-folder.is-held"))
     .filter((el) => !document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "")?.closest(".in-place"));
   const failures = [];
   const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
@@ -515,14 +583,14 @@ const openEveryPane = () => `(async () => {
     return pane && pane.matches(".dropdown, dialog.sheet, [popover]") && el.getClientRects().length && !el.closest("[inert], dialog, .dropdown");
   });
   const failures = [];
-  // A pane is measured once it's done moving: its opening (or closing) animations finished, never more than 450 ms (a press's most), and
-  // never a fixed wait, so a page of many panes takes as long as its panes take to open. Where things sit is worked out before a frame is
-  // drawn, so it waits on the page's scripts (a timer's turn), never on drawing, which a large screen takes long over without a graphics card.
+  // A pane is measured where it rests: its opening (or closing) animations are sent to their end, so a page of many panes takes as long as its
+  // scripts take to answer, never the length of each animation. Where things sit is worked out before a frame is drawn, so it waits on the
+  // page's scripts (a timer's turn), never on drawing, which a large screen takes long over without a graphics card.
   const frame = () => new Promise((done) => setTimeout(done, 16));
   const settled = async (pane) => {
     await frame(); await frame();
-    const moving = pane.getAnimations({ subtree: true }).filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
-    await Promise.race([Promise.all(moving.map((animation) => animation.finished.catch(() => {}))), new Promise((done) => setTimeout(done, 450))]);
+    pane.getAnimations({ subtree: true }).filter((animation) => animation.effect?.getTiming().iterations !== Infinity).forEach((animation) => { try { animation.finish(); } catch {} });
+    await frame();
   };
   for (const opener of openers) {
     const pane = document.getElementById(opener.getAttribute("aria-controls") || opener.getAttribute("popovertarget"));
@@ -670,9 +738,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
-      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once (a press changes the page),
-      // in the sweep: pressing every button is most of a page's time.
-      if (options.tiers.includes("sweep") && size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
+      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop at 200% text (the sweep's laptop), once
+      // (a press changes the page), in the sweep: pressing every button is most of a page's time.
+      if (options.tiers.includes("sweep") && size.name === PRESS_CHECK_SCREEN_NAME && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }
@@ -750,11 +818,13 @@ export async function signIn(chrome, contextId, site, username) {
  * fingerprint and whether it passed, as measuredFingerprints; with isChangedOnly too, it skips the pages whose fingerprint is in
  * `measured`, as skippedPageNames. A page that sends forms or opens a hidden state reaches it only in a browser, so it's always measured.
  */
-export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, picturesFolder = null, measured = null, isChangedOnly = false }) {
+export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES, sizes = LAYOUT_CHECK_SIZES, themes = LAYOUT_CHECK_THEMES, tiersOf = () => [...LAYOUT_TIERS], chromePath, tabCount = DEFAULT_TAB_COUNT, onPage = () => {}, onProgress = () => {}, picturesFolder = null, measured = null, isChangedOnly = false }) {
   // Each page's pictures, by its name: one per screen and theme, for its contact sheet.
   const picturesByPage = new Map();
   // Measuring draws nothing a GPU would (no WebGL, no pictures), so Chrome keeps off the machine's GPU; a run that takes pictures draws.
+  const chromeStartedAtMs = Date.now();
   const chrome = await openChrome(chromePath, "zaisma-layout-", { isDrawingOnCpu: !picturesFolder });
+  onProgress(`Chrome answered in ${Math.round((Date.now() - chromeStartedAtMs) / 1000)} s`);
   const looks = sizes.flatMap((size) => themes.map((theme) => ({ size, theme })));
   // A page is opened once for each theme (the gallery takes it from its address) and measured at each size in place, the screen switched
   // without a reload; one that sends forms is opened once, its answer measured at each size and theme.
@@ -770,7 +840,10 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
       const { browserContextId } = await chrome.send("Target.createBrowserContext");
       // A Copy button answers once the clipboard takes the words, which headless Chrome holds behind a permission a person grants.
       await chrome.send("Browser.grantPermissions", { permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"], browserContextId }).catch(() => {});
-      if (account) await signIn(chrome, browserContextId, site, account);
+      if (account) {
+        onProgress(`signing in ${account}`);
+        await signIn(chrome, browserContextId, site, account);
+      }
       return browserContextId;
     };
     const contextFor = async (account) => {
@@ -798,6 +871,7 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
       while (nextRun < runs.length) {
         const runIndex = nextRun++;
         const { page, looks: runLooks } = runs[runIndex];
+        onProgress(`measuring ${page.name}`);
         const base = page.isOnSignInSite ? signInSite : site;
         // The gallery takes light or dark from its address.
         const theme = runLooks[0].theme;
@@ -898,7 +972,7 @@ async function main() {
   }
   if (shard) {
     try {
-      pages = layoutCheckShard(pages, shard);
+      pages = layoutCheckShard(pages, shard, { runName });
     } catch (error) {
       stop(error.message.replace("LAYOUT_CHECK_SHARD is", "--shard is"), isJson);
     }
@@ -935,6 +1009,8 @@ async function main() {
     picturesFolder,
     measured,
     isChangedOnly,
+    // On stderr, so a --json run's answer stays one JSON: a run that stalls names what it was doing.
+    onProgress: (line) => process.stderr.write(`${line}\n`),
     onPage: (page, size, theme, found) => !isJson && console.log(`${found.length ? "FAIL" : "  ok"} ${page.name}${page.path.length < 40 ? ` (${page.path})` : ""} ${size.name} ${theme}${found.length ? `: ${found.length}` : ""}`),
   });
   if (measuredPath) writeFileSync(measuredPath, `${JSON.stringify(mergeMeasured(measured, measuredFingerprints))}\n`);
@@ -944,6 +1020,8 @@ async function main() {
     for (const failure of failures) console.log(`  ${failure.page} ${failure.size} ${failure.theme}: ${failure.check}: ${failure.element}: ${failure.said}`);
     if (picturesFolder) console.log(`Contact sheets: ${picturesFolder}`);
     if (skippedPageNames.length) console.log(`Skipped ${skippedPageNames.length} page(s) measured before as they are: ${skippedPageNames.join(", ")}.`);
+    // For the page costs above, when the shares stop finishing together.
+    console.log(`Seconds in a tab per page: ${JSON.stringify(secondsByPage)}`);
     // One line npm run ship reads from a failed sweep's log, to measure those pages again (sweepFailedPages, scripts/ship-github-check.mjs).
     if (failedPageNames.length) console.log(`LAYOUT FAILED PAGES ${JSON.stringify(failedPageNames)}`);
     console.log(failures.length ? `LAYOUT FAIL: ${failures.length} problem(s) on ${new Set(failures.map((failure) => `${failure.page} ${failure.size} ${failure.theme}`)).size} of ${checkedCount} pages.` : `LAYOUT PASS: ${checkedCount} pages, ${sizes.map((size) => size.name).join(", ")}, ${themes.join(" and ")}, measuring ${[...new Set(allPages.flatMap(layoutRun.tiersOf))].join(", ")}, in ${Math.round((Date.now() - startedMs) / 1000)}s with ${tabCount} at once.`);
