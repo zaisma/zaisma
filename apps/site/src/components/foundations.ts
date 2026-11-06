@@ -603,11 +603,11 @@ component({
 .backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
 .backdrop.is-own.is-drawn { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .backdrop.is-own { transition: none; } }
-/* Its still follows the nearest theme, as the glass does (tokens.ts): a box that fixes light (the gallery's stage) inside a page in dark
+/* Its still follows the nearest theme, as the glass does (tokens.ts), smoked glass (.smoke) included: a box that fixes light (the gallery's stage) inside a page in dark
    shows the light still, the one its shader would draw. Set where the theme is and inherited, so the closest choice wins, never the root's. */
 :root, [data-theme-choice="light"] { --own-backdrop-still: url(data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAADwBACdASogABIAPu1krVAppSQisBgIATAdiWUAxNgQ9KqdKxtJ/0JwEDvwZEwwTAAA/uejEEEw9qPFlbLfs8nFeAxPLv4R2Q4kGgQyY4iDPG9K72poZwtWhUL85RAiByecmBVQA3xZMkWQ4rknPFV0UAkmuq539SzSA7KYBMgw1aAA); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { --own-backdrop-still: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
-[data-theme-choice="dark"] { --own-backdrop-still: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
+[data-theme-choice="dark"], .smoke { --own-backdrop-still: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
 .backdrop-placeholder.is-own { --placeholder: var(--own-backdrop-still); }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }

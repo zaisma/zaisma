@@ -16,13 +16,32 @@ const ROOT = join(import.meta.dirname, "../..");
 const chromePath = findChrome([join(ROOT, ".wrangler/chrome"), join(ROOT, "chrome")]);
 
 type ThemeChoice = "system" | "light" | "dark";
-interface Case { name: string; media: "light" | "dark"; rootChoice: ThemeChoice; stageChoice: ThemeChoice | null }
+type Tone = "light" | "dark";
+/** A page: the device's theme, the root's choice, and the boxes round the backdrop, outermost first (a theme choice, or smoked glass). */
+interface Case { name: string; media: Tone; rootChoice: ThemeChoice; boxes: ("light" | "dark" | "smoke")[]; expected: Tone }
 
-const pageFor = (rootChoice: ThemeChoice, stageChoice: ThemeChoice | null) => {
-  const inside = `${backdrop()}<div class="glass" data-glass id="glass">Glass</div>`;
-  const stage = stageChoice ? `<div id="stage" data-theme-choice="${stageChoice}" style="position: relative">${inside}</div>` : inside;
-  return `<!doctype html><html data-theme-choice="${rootChoice}"><head><meta charset="utf-8"><style>${COMPONENT_STYLES()}</style></head><body>${stage}</body></html>`;
-};
+const INSIDE = `${backdrop()}<div class="glass" data-glass id="glass">Glass</div>`;
+const boxOpen = (box: Case["boxes"][number]) => (box === "smoke" ? `<div class="smoke" style="position: relative">` : `<div data-theme-choice="${box}" style="position: relative">`);
+const pageFor = (each: Case) =>
+  `<!doctype html><html data-theme-choice="${each.rootChoice}"><head><meta charset="utf-8"><style>${COMPONENT_STYLES()}</style></head><body>${each.boxes.map(boxOpen).join("")}${INSIDE}${"</div>".repeat(each.boxes.length)}</body></html>`;
+
+const BASELINES: Case[] = [
+  { name: "light page", media: "light", rootChoice: "system", boxes: [], expected: "light" },
+  { name: "dark page", media: "dark", rootChoice: "system", boxes: [], expected: "dark" },
+];
+const CASES: Case[] = [
+  // The gallery's stage on the bench in dark: fixed light inside a page that follows the device's dark.
+  { name: "light stage, device dark", media: "dark", rootChoice: "system", boxes: ["light"], expected: "light" },
+  { name: "dark stage, page chose light", media: "light", rootChoice: "light", boxes: ["dark"], expected: "dark" },
+  { name: "dark stage, device light", media: "light", rootChoice: "system", boxes: ["dark"], expected: "dark" },
+  { name: "page chose light, device dark", media: "dark", rootChoice: "light", boxes: [], expected: "light" },
+  { name: "dark inside light inside a page in dark", media: "dark", rootChoice: "system", boxes: ["light", "dark"], expected: "dark" },
+  { name: "light inside dark inside a page in light", media: "light", rootChoice: "light", boxes: ["dark", "light"], expected: "light" },
+  // Glass smoked over a backdrop (backdrop-script.ts's showPick, panes.ts) takes the dark still, in a light page and inside a light box.
+  { name: "smoked, page in light", media: "light", rootChoice: "system", boxes: ["smoke"], expected: "dark" },
+  { name: "smoked inside a light box, device dark", media: "dark", rootChoice: "system", boxes: ["light", "smoke"], expected: "dark" },
+];
+const ALL = [...BASELINES, ...CASES];
 
 describe.skipIf(!chromePath || process.platform === "win32" || typeof WebSocket !== "function")("Zaisma's own still follows the nearest theme", () => {
   let chrome: Awaited<ReturnType<typeof openChrome>>;
@@ -32,10 +51,9 @@ describe.skipIf(!chromePath || process.platform === "win32" || typeof WebSocket 
   beforeAll(async () => {
     chrome = await openChrome(chromePath!, `zaisma-backdrop-still-test-${process.pid}-`, { isDrawingOnCpu: true });
     server = createServer((request, response) => {
-      const asked = new URL(request.url ?? "/", "http://localhost");
-      const rootChoice = (asked.searchParams.get("root") ?? "system") as ThemeChoice;
-      const stageChoice = asked.searchParams.get("stage") as ThemeChoice | null;
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(pageFor(rootChoice, stageChoice));
+      const each = ALL[Number(new URL(request.url ?? "/", "http://localhost").searchParams.get("case"))];
+      if (!each) { response.writeHead(404).end(); return; }
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(pageFor(each));
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -46,7 +64,7 @@ describe.skipIf(!chromePath || process.platform === "win32" || typeof WebSocket 
     await new Promise((resolve) => server?.close(resolve));
   });
 
-  /** The still's picture and the glass's color scheme, on a page in that theme. */
+  /** The still's picture and the glass's color scheme, on that case's page. */
   async function look(each: Case): Promise<{ still: string; glassScheme: string }> {
     const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank" });
     const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
@@ -54,7 +72,7 @@ describe.skipIf(!chromePath || process.platform === "win32" || typeof WebSocket 
       await chrome.send("Page.enable", {}, sessionId);
       await chrome.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: each.media }] }, sessionId);
       const loaded = new Promise<void>((resolve) => { const stop = chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") { stop(); resolve(); } }); });
-      await chrome.send("Page.navigate", { url: `${origin}/?root=${each.rootChoice}${each.stageChoice ? `&stage=${each.stageChoice}` : ""}` }, sessionId);
+      await chrome.send("Page.navigate", { url: `${origin}/?case=${ALL.indexOf(each)}` }, sessionId);
       await loaded;
       const expression = `({ still: getComputedStyle(document.querySelector(".backdrop-placeholder.is-own")).getPropertyValue("--placeholder").trim(), glassScheme: getComputedStyle(document.getElementById("glass")).colorScheme })`;
       return (await chrome.send("Runtime.evaluate", { expression, returnByValue: true }, sessionId)).result.value;
@@ -63,24 +81,13 @@ describe.skipIf(!chromePath || process.platform === "win32" || typeof WebSocket 
     }
   }
 
-  it("shows the still of the theme its glass shows, whatever the root and the device say", async () => {
-    const light = await look({ name: "light page", media: "light", rootChoice: "system", stageChoice: null });
-    const dark = await look({ name: "dark page", media: "dark", rootChoice: "system", stageChoice: null });
+  it("shows the still of the theme its glass shows, whatever the root, the boxes round it and the device say", async () => {
+    const [light, dark] = [await look(BASELINES[0]!), await look(BASELINES[1]!)];
     expect(light.still).toMatch(/^url\(/);
     expect(dark.still).toMatch(/^url\(/);
     expect(dark.still).not.toBe(light.still);
     expect([light.glassScheme, dark.glassScheme]).toEqual(["light", "dark"]);
-
-    const cases: (Case & { expected: "light" | "dark" })[] = [
-      // The gallery's stage on the bench in dark: fixed light inside a page that follows the device's dark.
-      { name: "light stage, device dark", media: "dark", rootChoice: "system", stageChoice: "light", expected: "light" },
-      { name: "light stage, page chose dark", media: "light", rootChoice: "dark", stageChoice: "light", expected: "light" },
-      { name: "dark stage, page chose light", media: "light", rootChoice: "light", stageChoice: "dark", expected: "dark" },
-      { name: "dark stage, device light", media: "light", rootChoice: "system", stageChoice: "dark", expected: "dark" },
-      { name: "page chose light, device dark", media: "dark", rootChoice: "light", stageChoice: null, expected: "light" },
-      { name: "page chose dark, device light", media: "light", rootChoice: "dark", stageChoice: null, expected: "dark" },
-    ];
-    for (const each of cases) {
+    for (const each of CASES) {
       const seen = await look(each);
       expect({ name: each.name, glassScheme: seen.glassScheme, still: seen.still }).toEqual({ name: each.name, glassScheme: each.expected, still: (each.expected === "light" ? light : dark).still });
     }
