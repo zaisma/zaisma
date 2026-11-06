@@ -1267,7 +1267,7 @@ export function gameRow(options: GameRowOptions): Raw {
     ? gameCard({ title: "See all", picture: null, href: options.seeAll.href, facts: {}, seeAll: { gameCount: options.seeAll.gameCount, coverPictures: [...pictures.slice(shown.length), ...pictures.slice(0, shown.length)] } })
     : undefined;
   const items = seeAllCard ? [...shown, { kind: "block" as const, markup: seeAllCard }] : shown;
-  return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row" id="${options.id}" aria-labelledby="${titleId}">${stack({
+  return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row${options.sortTabs ? " has-sorts" : ""}" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       options.sortTabs
         ? {
@@ -1307,7 +1307,6 @@ component({
 /* The heading's band is a small control's height whether or not a control sits in it, its words centered in it. */
 /* With no control beside it, the pane's edge rule would set it a words margin down: the band's own height already keeps it off the edge. */
 .game-row > .layout-stack > .stack-cell:first-child > .layout-row:not([data-control-height]) > .row-cell.is-words { --pad-words: 0px; }
-.game-row .game-row-title { box-sizing: border-box; min-height: var(--control-height-small); display: flex; align-items: center; }
 /* On the narrowest phones every heading takes a section's size, so a heading and its See all keep one line and the rows' headings match. */
 @media (max-width: 360px) { .game-row > .layout-stack .game-row-title { font: var(--type-section); } }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
@@ -1321,12 +1320,12 @@ component({
    (--rail-inset, kept from the well's corner cuts), so its channel fills the bar from end to end. */
 .game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
 .game-row-well > .track-holder > .rail.sideways > .rail-line { left: 0; right: 0; }
-.game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; }
+.game-row .game-row-title { box-sizing: border-box; min-height: var(--control-height-small); display: flex; align-items: center; width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
-.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
-.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
-.game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
 /* With no games yet, a line in their place. */
 `,
   render: gameRow,

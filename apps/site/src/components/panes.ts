@@ -202,7 +202,9 @@ export function gameCard(options: GameCardOptions): Raw {
   // One line, the same on every card: who's in it (friends' faces), its name, and one thing at its end: Play or Join, else why it's here (a tag),
   // else its price, else players now. What doesn't fit is in its label for a screen reader and on its page; another device dims its art.
   // With Join beside them, one face and how many more, so the name keeps its room on a phone's narrow card.
-  const nameMarkup = html`<span class="cover-name-line">${facts.friends?.length ? pictureRow(facts.friends, "xs", { shownPictureCount: options.joinHref ? 1 : 3 }) : ""}<span class="cover-name one-line">${options.title}</span></span>`;
+  // A name alone needs no line of its own: only friends' faces beside it do.
+  const nameWords = html`<span class="cover-name one-line">${options.title}</span>`;
+  const nameMarkup = facts.friends?.length ? html`<span class="cover-name-line">${pictureRow(facts.friends, "xs", { shownPictureCount: options.joinHref ? 1 : 3 })}${nameWords}</span>` : nameWords;
   const endMarkup = tagAtEnd ?? (facts.priceText ? tag(facts.priceText, "plain") : undefined);
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";

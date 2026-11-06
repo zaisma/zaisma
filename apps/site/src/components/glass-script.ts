@@ -842,15 +842,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // A well's track or grid (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and again as
     // a track scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
     document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track, [data-cut-line] > .layout-grid, [data-cut-line] > .grid-one-line > .layout-grid, [data-cut-line] > .game-grid-group > .layout-grid").forEach(function (track) {
-      var pieces = [];
-      Array.prototype.forEach.call(track.children, function (cell) { var piece = edgedPieceOf(cell); if (piece) pieces.push(piece); });
-      track.edgedPieces = pieces;
+      var pieces = track.edgedPieces = Array.prototype.map.call(track.children, edgedPieceOf).filter(Boolean);
       runBatch(function () { pieces.forEach(cutEdged); });
       if (track.isCutOnScroll) return;
       track.isCutOnScroll = true;
       // What the cut lines draw (a card's glass, data-cut-line) is cut by them; anything else edged, by the edge rule above. Both again on scroll.
       track.addEventListener("scroll", function () {
-        (track.edgedPieces || []).forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); });
+        track.edgedPieces.forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); });
         track.querySelectorAll("[data-cut-line]").forEach(function (piece) { if (piece.redrawCut) piece.redrawCut(); });
       }, { passive: true });
     });

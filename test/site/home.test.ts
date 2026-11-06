@@ -68,7 +68,7 @@ describe("the home page", () => {
   it("shows nothing of Zaisma's on a cover: tags sit on the title's line, in place of the count", async () => {
     const { text } = await homePage();
     expect(text).not.toContain("cover-mark");
-    expect(text).toMatch(/<div class="cover-meta"><span class="cover-name-line"><span class="cover-name one-line">[^<]*<\/span><\/span><span class="tag new"/);
+    expect(text).toMatch(/<div class="cover-meta"><span class="cover-name one-line">[^<]*<\/span><span class="tag new"/);
     for (const art of text.matchAll(/<a class="cover-art[\s\S]*?<\/a>/g)) expect(art[0]).not.toContain('class="tag');
   });
 
