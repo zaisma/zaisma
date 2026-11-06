@@ -60,7 +60,7 @@ import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
-import { farGlass, glassPane, icon, tag, type IconName } from "./components/foundations.ts";
+import { glassPane, icon, tag, type IconName } from "./components/foundations.ts";
 import { columns, grid, row, stack, track, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { shelf } from "./components/navigation.ts";
 import { tabSwitch } from "./components/switch.ts";
@@ -544,14 +544,15 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   // Overview, then Rooms (picking a room first is rare: Roblox keeps its servers a tab away) and Updates, each a tab showing its part alone.
   const parts = [
     { id: "overview", label: "Overview", items: overviewItems },
-    ...(rooms ? [{ id: "rooms", label: "Rooms", badgeCount: rooms.openRoomCount, items: [{ kind: "block" as const, markup: pane("Rooms", roomsTabItems(game.slug, rooms), false) }] }] : []),
+    ...(rooms ? [{ id: "rooms", label: "Rooms", items: [{ kind: "block" as const, markup: pane("Rooms", roomsTabItems(game.slug, rooms), false) }] }] : []),
     ...(view.updates.length
       ? [{ id: "updates", label: "Updates", items: [{ kind: "block" as const, markup: pane("Updates", [{ kind: "block", markup: readingText({ markup: html`${view.updates.map((update) => html`<h3>${day(update.first_published_at_ms)}</h3>${paragraphs(update.patch_notes)}`)}` }) }], false) }] }]
       : []),
   ];
   const sections: LayoutItem[] = [
     ...(parts.length > 1
-      ? [{ kind: "control" as const, markup: tabSwitch({ label: `${game.title}: its parts`, switchSize: "regular", isShowingOnePanel: true, tabs: parts.map((part, partIndex) => ({ label: part.label, href: `#${part.id}`, isCurrent: partIndex === 0, ...("badgeCount" in part && part.badgeCount ? { badgeCount: part.badgeCount } : {}) })) }) }]
+      // The tabs sit on a pane of their own, as everything on the page does.
+      ? [{ kind: "block" as const, markup: glassPane({ paneWidth: "full", label: `${game.title}: its parts`, body: stackOfOne(tabSwitch({ label: `${game.title}: its parts`, switchSize: "small", isFull: true, isShowingOnePanel: true, tabs: parts.map((part, partIndex) => ({ label: part.label, href: `#${part.id}`, isCurrent: partIndex === 0 })) })) }) }]
       : []),
     ...parts.map((part, partIndex): LayoutItem => ({ kind: "block", id: part.id, isHidden: partIndex > 0, markup: stack({ items: part.items }) })),
   ];
@@ -581,7 +582,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     // Where the game plays: it gets the whole screen, past a phone's notch.
     isFillingScreen: true,
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
-    stage: html`${backgroundMarkup(background)}${farGlass()}`,
+    stage: backgroundMarkup(background),
     stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
     // The glass takes the game's tint, as on the home while its cover is pointed at.
     glassHue: background.glassTintColor,

@@ -542,14 +542,6 @@ export function backdrop(options: BackdropOptions = {}): Raw {
 }
 
 /**
- * Far glass: a sheet of frosted glass across the whole backdrop, so the world behind it reads as a mood, not the show: a game's page,
- * where the game's own world waits for Play. It goes right after the backdrop, in the page's stage.
- */
-export function farGlass(options: { isFramed?: boolean } = {}): Raw {
-  return html`<div class="backdrop-far${options.isFramed ? " is-framed" : ""}" aria-hidden="true"></div>`;
-}
-
-/**
  * A game's world as its placeholder, under its picture or shader frame until they arrive; nothing without one. Under a picture it's drawn
  * at the picture's own shape (--placeholder-ratio), as the picture covers the screen: the placeholder, a few pixels wide, rounds its shape,
  * and covering at that one it would be drawn a few percent larger, so the world would seem to shrink as the picture fades in.
@@ -607,9 +599,6 @@ component({
 .backdrop { --backdrop-bleed: 0px; position: fixed; inset: calc(-1 * var(--backdrop-bleed)) 0 auto 0; z-index: -1; display: block; border: 0; width: 100%; height: 100vh; height: calc(100lvh + 2 * var(--backdrop-bleed)); object-fit: cover; pointer-events: none; background: ${BACKDROP_STILL}; }
 @media (pointer: coarse), (max-width: 760px) { .backdrop { --backdrop-bleed: 100px; } }
 .backdrop.is-framed { --backdrop-bleed: 0px; position: absolute; inset: 0; height: 100%; }
-/* Far glass: frosted glass between the page and its world, the world blurred and quieted behind it as through real frosted glass. */
-.backdrop-far { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--glass-tray); -webkit-backdrop-filter: blur(28px) saturate(0.85); backdrop-filter: blur(28px) saturate(0.85); }
-.backdrop-far.is-framed { position: absolute; }
 /* Zaisma's own: its placeholder under its canvas, which fades in once it has drawn. */
 .backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
 .backdrop.is-own.is-drawn { opacity: 1; }
@@ -649,7 +638,6 @@ html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page
   examples: [
     { label: "Zaisma's own: behind every page, a midday sky in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
-    { label: "Far: a game's world behind frosted glass, as its page shows it", markup: backdropFrame(html`${backdrop({ isFramed: true, standInSlug: "neon-drift", isGlassAdaptive: true })}${farGlass({ isFramed: true })}`, "Neon Drift", "Its page: the world waits for Play.") },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
 });

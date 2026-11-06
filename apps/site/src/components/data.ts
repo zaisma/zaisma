@@ -1551,7 +1551,9 @@ component({
 .detail dt { font: var(--type-facts); color: var(--muted); }
 .detail dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); font: var(--type-words); color: var(--ink); overflow-wrap: anywhere; }
 /* An entry: its line icon, quiet, then its words. */
-.detail-entry { display: inline-flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; }
+.detail-entry { display: inline-flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; max-width: 100%; }
+/* An entry longer than its line (Local co-op, 2–4 players on a phone) wraps its words beside its icon instead of running past the pane. */
+.detail-entry > :not(.ico) { white-space: normal; min-width: 0; }
 .detail-entry > .ico { color: var(--muted); }
 `,
   render: details,
