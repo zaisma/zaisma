@@ -159,6 +159,14 @@ export function gameCardActions(nameMarkup: Raw, playHref: string, detailsHref: 
   return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
 }
 
+/**
+ * An event's poster among game cards (What's on): Zaisma's own art filling the whole card, its name and dates drawn in it, with no line under
+ * it, the card one link. It's the same size as a game card beside it, so a line of them stays even; title is what a screen reader hears.
+ */
+export function gameCardPoster(options: { title: string; picture: ShownPicture; href: string; isEager?: boolean; state?: "is-pointed" | "is-pressed" }): Raw {
+  return html`<div class="cover is-poster sleek-cast${options.state ? ` ${options.state}` : ""}"><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${options.title}">${CUT_LINE}<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture, { isEager: options.isEager, shownSizes: "(max-width: 760px) 300px, 360px" })}</span>${EDGE_LIGHT}</a></div></div>`;
+}
+
 /** The most covers a See all card shows, small, in its art (gameCardSeeAll). */
 export const SEE_ALL_CARD_COVER_COUNT = 4;
 
@@ -589,7 +597,11 @@ const COVER_STYLES = `
 .cover-glass.sleek > .cover-art.carving > .cut-line { visibility: hidden; }
 /* Its plate is one line, the same height on every card whatever it holds, so every card is one shape. */
 /* What has an edge on it (Play, Details, Join) sits the compact frame gap from the glass's sides and foot; its words keep a little more. */
-.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: calc(var(--control-height-tiny) + 2 * var(--pad-frame-compact)); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact); --pad-words: var(--pad-frame-compact); }
+.cover { --cover-plate-height: calc(var(--control-height-tiny) + 2 * var(--pad-frame-compact)); }
+/* A poster: its art is the whole card, a game card's art and line high, so it lines up with the cards beside it. */
+.cover.is-poster > .cover-glass { container-type: inline-size; }
+.cover.is-poster .cover-art { aspect-ratio: auto; height: calc(100cqi * 9 / 16 + var(--cover-plate-height)); }
+.cover-plate { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; height: var(--cover-plate-height); box-sizing: border-box; min-width: 0; padding: var(--pad-frame-compact); --pad-words: var(--pad-frame-compact); }
 .cover-plate > .cover-meta:not(.has-actions) { padding-inline: var(--pad-frame-compact); }
 /* Every card in a list has a tiny control's line (Join is tiny); only the player's own game, standing alone, holds Play and Details at a
    small control's height. */
@@ -1120,6 +1132,8 @@ component({
   render: gameCard,
   examples: [
     { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }] } }) }] }) },
+    { label: "An event's poster beside a game: all art, the card one link, the same size", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCardPoster({ title: "Night races, till Sunday", picture: { imageUrl: "/design/event-poster-example.svg", widthPx: 960, heightPx: 640, placeholderDataUrl: null }, href: "#" }) }, { kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }] }) },
+    { label: "News for players: a game card's shape, tagged News", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Winter jam winners", picture: null, href: "#", facts: { tagWords: "News" } }) }] }) },
     { label: "See all: the card a list ends on past its cap, four of its covers in its art", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCardSeeAll({ href: "#", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES).slice(0, SEE_ALL_CARD_COVER_COUNT) }) }] }) },
     { label: "Every fact at once: the same shape as any card, its name cut short and one thing at its end", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCard({ title: "The Last Lighthouse Keeper: Tides of the Northern Reach", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#", facts: { playerCount: 412, tagWords: "Updated", priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }, { username: "Noah" }, { username: "Mia" }], deviceNote: "Needs a keyboard" } }) }] }) },
     {

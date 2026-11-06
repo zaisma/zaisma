@@ -4,7 +4,8 @@ import { isTrending, shelfCounts, showcase, type ShowGame } from "./home.ts";
 
 /**
  * What's on at Zaisma: the home's window on what's happening. It fills itself from what's really going on, so it never sits empty while there are
- * games and never waits on a person; an admin adds an event (art across the top of the home) or a pick (one game among its cards) when they want.
+ * games and never waits on a person; an admin adds an event (art across the top of the home, or a poster among its cards past the first), a pick
+ * (one game among its cards) or player news (a card with its title) when they want. Platform changes are the developer forum's, never news here.
  * It changes with the week and is the same for everyone. The admin MCP posts, lists and ends entries (admin-mcp.ts); GET /whats-on answers it.
  */
 
@@ -23,16 +24,20 @@ export const MAXIMUM_EVENT_ART_SIZE_BYTES = 2 * 1024 * 1024;
 const START_GRACE_DURATION_MS = 3_600_000;
 const ENDED_LISTED_DURATION_DAYS = 30;
 const DEFAULT_EVENT_LINK_LABEL = "Go play";
+/** A poster's and a news card's art, as the card shows it: about this shape, cropped to the card's own. */
+const CARD_ART_WIDTH_PX = 960;
+const CARD_ART_HEIGHT_PX = 640;
 const ART_CACHE_DURATION_SEC = 86_400;
 
 /** A row of whats_on_entries (migration 0238). */
 export interface WhatsOnEntry {
   id: string;
-  entry_kind: "event" | "pick";
+  entry_kind: "event" | "pick" | "news";
   game_id: string | null;
   title: string | null;
   wide_art_key: string | null;
   narrow_art_key: string | null;
+  card_art_key: string | null;
   link_url: string | null;
   link_label: string | null;
   starts_at_ms: number;
@@ -47,6 +52,17 @@ export interface WhatsOnCard {
   /** Why it's here; null for a game filling the window when nothing's happening. */
   tagWords: WhatsOnTagWords | null;
 }
+/** Zaisma's own card among them: an event's poster or player news, opening its link. */
+export interface WhatsOnEntryCard {
+  entryKind: "event" | "news";
+  id: string;
+  title: string;
+  /** Its art: a poster's whole card, or news's picture; null for news with none. */
+  art: { imageUrl: string; widthPx: number; heightPx: number; placeholderDataUrl: null } | null;
+  linkUrl: string;
+}
+/** What's on's line of cards, in order: Zaisma's own first, then games. */
+export type WhatsOnLineupCard = ({ cardKind: "game" } & WhatsOnCard) | ({ cardKind: "entry" } & WhatsOnEntryCard);
 export interface WhatsOnEvent {
   id: string;
   title: string;
@@ -56,8 +72,9 @@ export interface WhatsOnEvent {
   link_label: string;
 }
 
-const artUrl = (entryId: string, artSide: "wide" | "narrow") => `/whats-on-art/${entryId}/${artSide}`;
-export const whatsOnArtKey = (entryId: string, artSide: "wide" | "narrow") => `whats-on-art/${entryId}/${artSide}`;
+type ArtSide = "wide" | "narrow" | "card";
+const artUrl = (entryId: string, artSide: ArtSide) => `/whats-on-art/${entryId}/${artSide}`;
+export const whatsOnArtKey = (entryId: string, artSide: ArtSide) => `whats-on-art/${entryId}/${artSide}`;
 
 export const eventOf = (entry: WhatsOnEntry): WhatsOnEvent => ({
   id: entry.id,
@@ -104,28 +121,53 @@ export function pickWhatsOnCards(games: readonly ShowGame[], picks: readonly Wha
   return [...cards.values()].slice(0, MAXIMUM_WHATS_ON_CARD_COUNT);
 }
 
-/** The home's and the API's read: the event showing, if any, and the picks showing, split from one query. */
-export async function currentWhatsOn(env: Env, nowMs = Date.now()): Promise<{ event: WhatsOnEntry | null; picks: WhatsOnEntry[] }> {
+/** The home's and the API's read, split from one query: the banner's event (the newest), Zaisma's own cards (the other events with a poster, then news), and the picks. */
+export async function currentWhatsOn(env: Env, nowMs = Date.now()): Promise<{ event: WhatsOnEntry | null; entryCards: WhatsOnEntryCard[]; picks: WhatsOnEntry[] }> {
   const entries = await currentEntries(env, nowMs);
-  return { event: entries.find((entry) => entry.entry_kind === "event") ?? null, picks: entries.filter((entry) => entry.entry_kind === "pick") };
+  const events = entries.filter((entry) => entry.entry_kind === "event");
+  const cardOf = (entry: WhatsOnEntry): WhatsOnEntryCard => ({
+    entryKind: entry.entry_kind === "news" ? "news" : "event",
+    id: entry.id,
+    title: entry.title!,
+    art: entry.card_art_key ? { imageUrl: artUrl(entry.id, "card"), widthPx: CARD_ART_WIDTH_PX, heightPx: CARD_ART_HEIGHT_PX, placeholderDataUrl: null } : null,
+    linkUrl: entry.link_url!,
+  });
+  return {
+    event: events[0] ?? null,
+    entryCards: [...events.slice(1).filter((entry) => entry.card_art_key), ...entries.filter((entry) => entry.entry_kind === "news")].map(cardOf),
+    picks: entries.filter((entry) => entry.entry_kind === "pick"),
+  };
+}
+
+/**
+ * What's on's line of cardCount cards: Zaisma's own first (posters, then news), at most all but one of them so a game always shows, then
+ * games in pickWhatsOnCards' order.
+ */
+export function whatsOnLineup(entryCards: readonly WhatsOnEntryCard[], gameCards: readonly WhatsOnCard[], cardCount: number): WhatsOnLineupCard[] {
+  const own = entryCards.slice(0, gameCards.length ? Math.max(0, cardCount - 1) : cardCount).map((card) => ({ cardKind: "entry" as const, ...card }));
+  return [...own, ...gameCards.map((card) => ({ cardKind: "game" as const, ...card }))].slice(0, cardCount);
 }
 
 /** GET /whats-on (MCP get_whats_on): what the home's window shows anyone, with no player's own game left out. */
 export async function whatsOnAnswer(env: Env, nowMs = Date.now()) {
-  const [{ event, picks }, games, { counts, offShelfSlugs }] = await Promise.all([currentWhatsOn(env, nowMs), showcase(env, 13), shelfCounts(env, 13, nowMs)]);
+  const [{ event, entryCards, picks }, games, { counts, offShelfSlugs }] = await Promise.all([currentWhatsOn(env, nowMs), showcase(env, 13), shelfCounts(env, 13, nowMs)]);
   const trendingSlugs = new Set([...counts].filter(([, shelfCount]) => isTrending(shelfCount)).map(([slug]) => slug));
   const popularSlugs = [...counts].sort(([, first], [, second]) => second.weekPlayerCount - first.weekPlayerCount).map(([slug]) => slug);
   return {
     event: event ? eventOf(event) : null,
-    cards: pickWhatsOnCards(games, picks, { trendingSlugs, popularSlugs, offShelfSlugs, nowMs }).map(({ game, tagWords }) => ({ slug: game.slug, title: game.title, cover_url: game.cover, tag: tagWords })),
+    cards: whatsOnLineup(entryCards, pickWhatsOnCards(games, picks, { trendingSlugs, popularSlugs, offShelfSlugs, nowMs }), MAXIMUM_WHATS_ON_CARD_COUNT).map((card) =>
+      card.cardKind === "game"
+        ? { card_kind: "game" as const, slug: card.game.slug, title: card.game.title, cover_url: card.game.cover, link_url: `/g/${card.game.slug}`, tag: card.tagWords }
+        : { card_kind: card.entryKind, slug: null, title: card.title, cover_url: card.art?.imageUrl ?? null, link_url: card.linkUrl, tag: card.entryKind === "news" ? ("News" as const) : null },
+    ),
   };
 }
 
 /** GET /whats-on-art/:id/:side: an event's art. It's Zaisma's own, sent as a picture and kept in caches for a day. */
 export async function handleWhatsOnArt(request: Request, env: Env, path: string): Promise<Response | null> {
-  const match = path.match(/^\/whats-on-art\/(whats_on_entry_[a-z0-9]+)\/(wide|narrow)$/);
+  const match = path.match(/^\/whats-on-art\/(whats_on_entry_[a-z0-9]+)\/(wide|narrow|card)$/);
   if (!match) return null;
-  const object = await env.GAMES.get(whatsOnArtKey(match[1]!, match[2] as "wide" | "narrow"));
+  const object = await env.GAMES.get(whatsOnArtKey(match[1]!, match[2] as ArtSide));
   if (!object) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   return new Response(object.body, { headers: { "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": `public, max-age=${ART_CACHE_DURATION_SEC}`, "X-Content-Type-Options": "nosniff", ETag: object.httpEtag } });
 }
@@ -178,6 +220,8 @@ export interface EventToPost {
   title: string;
   wideArtBase64: string;
   narrowArtBase64?: string;
+  /** Its poster, for when another event holds the banner: it shows among What's on's cards. */
+  cardArtBase64?: string;
   linkUrl: string;
   linkLabel?: string;
   startsAt?: string;
@@ -195,12 +239,30 @@ export async function postEvent(env: Env, toPost: EventToPost, actor: string): P
   const { startsAtMs, endsAtMs } = readDates(toPost.startsAt, toPost.endsAt, nowMs);
   const wideArt = readArt(toPost.wideArtBase64, "wide_art_base64");
   const narrowArt = toPost.narrowArtBase64 === undefined ? null : readArt(toPost.narrowArtBase64, "narrow_art_base64");
+  const cardArt = toPost.cardArtBase64 === undefined ? null : readArt(toPost.cardArtBase64, "card_art_base64");
   const id = newId("whats_on_entry");
   await env.GAMES.put(whatsOnArtKey(id, "wide"), wideArt.bytes, { httpMetadata: { contentType: wideArt.contentType } });
   if (narrowArt) await env.GAMES.put(whatsOnArtKey(id, "narrow"), narrowArt.bytes, { httpMetadata: { contentType: narrowArt.contentType } });
-  await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, narrow_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES (?, 'event', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, title, whatsOnArtKey(id, "wide"), narrowArt ? whatsOnArtKey(id, "narrow") : null, linkUrl, linkLabel, startsAtMs, endsAtMs, nowMs, actor).run();
+  if (cardArt) await env.GAMES.put(whatsOnArtKey(id, "card"), cardArt.bytes, { httpMetadata: { contentType: cardArt.contentType } });
+  await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, narrow_art_key, card_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES (?, 'event', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, title, whatsOnArtKey(id, "wide"), narrowArt ? whatsOnArtKey(id, "narrow") : null, cardArt ? whatsOnArtKey(id, "card") : null, linkUrl, linkLabel, startsAtMs, endsAtMs, nowMs, actor).run();
   await audit(env.DB, null, "whats-on-event-posted", `${id}: ${title}`, actor);
+  return entryById(env, id);
+}
+
+/** post_whats_on_news: player news among What's on's cards until ends_at, its title on its line and its picture when it has one. */
+export async function postNews(env: Env, toPost: { title: string; linkUrl: string; cardArtBase64?: string; startsAt?: string; endsAt: string }, actor: string): Promise<WhatsOnEntry> {
+  const nowMs = Date.now();
+  const title = toPost.title.trim();
+  if (!title || title.length > MAXIMUM_EVENT_TITLE_CHARACTER_COUNT) throw new ApiError("bad_news_title", { message: `title is ${title.length} characters, not 1 to ${MAXIMUM_EVENT_TITLE_CHARACTER_COUNT}.`, field: "title", fix: "Give the news in a few words: its card shows them." });
+  const linkUrl = checkEventLink(toPost.linkUrl);
+  const { startsAtMs, endsAtMs } = readDates(toPost.startsAt, toPost.endsAt, nowMs);
+  const cardArt = toPost.cardArtBase64 === undefined ? null : readArt(toPost.cardArtBase64, "card_art_base64");
+  const id = newId("whats_on_entry");
+  if (cardArt) await env.GAMES.put(whatsOnArtKey(id, "card"), cardArt.bytes, { httpMetadata: { contentType: cardArt.contentType } });
+  await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, card_art_key, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES (?, 'news', ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, title, cardArt ? whatsOnArtKey(id, "card") : null, linkUrl, startsAtMs, endsAtMs, nowMs, actor).run();
+  await audit(env.DB, null, "whats-on-news-posted", `${id}: ${title}`, actor);
   return entryById(env, id);
 }
 
@@ -246,6 +308,7 @@ export const entryAnswer = (entry: WhatsOnEntry, nowMs = Date.now()) => ({
   title: entry.title,
   wide_art_url: entry.wide_art_key ? artUrl(entry.id, "wide") : null,
   narrow_art_url: entry.narrow_art_key ? artUrl(entry.id, "narrow") : null,
+  card_art_url: entry.card_art_key ? artUrl(entry.id, "card") : null,
   link_url: entry.link_url,
   link_label: entry.entry_kind === "event" ? (entry.link_label ?? DEFAULT_EVENT_LINK_LABEL) : null,
   starts_at: iso(entry.starts_at_ms)!,

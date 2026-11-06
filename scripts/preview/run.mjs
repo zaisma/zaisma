@@ -2355,11 +2355,15 @@ function seedAnnouncements() {
   runSql(sql);
 }
 
-/** What's on: an event with the gallery's example art, refreshed every run under the same ID. */
+/** What's on: an event with the gallery's example art, a second with a poster, and news for players, refreshed every run under the same IDs. */
 function seedWhatsOn() {
   const nowMs = Date.now();
   runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewzombie01', 'event', 'Zombie weekend', 'whats-on-art/whats_on_entry_previewzombie01/wide', '/games?genre=survival', 'Go play', ${nowMs - 3600000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
   spawnSync(...wrangler(["r2", "object", "put", "zaisma-games/whats-on-art/whats_on_entry_previewzombie01/wide", "--file", join(ROOT, "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  // Starts a little before the first, so the first keeps the strip and this one is a poster among the cards.
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, card_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewraces01', 'event', 'Night races, till Sunday', 'whats-on-art/whats_on_entry_previewraces01/wide', 'whats-on-art/whats_on_entry_previewraces01/card', '/games?genre=racing', 'Go race', ${nowMs - 7200000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
+  for (const side of ["wide", "card"]) spawnSync(...wrangler(["r2", "object", "put", `zaisma-games/whats-on-art/whats_on_entry_previewraces01/${side}`, "--file", join(ROOT, side === "card" ? "brand/design/event-poster-example.svg" : "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewnews01', 'news', 'Winter jam winners', '/forum', ${nowMs - 10800000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
 }
 
 /**

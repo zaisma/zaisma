@@ -67,7 +67,7 @@ import { banAccount, decideBanMatch, unbanAccount, type BanMatch } from "./bans.
 import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
 import { MAXIMUM_PAGE_SPEED_DAY_COUNT, pageSpeedAnswer } from "./speed-reports.ts";
 import { changesSince } from "./scan.ts";
-import { MAXIMUM_ENTRY_DURATION_DAYS, MAXIMUM_EVENT_ART_SIZE_BYTES, MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, endEntry, entryAnswer, listEntries, postEvent, postPick } from "./whats-on.ts";
+import { MAXIMUM_ENTRY_DURATION_DAYS, MAXIMUM_EVENT_ART_SIZE_BYTES, MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, endEntry, entryAnswer, listEntries, postEvent, postNews, postPick } from "./whats-on.ts";
 import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
 import { RENTED_NETWORK_SHARE,
   ANNOUNCEMENT_CHANGED,
@@ -1345,7 +1345,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "list_whats_on",
     reaches: "zaisma_settings",
     title: "What's on: what people added",
-    description: "The events and picks a person added to What's on at Zaisma: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. What's on fills itself around them.",
+    description: "The events, news and picks a person added to What's on at Zaisma: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. What's on fills itself around them.",
     inputSchema: object({}),
     outputSchema: WHATS_ON_ENTRY_LIST,
     annotations: read,
@@ -1356,7 +1356,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     reaches: "zaisma_settings",
     title: "Post an event",
     description:
-      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at. The newest current event shows. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
+      "Put an event across the top of zaisma.com's home for every player, as a slim strip of art with one button, from starts_at until ends_at. The newest current event holds the strip; another with card_art shows as a poster among What's on's cards. The art carries the event's name, toward its start, with its end quiet for the button.\n" +
       'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
     inputSchema: {
       ...object(
@@ -1364,6 +1364,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
           title: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, description: "The event's name: what screen readers read, since the art shows it." },
           wide_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "The strip's art, wide (about 27 times as wide as tall, like 2400 by 88): a PNG, WebP or JPEG, as base64." },
           narrow_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "Art for a phone's strip (about 7 times as wide as tall, like 640 by 88); left out, phones show the wide art's start." },
+          card_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "An event's poster, for What's on's cards while another event holds the banner: the whole card, about 3 by 2 (like 960 by 640), its name and dates kept inside the middle three quarters; left out, it shows only as the banner." },
           link_url: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, format: "uri-reference", description: 'Where it goes: an https address, or a path on zaisma.com like "/games?genre=survival".' },
           link_label: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, description: 'Its button\'s words; "Go play" when left out.' },
           starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts, an ISO time from an hour ago to 90 days ahead; now when left out." },
@@ -1376,7 +1377,32 @@ export const ADMIN_TOOLS: AdminTool[] = [
     annotations: change,
     run: async (toolArguments, { env, actor }) => {
       const optional = (name: string) => (toolArguments[name] === undefined ? undefined : String(toolArguments[name]));
-      const posted = await postEvent(env, { title: String(toolArguments.title), wideArtBase64: String(toolArguments.wide_art_base64), narrowArtBase64: optional("narrow_art_base64"), linkUrl: String(toolArguments.link_url), linkLabel: optional("link_label"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
+      const posted = await postEvent(env, { title: String(toolArguments.title), wideArtBase64: String(toolArguments.wide_art_base64), narrowArtBase64: optional("narrow_art_base64"), cardArtBase64: optional("card_art_base64"), linkUrl: String(toolArguments.link_url), linkLabel: optional("link_label"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
+      return { entry: entryAnswer(posted), next_steps: [{ tool: "list_whats_on", arguments: {}, after_sec: null, reason: "What's showing now and what's coming." }] };
+    },
+  },
+  {
+    name: "post_whats_on_news",
+    reaches: "zaisma_settings",
+    title: "Post news for players",
+    description:
+      "Put news for players among What's on's cards, tagged News, from starts_at until ends_at: a collection, a jam's winners, a new way to play. Never a change to Zaisma itself: those go on the developer forum. It comes after events' posters and before picks, and never pushes out every game.\n" +
+      'Not: { "ends_at": 1792012345678 } (an ISO time, at most ' + MAXIMUM_ENTRY_DURATION_DAYS + " days after starts_at)",
+    inputSchema: object(
+      {
+        title: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, description: "The news in a few words, as its card shows them." },
+        link_url: { type: "string", minLength: 1, maxLength: MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, format: "uri-reference", description: 'Where its card goes: an https address, or a path on zaisma.com like "/games?genre=survival".' },
+        card_art_base64: { type: "string", minLength: 1, maxLength: Math.ceil((MAXIMUM_EVENT_ART_SIZE_BYTES * 4) / 3) + 4, description: "Its picture, above its title (about 16 by 9, like 960 by 540): a PNG, WebP or JPEG, as base64; left out, Zaisma's mark stands in." },
+        starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts, an ISO time from an hour ago to 90 days ahead; now when left out." },
+        ends_at: { type: "string", format: "date-time", maxLength: 40, description: "When it stops, an ISO time after now and starts_at, at most 60 days after starts_at." },
+      },
+      ["title", "link_url", "ends_at"],
+    ),
+    outputSchema: WHATS_ON_ENTRY_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const optional = (name: string) => (toolArguments[name] === undefined ? undefined : String(toolArguments[name]));
+      const posted = await postNews(env, { title: String(toolArguments.title), linkUrl: String(toolArguments.link_url), cardArtBase64: optional("card_art_base64"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
       return { entry: entryAnswer(posted), next_steps: [{ tool: "list_whats_on", arguments: {}, after_sec: null, reason: "What's showing now and what's coming." }] };
     },
   },
@@ -1403,8 +1429,8 @@ export const ADMIN_TOOLS: AdminTool[] = [
   {
     name: "end_whats_on_entry",
     reaches: "zaisma_settings",
-    title: "End an event or a pick",
-    description: "End an event or a pick now, by its whats_on_entry_id: it leaves the home at once, and one that hadn't started never shows. Ask the admin first.",
+    title: "End an event, news or a pick",
+    description: "End an event, news or a pick now, by its whats_on_entry_id: it leaves the home at once, and one that hadn't started never shows. Ask the admin first.",
     inputSchema: object({ whats_on_entry_id: idInput("whats_on_entry", "An entry's ID from list_whats_on.") }, ["whats_on_entry_id"]),
     outputSchema: WHATS_ON_ENTRY_CHANGED,
     annotations: change,

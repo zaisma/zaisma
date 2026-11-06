@@ -6,9 +6,9 @@ import { glassPane, type ShownPicture } from "./components/foundations.ts";
 import { newestPictureJsonSql, pictureFromJson } from "./placeholders.ts";
 import { leadAndSide, stack, stackOfOne, type LayoutItem } from "./components/layout.ts";
 import { MAXIMUM_GAME_ROW_CARD_COUNT, gameRow } from "./components/navigation.ts";
-import { backdropWords, eventBanner, gameCard, type GameCardOptions } from "./components/panes.ts";
+import { backdropWords, eventBanner, gameCard, gameCardPoster, type GameCardOptions } from "./components/panes.ts";
 import { joinPath } from "./friends-now.ts";
-import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards } from "./whats-on.ts";
+import { MAXIMUM_WHATS_ON_CARD_COUNT, currentWhatsOn, eventOf, pickWhatsOnCards, whatsOnLineup, type WhatsOnLineupCard } from "./whats-on.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { HOME_SCRIPT, PLAYED_COOKIE } from "./home-script.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
@@ -334,8 +334,16 @@ export async function home(env: Env, request: Request): Promise<Response> {
     excludedSlugs: new Set(yourGame ? [yourGame.slug] : []),
     offShelfSlugs: new Set(games.filter((game) => !gamesOnShelves.includes(game)).map((game) => game.slug)),
     nowMs,
-  }).slice(0, yourGame ? WHATS_ON_BESIDE_GAME_CARD_COUNT : MAXIMUM_WHATS_ON_CARD_COUNT);
-  const whatsOnRow = gameRow({ id: "whats-on", trackId: "track-whats-on", title: "What's on", allInView: { isLeadWide: !yourGame }, items: whatsOnCards.map(({ game, tagWords }, coverIndex) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds, { tagWords, isEager: true, hasHighPriority: !yourGame && coverIndex === 0 }) })) });
+  });
+  // Zaisma's own first (events' posters, then news), never every card while there are games, then games.
+  const whatsOnLine = whatsOnLineup(whatsOn.entryCards, whatsOnCards, yourGame ? WHATS_ON_BESIDE_GAME_CARD_COUNT : MAXIMUM_WHATS_ON_CARD_COUNT);
+  const lineupCardOf = (card: WhatsOnLineupCard, coverIndex: number): Raw =>
+    card.cardKind === "game"
+      ? coverOf(card.game, ownedGameIds, { tagWords: card.tagWords, isEager: true, hasHighPriority: !yourGame && coverIndex === 0 })
+      : card.entryKind === "event" && card.art
+        ? gameCardPoster({ title: card.title, picture: card.art, href: card.linkUrl, isEager: true })
+        : gameCard({ title: card.title, picture: card.art, href: card.linkUrl, isEager: true, facts: { tagWords: "News" } });
+  const whatsOnRow = gameRow({ id: "whats-on", trackId: "track-whats-on", title: "What's on", allInView: { isLeadWide: !yourGame }, items: whatsOnLine.map((card, coverIndex) => ({ kind: "block" as const, markup: lineupCardOf(card, coverIndex) })) });
   const yourGamePlayedAtMs = yourGame ? accountPlayed.find((entry) => entry.slug === yourGame.slug)?.played_at_ms : undefined;
   const isYourGameUpdated = Boolean(yourGame?.big_update_at_ms && yourGamePlayedAtMs && yourGame.big_update_at_ms > yourGamePlayedAtMs);
   // What's for the player tonight: their game alone on its pane, and What's on as a Game row beside it, each only as tall as it holds.
@@ -343,7 +351,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
     ? leadAndSide({ lead: { kind: "block", markup: glassPane({ paneWidth: "full", label: "Your game", body: stackOfOne(coverOf(yourGame, ownedGameIds, { playHref: `/g/${yourGame.slug}?play`, tagWords: isYourGameUpdated ? "Updated" : undefined, isEager: true, hasHighPriority: true })) }) }, side: { kind: "block", markup: whatsOnRow } })
     : whatsOnRow;
   // What else is here. A row whose games all showed higher up would only repeat them, and leaves.
-  const shownSlugs = new Set([...(yourGame ? [yourGame.slug] : []), ...whatsOnCards.map(({ game }) => game.slug)]);
+  const shownSlugs = new Set([...(yourGame ? [yourGame.slug] : []), ...whatsOnLine.flatMap((card) => (card.cardKind === "game" ? [card.game.slug] : []))]);
   const playingNow = gamesOnShelves.filter((game) => game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT).sort((first, second) => second.playing_now_player_count - first.playing_now_player_count).slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
   const neverPlayed = gamesOnShelves.filter((game) => !playedSlugs.includes(game.slug)).slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
   const rows = [

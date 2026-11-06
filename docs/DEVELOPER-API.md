@@ -709,7 +709,7 @@ New kinds can be added, so show the `message` of one you don't know.
 
 ### What's on at Zaisma
 
-`GET /whats-on` (MCP `get_whats_on`): what the home's window shows right now, the same for everyone. `event` is the event running, or null. `cards` holds up to 3 games, each with `slug`, `title`, `cover_url` and `tag` (`Pick`, `Updated`, `New`, `Trending` or null). It fills itself from new games, big updates and what's trending, and changes each week.
+`GET /whats-on` (MCP `get_whats_on`): what the home's window shows right now, the same for everyone. `event` is the event running, or null. `cards` holds up to 3 cards, Zaisma's own first, each with `card_kind` (`game`, `event` for an event's poster, `news` for news for players), `slug` (null unless a game), `title`, `cover_url`, `link_url` and `tag` (`Pick`, `Updated`, `New`, `Trending`, `News` or null); while there are games, at least one card is a game. It fills itself from new games, big updates and what's trending, and changes each week.
 
 ### Who's playing on Zaisma
 
