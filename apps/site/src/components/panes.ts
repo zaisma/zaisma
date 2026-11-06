@@ -2195,7 +2195,8 @@ component({
 .event-banner { width: 100%; min-width: 0; container-type: inline-size; }
 /* Opening a page, it hangs from the header at the frame gap (the header's own gap is --header-gap), so it reads as the header's, not as one more block. */
 main .layout-stack:not(.glass *) > .stack-cell:first-child > .event-banner { margin-top: calc(var(--pad-frame) - var(--header-gap, var(--gap-block-block))); }
-.event-banner-well { position: relative; height: var(--control-height-regular); }
+/* Its art, the link, sits in from the carving's rim (2px a side, materials.ts), so the well is that much taller than a touch target. */
+.event-banner-well { position: relative; height: calc(var(--touch-target) + var(--pad-frame-compact)); }
 .event-banner-well > .well-body { position: absolute; inset: 0; padding: 0; }
 .event-banner-picture img { object-position: left center; }
 .event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: none; }
