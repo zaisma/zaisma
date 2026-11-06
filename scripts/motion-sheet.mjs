@@ -13,7 +13,8 @@
 //
 //   npm run motion:sheet -- --only /design/actions        the pages whose path has that in it, every state, screen and theme
 //   npm run motion:sheet -- --only /g/cave-crew --state share   one state only (its stateValue on the bench)
-//   npm run motion:sheet -- --only /signin --pictures <folder>  and a strip of frames per run, <folder>/<state>-<screen>-<theme>-<run>.png
+//   npm run motion:sheet -- --only /signin --pictures <folder>  and a strip of frames per run, <folder>/<state>-<screen>-<theme>-<run>.png,
+//                                                               and each settled screen at its own size, <…>-<run>-still.png
 //   npm run motion:sheet -- --only /signin --json
 //
 // It runs under the local budget (scripts/check-budget.mjs): one local run at a time, at low priority, watched for time, cores, memory and
@@ -496,11 +497,19 @@ export async function moveThroughPages({ chromePath, site, pages, looks, picture
               await send("Page.stopScreencast").catch(() => {});
               const path = join(picturesFolder, `${fileName}-${screen.screenName}-${theme}-${runKind}.png`);
               if (frames.length) { await strip(chrome, path, `${page.name}, ${stateName}: ${runKind}, ${screen.name}, ${theme}`, frames.slice(), found); stripPaths.push(path); }
+              // And the screen as it settled, at its own size: what a strip's small frames can't show (a margin, a corner).
+              if (runKind !== "leave") {
+                const stillPath = join(picturesFolder, `${fileName}-${screen.screenName}-${theme}-${runKind}-still.png`);
+                writeFileSync(stillPath, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+                stripPaths.push(stillPath);
+              }
             }
             onRun({ page: page.name, state: stateName, run: runKind, screen: screen.name, theme, failure_count: found.length });
           };
           const load = async (path, profile, stateName, fileName, runKind = "load") => {
             const loaded = new Promise((done) => { const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done())); });
+            // Every page is a bench screen: its profile signed in, its states the bench's, and the backdrop still, as the bench shows it
+            // (a moving one drawn without the GPU takes more cores than the budget has).
             const url = site ? markedUrl(site, path, screen.screenName, profile) : path;
             await film();
             if (runKind === "switch") await evaluate(`(location.assign(${JSON.stringify(url)}), true)`);
