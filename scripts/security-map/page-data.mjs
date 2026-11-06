@@ -18,6 +18,13 @@ const SHIELD_STATE_BY_PRIORITY = { watch: "whole", fix_soon: "cracked", harden: 
 /** The priorities that need attention, in the order they're shown. */
 const ATTENTION_PRIORITIES = ["fix_now", "harden", "fix_soon"];
 
+/**
+ * A thin spot: a way whose damage reaches many games, everyone or money while its defense is one lock or
+ * less, with no proven, open item that carries its whole weight. It never moves a shield; it's work ahead.
+ */
+export const MINIMUM_THIN_DAMAGE_SCORE = 4;
+export const MAXIMUM_THIN_DEFENSE_SCORE = 3;
+
 /** The pictures of a damage score and a defense score, from score 1 to score 5. */
 export const HARM_LEVELS = ["one_player", "a_few", "one_game", "many_games", "everyone"];
 export const LOCK_LEVELS = ["open", "key_in_it", "locked", "two_locks", "vault"];
@@ -39,6 +46,20 @@ function harmAndLockOf({ damage_score, defense_score }, scales) {
     lock_level: LOCK_LEVELS[defense_score - 1],
     lock_line: scales.defense_steps[defense_score - 1].step_example,
   };
+}
+
+const isThinScore = ({ damage_score, defense_score }) => damage_score >= MINIMUM_THIN_DAMAGE_SCORE && defense_score <= MAXIMUM_THIN_DEFENSE_SCORE;
+
+/** An item answers a thin way when it's proven, open, on that way, and scored at the way's harm or more and its lock or less. */
+const isAnsweredBy = (way, sectorId) => (item) => isShieldItem(item) && item.sector_id === sectorId && item.way_id === way.way_id && item.damage_score >= way.damage_score && item.defense_score <= way.defense_score;
+
+/** The thin spots, worst harm first, then the weakest lock, then rollout order. */
+export function thinWaysOf(promises, items, scales) {
+  return [...promises]
+    .sort((first, second) => first.rollout_position - second.rollout_position)
+    .flatMap((promise) => promise.ways_to_break.filter((way) => isThinScore(way) && !items.some(isAnsweredBy(way, promise.sector_id))).map((way) => ({ promise, way })))
+    .sort((first, second) => second.way.damage_score - first.way.damage_score || first.way.defense_score - second.way.defense_score)
+    .map(({ promise, way }) => ({ sector_id: promise.sector_id, sector_name: sectorNameOf(promise.sector_id), way_line: way.way_line, ...harmAndLockOf(way, scales) }));
 }
 
 function itemStandingOf(item, items) {
@@ -66,11 +87,12 @@ function attentionItemsOf(items, scales) {
     }));
 }
 
-/** The page's whole data: one shield for Zaisma, one per sector in rollout order, what needs attention and the work ahead. grid and patterns are null before their first run. */
+/** The page's whole data: one shield for Zaisma, one per sector in rollout order, what needs attention, the thin spots and the work ahead. grid and patterns are null before their first run. */
 export function pageDataOf({ scales, promises, items, grid, patterns, lastReviewDate }) {
   const shieldItems = items.filter(isShieldItem);
   const countOfPriority = (priority) => shieldItems.filter((item) => priorityOfItem(item) === priority).length;
   const attentionItems = attentionItemsOf(items, scales);
+  const thinWays = thinWaysOf(promises, items, scales);
   const workAhead = {
     fix_now_count: countOfPriority("fix_now"),
     harden_count: countOfPriority("harden"),
@@ -79,6 +101,7 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
     question_count: items.filter((item) => item.item_kind === "question" && isOpenItem(item)).length,
     grid_failure_count: (grid?.failures.length ?? 0) + (grid?.doors_not_tried.length ?? 0),
     pattern_finding_count: patterns?.findings.length ?? 0,
+    thin_way_count: thinWays.length,
     changed_code_count: promises.flatMap((promise) => [...promise.strengths.map((strength) => strength.strength_stale_reason), ...promise.ways_to_break.map((way) => way.score_stale_reason)]).filter(Boolean).length,
   };
   return {
@@ -102,6 +125,7 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
         };
       }),
     attention_items: attentionItems,
+    thin_ways: thinWays,
     work_ahead: workAhead,
   };
 }

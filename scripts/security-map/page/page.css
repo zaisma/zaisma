@@ -36,6 +36,7 @@ a { color: inherit; text-decoration: none; }
 .hero { display: grid; justify-items: center; text-align: center; gap: 6px; }
 .hero .shield { width: min(200px, 56vw); margin-bottom: 6px; }
 .hero h1 { font-size: 22px; line-height: 1.25; }
+.hero-line { color: var(--fg-2); font-size: 15px; max-width: 30em; }
 
 .sectors { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 4px; }
 .sector { display: grid; justify-items: center; align-content: start; text-align: center; gap: 2px; padding: 8px 2px; border-radius: 10px; min-height: 44px; }
@@ -51,6 +52,7 @@ a { color: inherit; text-decoration: none; }
 .line { font-weight: 500; }
 .sub { color: var(--muted); font-size: 13.5px; }
 .goal { color: var(--fg-2); font-size: 13.5px; }
+.thin { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--line); min-width: 0; }
 /* Who it hits, then what it takes, in the same two columns on every row. */
 .marks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 400px; font-size: 13px; line-height: 18px; color: var(--fg-2); }
 .mark { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px; align-items: start; }
