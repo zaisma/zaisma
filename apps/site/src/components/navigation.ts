@@ -7,7 +7,7 @@ import { tabIconsAlone } from "./switch.ts";
 import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
 import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCardSeeAll, type DropdownItem } from "./panes.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCardSeeAll, gameGrid, type DropdownItem } from "./panes.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { listRows, stateNote } from "./data.ts";
 import { carving } from "./materials.ts";
@@ -1284,7 +1284,7 @@ export function gameRow(options: GameRowOptions): Raw {
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
         : options.allInView
-          ? { kind: "block", markup: carving({ kind: "game-row-well all-in-view", body: grid({ itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: options.allInView.isLeadWide, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items: shown }) }) }
+          ? { kind: "block", markup: gameGrid({ isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: options.allInView.isLeadWide, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items: shown }) }
           : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
   })}</section>`) });
@@ -1305,9 +1305,6 @@ component({
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
 .game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
 .game-row-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
-/* All in view: the frame gap round the cards and between them, as in a track. */
-.game-row-well.all-in-view { padding: var(--pad-frame); }
-.game-row-well.all-in-view .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 .game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
 /* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
 .game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }

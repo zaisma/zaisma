@@ -6,7 +6,7 @@ import { tagsInUse, type TagInUse } from "./components/data.ts";
 import { filterMenu, type FilterGroup } from "./components/navigation.ts";
 import { loadMore } from "./components/navigation.ts";
 import { stateNote } from "./components/data.ts";
-import { gameCard } from "./components/panes.ts";
+import { gameCard, gameGrid } from "./components/panes.ts";
 import { tabSwitch, type SwitchTab } from "./components/switch.ts";
 import { DEVICE_KIND_SOURCE, viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
@@ -340,11 +340,11 @@ function results(query: BrowseQuery, games: BrowseGame[], ownedGameIds: Readonly
   const hasMore = firstIndex + BROWSE_PAGE_GAME_COUNT < games.length;
   return [
     // Both lists are always there, so Load more can add to either; an empty one takes no room until a page brings it covers.
-    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games on this page", text: "Every game here is made for another device." }), id: "browse-games", itemSize: "cover", label: "Games", items: fitting.map((game, coverIndex) => coverOf(game, coverIndex, ownedGameIds)) }) },
+    { kind: "block", isHidden: !fitting.length && query.pageNumber === 1 && Boolean(others.length), markup: gameGrid({ whenEmpty: stateNote({ stateKind: "empty", title: "No games on this page", text: "Every game here is made for another device." }), id: "browse-games", label: "Games", items: fitting.map((game, coverIndex) => coverOf(game, coverIndex, ownedGameIds)) }) },
     {
       kind: "block",
       isHidden: !others.length,
-      markup: stack({ items: [{ kind: "words", markup: divider({ words: otherDevicesWords(allOthers) }) }, { kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", itemSize: "cover", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
+      markup: stack({ items: [{ kind: "words", markup: divider({ words: otherDevicesWords(allOthers) }) }, { kind: "block", markup: gameGrid({ whenEmpty: stateNote({ stateKind: "empty", title: "Nothing for other devices", text: "Every game here plays on this one." }), id: "browse-other-games", label: "Games made for other devices", items: others.map((game, coverIndex) => coverOf(game, fitting.length + coverIndex, ownedGameIds)) }) }] }),
     },
     ...(hasMore
       ? [{ kind: "block" as const, markup: loadMore({ href: browseHref({ ...query, pageNumber: query.pageNumber + 1 }), label: "More games", listId: "browse-games", moreListIds: ["browse-other-games"], isLoadedOnScroll: true }) }]

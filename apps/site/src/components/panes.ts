@@ -1,7 +1,7 @@
 import { html, raw, type Raw, NO_EMPTY_NOTE } from "../markup.ts";
 import { component } from "./component.ts";
 // The materials register first: the Materials page starts with them.
-import "./materials.ts";
+import { carving } from "./materials.ts";
 import { tokenValue } from "./tokens.ts";
 import { CUT_LINE, EDGE, EDGE_LIGHT, backdrop, divider, floatingPane, glassPane, groove, icon, leavesZaisma, picture, sheetMarkup, tag, tray, well, type IconName, type ShownPicture } from "./foundations.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
@@ -13,7 +13,7 @@ import { examplePane } from "./example-pane.ts";
 import { smallGameCard } from "./game-cover.ts";
 import { lightBox } from "./light-box.ts";
 export { lightBox, type LightBoxOptions } from "./light-box.ts";
-import { grid, paneParts, row, stack, type ControlMarkup, type LayoutItem, type LayoutMarkup, stackOfOne } from "./layout.ts";
+import { grid, paneParts, row, stack, type ControlMarkup, type GridItem, type GridOptions, type LayoutItem, type LayoutMarkup, stackOfOne } from "./layout.ts";
 import { HEADER_RAIL_MEDIA, NOTICE_STRIP_MEDIA } from "./tokens.ts";
 
 /*
@@ -1051,6 +1051,41 @@ component({
 });
 
 const cardSample = (options: GameCardOptions) => html`<div class="cover-sample">${gameCard(options)}</div>`;
+
+/** A Game grid's options: a grid of covers' (layout.ts), each cell a game card. */
+export type GameGridOptions = Omit<Extract<GridOptions, { itemSize: "cover" }>, "itemSize">;
+
+/**
+ * A Game grid: games in a well carved into the pane they're on, as many across as fit, growing down as more load (Browse), or a few all in view
+ * on one line (a Game row's What's on). The cards keep the frame gap from the well's edges and from each other, and take its corner cuts.
+ * Game row is its sibling that scrolls sideways under a heading.
+ */
+export function gameGrid(options: GameGridOptions): Raw {
+  return carving({ kind: "game-grid", body: grid({ ...options, itemSize: "cover" }) });
+}
+
+const STAND_IN_GAME_GRID_ITEMS: GridItem[] = (["kestrel", "hollow-tide", "neon-drift", "verdant", "ashen-crown", "frostline"] as const)
+  .filter((slug) => STAND_IN_COVER_PICTURES[slug])
+  .map((slug) => ({ kind: "block", markup: gameCard({ title: slug.split("-").map((word) => word[0]!.toUpperCase() + word.slice(1)).join(" "), picture: STAND_IN_COVER_PICTURES[slug]!, href: `#${slug}`, facts: { playerCount: 412 } }) }));
+
+component({
+  name: "Game grid",
+  slug: "game-grid",
+  group: "panes",
+  subgroup: "cards",
+  summary: "Games in a well carved into their pane, as many across as fit, growing down as more load: Browse's games. The cards keep the frame gap from the well's edges and from each other, and take its corner cuts. Game row is its sibling that scrolls sideways under a heading.",
+  styles: `
+/* The frame gap round the cards and between them, as in a Game row's well. */
+.carving.game-grid { padding: var(--pad-frame); --rail-inset: var(--pad-frame); }
+.carving.game-grid > .layout-grid, .carving.game-grid > .grid-one-line > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
+.carving.game-grid > .layout-grid:not(:has(> :not([hidden]))) { display: none; }
+`,
+  render: gameGrid,
+  examples: [
+    { label: "Browse's games: as many across as fit", isWide: true, markup: gameGrid({ label: "Games", whenEmpty: NO_EMPTY_NOTE, items: STAND_IN_GAME_GRID_ITEMS }) },
+    { label: "Empty: what it says in their place", isWide: true, markup: gameGrid({ label: "Games", whenEmpty: stateNote({ stateKind: "empty", title: "No games on this page", text: "Every game here is made for another device." }), items: [] }) },
+  ],
+});
 
 component({
   name: "Game card",
