@@ -561,7 +561,8 @@ Every component, with the call that makes it and its options, is in the catalog 
 
 - **Picture frame** (`pictureFrame(username: string, pictureSize: PictureSize, options?: { … })`, `data.ts`): An account's picture, always in its frame of glass: in the account button, beside a friend's name, at the head of a profile. The picture they gave, or their initials in their own color. It shows no status: online or playing is said in words beside it.
   - `options`: `picture?: ShownPicture`
-- **Picture row** (`pictureRow(people: FramedPerson[], pictureSize: PictureSize)`, `data.ts`): Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.
+- **Picture row** (`pictureRow(people: FramedPerson[], pictureSize: PictureSize, options?: { … })`, `data.ts`): Friends' pictures together: front to back, each lying over the next with a small shadow, all square. Past three, the rest are a +N.
+  - `options`: `shownPictureCount?: number`
 - **QR code** (`qrCode(options: QrCodeOptions)`, `qr-code.ts`): A link as a picture a phone's camera reads: a game's address, or a room's, for someone in the same room. Black on a raised white tile whatever the glass, the game's icon at its middle, with a line saying what it opens.
   - `options`: `id: string`, `label: string`, `caption: string`, `imageUrl?: string`, `iconUrl?: string`, `isMasked?: boolean`, `isLarge?: boolean`, `download?: { svgUrl: string; fileName: string }`
 - **Video player** (`videoPlayer(options: VideoPlayerOptions)`, `video-player.ts`): A game's own video, carved in whole, its controls on a floating glass bar over its foot: play, where it's at, its time, sound and full screen. The bar sinks away as it plays and comes back on a move or a touch; a press on the video plays or pauses it. Pointed at, Sound slides a short groove open for the level, and its icon follows it. A YouTube video plays in YouTube's own player instead.

@@ -108,7 +108,7 @@ export interface GameCardFacts {
   tagWords?: string;
   /** A paid game's price to play, for a viewer who doesn't own it: at the end of the title's line, unless a tag or a control is there. A free game shows nothing. */
   priceText?: string;
-  /** Friends playing it now: their faces before its name (three, and how many more). */
+  /** Friends playing it now: their faces before its name (three, and how many more; one and how many more beside Join). */
   friends?: FramedPerson[];
   /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): its art dimmed, and these words in its label. */
   deviceNote?: string;
@@ -195,7 +195,8 @@ export function gameCard(options: GameCardOptions): Raw {
   const tagAtEnd = facts.tagWords ? tag(facts.tagWords, /^(Updated|New)$/.test(facts.tagWords) ? "new" : "plain") : undefined;
   // One line, the same on every card: who's in it (friends' faces), its name, and one thing at its end: Play or Join, else why it's here (a tag),
   // else its price, else players now. What doesn't fit is in its label for a screen reader and on its page; another device dims its art.
-  const nameMarkup = html`<span class="cover-name-line">${facts.friends?.length ? pictureRow(facts.friends, "xs") : ""}<span class="cover-name one-line">${options.title}</span></span>`;
+  // With Join beside them, one face and how many more, so the name keeps its room on a phone's narrow card.
+  const nameMarkup = html`<span class="cover-name-line">${facts.friends?.length ? pictureRow(facts.friends, "xs", { shownPictureCount: options.joinHref ? 1 : 3 }) : ""}<span class="cover-name one-line">${options.title}</span></span>`;
   const endMarkup = tagAtEnd ?? (facts.priceText ? tag(facts.priceText, "plain") : undefined);
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
