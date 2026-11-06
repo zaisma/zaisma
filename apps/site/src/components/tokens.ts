@@ -15,7 +15,7 @@ export const NOTICE_STRIP_MEDIA = "(max-width: 760px), (orientation: landscape) 
 
 export const LIGHT_GLASS = `color-scheme: light;
   --glass-ground: #E7E4DF;
-  --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
+  --backdrop-ink: #14171C; --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
   --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.62); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
@@ -40,7 +40,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --run-cast: drop-shadow(0 8px 12px rgba(20, 23, 28, 0.29)); --run-cast-up: drop-shadow(0 12px 17px rgba(20, 23, 28, 0.26)); --run-cast-down: drop-shadow(0 2px 3.8px rgba(20, 23, 28, 0.25)); /* On light glass a lit slab casts a shadow, not light: let go, it keeps its landed shadow and eases back as it rises, rather than flaring. */ --run-flare: var(--run-cast-down); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 6px 8.5px rgba(20, 23, 28, 0.34));
   /* A pane floating over the page (a list, the wheels): the shadow it casts, outside its edge, so it reads as on top; and the same as a filter. */
   --float-cast: drop-shadow(0 6px 13.5px rgba(20, 23, 28, 0.15));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(20, 30, 50, 0.2)); --slab-cast: drop-shadow(0 3px 5px rgba(20, 30, 50, 0.24)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(20, 30, 50, 0.2)); --slab-cast: drop-shadow(0 3px 5px rgba(20, 30, 50, 0.24)); --sleek-cast: drop-shadow(0 3px 6px rgba(20, 30, 50, 0.22)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --run-flood: rgba(247, 147, 26, 0.14); --groove-shade: rgba(20, 30, 50, 0.3); --groove-lip: rgba(255, 255, 255, 0.95); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
@@ -85,7 +85,7 @@ export const LIGHT_GLASS = `color-scheme: light;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --glass-ground: #121110;
-  --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
+  --backdrop-ink: #F7F9FC; --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.72); --glass-thick: rgba(14, 17, 24, 0.82); --glass-over-game: rgba(14, 17, 24, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
@@ -101,7 +101,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --run-words: var(--run-hi);
   --run-cast: drop-shadow(0 3px 8.5px rgba(247, 147, 26, 0.45)); --run-cast-up: drop-shadow(0 5px 13.5px rgba(247, 147, 26, 0.51)); --run-cast-down: drop-shadow(0 1px 3.8px rgba(247, 147, 26, 0.62)); --run-flare: drop-shadow(0 2px 15.5px rgba(247, 147, 26, 1)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 6.8px rgba(247, 147, 26, 0.66));
   --float-cast: drop-shadow(0 8px 16.5px rgba(0, 0, 0, 0.45));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(0, 0, 0, 0.54)); --slab-cast: drop-shadow(0 3px 6.5px rgba(0, 0, 0, 0.69)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(0, 0, 0, 0.54)); --slab-cast: drop-shadow(0 3px 6.5px rgba(0, 0, 0, 0.69)); --sleek-cast: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.55)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --run-flood: rgba(247, 147, 26, 0.28); --groove-shade: rgba(0, 0, 0, 0.75); --groove-lip: rgba(214, 228, 255, 0.45); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
   --press-rim: rgba(255, 255, 255, 0.45);
@@ -146,13 +146,13 @@ export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-
 /**
  * Bare groups (docs/DESIGN.md, Spacing): a component whose words sit bare, with no edge of their own, is one unit, and the unit as a whole
  * keeps the words margin from a surface's edge on every side where it meets that edge, top and bottom included. Its parts line up with each
- * other inside it (a game card's cover, title and players now flush; a person's picture, name and line) and move together, so no part
+ * other inside it (a person's picture, name and line) and move together, so no part
  * is treated apart and a component never pads its own words. A row, a grid or a track of them is inset at its start, end and foot as one
- * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A cover always has its words under it (its title or players
- * now); a picture with none (a screenshot) has an edge all round and keeps the frame gap. A new bare group is added here and nowhere else;
+ * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A game card is one piece of glass, an edge all round its art
+ * and words, so like a picture (a screenshot) it keeps the frame gap. A new bare group is added here and nowhere else;
  * test/site/design.test.ts holds its padding.
  */
-export const BARE_GROUPS = [".cover", ".person"];
+export const BARE_GROUPS = [".person"];
 
 /** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. A select's list holds it (choices.ts). */
 export const LEAST_SCROLL_PX = 12;
@@ -160,6 +160,8 @@ export const LEAST_SCROLL_PX = 12;
 /** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
 export const BARE_GROUPS_STYLES = `
 :where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }
+/* The unit is padded, so nothing in it pads again: a row of words and controls in it (a card's title with Play) starts at its edge. */
+:where(${BARE_GROUPS.join(", ")}) > * { --pad-words: 0px; }
 :is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")})) { padding-inline: var(--pad-words); }
 :is(.layout-grid, .layout-track) > :is(${BARE_GROUPS.join(", ")}), .grid-cell > :is(${BARE_GROUPS.join(", ")}) { padding-inline: 0; }
 `;
@@ -358,6 +360,10 @@ html { -webkit-tap-highlight-color: transparent; }
 /* A phone's sizes, upright or on its side (a landscape phone is a phone's height, not a laptop's). */
 :root[data-cutout-side="left"] { --safe-right: 0px; }
 :root[data-cutout-side="right"] { --safe-left: 0px; }
+/* A phone's screen corners are rounded, up to about a 55px radius: what runs down the screen's edge (the page's rail) stops this far from
+   its top and foot, so the corner's curve never cuts it. A mouse's screen has square corners: no room needed. */
+:root { --screen-corner-room: 0px; }
+@media (pointer: coarse) { :root { --screen-corner-room: 36px; } }
 @media (max-width: 760px), (max-height: 500px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 3rem; --type-title: 600 2rem/1.04 var(--display); --type-heading: 600 1.625rem/1.1 var(--display); --type-section: 600 1.25rem/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }

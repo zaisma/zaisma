@@ -15,7 +15,7 @@ import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
 import * as layoutComponents from "../../apps/site/src/components/layout.ts";
-import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
+import { COLUMNS_STYLES, COLUMN_LEAST_PX, GRID_STYLES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, columns, leadAndSide, grid, paneParts, row, stack, track, type GridItem, type LayoutItem } from "../../apps/site/src/components/layout.ts";
 import { pageStyles } from "../../apps/site/src/page-styles.ts";
 import { CHECKED_PAGES, LOCAL_SCREEN_NAMES, MEASURED_SCREEN_NAMES, SCREEN_SIZES, STRESS_ACCOUNTS, TEXT_SCREEN_NAMES, UNIQUE_WORD, stressBaseName, type StepToTake } from "../../apps/site/src/components/checked-pages.ts";
 import { layout, type LayoutOptions } from "../../apps/site/src/html.ts";
@@ -180,7 +180,7 @@ describe("the gallery", () => {
   it("has a component for every markup function the pages can call, so nothing ships outside it", () => {
     const renders = COMPONENTS().map((each) => each.render);
     // A component's second way in, for one of its variants, with the component it belongs to: its examples show it.
-    const VARIANTS: Record<string, string> = { gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
+    const VARIANTS: Record<string, string> = { gameCardActions: "game-card", gamePaneExample: "key-details", tagsInUse: "tag", sidebarButton: "sidebar", stackOfOne: "stack", gameKeyDetails: "key-details", passwordToggle: "toggle-button", visibilityButton: "toggle-button" };
     // Not markup: an action's words and icon, and styles shared by what shows an icon alone.
     const NOT_MARKUP = new Set(["action", "iconAloneFace", "tabIconsAlone"]);
     for (const slug of Object.values(VARIANTS)) expect(COMPONENTS().some((each) => each.slug === slug), slug).toBe(true);
@@ -244,7 +244,8 @@ describe("the gallery", () => {
     const problems: string[] = [];
     for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       // The glass itself: its slab, the layer it paints its tint and blur on, and pinned glass, which blurs its own box.
-      const isTheGlass = /^\.glass(::before|\.pinned)?$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+      // And a slab over art in a carving: there's no pane's blur under it, so it blurs the art itself (materials.ts).
+      const isTheGlass = /^(\.glass(::before|\.pinned)?|\.carving\.holds-art \.slab:not\(\.lit\))$/.test(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim());
       const blur = /(?:^|[;\s])backdrop-filter:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
       if (blur && !/^none\b/.test(blur) && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
       if (/(?:^|[;\s])background(?:-color|-image)?:[^;]*var\(--glass-/.test(declarations) && !isTheGlass) problems.push(`${selectors.trim()}: paints with the glass's tokens`);
@@ -890,7 +891,7 @@ const NOT_SPACING = new Set<string>([
   // A menu's rule between groups: a hair's room either side, inside a control's own inset.
   ".floating-pane.dropdown .divider | margin-block",
   // Tags: a small carving's own room round its words, and its icon close beside them.
-  ".cover-mark.at-device .tag | padding-inline", ".tag.is-removable | gap", ".tag.is-removable | padding-inline",
+  ".tag.is-removable | gap", ".tag.is-removable | padding-inline",
   // A notice's icon: centered on its first line of words, as far from its start as from its top.
   ".notice > .ico | margin-block", ".notice > .ico | margin-inline-start",
 ]);
@@ -1345,16 +1346,22 @@ describe("layout", () => {
     const covers = (coverCount: number) => Array.from({ length: coverCount }, () => block("a"));
     expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(6) }).html).toMatch(/^<div class="grid-one-line"><div class="layout-grid item-cover is-one-line"/);
     expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
+    expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: true, items: covers(3) }).html).toMatch(/is-one-line is-at-least-two-across is-lead-wide"/);
+    expect(leadAndSide({ lead: block("a"), side: block("b") }).html).toMatch(/^<div class="lead-and-side"><div class="lead-and-side-in"><div class="lead-and-side-lead">/);
     // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
     expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
     expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
-    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }");
     expect(tokensSource).toContain("--size-cover: 180px");
     expect(tokensSource).toContain("--gap-control-stack: 8px");
   });
 
   it("gives a bench screen its own bezel, so it draws with no bench round it", () => {
     expect(COMPONENTS().find((each) => each.slug === "screens")!.styles).toContain(".bench-screen { --bench-bezel: 6px; }");
+    // A phone's screen is never cut (a cut squares the blurred panes in it): its body covers its corners, with a bezel thick enough to hold them.
+    const screenStyles = COMPONENTS().find((each) => each.slug === "screens")!.styles!;
+    expect(screenStyles).not.toMatch(/\.bench-view \{[^}]*clip-path/);
+    expect(screenStyles).toContain("--bench-bezel: calc(23px * var(--screen-scale))");
   });
 
   it("keeps what's in a carving clear of its slant, wherever it's beside another control", () => {

@@ -186,12 +186,12 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "ncmec_reports.details_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "ncmec_reports.ncmec_report_number", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "ncmec_reports.last_error", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  // Zaisma's news for players, posted through the admin MCP (post_announcement).
-  { stored: "announcements.text", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
-  { stored: "announcements.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
-  // Its label shows on the home only beside a link in shape, which the hostile pass never plants with it, so no page is listed (it's escaped there).
-  { stored: "announcements.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  { stored: "announcements.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // What's on's events and news for players, posted through the admin MCP.
+  { stored: "whats_on_entries.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  { stored: "whats_on_entries.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  // Its words show only on an event's button, and the world the stored values test builds holds news, so no page is listed (it's escaped there).
+  { stored: "whats_on_entries.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "whats_on_entries.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },
   { stored: "precedents.decision", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -215,6 +215,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
 export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|_(id|ids|sha256|hash|key|token|code|status|kind|level|mode|band|choice|via|access|date)$|^who_/;
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
+  // The announcements the admin MCP once posted: nothing writes or shows them since What's on's news took their place.
+  "announcements.text", "announcements.link_url", "announcements.link_label", "announcements.created_by",
   "door_answer_cuts.door_id",
   "door_answer_cuts.field_paths",
   // A game's own review status and reason, kept only to put back on the game (a bring-back).

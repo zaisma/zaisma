@@ -490,7 +490,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     // The game's own world behind the glass, the same the home shows while its cover is pointed at.
     stage: backgroundMarkup(background),
     stageColor: background.source === "zaisma" ? null : background.tone?.averageColor,
-    // The glass takes the game's tint, as on the home while its cover is pointed at.
+    // The glass takes the game's tint.
     glassHue: background.glassTintColor,
     isFramedBySelf: view.isFramedBySelf,
     viewer,

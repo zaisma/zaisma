@@ -467,7 +467,7 @@ const KEYBOARD_START = `(() => {
     }
     state.scrollerCount = scrollersNow().length;
   });
-  state.arrivals.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  state.arrivals.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "aria-current"] });
   window.zaismaKeyboard = state;
   return { controlCount: state.rest.size, scrollerCount: state.scrollerCount };
 })()`;

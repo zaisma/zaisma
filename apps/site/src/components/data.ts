@@ -50,9 +50,12 @@ export interface FramedPerson {
   picture?: ShownPicture;
 }
 
-/** Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three, the rest are a +N at the back. */
-export function pictureRow(people: FramedPerson[], pictureSize: PictureSize): Raw {
-  const shown = people.slice(0, 3), hiddenCount = people.length - shown.length, placeCount = shown.length + (hiddenCount > 0 ? 1 : 0);
+/**
+ * Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three (or shownPictureCount),
+ * the rest are a +N at the back.
+ */
+export function pictureRow(people: FramedPerson[], pictureSize: PictureSize, options: { shownPictureCount?: number } = {}): Raw {
+  const shown = people.slice(0, options.shownPictureCount ?? 3), hiddenCount = people.length - shown.length, placeCount = shown.length + (hiddenCount > 0 ? 1 : 0);
   return html`<span class="picture-row ${pictureSize}">${shown.map(
     (shownPerson, placeIndex) => html`<span class="picture-row-place" style="z-index:${placeCount - placeIndex}">${pictureFrame(shownPerson.username, pictureSize, { picture: shownPerson.picture })}</span>`,
   )}${hiddenCount > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true">+${hiddenCount}</span></span>` : ""}</span>`;

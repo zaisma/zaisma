@@ -27,6 +27,7 @@ const R2_KEY_EXAMPLES: Record<string, string> = {
   shaderFrameKey: "zaisma-games/shaders/game_1/shader_1.frame-0.png",
   shaderKeys: "zaisma-games/shaders/game_1/shader_1.glsl",
   forumMediaKey: "zaisma-games/forum-media/media_1",
+  whatsOnArtKey: "zaisma-games/whats-on-art/whats_on_entry_1/wide",
   forumHeldKey: "zaisma-games/forum-held/media_1",
   reportPictureKey: "zaisma-games/report-pictures/report_1.jpg",
   logKey: "zaisma-games/logs/game_1/79739972/1761500000000-room",

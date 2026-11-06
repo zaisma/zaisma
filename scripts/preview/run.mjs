@@ -762,8 +762,8 @@ await seedProtectAccount();
 seedFriendRequests();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
-// An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
-seedAnnouncements();
+// An event across the top of the home and a pick among What's on's cards.
+seedWhatsOn();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
@@ -813,9 +813,8 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
-  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's Neon Drift shader,
-                  Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
-                  Play starts the game in place and Back returns)
+  Home            ${SITE}/  (a first visit: the line flat on the backdrop, What's on, then what else is here; an event's art across the top.
+                  Played something, as a guest or as Many_Things: their game beside What's on, then what else is here)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
@@ -2052,6 +2051,14 @@ function seedFriendsNow() {
     Array.from({ length: roomCount }, (_, i) => `('${prefix}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(i / 32)]}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[i % 32]}', 1, ${maximumPlayerCount})`).map(
       (values) => `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, column1, column2, column3, 1, 'NL', 'EU', ${later}, ${later} FROM (VALUES ${values})`,
     );
+  const ifManyMade = `WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Many_Friend_8')`;
+  const manyFriendsInRoom = (slug, roomCode, playerCount, maximumPlayerCount, friendNumbers) => [
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, friend_joins_enabled, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${playerCount}, ${maximumPlayerCount}, 1, 1, 'NL', 'EU', ${later}, ${later} ${ifManyMade}`,
+    ...friendNumbers.flatMap((friendNumber) => [
+      `INSERT OR REPLACE INTO presences (account_id, seen_at_ms, game_id, game_seen_at_ms) SELECT ${account(`Many_Friend_${friendNumber}`)}, ${later}, ${game(slug)}, ${later} ${ifManyMade}`,
+      `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${player(`Many_Friend_${friendNumber}`)}, ${later}, ${later} ${ifManyMade}`,
+    ]),
+  ];
   const sql = [
     ...["Moss_Runner", "Kit_Spark", "Quiet_Comet", "Tall_Pine", "Swift_Otter", "Red_Lantern"].map((name) => `INSERT OR REPLACE INTO presences (account_id, seen_at_ms) SELECT ${account(name)}, ${later} ${ifMade}`),
     `UPDATE presences SET game_id = ${game("rocket-lab")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Quiet_Comet")}`,
@@ -2079,6 +2086,9 @@ function seedFriendsNow() {
     `UPDATE live_rooms SET spectator_count = 3, maximum_spectator_count = 20 WHERE room_code IN ('MTCH22', 'MTCH23')`,
     // Some of the small rooms take spectators too, so Watch sits beside Join.
     `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
+    // Many friends in one game (Home, full): six of Many_Things's friends in one Arena room and two in Cave Crew, so a card shows several faces and how many more.
+    ...manyFriendsInRoom("arena", "MNYFRD", 6, 8, [1, 2, 3, 4, 5, 6]),
+    ...manyFriendsInRoom("cave-crew", "MNYCVE", 2, 16, [7, 8]),
   ];
   runSql(sql.join("; "));
 }
@@ -2378,14 +2388,15 @@ function seedSecurityLog() {
   runSql(sql.join("; "));
 }
 
-/**
- * Short news on the home's banner (apps/site/src/announcements.ts): one current announcement with a link, from an
- * hour ago to 30 days ahead, refreshed every run under the same ID, so a player who closed it doesn't see it again.
- */
-function seedAnnouncements() {
+/** What's on: an event with the gallery's example art, a second with a poster, and news for players, refreshed every run under the same IDs. */
+function seedWhatsOn() {
   const nowMs = Date.now();
-  const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
-  runSql(sql);
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewzombie01', 'event', 'Zombie weekend', 'whats-on-art/whats_on_entry_previewzombie01/wide', '/games?genre=survival', 'Go play', ${nowMs - 3600000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
+  spawnSync(...wrangler(["r2", "object", "put", "zaisma-games/whats-on-art/whats_on_entry_previewzombie01/wide", "--file", join(ROOT, "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  // Starts a little before the first, so the first keeps the strip and this one is a poster among the cards.
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, card_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewraces01', 'event', 'Night races, till Sunday', 'whats-on-art/whats_on_entry_previewraces01/wide', 'whats-on-art/whats_on_entry_previewraces01/card', '/games?genre=racing', 'Go race', ${nowMs - 7200000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
+  for (const side of ["wide", "card"]) spawnSync(...wrangler(["r2", "object", "put", `zaisma-games/whats-on-art/whats_on_entry_previewraces01/${side}`, "--file", join(ROOT, side === "card" ? "brand/design/event-poster-example.svg" : "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewnews01', 'news', 'Winter jam winners', '/forum', ${nowMs - 10800000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
 }
 
 /**

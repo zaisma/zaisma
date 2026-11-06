@@ -227,9 +227,10 @@ export type GridOptions = {
   /**
    * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
-   * three, two and then one across as they run out of a cover's least width.
+   * three, two and then one across as they run out of a cover's least width. isAtLeastTwoAcross stops at two, however small the covers get (the
+   * home's What's on on a phone). isLeadWideAtTwoAcross gives the first cell the whole line wherever it's two across, so three cells never leave one alone.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isLeadWideAtTwoAcross?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -247,13 +248,26 @@ const CONTROL_STACK_GAP_PX = 8;
 export function grid(options: GridOptions): LayoutMarkup {
   if (options.itemSize === "cover" && options.isAllOnOneLine) {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
-    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, " is-one-line")}</div>`);
+    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}${options.isLeadWideAtTwoAcross ? " is-lead-wide" : ""}`)}</div>`);
   }
   return asLayout(gridMarkup(options, ""));
 }
 
 function gridMarkup(options: GridOptions, variantClass: string): Raw {
   return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
+}
+
+export interface LeadAndSideOptions {
+  lead: LayoutItem;
+  side: LayoutItem;
+}
+
+/**
+ * The thing a page is about and what goes beside it: the lead two thirds of the width and the side a third; half and half with less room; one under
+ * the other with less still. A one-line grid in the side stacks while the side is a third, so its covers stay whole and line up with the lead.
+ */
+export function leadAndSide(options: LeadAndSideOptions): LayoutMarkup {
+  return asLayout(html`<div class="lead-and-side"><div class="lead-and-side-in"><div class="lead-and-side-lead">${options.lead.markup}</div><div class="lead-and-side-side">${options.side.markup}</div></div></div>`);
 }
 
 export interface TrackOptions {
@@ -354,11 +368,13 @@ const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:la
  */
 function edgeWords(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
+  const endHere = end;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
     // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
-    const into = ` > *${end}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
+    // Never into a game card either: it's one piece with its own line, not words or rows at the pane's edge.
+    const into = ` > *${endHere}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track, .cover)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -398,8 +414,11 @@ function edgeRows(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
   return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
-    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
+    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}:not(.cover)`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
 }
+
+/** Wider than this, lead and side stand side by side (equal halves, then two thirds and one third from 800px). */
+const LEAD_AND_SIDE_SIDE_BY_SIDE_PX = 440;
 
 export const STACK_STYLES = `
 /* A stack: one under another, each cell's gap above it picked by what's on each side (stack(), from the spacing table). A hidden cell takes no
@@ -519,7 +538,10 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
    a control's gap apart. What comes last sits at its foot. As tall as the screen with the browser's bars showing, so it never resizes as they
    come and go. The page keeps the bar's room beside it, each clear of the notch. */
 @media ${HEADER_RAIL_MEDIA} {
-  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); --header-gap: var(--pad-frame); }
+  /* The page's own panes are the bar's gap apart too, so every gap between glass on the page is one. */
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .layout-stack:not(.glass *) > .stack-cell.gap-top-block-block { margin-top: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .lead-and-side-in:not(.glass *) { gap: var(--pad-frame); }
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }
   body > .bar-layout.has-tab-row:not(.searching) { top: var(--pad-frame); bottom: auto; left: max(var(--pad-frame), var(--safe-left), var(--corner-room)); width: var(--header-height); height: calc(100svh - 2 * var(--pad-frame)); transform: none; flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); }
   body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > * { margin: 0; max-width: none; }
@@ -567,7 +589,19 @@ export const GRID_STYLES = `
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 @container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } } }
+@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
+`;
+
+export const LEAD_AND_SIDE_STYLES = `
+.lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
+.lead-and-side-lead, .lead-and-side-side { min-width: 0; }
+.lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lead-and-side (min-width: 800px) {
+  .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .lead-and-side-side .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
+}
 `;
 
 export const TRACK_STYLES = `
