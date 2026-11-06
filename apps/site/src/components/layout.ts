@@ -1,6 +1,6 @@
 import { Raw, html, raw, type EmptyNoteMarkup } from "../markup.ts";
 import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
-import { BARE_GROUPS, HEADER_RAIL_MEDIA, WORDS_HOLDERS } from "./tokens.ts";
+import { BARE_GROUPS, HEADER_RAIL_MEDIA, SCREEN_QUERIES, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -294,8 +294,7 @@ export interface ColumnsOptions {
 
 /** The least a column gets before the two go one over the other: a little more than a phone's width, so what's made for one fits. */
 export const COLUMN_LEAST_PX = 360;
-/** A short screen is one no taller than a phone on its side, and its columns each get at least this much. */
-export const SHORT_SCREEN_MAX_HEIGHT_PX = 520;
+/** On a phone on its side (SCREEN_QUERIES.phoneSideways), side-by-side columns each get at least this much. */
 export const SHORT_COLUMN_LEAST_PX = 240;
 /** --gap-block-block, for the container query, which can't read a token. */
 const BLOCK_GAP_PX = 24;
@@ -625,9 +624,9 @@ export const COLUMNS_STYLES = `
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
 .layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 1fr); } .layout-columns.second-first-when-stacked > .columns-in > .column:last-child { order: -1; } }
-@media (orientation: landscape) and (max-height: ${SHORT_SCREEN_MAX_HEIGHT_PX}px) { @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short.second-first-when-stacked > .columns-in > .column:last-child { order: 0; } } }
+@media ${SCREEN_QUERIES.phoneSideways} { @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short.second-first-when-stacked > .columns-in > .column:last-child { order: 0; } } }
 /* Wide but short (a phone on its side): side by side again from a narrower least, ${SHORT_COLUMN_LEAST_PX}px each. */
-@media (orientation: landscape) and (max-height: ${SHORT_SCREEN_MAX_HEIGHT_PX}px) {
+@media ${SCREEN_QUERIES.phoneSideways} {
   @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short > .columns-in { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .layout-columns.side-by-side-when-short.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 }
 `;

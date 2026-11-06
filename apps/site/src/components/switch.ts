@@ -5,7 +5,7 @@ import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, glassPane, icon, tag, well, type IconName } from "./foundations.ts";
 import { stack } from "./layout.ts";
 import { selectField } from "./choices.ts";
-import { HEADER_RAIL_MEDIA, tokenValue } from "./tokens.ts";
+import { HEADER_RAIL_MEDIA, SCREEN_QUERIES, tokenValue } from "./tokens.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -499,7 +499,7 @@ component({
 /* A switch with a menu for narrow screens: the switch wider than a phone, the menu on a phone upright or on its side, never both. */
 .switch-or-menu { display: block; min-width: 0; }
 .switch-or-menu > .as-menu { display: none; }
-@media (max-width: 760px), ${HEADER_RAIL_MEDIA} { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }
+@media ${SCREEN_QUERIES.phone} { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }
 /* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
    one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round
