@@ -2,12 +2,13 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName, type ShownPicture } from "./foundations.ts";
 import { tabIconsAlone } from "./switch.ts";
 import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
 import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCardSeeAll, type DropdownItem } from "./panes.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { listRows, stateNote } from "./data.ts";
 import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
@@ -1225,8 +1226,12 @@ export interface GameRowOptions {
   /** Its track's id, for a page script that fills it. */
   trackId: string;
   title: string;
-  /** The whole list it's from (Browse, sorted the same way): See all at its heading's end, and a See all after its last cover. Left out, it has neither. */
-  seeAllHref?: string;
+  /**
+   * The whole list it's from (Browse, sorted the same way): See all at its heading's end, and, when the list holds more than the row shows,
+   * a See all card after its last (gameCardSeeAll), its art the next covers. coverPictures are every game's cover in the list, in order;
+   * gameCount is how many games the whole list holds. Left out, it has neither.
+   */
+  seeAll?: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] };
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
@@ -1253,9 +1258,14 @@ export function gameRow(options: GameRowOptions): Raw {
   const titleId = `${options.id}-title`;
   const title = html`<h2 class="game-row-title" id="${titleId}">${options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
-  const seeAll = options.seeAllHref ? tertiaryButton("See all", { href: options.seeAllHref, isSmall: true }) : undefined;
+  const seeAll = options.seeAll ? tertiaryButton("See all", { href: options.seeAll.href, isSmall: true }) : undefined;
   const shown = options.items.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
-  const items = options.seeAllHref && shown.length ? [...shown, { kind: "block" as const, markup: html`<div class="game-row-more">${secondaryButton("See all", { href: options.seeAllHref })}</div>` }] : shown;
+  // Past its cap it ends on See all, its art the covers after the last shown (then from the list's start, to fill it).
+  const pictures = options.seeAll?.coverPictures ?? [];
+  const seeAllCard = options.seeAll && options.seeAll.gameCount > shown.length && shown.length
+    ? gameCardSeeAll({ href: options.seeAll.href, gameCount: options.seeAll.gameCount, coverPictures: [...pictures.slice(shown.length), ...pictures.slice(0, shown.length)] })
+    : undefined;
+  const items = seeAllCard ? [...shown, { kind: "block" as const, markup: seeAllCard }] : shown;
   return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       options.sortTabs
@@ -1284,7 +1294,7 @@ component({
   slug: "game-row",
   group: "navigation",
   subgroup: "scrolling",
-  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort or See all sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in, and end in See all when there's more.",
+  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort or See all sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in, and end in a See all card, four of the next covers in its art, when the list holds more.",
   styles: `
 /* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
@@ -1303,8 +1313,6 @@ component({
 /* Its rail runs inside the well, the frame gap from its sides and from the covers above it. */
 .game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
 .game-row-well > .track-holder > .rail.sideways > .rail-line { left: var(--pad-frame); right: var(--pad-frame); }
-/* See all after the last cover: a cover's width, its button in the middle of where the art would be. */
-.game-row-more { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
@@ -1315,7 +1323,7 @@ component({
 `,
   render: gameRow,
   examples: [
-    { label: "Popular, with See all for the whole list", isWide: true, markup: gameRow({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAllHref: "#shelf", items: STAND_IN_COVER_ITEMS }) },
+    { label: "Popular, with See all for the whole list", isWide: true, markup: gameRow({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAll: { href: "#shelf", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES) }, items: STAND_IN_COVER_ITEMS }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
@@ -1334,7 +1342,7 @@ component({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
-          seeAllHref: "#shelf",
+          seeAll: { href: "#shelf", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES) },
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
       }),

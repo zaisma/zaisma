@@ -270,13 +270,18 @@ const forDeviceFirst = (list: ShowGame[], deviceKind: DeviceKind) => {
 };
 
 function homeGameRow(id: string, title: string, titleHref: string | undefined, list: ShowGame[], ownedGameIds: ReadonlySet<string>): LayoutItem {
-  return { kind: "block", markup: gameRow({ id, trackId: `track-${id}`, title, seeAllHref: titleHref, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
+  return { kind: "block", markup: gameRow({ id, trackId: `track-${id}`, title, seeAll: titleHref ? { href: titleHref, gameCount: list.length, coverPictures: list.map((game) => game.cover_picture) } : undefined, items: list.map((game) => ({ kind: "block" as const, markup: coverOf(game, ownedGameIds) })) }) };
 }
 
 /** A game friends are in: who's there, and Join when it would let the player in. */
+function friendsCoverPicture(playing: FriendsInGame, games: readonly ShowGame[]): ShowGame["cover_picture"] {
+  const game = playing.game!, listed = games.find((each) => each.slug === game.slug);
+  return listed?.cover_picture ?? (game.cover_image_id ? { imageUrl: `/img/${game.cover_image_id}`, widthPx: 1600, heightPx: 900, placeholderDataUrl: null } : null);
+}
+
 function friendsCard(playing: FriendsInGame, games: readonly ShowGame[]): Raw {
   const game = playing.game!, listed = games.find((each) => each.slug === game.slug);
-  const coverPicture = listed?.cover_picture ?? (game.cover_image_id ? { imageUrl: `/img/${game.cover_image_id}`, widthPx: 1600, heightPx: 900, placeholderDataUrl: null } : null);
+  const coverPicture = friendsCoverPicture(playing, games);
   const names = playing.friends.map((friend) => friend.name);
   return gameCard({ title: game.title, picture: coverPicture, href: `/g/${game.slug}`, tintColor: listed?.glass_tint_color, joinHref: playing.join && !playing.join.refusal ? joinPath(game.slug, playing.join) : undefined, facts: { friends: names.map((username) => ({ username })) } });
 }
@@ -355,7 +360,7 @@ export async function home(env: Env, request: Request): Promise<Response> {
   });
   const friendsPlaying = (friendsNow?.playing ?? []).filter((playing) => playing.game);
   const friendsSection: LayoutItem[] = friendsPlaying.length
-    ? [{ kind: "block", markup: gameRow({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAllHref: "/friends", items: friendsPlaying.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
+    ? [{ kind: "block", markup: gameRow({ id: "friends-playing", trackId: "track-friends-playing", title: "Friends playing", seeAll: { href: "/friends", gameCount: friendsPlaying.length, coverPictures: friendsPlaying.map((playing) => friendsCoverPicture(playing, games)) }, items: friendsPlaying.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT).map((playing) => ({ kind: "block" as const, markup: friendsCard(playing, games) })) }) }]
     : [];
   // Past the rows, the whole of Browse: every game, every kind.
   // What else is here: each kind of list on its own Game row, each its own pane.

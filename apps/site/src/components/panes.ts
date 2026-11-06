@@ -159,6 +159,20 @@ export function gameCardActions(nameMarkup: Raw, playHref: string, detailsHref: 
   return html`<div class="cover-meta has-actions">${row({ widths: "lead-fills", items: [{ kind: "words", markup: nameMarkup }, control(primaryButton(action("play"), { href: playHref, isSmall: true })), control(secondaryButton(action("details"), { href: detailsHref, isSmall: true, isLabelHidden: true }))] })}</div>`;
 }
 
+/** The most covers a See all card shows, small, in its art (gameCardSeeAll). */
+export const SEE_ALL_CARD_COVER_COUNT = 4;
+
+/**
+ * The card a list ends on when it holds more than it shows (a Game row past its cap): a game card's shape and Sleek glass, its art four of
+ * the list's covers small, two by two, and its line See all and how many games the whole list holds. It opens the whole list.
+ */
+export function gameCardSeeAll(options: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] }): Raw {
+  const tiles = options.coverPictures.slice(0, SEE_ALL_CARD_COVER_COUNT);
+  const countWords = `${options.gameCount.toLocaleString("en-US")} ${options.gameCount === 1 ? "game" : "games"}`;
+  const mosaic = html`<span class="cover-mosaic carving-art" data-cut-line="0">${tiles.map((tilePicture) => html`<span class="cover-mosaic-tile">${tilePicture ? picture(tilePicture, { shownSizes: "(max-width: 760px) 100px, 130px" }) : ""}</span>`)}</span>`;
+  return html`<div class="cover is-see-all sleek-cast"><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="See all ${countWords}">${CUT_LINE}${mosaic}${EDGE_LIGHT}</a><div class="cover-plate"><div class="cover-meta"><span class="cover-name-line"><span class="cover-name one-line">See all</span></span><span class="count">${countWords}${icon("chevron-right")}</span></div></div></div></div>`;
+}
+
 /**
  * A game card: a game in a list, one piece of Sleek glass with the studio's art showing through its top and nothing of Zaisma's on it. Under
  * the art, one line, the same height on every card: friends' faces when any are in it, its title, and one thing at its end (Play or Join,
@@ -589,6 +603,12 @@ const COVER_STYLES = `
    so a price or a friend under one title never makes its card taller than the rest. */
 .grid-cell > .cover { height: 100%; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
+/* See all's art: four covers two by two, the card's glass between them; the art's own cut takes the outer corners. */
+.cover-mosaic { position: absolute; inset: 0; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: var(--pad-frame-compact); }
+.cover-mosaic-tile { position: relative; overflow: hidden; background: var(--glass-thick); }
+.cover-mosaic-tile > .picture { position: absolute; inset: 0; }
+.cover-mosaic-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover.is-see-all .cover-meta .count > .ico { width: 0.6em; height: 0.9em; margin-left: 2px; }
 /* Square wherever nothing holds it (data-cut-square), its corners cut only where it sits in a pane's corner. */
 .cover.is-placeholder .cover-art img { display: none; }
 .cover-art:focus-visible { outline: none; }
@@ -1042,6 +1062,7 @@ component({
   render: gameCard,
   examples: [
     { label: "A game friends are in: who, and Join", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Neon Drift", picture: null, href: "#", joinHref: "#", facts: { friends: [{ username: "Liam" }, { username: "Sofia" }] } }) }] }) },
+    { label: "See all: the card a list ends on past its cap, four of its covers in its art", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCardSeeAll({ href: "#", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES).slice(0, SEE_ALL_CARD_COVER_COUNT) }) }] }) },
     { label: "Every fact at once: the same shape as any card, its name cut short and one thing at its end", markup: grid({ itemSize: "cover", whenEmpty: NO_EMPTY_NOTE, items: [{ kind: "block", markup: gameCard({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#", facts: { playerCount: 12480 } }) }, { kind: "block", markup: gameCard({ title: "The Last Lighthouse Keeper: Tides of the Northern Reach", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#", facts: { playerCount: 412, tagWords: "Updated", priceText: "$24.99", friends: [{ username: "Liam" }, { username: "Sofia" }, { username: "Noah" }, { username: "Mia" }], deviceNote: "Needs a keyboard" } }) }] }) },
     {
       label: "In a list: every card the same shape, its facts in their corners",
