@@ -68,12 +68,9 @@ import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts
 import { MAXIMUM_PAGE_SPEED_DAY_COUNT, pageSpeedAnswer } from "./speed-reports.ts";
 import { changesSince } from "./scan.ts";
 import { MAXIMUM_ENTRY_DURATION_DAYS, MAXIMUM_EVENT_ART_SIZE_BYTES, MAXIMUM_EVENT_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT, MAXIMUM_EVENT_TITLE_CHARACTER_COUNT, endEntry, entryAnswer, listEntries, postEvent, postNews, postPick } from "./whats-on.ts";
-import { MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, MAXIMUM_LINK_LABEL_CHARACTER_COUNT, MAXIMUM_LINK_URL_CHARACTER_COUNT, announcementStatus, endAnnouncement, listAnnouncements, postAnnouncement, shownLinkLabel, type Announcement } from "./announcements.ts";
 import { RENTED_NETWORK_SHARE,
-  ANNOUNCEMENT_CHANGED,
   WHATS_ON_ENTRY_CHANGED,
   WHATS_ON_ENTRY_LIST,
-  ANNOUNCEMENT_LIST,
   CHAT_REVIEW_DECIDED,
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
@@ -143,7 +140,6 @@ Security: list_security_spikes shows the hours when something across Zaisma pass
 
 Bans: ban_account bans an account by its username, its developer side (its games come down; it can still play and export its games) or the whole account (child safety, illegal content: it can't sign in either). The ban carries the cards that paid Zaisma, its Stripe account and its email to new accounts, never a device or network. list_ban_matches shows other accounts that paid with a banned card; a family can share one, so the admin decides each with decide_ban_match. unban_account lifts a ban; its games stay down until each is restored. Bans change things for players and developers: say what you'd do and why, then wait for the admin to agree.
 
-Announcements: short news Zaisma posts for players, shown at the top of zaisma.com's home for every player until it ends or the player closes it; one shows at a time, the newest current one. list_announcements shows what's showing, coming and recently ended; post_announcement posts one; end_announcement ends one now. Every player sees them: say what you'd post, word for word, then wait for the admin to agree before calling post_announcement or end_announcement.
 
 Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…, announcement_…, ban_match_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
 
@@ -1277,71 +1273,6 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
-    name: "list_announcements",
-    reaches: "zaisma_settings",
-    title: "Announcements",
-    description:
-      "Short news Zaisma posts for players, shown at the top of zaisma.com's home: the current and upcoming ones, and those that ended in the last 30 days, the newest start first. One shows at a time, the newest current one (is_shown).",
-    inputSchema: object({}),
-    outputSchema: ANNOUNCEMENT_LIST,
-    annotations: read,
-    run: async (_, { env }) => {
-      const { announcements, shownAnnouncementId, nowMs } = await listAnnouncements(env);
-      return { announcements: announcements.map((announcement) => announcementAnswer(announcement, nowMs, shownAnnouncementId)) };
-    },
-  },
-  {
-    name: "post_announcement",
-    reaches: "zaisma_settings",
-    title: "Post an announcement",
-    description:
-      "Post short news for players. It shows at the top of zaisma.com's home for every player, signed in or not, from starts_at until ends_at or until the player closes it. One shows at a time: the newest current one (the latest starts_at), so a new one replaces what's showing. Ask the admin first, with the exact words.\n\n" +
-      'Not: { "text": "<b>New!</b> Read [the post](https://…)" } (plain text only; put the link in link_url)\n' +
-      'Not: { "link_label": "See more" } without link_url (a label needs a link)\n' +
-      'Not: { "ends_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", at most 60 days after starts_at)',
-    inputSchema: {
-      ...object(
-        {
-          text: { type: "string", minLength: 1, maxLength: MAXIMUM_ANNOUNCEMENT_TEXT_CHARACTER_COUNT, description: "One or two plain sentences: no markup, addresses or line breaks." },
-          link_url: { type: "string", minLength: 1, maxLength: MAXIMUM_LINK_URL_CHARACTER_COUNT, format: "uri-reference", description: 'Where its link goes: an https address, or a path on zaisma.com starting with /, like "/forum". Leave it out for no link.' },
-          link_label: { type: "string", minLength: 1, maxLength: MAXIMUM_LINK_LABEL_CHARACTER_COUNT, description: 'The link\'s words; "Read more" when left out. Only with link_url.' },
-          starts_at: { type: "string", format: "date-time", maxLength: 40, description: "When it starts showing, an ISO time from an hour ago to 90 days ahead; now when left out." },
-          ends_at: { type: "string", format: "date-time", maxLength: 40, description: "When it stops showing, an ISO time after now and starts_at, at most 60 days after starts_at." },
-        },
-        ["text", "ends_at"],
-      ),
-      examples: [{ text: "Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.", link_url: "/forum", link_label: "See how", ends_at: "2026-11-15T00:00:00Z" }],
-    },
-    outputSchema: ANNOUNCEMENT_CHANGED,
-    annotations: change,
-    run: async (toolArguments, { env, actor }) => {
-      const optional = (name: string) => (toolArguments[name] === undefined ? undefined : String(toolArguments[name]));
-      const posted = await postAnnouncement(env, { text: String(toolArguments.text), linkUrl: optional("link_url"), linkLabel: optional("link_label"), startsAt: optional("starts_at"), endsAt: String(toolArguments.ends_at) }, actor);
-      const { shownAnnouncementId, nowMs } = await listAnnouncements(env);
-      return {
-        announcement: announcementAnswer(posted, nowMs, shownAnnouncementId),
-        next_steps: [{ tool: "list_announcements", arguments: {}, after_sec: null, reason: "What players see now and what's coming." }],
-      };
-    },
-  },
-  {
-    name: "end_announcement",
-    reaches: "zaisma_settings",
-    title: "End an announcement",
-    description: "End an announcement now: it leaves zaisma.com's home at once, and one that hadn't started never shows. Ask the admin first.",
-    inputSchema: object({ announcement_id: idInput("announcement", "An announcement's ID from list_announcements.") }, ["announcement_id"]),
-    outputSchema: ANNOUNCEMENT_CHANGED,
-    annotations: change,
-    run: async (toolArguments, { env, actor }) => {
-      const ended = await endAnnouncement(env, String(toolArguments.announcement_id), actor);
-      const { shownAnnouncementId, nowMs } = await listAnnouncements(env);
-      return {
-        announcement: announcementAnswer(ended, nowMs, shownAnnouncementId),
-        next_steps: shownAnnouncementId ? [{ tool: "list_announcements", arguments: {}, after_sec: null, reason: "Another one is showing on the home now." }] : [],
-      };
-    },
-  },
-  {
     name: "list_whats_on",
     reaches: "zaisma_settings",
     title: "What's on: what people added",
@@ -1438,22 +1369,6 @@ export const ADMIN_TOOLS: AdminTool[] = [
   },
 ];
 
-/** An announcement, as the admin tools answer it. */
-function announcementAnswer(announcement: Announcement, nowMs: number, shownAnnouncementId: string | null) {
-  return {
-    id: announcement.id,
-    text: announcement.text,
-    link_url: announcement.link_url,
-    link_label: shownLinkLabel(announcement),
-    starts_at: iso(announcement.starts_at_ms)!,
-    ends_at: iso(announcement.ends_at_ms)!,
-    announcement_status: announcementStatus(announcement, nowMs),
-    is_shown: announcement.id === shownAnnouncementId,
-    created_at: iso(announcement.created_at_ms)!,
-    created_by: announcement.created_by,
-  };
-}
-
 /** A kept chat message, as list_chat_reviews and decide_chat_review answer it. */
 function chatReviewAnswer(review: AdminChatReview) {
   return {
@@ -1518,7 +1433,6 @@ const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> 
   post_id: { kind: "post", code: "no_post", fix: "get_topic lists a topic's posts, and list_topics the posts to check, with their IDs." },
   answer_post_id: { kind: "post", code: "bad_answer_post_id", fix: "get_topic lists the topic's posts with their IDs; null clears the answer." },
   chat_review_id: { kind: "chat_review", code: "no_chat_review", fix: "list_chat_reviews lists them with their IDs." },
-  announcement_id: { kind: "announcement", code: "no_announcement", fix: "list_announcements lists them with their IDs." },
   ban_match_id: { kind: "ban_match", code: "no_ban_match", fix: "list_ban_matches lists them with their IDs." },
 };
 

@@ -375,14 +375,13 @@ export const ADMIN_ERROR_CODES = {
   // Publishing before the beta
   unknown_username: { httpStatus: 404, meaning: "No account has that username.", messageForPeople: "No account has that username." },
 
-  // Announcements
+  // What's on
   no_whats_on_entry: { httpStatus: 404, meaning: "There's no What's on entry with that ID.", messageForPeople: "There's no such entry." },
   whats_on_entry_ended: { httpStatus: 409, meaning: "The What's on entry has ended already.", messageForPeople: "That has ended already." },
   bad_event_title: { httpStatus: 400, meaning: "An event's title isn't 1 to 60 characters.", messageForPeople: "An event's name is 1 to 60 characters." },
+  bad_news_title: { httpStatus: 400, meaning: "News's title isn't 1 to 60 characters.", messageForPeople: "News is 1 to 60 characters." },
   bad_art: { httpStatus: 400, meaning: "An event's art isn't a PNG, WebP or JPEG within the size cap.", messageForPeople: "That art can't be used." },
-  no_announcement: { httpStatus: 404, meaning: "There's no announcement with that ID.", messageForPeople: "There's no such announcement." },
-  announcement_ended: { httpStatus: 409, meaning: "The announcement has ended already.", messageForPeople: "The announcement has ended already." },
-  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "An announcement is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
+  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "Text is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
   bad_link_url: { httpStatus: 400, meaning: "link_url isn't an https address or a path on zaisma.com starting with /.", messageForPeople: "A link is an https address or a zaisma.com path starting with /." },
   bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 30 characters, or was given without link_url.", messageForPeople: "A link's words are 1 to 30 characters, and come with a link." },
 

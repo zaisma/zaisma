@@ -12,7 +12,7 @@ import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.gene
 import { listRows, stateNote } from "./data.ts";
 import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
-import { grid, row, stack, track, type LayoutItem, stackOfOne } from "./layout.ts";
+import { grid, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
 
 /*
@@ -1220,7 +1220,7 @@ component({
 });
 
 /** Every stand-in game's cover, as a track's items. */
-const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
+const STAND_IN_COVER_ITEMS: GridItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
 export interface GameRowOptions {
   /** Unique on the page: the shelf itself, for a page script (the home's Continue playing). */
   id: string;
@@ -1236,7 +1236,7 @@ export interface GameRowOptions {
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
-  items: LayoutItem[];
+  items: GridItem[];
   /** What it says while it has no covers (Continue playing before you've played anything), in place of its row. */
   emptyText?: string;
   /**

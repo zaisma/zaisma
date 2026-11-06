@@ -446,7 +446,6 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   signedIn(["POST"], "/api/me/played", statusOf(401, { error: "Signed out" }), { takes: json({ played: listOf(gameData(1024), 1000) }, [], 256 * 1024), ...ownPagesJson("ok") }),
   signedIn(["POST"], "/api/me/played/:slug", statusOf(401, { error: "Signed out" }), { takes: json({}), ...ownPagesJson("ok") }),
   signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40), left_game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("waiting_friend_request_count", "accepted_friend_request_count") }),
-  open(["GET"], "/api/announcements", { ...jsonAnswer("announcements", "announcement") }),
 
   // A player's saves: the game page writes them, on its own site.
   ...(["/api/saves/:slug", "/api/saves/:slug/copies", "/api/saves/:slug/copies/:save_copy_id"] as const).map((path) => signedIn(["GET"], path, SAVES_SIGN_IN, { reaches: "player_save", origin: "anywhere", takes: query("version"), ...SAVE_ANSWER })),
