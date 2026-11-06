@@ -1053,7 +1053,15 @@ component({
 const cardSample = (options: GameCardOptions) => html`<div class="cover-sample">${gameCard(options)}</div>`;
 
 /** A Game grid's options: a grid of covers' (layout.ts), each cell a game card. */
-export type GameGridOptions = Omit<Extract<GridOptions, { itemSize: "cover" }>, "itemSize">;
+export type GameGridOptions = Omit<Extract<GridOptions, { itemSize: "cover" }>, "itemSize"> & {
+  /** Hidden till a page script or Load more adds a card to it (Browse's first page when every game is for another device). */
+  isHidden?: boolean;
+  /**
+   * A second group in the same well, after a line across it with its words (Browse's games made for other devices). It has its own id,
+   * so Load more adds to it, and while hidden shows once it does.
+   */
+  secondGroup?: { dividerWords: string; isHidden?: boolean; grid: Omit<Extract<GridOptions, { itemSize: "cover" }>, "itemSize"> };
+};
 
 /**
  * A Game grid: games in a well carved into the pane they're on, as many across as fit, growing down as more load (Browse), or a few all in view
@@ -1061,7 +1069,14 @@ export type GameGridOptions = Omit<Extract<GridOptions, { itemSize: "cover" }>, 
  * Game row is its sibling that scrolls sideways under a heading.
  */
 export function gameGrid(options: GameGridOptions): Raw {
-  return carving({ kind: "game-grid", body: grid({ ...options, itemSize: "cover" }) });
+  const { isHidden, secondGroup, ...first } = options;
+  const firstGrid = grid({ ...first, itemSize: "cover" });
+  if (!secondGroup) return carving({ kind: "game-grid", body: firstGrid });
+  const hiddenAttribute = (isGroupHidden: boolean | undefined) => (isGroupHidden ? raw(" hidden") : "");
+  return carving({
+    kind: "game-grid has-groups",
+    body: html`<div class="game-grid-group"${hiddenAttribute(isHidden)}>${firstGrid}</div><div class="game-grid-group is-after-line"${hiddenAttribute(secondGroup.isHidden)}>${divider({ words: secondGroup.dividerWords })}${grid({ ...secondGroup.grid, itemSize: "cover" })}</div>`,
+  });
 }
 
 const STAND_IN_GAME_GRID_ITEMS: GridItem[] = (["kestrel", "hollow-tide", "neon-drift", "verdant", "ashen-crown", "frostline"] as const)
@@ -1073,16 +1088,22 @@ component({
   slug: "game-grid",
   group: "panes",
   subgroup: "cards",
-  summary: "Games in a well carved into their pane, as many across as fit, growing down as more load: Browse's games. The cards keep the frame gap from the well's edges and from each other, and take its corner cuts. Game row is its sibling that scrolls sideways under a heading.",
+  summary: "Games in a well carved into their pane, as many across as fit, growing down as more load: Browse's games, with those for other devices after a line in the same well. The cards keep the frame gap from the well's edges and from each other, and take its corner cuts. Game row is its sibling that scrolls sideways under a heading.",
   styles: `
 /* The frame gap round the cards and between them, as in a Game row's well. */
 .carving.game-grid { padding: var(--pad-frame); --rail-inset: var(--pad-frame); }
 .carving.game-grid > .layout-grid, .carving.game-grid > .grid-one-line > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
-.carving.game-grid > .layout-grid:not(:has(> :not([hidden]))) { display: none; }
+/* Two groups in one well: the second after a line across it, the line the frame gap from the well's sides and from the cards round it. */
+.carving.game-grid.has-groups { display: flex; flex-direction: column; gap: var(--pad-frame); }
+.carving.game-grid.has-groups > .game-grid-group[hidden] { display: none; }
+.carving.game-grid.has-groups > .game-grid-group > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
+.game-grid-group.is-after-line { display: flex; flex-direction: column; gap: var(--pad-frame); }
+.game-grid-group.is-after-line > .divider { margin: 0; max-width: none; padding-inline: var(--pad-frame); }
 `,
   render: gameGrid,
   examples: [
     { label: "Browse's games: as many across as fit", isWide: true, markup: gameGrid({ label: "Games", whenEmpty: NO_EMPTY_NOTE, items: STAND_IN_GAME_GRID_ITEMS }) },
+    { label: "Two groups in one well: Browse's games, then those made for other devices after a line", isWide: true, markup: gameGrid({ label: "Games", whenEmpty: NO_EMPTY_NOTE, items: STAND_IN_GAME_GRID_ITEMS.slice(0, 4), secondGroup: { dividerWords: "Made for phones", grid: { label: "Games made for other devices", whenEmpty: NO_EMPTY_NOTE, items: STAND_IN_GAME_GRID_ITEMS.slice(4) } } }) },
     { label: "Empty: what it says in their place", isWide: true, markup: gameGrid({ label: "Games", whenEmpty: stateNote({ stateKind: "empty", title: "No games on this page", text: "Every game here is made for another device." }), items: [] }) },
   ],
 });
