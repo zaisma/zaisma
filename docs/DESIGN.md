@@ -263,6 +263,8 @@ A page is components put together by the layout components (`apps/site/src/compo
 
 **Words beside a control sit on its center line.** In a row, and beside a pane's corner control, the words' first line is centered on the control (their last line, where the row is held down: on a field's boxes, at a pane's foot), so a heading beside a button lines up with it however many lines it runs to. At a pane's top edge that puts the heading a little higher than the margin, level with the control that takes the corner's cut. A pane's head sets its heading beside its corner control and its other words under both, at the pane's whole width.
 
+**Panes and lists.** A pane holds one purpose: one thing the player came for, or one list, never what happened to fit. A list of games is a Game row (one line that scrolls, at most 10, ending in See all) or a Game grid (lines that grow as more load, a second group after a line in the same well), each a well carved into its pane at the frame gap, the cards the frame gap from the well's edges and from each other, a rail the same gap all round. Every game card is one shape whatever it holds, a poster and See all included; a line too full ends in an ellipsis. A row's heading is a heading's size, the frame gap from its well's edge and above and below it. Nothing is painted on: no color or icon per section and no marks on art.
+
 Say what each thing is, since the spacing and margins come from it (`LayoutItem`):
 
 - **words:** a heading, a line, a paragraph, a link in words. They keep the pane's margin.

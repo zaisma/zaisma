@@ -135,6 +135,12 @@ beforeAll(async () => {
   await createVersion(env.DB, { id: liveVersionId, gameId: live.id, r2Prefix: "games/sv/live", fileCount: 1, sizeBytes: 1 });
   await env.DB.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?1, first_published_at_ms = ?1 WHERE id = ?2").bind(Date.now(), liveVersionId).run();
   await env.DB.prepare("UPDATE games SET review_status = 'live', visibility = 'listed', live_version_id = ? WHERE id = ?").bind(liveVersionId, live.id).run();
+  // A second listed game: the home shows its games, What's on among them, only once there are two.
+  const other = (await gameBySlug(env.DB, (await api("/games", { body: { title: "Stored Other", slug: "sv-other" } })).answer.game.slug))!;
+  const otherVersionId = newId("version");
+  await createVersion(env.DB, { id: otherVersionId, gameId: other.id, r2Prefix: "games/sv/other", fileCount: 1, sizeBytes: 1 });
+  await env.DB.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?1, first_published_at_ms = ?1 WHERE id = ?2").bind(Date.now(), otherVersionId).run();
+  await env.DB.prepare("UPDATE games SET review_status = 'live', visibility = 'listed', live_version_id = ? WHERE id = ?").bind(otherVersionId, other.id).run();
   // A file the developer has sent, for new versions.
   const bytes = new TextEncoder().encode("<!doctype html><p>stored values</p>");
   storedFile = { sha256: await sha256Hex(bytes), sizeBytes: bytes.byteLength };
@@ -367,12 +373,15 @@ function pageProblems(page: string): string[] {
 
 /** Rows a column is left alone in: the slug and username the pages are opened by, and the live game's listing, so the home still lists it. */
 const KEEP: Record<string, () => string> = {
-  "games.slug": () => ` WHERE slug NOT IN ('${gameSlug}', '${liveSlug}')`,
+  // One news entry keeps its working link, so its title shows while the other's hostile link keeps that one off every page.
+  "whats_on_entries.link_url": () => ` WHERE id != 'whats_on_entry_svkeptlink'`,
+  "games.slug": () => ` WHERE slug NOT IN ('${gameSlug}', '${liveSlug}', 'sv-other')`,
   "accounts.username": () => ` WHERE id != '${DEVELOPER}'`,
-  "games.title_listing_reason": () => ` WHERE slug != '${liveSlug}'`,
-  "games.review_reason": () => ` WHERE slug != '${liveSlug}'`,
-  "game_images.listing_reason": () => ` WHERE game_id != '${world.game_id}'`,
-  "game_images.review_reason": () => ` WHERE game_id != '${world.game_id}'`,
+  // The live games stay in Zaisma's lists, so the home shows them (it shows its games only once there are two).
+  "games.title_listing_reason": () => ` WHERE slug NOT IN ('${liveSlug}', 'sv-other')`,
+  "games.review_reason": () => ` WHERE slug NOT IN ('${liveSlug}', 'sv-other')`,
+  "game_images.listing_reason": () => ` WHERE game_id NOT IN ('${world.game_id}', '${world.other_game_id}')`,
+  "game_images.review_reason": () => ` WHERE game_id NOT IN ('${world.game_id}', '${world.other_game_id}')`,
 };
 
 /** Put a value from valueOf in every stored value's column, in every row but KEEP's; null leaves it. */
@@ -436,6 +445,10 @@ describe("the way out", () => {
       if (await env.DB.prepare(`SELECT 1 FROM ${table} LIMIT 1`).first()) continue;
       await insertRow(table, ROW_CHOICES[table] ?? {});
     }
+    // The second listed game's cover, so the home lists both and shows its games.
+    world.other_game_id = (await gameBySlug(env.DB, "sv-other"))!.id;
+    await insertRow("whats_on_entries", { ...ROW_CHOICES.whats_on_entries, id: "whats_on_entry_svkeptlink" });
+    await insertRow("game_images", { ...ROW_CHOICES.game_images, game_id: world.other_game_id });
     await plant(planted);
   });
 

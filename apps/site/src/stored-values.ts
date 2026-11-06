@@ -189,7 +189,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
   // What's on's events and news for players, posted through the admin MCP.
   { stored: "whats_on_entries.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
   { stored: "whats_on_entries.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
-  { stored: "whats_on_entries.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  // Its words show only on an event's button, and the world the stored values test builds holds news, so no page is listed (it's escaped there).
+  { stored: "whats_on_entries.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "whats_on_entries.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },

@@ -81,7 +81,7 @@ export const eventOf = (entry: WhatsOnEntry): WhatsOnEvent => ({
   title: entry.title!,
   wide_art_url: artUrl(entry.id, "wide"),
   narrow_art_url: entry.narrow_art_key ? artUrl(entry.id, "narrow") : null,
-  link_url: entry.link_url!,
+  link_url: shownLinkUrl(entry.link_url)!,
   link_label: entry.link_label ?? DEFAULT_EVENT_LINK_LABEL,
 });
 
@@ -124,18 +124,20 @@ export function pickWhatsOnCards(games: readonly ShowGame[], picks: readonly Wha
 /** The home's and the API's read, split from one query: the banner's event (the newest), Zaisma's own cards (the other events with a poster, then news), and the picks. */
 export async function currentWhatsOn(env: Env, nowMs = Date.now()): Promise<{ event: WhatsOnEntry | null; entryCards: WhatsOnEntryCard[]; picks: WhatsOnEntry[] }> {
   const entries = await currentEntries(env, nowMs);
-  const events = entries.filter((entry) => entry.entry_kind === "event");
+  // Every link is checked again where it's shown, not only when it was posted: an entry whose stored link isn't one shows nowhere.
+  const linked = entries.filter((entry) => entry.entry_kind === "pick" || shownLinkUrl(entry.link_url) !== null);
+  const events = linked.filter((entry) => entry.entry_kind === "event");
   const cardOf = (entry: WhatsOnEntry): WhatsOnEntryCard => ({
     entryKind: entry.entry_kind === "news" ? "news" : "event",
     id: entry.id,
     title: entry.title!,
     art: entry.card_art_key ? { imageUrl: artUrl(entry.id, "card"), widthPx: CARD_ART_WIDTH_PX, heightPx: CARD_ART_HEIGHT_PX, placeholderDataUrl: null } : null,
-    linkUrl: entry.link_url!,
+    linkUrl: shownLinkUrl(entry.link_url)!,
   });
   return {
     event: events[0] ?? null,
-    entryCards: [...events.slice(1).filter((entry) => entry.card_art_key), ...entries.filter((entry) => entry.entry_kind === "news")].map(cardOf),
-    picks: entries.filter((entry) => entry.entry_kind === "pick"),
+    entryCards: [...events.slice(1).filter((entry) => entry.card_art_key), ...linked.filter((entry) => entry.entry_kind === "news")].map(cardOf),
+    picks: linked.filter((entry) => entry.entry_kind === "pick"),
   };
 }
 
@@ -205,14 +207,20 @@ function readArt(base64: string, field: string): { bytes: Uint8Array; contentTyp
   return { bytes, contentType };
 }
 
-function checkEventLink(given: string): string {
-  const linkUrl = given.trim();
+/** A link an entry may carry: an https address or a path on zaisma.com, within the cap; null for anything else. */
+function shownLinkUrl(given: string | null): string | null {
+  const linkUrl = (given ?? "").trim();
   const isPath = linkUrl.startsWith("/") && !linkUrl.startsWith("//") && !linkUrl.includes("\\") && !/\s/.test(linkUrl);
   let isHttps = false;
   try {
     isHttps = new URL(linkUrl).protocol === "https:";
   } catch {}
-  if ((!isPath && !isHttps) || linkUrl.length > MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT) throw new ApiError("bad_link_url", { message: `link_url "${linkUrl.slice(0, 60)}" isn't an https address or a path on zaisma.com.`, field: "link_url", fix: 'Give an https address, or a path on zaisma.com like "/games?genre=survival".' });
+  return (isPath || isHttps) && linkUrl.length <= MAXIMUM_EVENT_LINK_URL_CHARACTER_COUNT ? linkUrl : null;
+}
+
+function checkEventLink(given: string): string {
+  const linkUrl = given.trim();
+  if (shownLinkUrl(linkUrl) === null) throw new ApiError("bad_link_url", { message: `link_url "${linkUrl.slice(0, 60)}" isn't an https address or a path on zaisma.com.`, field: "link_url", fix: 'Give an https address, or a path on zaisma.com like "/games?genre=survival".' });
   return linkUrl;
 }
 

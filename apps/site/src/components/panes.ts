@@ -182,7 +182,7 @@ function seeAllMarkup(options: { href: string; gameCount: number; coverPictures:
   const tiles = options.coverPictures.slice(0, SEE_ALL_CARD_COVER_COUNT);
   const countWords = `${options.gameCount.toLocaleString("en-US")} ${options.gameCount === 1 ? "game" : "games"}`;
   const mosaic = html`<span class="cover-mosaic carving-art" data-cut-line="0">${tiles.map((tilePicture) => html`<span class="cover-mosaic-tile">${tilePicture ? picture(tilePicture, { shownSizes: "(max-width: 760px) 100px, 130px" }) : ""}</span>`)}</span>`;
-  return html`<div class="cover is-see-all sleek-cast"><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="See all ${countWords}">${CUT_LINE}${mosaic}${EDGE_LIGHT}</a><div class="cover-plate"><div class="cover-meta"><span class="cover-name-line"><span class="cover-name one-line">See all</span></span><span class="count">${countWords}${icon("chevron-right")}</span></div></div></div></div>`;
+  return html`<div class="cover sleek-cast"><div class="cover-glass glass sleek" data-cut-line="0"><a class="cover-art carving holds-art" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="See all ${countWords}">${CUT_LINE}${mosaic}${EDGE_LIGHT}</a><div class="cover-plate"><div class="cover-meta"><span class="cover-name-line"><span class="cover-name one-line">See all</span></span><span class="count">${countWords}${icon("chevron-right")}</span></div></div></div></div>`;
 }
 
 /**

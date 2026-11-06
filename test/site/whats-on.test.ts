@@ -85,6 +85,11 @@ describe("What's on's events", () => {
     await expect(postNews(env, { title: "", linkUrl: "/forum", endsAt: endsAt() }, "test")).rejects.toThrow(/title/);
   });
 
+  it("shows no entry whose stored link isn't an https address or a path, however it got there", async () => {
+    await env.DB.prepare("INSERT INTO whats_on_entries (id, entry_kind, title, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_badlink', 'news', 'Bad', 'javascript:alert(1)', 0, ?1, 0, 'test'), ('whats_on_entry_goodlink', 'news', 'Good', '/forum', 0, ?1, 0, 'test')").bind(Date.now() + DAY_MS).run();
+    expect((await currentWhatsOn(env)).entryCards.map((card) => card.id)).toEqual(["whats_on_entry_goodlink"]);
+  });
+
   it("refuses a pick of a game players can't find, and ends an entry once", async () => {
     await expect(postPick(env, { gameSlug: "no-such-game", endsAt: endsAt() }, "test")).rejects.toThrow(/no listed, live game/);
     const posted = await postEvent(env, { title: "Zombie weekend", wideArtBase64: PNG_BASE64, linkUrl: "/games", endsAt: endsAt() }, "test");
