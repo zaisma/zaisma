@@ -574,7 +574,9 @@ describe("tester links", () => {
     const entered = await SELF.fetch(`${SITE}${path}/enter`, { method: "POST", body: JSON.stringify({ room_code: "ABCDEF" }) });
     const { frame_url } = (await entered.json()) as { frame_url: string };
     expect(frame_url).toMatch(/^https:\/\/games\.zaisma\.test\/secret-hop--tester\/_zaisma\/enter\?grant=[a-z0-9]{32}&then=%3Froom%3DABCDEF$/);
-    expect(body).toContain("share with testers only");
+    // A private game's testers are told the link opens it for anyone, and that progress stays in the browser.
+    expect(body).toContain("anyone with this link can play");
+    expect(body).toContain("Progress stays in this browser.");
     // Private games stay off Continue playing: the page's script remembers no game with a tester link.
     expect(pageDataOf(body, "game-page-data").tester_token).toBe(path.slice(3));
     expect(((await (await api("/games/secret-hop")).json()) as { testers: { last_opened_at: string | null }[] }).testers[0]!.last_opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
