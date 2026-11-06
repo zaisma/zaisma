@@ -1280,7 +1280,7 @@ export function gameRow(options: GameRowOptions): Raw {
           }
         : seeAll
           ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "control", markup: seeAll }] }) }
-          : { kind: "words", markup: title },
+          : { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }] }) },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
         : options.allInView
@@ -1300,7 +1300,16 @@ component({
 /* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
-.game-row { container-type: inline-size; --game-row-words-inset: var(--pad-words); }
+/* Its heading sits tight over its well: its words the frame gap in from the well's edge, and the frame gap above and below them, so the
+   heading reads as the well's own and not as words floating on the pane. */
+.game-row { container-type: inline-size; --pad-words: var(--pad-frame); --game-row-words-inset: var(--pad-words); }
+.game-row > .layout-stack > .stack-cell + .stack-cell { margin-top: var(--pad-frame); }
+/* The heading's band is a small control's height whether or not a control sits in it, its words centered in it. */
+/* With no control beside it, the pane's edge rule would set it a words margin down: the band's own height already keeps it off the edge. */
+.game-row > .layout-stack > .stack-cell:first-child > .layout-row:not([data-control-height]) > .row-cell.is-words { --pad-words: 0px; }
+.game-row .game-row-title { box-sizing: border-box; min-height: var(--control-height-small); display: flex; align-items: center; }
+/* On the narrowest phones every heading takes a section's size, so a heading and its See all keep one line and the rows' headings match. */
+@media (max-width: 360px) { .game-row > .layout-stack .game-row-title { font: var(--type-section); } }
 /* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
    from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
 .game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
@@ -1312,7 +1321,7 @@ component({
    (--rail-inset, kept from the well's corner cuts), so its channel fills the bar from end to end. */
 .game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
 .game-row-well > .track-holder > .rail.sideways > .rail-line { left: 0; right: 0; }
-.game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+.game-row .game-row-title { width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
 .game-row > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
