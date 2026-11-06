@@ -2,7 +2,7 @@
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
 # Everything runs side by side, split across runners: the tests in four shards (four files at once on each), typecheck, the
-# Layout check in eight, the Contract grid in three, and the Engine exports in eight, one sample each.
+# Layout check in eight, the merge queue's Every screen in ten, the Contract grid in three, and the Engine exports in eight, one sample each.
 # A run ends within 5:00 of its start, or "Tests and typecheck" fails and names its slowest job (scripts/ci-time-limit.mjs); each job's
 # timeout-minutes holds a stuck one, and test/node/ci-time-limit.test.ts holds those limits. The night's "CI time" warns at 4:00.
 # "Tests and typecheck", the check the ruleset requires and npm run ship reads, passes only when all of them did.
@@ -680,7 +680,7 @@ jobs:
   # cache). A page that sends forms or opens a hidden state is always measured. Each share's measured pages go up for Measured pages for
   # main, once this commit is main.
   sweep:
-    name: Every screen (${{ matrix.shard }} of 6)
+    name: Every screen (${{ matrix.shard }} of 10)
     needs: [changes, seed]
     if: ${{ !cancelled() && github.event_name == 'merge_group' && needs.changes.outputs.is_code_changed == 'true' && needs.changes.outputs.is_checked_in_queue != 'true' && (needs.seed.result == 'success' || needs.seed.result == 'skipped') }}
     runs-on: ubuntu-latest
@@ -688,7 +688,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       # Chrome read from the disk, beside what follows: on a fresh runner its first read can take minutes, and the run that needs it waits on it.
       - run: |
@@ -726,7 +726,7 @@ jobs:
           key: layout-sweep-measured-${{ github.sha }}
           restore-keys: layout-sweep-measured-
       - run: npm run preview:start
-      - run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/6 --measured .wrangler/layout-sweep-measured.json --changed-only
+      - run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/10 --measured .wrangler/layout-sweep-measured.json --changed-only
       - if: success()
         uses: actions/upload-artifact@v4
         with:
