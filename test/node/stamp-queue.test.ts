@@ -1,16 +1,15 @@
 // The pages waiting for a stamp (scripts/preview/stamp-queue.mjs) and the Screens bench's view of them (scripts/preview/bench/stamp-page.ts).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { temporaryFolder } from "../temporary-folder.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { checkedEntry, entryPicture, isStamped, waitingEntries } from "../../scripts/preview/stamp-queue.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { pictureSize } from "../../scripts/preview/bench/bench-files.mjs";
 import { liveBenchUrl, siteFor, stampPage, type StampEntry } from "../../scripts/preview/bench/stamp-page.ts";
 
-const folder = mkdtempSync(join(tmpdir(), "zaisma-stamp-queue-test-"));
-afterAll(() => rmSync(folder, { recursive: true, force: true }));
+const folder = temporaryFolder("zaisma-stamp-queue-test-");
 /** A 2 x 3 PNG: its signature, then an IHDR chunk with its size. */
 const PNG = Buffer.from("89504e470d0a1a0a0000000d494844520000000200000003080200000000000000", "hex");
 const sheetPath = join(folder, "sheet.png");

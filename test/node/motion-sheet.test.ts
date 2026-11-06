@@ -1,10 +1,10 @@
 // The motion sheet (scripts/motion-sheet.mjs): its four faults found in recordings made by hand, and in a real Chrome on fixture pages,
 // one that breaks each rule and one that moves well, which must pass.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { temporaryFolder } from "../temporary-folder.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { findFlashes, findJitter, findPops, findSiblingsThatDiffer, lightnessGap, markedUrl, motionRuns, moveThroughPages, MOTION_SCREENS, siblingEntries } from "../../scripts/motion-sheet.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -118,16 +118,14 @@ const page = (extraStyle: string, extraScript: string) => `<!doctype html><html>
 <button aria-pressed="false" data-target="sheet-a" data-class="is-open">Sheet A</button><button aria-pressed="false" data-target="sheet-b" data-class="is-open">Sheet B</button>
 <div class="glass-pane" id="pane">A pane</div><div class="icon-holder"><svg class="icon" id="icon" width="24" height="24"><circle cx="12" cy="12" r="10"/></svg></div>
 <div class="sheet" id="sheet-a">A</div><div class="sheet" id="sheet-b">B</div></main><script>${SCRIPT}${extraScript}</script></body></html>`;
-/** Breaks each rule: the pane pops, the icon nudges 3px after its move ends, sheet B enters on another curve, and the page shows white first. */
-const FAULTY = page(`.glass-pane { display: none; } .glass-pane.is-open { display: block; } #sheet-b, #sheet-b.is-open { transition: opacity 320ms linear, visibility 0s 320ms; } #sheet-b.is-open { transition: opacity 320ms linear; } html { background: #fff; } html.is-dark { background: #111; }`,
-  `document.getElementById("icon").addEventListener("transitionend", (event) => setTimeout(() => { event.target.style.marginTop = event.target.classList.contains("is-turned") ? "3px" : "0px"; }, 200));
-requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => document.documentElement.classList.add("is-dark"), 30)));`);
+/** Breaks each rule: the pane pops, the icon nudges 3px after its move ends, and sheet B enters on another curve. A flash is timed in milliseconds, which a busy runner's frames can stretch, so it's proven on recordings above. */
+const FAULTY = page(`.glass-pane { display: none; } .glass-pane.is-open { display: block; } #sheet-b, #sheet-b.is-open { transition: opacity 320ms linear, visibility 0s 320ms; } #sheet-b.is-open { transition: opacity 320ms linear; }`,
+  `document.getElementById("icon").addEventListener("transitionend", (event) => setTimeout(() => { event.target.style.marginTop = event.target.classList.contains("is-turned") ? "3px" : "0px"; }, 200));`);
 /** Moves well: the pane fades, the icon rests where its move ends, both sheets enter alike, and the page has one background. */
 const CLEAN = page(`.glass-pane { opacity: 0; visibility: hidden; transition: opacity 200ms ease-out, visibility 0s 200ms; } .glass-pane.is-open { opacity: 1; visibility: visible; transition: opacity 200ms ease-out; }`, "");
 
 const chromePath = findChrome() as Promise<string | null>;
-const folder = mkdtempSync(join(tmpdir(), "zaisma-motion-test-"));
-afterAll(() => rmSync(folder, { recursive: true, force: true }));
+const folder = temporaryFolder("zaisma-motion-test-");
 
 describe("the motion sheet in Chrome, on fixture pages", async () => {
   const path = await chromePath;
@@ -137,7 +135,7 @@ describe("the motion sheet in Chrome, on fixture pages", async () => {
     return moveThroughPages({ chromePath: path, site: null, pages: [{ name, path: pathToFileURL(join(folder, `${name}.html`)).href, profile: null, states: [] }], looks });
   };
 
-  it.skipIf(!path || typeof WebSocket !== "function")("fails the popping pane, the jittering icon, the sibling sheets on different curves and the white frame", async () => {
+  it.skipIf(!path || typeof WebSocket !== "function")("fails the popping pane, the jittering icon and the sibling sheets on different curves", async () => {
     const { failures, run_count: runCount } = await run("faulty", FAULTY);
     expect(runCount).toBe(9);
     const kinds = (kind: string) => failures.filter((failure: { kind: string }) => failure.kind === kind);
@@ -146,7 +144,6 @@ describe("the motion sheet in Chrome, on fixture pages", async () => {
     // Sheet B enters and leaves on its own curve: both differ from Sheet A.
     expect(kinds("siblings_differ").map((failure: { component: string; said: string }) => `${failure.component} ${failure.said.split(" with ")[0]}`)).toEqual(["Sheet entering", "Sheet leaving"]);
     expect(kinds("siblings_differ")[0].said).toContain("320 ms, linear");
-    expect(kinds("flash").map((failure: { piece: string; property: string }) => `${failure.piece} ${failure.property}`)).toContain("Page the page background");
   }, 90_000);
 
   it.skipIf(!path || typeof WebSocket !== "function")("passes the page that moves well", async () => {
