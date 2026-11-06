@@ -118,6 +118,8 @@ export interface GameKeyDetails {
   updatesHref?: string;
   /** Friends playing it now. */
   friends?: FramedPerson[];
+  /** Where Join takes you, into a friend's room that would let you in (a room link): a small Join after their names. */
+  friendsJoinHref?: string;
   /** Why it may not suit this device ("Needs a keyboard"), for a game made for others. */
   deviceNote?: string;
 }
@@ -133,7 +135,7 @@ export function gameKeyDetails(facts: GameKeyDetails): Raw {
   const shown: KeyDetail[] = [
     ...(facts.deviceNote ? [{ label: "This device", detailValue: facts.deviceNote }] : []),
     ...(facts.playerCount !== undefined ? [{ label: "Playing now", detailValue: facts.playerCount.toLocaleString("en-US") }] : []),
-    ...(friends.length ? [{ label: "Friends playing", detailValue: pictureRow(friends, "sm"), under: html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span>` }] : []),
+    ...(friends.length ? [{ label: "Friends playing", detailValue: pictureRow(friends, "sm"), under: facts.friendsJoinHref ? html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span><span class="key-detail-join">${secondaryButton("Join", { href: facts.friendsJoinHref, isSmall: true })}</span>` : html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span>` }] : []),
     ...(isUpdateNews && facts.updatedAtMs !== undefined
       ? [{ label: "Updated", detailValue: html`<span class="is-new">${keepUnits(ago(nowMs - facts.updatedAtMs))}</span>`, ...(facts.updatesHref ? { under: textLink("What's new", facts.updatesHref) } : {}) }]
       : []),
@@ -167,6 +169,8 @@ export const KEY_DETAILS_STYLES = `
 .key-detail-under.good { color: var(--tag-new-ink); }
 /* Names on one line that end in an ellipsis rather than run past the pane. */
 .key-detail-under:has(> .one-line) { display: flex; }
+/* Join after friends' names: on a line of its own under them, a control's gap from the words. */
+.key-detail-under:has(> .key-detail-join) { flex-direction: column; align-items: flex-start; gap: var(--gap-words-control); }
 /* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
 .row-cell:not(:last-child) > .key-details { padding-inline-end: 0; }
 `;
