@@ -323,9 +323,10 @@ describe("room browsing on the game page", () => {
     expect(best.slice(-3).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
     expect((await pageOf("best_to_join", false)).roomOrder).toBe("best_to_join");
 
-    // Most players: the open rooms from the fullest down, then the matches in progress from the busiest down; ties keep the best-to-join order.
+    // Most players: the open rooms with space from the fullest down, then full rooms, then the matches in progress from the busiest down;
+    // ties keep the best-to-join order.
     const most = await everything("most_players");
-    expect(most.map((listedRoom) => listedRoom.playerCount)).toEqual([8, 8, 7, 6, 5, 4, 3, 3, 3, 2, 1, 1, 7, 5, 2]);
+    expect(most.map((listedRoom) => listedRoom.playerCount)).toEqual([7, 6, 5, 4, 3, 3, 3, 2, 1, 1, 8, 8, 7, 5, 2]);
     expect(most.slice(-3).every((listedRoom) => !listedRoom.isOpen)).toBe(true);
     const tied = (roomOrdered: typeof most, playerCount: number) => roomOrdered.filter((listedRoom) => listedRoom.isOpen && listedRoom.playerCount === playerCount).map((listedRoom) => listedRoom.roomCode);
     for (const playerCount of [1, 3, 8]) expect(tied(most, playerCount)).toEqual(tied(best, playerCount));
