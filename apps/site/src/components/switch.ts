@@ -1,4 +1,4 @@
-import { action, ICON_ROOM_WIDTH, primaryButton, type ListedIcon } from "./actions.ts";
+import { action, ICON_ROOM_WIDTH, NARROW_HOLDER_WIDTH, primaryButton, type ListedIcon } from "./actions.ts";
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
@@ -59,8 +59,8 @@ export function tabSwitch(options: {
    */
   isShowingOnePanel?: boolean;
   /**
-   * A menu (a Select field) of the same choices, shown in the switch's place on a phone, upright or on its side, where a row of tabs
-   * would run past the screen: the switch on wider screens, the menu on narrow ones, never both. The page's script hears either.
+   * A menu (a Select field) of the same choices, shown in the switch's place on a phone, upright or on its side, and in a column narrower
+   * than a narrow holder (28rem), where a row of tabs would run past it: the switch elsewhere, never both. The page's script hears either.
    */
   menuWhenNarrow?: ControlMarkup;
 }): ControlMarkup {
@@ -509,6 +509,8 @@ component({
 .switch-or-menu { display: block; min-width: 0; }
 .switch-or-menu > .as-menu { display: none; }
 @media ${SCREEN_QUERIES.phone} { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }
+/* In a narrow column too (a tablet's Rooms tab at large text), where the switch would run past it: the menu, as on a phone. */
+@container column (max-width: ${NARROW_HOLDER_WIDTH}) { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }
 /* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
    one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round

@@ -114,7 +114,7 @@ export async function playerPage(input: PlayerPageInput): Promise<BenchPage> {
     countryCode: null,
     demoGameSlug: null,
     fullGameSlug: null,
-    ownedPaidGameIds: new Set(),
+    ownedPaidGameIds: new Set(), lastPlayedAtMs: null,
   }));
 }
 

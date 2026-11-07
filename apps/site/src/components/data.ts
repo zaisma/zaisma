@@ -114,7 +114,7 @@ export const UPDATE_IS_NEWS_FOR_MS = 7 * 24 * 60 * MINUTE_MS;
 
 export interface GameKeyDetails {
   playerCount?: number;
-  /** When you last played it: an update from before then isn't news to you. Said in Details (Last played), never here. */
+  /** When you last played it: an update from before then isn't news to you. Never said by this field: a page says it in a detail of its own (the game page's Last played). */
   playedAtMs?: number;
   /** When it was last updated: shown here only while it's news (UPDATE_IS_NEWS_FOR_MS, and after you last played); otherwise Details says it. */
   updatedAtMs?: number;
