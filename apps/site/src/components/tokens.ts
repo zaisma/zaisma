@@ -372,8 +372,9 @@ html { -webkit-tap-highlight-color: transparent; }
   --size-icon: 20px; --pad-icon: 12px;
   --control-height-tiny: 1.625rem; --control-height-small: 2.25rem; --control-height-regular: 2.75rem; --control-height-field: 3.25rem; --control-height-big: 3.5rem;
   /* The named sizes, the only widths a layout takes (layout.ts): a cell's least width in a grid, by what it holds; and the widest a
-     paragraph runs in a pane that fits what's in it, for reading. */
-  --size-cover: 180px; --size-cover-with-text: max(180px, 11.25rem); --size-two-across-least: calc(15rem - 120px); --size-card: 280px; --size-figure: 150px; --size-reading: 60ch;
+     paragraph runs in a pane that fits what's in it, for reading. A cover's and a card's in rem (180 and 280px at the browser's own 16px), so
+     a grid holds fewer across as its words grow, never cutting them. */
+  --size-cover: 11.25rem; --size-two-across-least: calc(15rem - 120px); --size-card: 17.5rem; --size-figure: 150px; --size-reading: 60ch;
   /* Page shapes (layout.ts, html.ts's pageShape): a reading page's one column, and the wide frame every page's header, footer and panes sit in,
      so nothing stretches across a big screen. A 2560 screen shows the world either side of the frame; a laptop's frame is its width less the margins. */
   --size-page-reading: 820px; --size-page-wide: 1680px;

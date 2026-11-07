@@ -636,6 +636,10 @@ html.is-page-arriving main .glass:not(.glass .glass)::before, html.is-page-arriv
 /* Opened fresh (a reload, another site), nothing was on screen to move from: the panes come in at a calmer pace, beside a world that takes
    longer still, where a page switch's quick fade would read as a pop. */
 html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page-arriving-fresh main .glass:not(.glass .glass) > * { animation-duration: var(--motion-settle); }
+/* Opened fresh, the footer is new on screen too: it comes in with the panes, at their pace, never standing there before them. A page switch
+   keeps it still, as the header is, the same on both pages. */
+html.is-page-arriving-fresh body > .foot::before, html.is-page-arriving-fresh body > .foot > * { animation: page-arrives var(--motion-settle) var(--ease-standard) both; }
+html.is-page-held body > .foot::before, html.is-page-held body > .foot > * { animation-play-state: paused; }
 @keyframes page-arrives { from { opacity: 0; } }
 `,
   render: backdrop,

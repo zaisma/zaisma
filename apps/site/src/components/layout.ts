@@ -241,10 +241,18 @@ export type GridOptions = {
 
 /** The most covers one line takes before each is too small to read as a cover on a laptop. */
 export const MAXIMUM_ONE_LINE_COVER_COUNT = 6;
-/** --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below two, one. */
+/**
+ * --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below
+ * two, one. At the browser's own text size; the queries ask for it in rem, as the token is, so a cover's least width grows with its words when
+ * the browser's text is set larger, and a line folds to fewer across instead of cutting its titles.
+ */
 const COVER_LEAST_PX = 180;
-/** --gap-control-stack, the gap between covers on one line, for the same queries. */
+/** The browser's own text size, which a rem is at 100%. */
+const BROWSER_TEXT_PX = 16;
+/** --gap-control-stack, the gap between covers on one line, for the same queries: in px, as gaps don't grow with the text. */
 const CONTROL_STACK_GAP_PX = 8;
+/** The widest a line of covers is while it can't hold this many of their least width and the gaps between them. */
+const coversShortOf = (coverCount: number): string => `calc(${(coverCount * COVER_LEAST_PX) / BROWSER_TEXT_PX}rem + ${(coverCount - 1) * CONTROL_STACK_GAP_PX - 1}px)`;
 
 /**
  * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of
@@ -617,21 +625,21 @@ export const GRID_STYLES = `
 /* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three, two and one across. */
 .grid-one-line { container-type: inline-size; width: 100%; min-width: 0; }
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-@container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${coversShortOf(MAXIMUM_ONE_LINE_COVER_COUNT)}) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
+@container (max-width: ${coversShortOf(2)}) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
 /* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
    more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
 .grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
-/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. Both grow with the text (rem), so with
-   larger text the covers widen with their titles, and fold to one across where half the line is too narrow for one: the floor is 120px at
-   the usual text (two across on the narrowest phone) and grows faster than the text, 360px at twice it, so a title keeps its room. */
-.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover-with-text)), var(--size-two-across-least)), 1fr)); }
+/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less, and one across where half the line is
+   too narrow for a title: the floor is 120px at the usual text (two across on the narrowest phone) and grows faster than the text, 360px at
+   twice it. */
+.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), var(--size-two-across-least)), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
-/* Below three across (a cover's least width grows with the text, 11.25rem at the least), the lead takes the whole line, never a column past it. */
-@container (max-width: calc(${3 * COVER_LEAST_PX / 16}rem + ${2 * BLOCK_GAP_PX - 1}px)) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
-@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
-@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
+/* Below three across, the lead takes the whole line, never a column past it. */
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
 `;
 
 export const LEAD_AND_SIDE_STYLES = `
@@ -648,9 +656,9 @@ export const LEAD_AND_SIDE_STYLES = `
 export const TRACK_STYLES = `
 /* A track and its rail are one thing to what holds them: whatever gap it puts between its parts never falls between them. */
 .track-holder { display: flex; flex-direction: column; min-width: 0; }
-/* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
-   track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
-   back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
+/* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's or picture's cell is
+   a fifth of the track's own width, from 200px to 260px (a cover's in rem, growing with its words), so a few show with the next peeking in;
+   room above and below them for their lifted shadow, given back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
 .layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
 /* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. A track that fits
@@ -666,7 +674,9 @@ export const TRACK_STYLES = `
 /* With no words under them, they keep no rail's room while they fit: nothing under them needs the words margin, so they sit at the frame gap
    from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
 .layout-track:is(.item-picture, .item-thumbnail):not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
-.layout-track:is(.item-cover, .item-picture) > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
+.layout-track.item-cover > * { flex: 0 0 clamp(12.5rem, 20cqi, 16.25rem); scroll-snap-align: start; }
+/* A picture has no words to grow with the text: its cell stays in px. */
+.layout-track.item-picture > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
 export const COLUMNS_STYLES = `

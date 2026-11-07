@@ -199,8 +199,12 @@ body > .top:not(:has(+ *)) > :not(.edge) { visibility: hidden; }
 .top.has-icon-tabs .nav { flex: 1 1 0; }
 ${tabIconsAlone(".top.has-icon-tabs .tab-switch")}
 ${signInIconAlone(".top.has-icon-tabs .end > [data-sign-in-narrows]")}
-/* Last, Sign in is its icon too (a 320 px phone). Past that the tabs scroll in their Well, as any Switch does. */
+/* Then Sign in is its icon too (a 320 px phone). */
 ${signInIconAlone(".top.has-icon-sign-in .end > [data-sign-in-icon]")}
+/* Last, the tabs' icons draw in to an icon's width and a gap each side, so a developer's four tabs fit beside their picture on a 320 px phone,
+   none cut at the well's edge. Past that the tabs scroll in their Well, as any Switch does. */
+.top.has-narrow-icon-tabs .tab-switch { --tab-room: var(--gap-control-stack); }
+.top.has-narrow-icon-tabs .tab-switch > :is(a, button) { min-width: calc(var(--size-icon) + 2 * var(--gap-control-stack)); }
 /* While it measures, what eases its width doesn't, so it reads what each step comes to. */
 .top.is-measuring .foldable { transition: none; }
 @media ${HEADER_SMALL_SCREEN_MEDIA} {
@@ -263,8 +267,8 @@ export const INSTALL_SCRIPT = `/* install */(function () {
 `;
 
 export const HEADER_FIT_SCRIPT = `/* header fit */(function () {
-  var railMedia = window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}), LAST_STEP = 4;
-  function takeSteps(top, stepCount) { top.classList.toggle("has-search-button", stepCount > 0); top.classList.toggle("has-tight-tabs", stepCount > 1); top.classList.toggle("has-icon-tabs", stepCount > 2); top.classList.toggle("has-icon-sign-in", stepCount > 3); }
+  var railMedia = window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}), LAST_STEP = 5;
+  function takeSteps(top, stepCount) { top.classList.toggle("has-search-button", stepCount > 0); top.classList.toggle("has-tight-tabs", stepCount > 1); top.classList.toggle("has-icon-tabs", stepCount > 2); top.classList.toggle("has-icon-sign-in", stepCount > 3); top.classList.toggle("has-narrow-icon-tabs", stepCount > 4); }
   // The tabs' own width: from the tabs themselves, as the slab gliding from the last page's tab can reach past them for a moment, and that's no room they need.
   function tabsWidth(tabs) {
     var endPx = 0;
