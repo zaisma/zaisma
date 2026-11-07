@@ -1312,14 +1312,6 @@ describe("layout", () => {
     expect(ROW_STYLES).toContain("> .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }");
   });
 
-  it("keeps a stack item off an upright phone when it asks, and what shows first after it has nothing above it", () => {
-    const html = stack({ items: [{ kind: "words", isHiddenOnUprightPhone: true, markup: raw("<p>Line</p>") }, { kind: "words", markup: raw("<p>Next</p>") }] }).html;
-    expect(cells(html)[0]).toContain("is-off-upright-phone");
-    expect(cells(html)[1]).not.toContain("is-off-upright-phone");
-    expect(STACK_STYLES).toContain(".stack-cell.is-off-upright-phone { display: none; }");
-    expect(STACK_STYLES).toContain(".layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden, :empty, .is-off-upright-phone)) { margin-top: 0; }");
-  });
-
   it("shows a switch's menu for narrow places in a narrow column too, not only on a phone", () => {
     expect(switchSource).toContain("@container column (max-width: ${NARROW_HOLDER_WIDTH}) { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }");
   });

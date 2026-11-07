@@ -483,8 +483,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       ...(developer || genreNames.length
         ? [{ kind: "words" as const, markup: html`<p>${developer ? html`by ${textLink(developer.name, profilePath(developer.name), { isQuiet: true })}` : ""}${developer && genreNames.length ? " · " : ""}${genreNames.slice(0, 2).join(", ")}</p>` }]
         : []),
-      // Not on an upright phone, as the concept's phone has it: the name, who made it and Play keep its first screen.
-      ...(gameLine ? [{ kind: "words" as const, isHiddenOnUprightPhone: true, markup: html`<p>${gameLine}</p>` }] : []),
+      // Not on a phone, as the concept's phone has it: the name, who made it and Play keep its first screen.
+      ...(gameLine && view.deviceKind !== "phone" ? [{ kind: "words" as const, markup: html`<p>${gameLine}</p>` }] : []),
       // The live line: hidden until it says something (people playing, or friends the page's script finds).
       { kind: "block", id: "live-line", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT && lastPlayedAtMs === null, markup: keyDetails({ details: [
         ...(tester ? [] : [{ id: "last-played", isHidden: lastPlayedAtMs === null, label: "Last played", detailValue: lastPlayedAtMs === null ? "" : ago(Date.now() - lastPlayedAtMs), under: html`<span id="new-since"${lastPlayedAtMs !== null && latestUpdateAtMs !== null && latestUpdateAtMs > lastPlayedAtMs ? "" : raw(" hidden")}>${newSinceLink}</span>` }]),
