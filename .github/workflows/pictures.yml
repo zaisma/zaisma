@@ -6,7 +6,7 @@
 # Started by npm run pictures -- --pr <number> --path <path> … (scripts/pictures.mjs), which dispatches this on main's copy of it, waits,
 # and downloads each job's artifact: sheets/ and layout.txt, or strips/ and motion.txt, and run.json (whether it passed). It's no
 # part of "Tests and typecheck", so its time isn't held to CI's 5:00: two runners a page (the sheets, the strips), side by side,
-# about a quarter of an hour each (Nov 7, 2026: Home's sheets 15 minutes, its strips 9), at most 40.
+# about a quarter of an hour each (Nov 7, 2026: Home's sheets 15 minutes, its strips 9), at most 60.
 name: Pictures
 run-name: Pictures for #${{ inputs.pull_request_number }} at ${{ inputs.head_sha }} (${{ inputs.request_id }})
 
@@ -47,7 +47,7 @@ jobs:
   pictures:
     name: ${{ matrix.check_kind == 'layout' && 'Contact sheets' || 'Motion strips' }} of ${{ matrix.page_path }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

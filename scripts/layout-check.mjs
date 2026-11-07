@@ -114,6 +114,9 @@ export const LAYOUT_CHECK_RUNS = {
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
 const RUN_TIME_LIMIT_MS = 90_000;
+/** The same with pictures: every screen drawn whole, light and dark, on a runner's CPU (Nov 7, 2026: a gallery group's run took
+ * about 80 s a screen, at the measuring limit's edge, and failed there on a busier runner). Only GitHub's Pictures runs take them. */
+export const PICTURES_RUN_TIME_LIMIT_MS = 270_000;
 // On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
@@ -892,7 +895,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const theme = runLooks[0].theme;
         const url = `${base}${page.path}${page.isGallery && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
         // A page that never settles (a load or a frame that doesn't come) fails by name instead of holding up the rest.
-        const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
+        const runLimitMs = (picturesFolder ? PICTURES_RUN_TIME_LIMIT_MS : RUN_TIME_LIMIT_MS) * runLooks.length;
+        const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${runLimitMs / 1000}s` }]);
         const startedMs = Date.now();
         // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
         // So does a guest playing a game, whose played list would put Continue playing on a guest's home page. An account stays in its own
@@ -900,7 +904,7 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const isOwnContext = Boolean(page.stepsToTake) || (!page.account && isPlaying(page));
         const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
-        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
+        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(runLimitMs).then(() => tooSlow)]);
         if (isOwnContext) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
         secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
         foundByRun[runIndex] = runLooks.flatMap(({ size, theme: lookTheme }, lookIndex) => foundByLook[lookIndex].map((failure) => ({ page: page.name, path: page.path, size: size.name, theme: lookTheme, ...failure })));

@@ -5,7 +5,7 @@
 //
 //   npm run pictures -- --pr <number> --path <a page's whole path> [--path <another>…] --out <folder> [--json]
 //       dispatches Pictures on the pull request's head, waits for it (two runners a page, side by side: about a quarter of an hour,
-//       at most 40 minutes), and downloads every page's into <folder>: sheets/ (each state's contact sheet), strips/ (each run's strip and still), and
+//       at most an hour), and downloads every page's into <folder>: sheets/ (each state's contact sheet), strips/ (each run's strip and still), and
 //       pictures.json, with the head, the run, and whether each page's layout check and motion sheet passed, and where each one's
 //       output is (<folder>/runs/pictures-<n>/layout.txt or motion.txt). The last line is PICTURES PASS or PICTURES FAIL; --json prints the answer.
 //       A file two pages both make is kept as <page>--<name>, so no page's picture overwrites another's.
@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 
 export const WORKFLOW_FILE = "pictures.yml";
 const FIND_RUN_LIMIT_MS = 2 * 60 * 1000;
-const RUN_LIMIT_MS = 50 * 60 * 1000;
+const RUN_LIMIT_MS = 70 * 60 * 1000;
 const FIND_EVERY_MS = 5000;
 const WATCH_EVERY_MS = 30 * 1000;
 const OPTIONS_WORDS = "The options are --pr <number>, --path <a page's whole path> (once a page), --out <folder> and --json.";
