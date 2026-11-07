@@ -109,3 +109,11 @@ describe("the Pictures workflow", () => {
     expect(seedLine(workflow)).toBe(seedLine(check));
   });
 });
+
+describe("the pictures workflow's run name", () => {
+  it("is quoted, so YAML doesn't read its # as a comment and drop the request id npm run pictures finds the run by", () => {
+    const runName = workflow.match(/^run-name:\s*(.*)$/m)?.[1] ?? "";
+    expect(runName.startsWith('"') && runName.endsWith('"')).toBe(true);
+    expect(runName).toContain("${{ inputs.request_id }}");
+  });
+});
