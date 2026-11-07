@@ -1019,6 +1019,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     window.zaismaWatch.size(row, ends); if (row.firstElementChild) window.zaismaWatch.size(row.firstElementChild, ends);
     // Words that narrow once their font arrives can leave a row that ran past its box fitting it again, its own size unchanged.
     window.zaismaWatch.fontArrived(ends);
+    // What's in it can stop running past it with no size changing (a Switch no longer past its room): it asks for its ends again then.
+    row.fadeEndsAgain = ends;
     ends();
     // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
     requestAnimationFrame(function () { requestAnimationFrame(function () { row.isSideFadeEased = true; }); });
