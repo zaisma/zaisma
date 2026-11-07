@@ -325,6 +325,16 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       scroller.scrollTo({ left: on.offsetLeft + on.offsetWidth / 2 - scroller.clientWidth / 2, behavior: isGliding ? "smooth" : "auto" });
     }
     showChosen(false);
+    // Asked again once the page has settled: what made the tabs run past their room while the page arrived (a pane's scrollbar coming and
+    // going, a slab stretched mid-slide) can end with no size changing, which would leave them scrolling, with a rail, where they fit.
+    // The row's fades are asked again only when that changed it (never by a scroll event, which a list reads as the player moving).
+    function askRoomAgain() {
+      if (isVertical()) return;
+      var wasPast = sw.classList.contains("is-past-room");
+      showChosen(false);
+      if (wasPast !== sw.classList.contains("is-past-room") && sw.parentElement && sw.parentElement.fadeEndsAgain) sw.parentElement.fadeEndsAgain();
+    }
+    window.zaismaWatch.afterSettling(askRoomAgain);
     // A switch of links that was on the last page too (the header's tabs; a stacked one has already slid, on the press): once this page shows, its slab slides from the last page's tab
     // to this one's. Only its position moves (and, sideways, its width as a stretch), as a compositor animation, like the old sidebar's glide:
     // nothing is laid out or redrawn while the new page is still starting, and the settles that follow (fonts, the first resize) can't cut it short.
@@ -352,7 +362,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         var start = function () {
           requestAnimationFrame(function () {
             isWaitingToSlide = false; settle(); isWaitingToSlide = true;
-            var land = function () { isWaitingToSlide = false; settle(); };
+            // Stretched as it slides from a wider tab, the slab reached past the tabs for a moment, which could read as tabs past their room:
+            // once it lands, whether they are is asked again, and the row's fades with it (a scroll event), so no rail or fade is left behind.
+            var land = function () { isWaitingToSlide = false; settle(); askRoomAgain(); };
             slideFromLastPage().finished.then(land, land);
           });
         };
