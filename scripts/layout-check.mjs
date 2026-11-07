@@ -77,6 +77,11 @@ export function layoutCheckScreens(names = LOCAL_SCREEN_NAMES, textPercent = nul
   // At larger text the runner may fall below the fold: what's held there is that nothing is lost or cut, not the first view.
   return [...picked.map((size) => ({ ...size, textPercent: 100 })), ...atText.map((size) => ({ ...size, name: `${size.name} at ${percent}% text`, textPercent: percent, isRunnerChecked: false }))];
 }
+/**
+ * The one screen of the sweep the press check runs on: a laptop (the sweep's screens are the measured ones, and Laptop is measured only at 200%
+ * text, so it is never plainly "Laptop" there). test/node/press-check-screen.test.ts holds that exactly one sweep screen is this one.
+ */
+export const PRESS_CHECK_SCREEN_NAME = `Laptop at ${TEXT_PERCENTS[0]}% text`;
 /** The screens every page is measured at unless told otherwise, and the pages (checked-pages.ts). */
 export const LAYOUT_CHECK_SIZES = layoutCheckScreens();
 export const LAYOUT_CHECK_THEMES = [...SCREEN_THEMES];
@@ -162,7 +167,7 @@ const PAGE_COSTS_SEC = {
   "Report a game": 5,
 };
 const SWEEP_PAGE_COSTS_SEC = {
-  "Gallery: inputs fields": 74,
+  "Gallery: inputs fields": 87.3,
   "Gallery: data pictures": 70.5,
   "Gallery: navigation bars": 66.5,
   "Gallery: layout inside": 62.6,
@@ -171,7 +176,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Playing a game, asked to sign in": 48.8,
   "Gallery: the sidebar over the page": 45.1,
   "Gallery: panes sheets": 36.4,
-  "Gallery: inputs choices": 34.4,
+  "Gallery: inputs choices": 51.5,
   "Gallery: panes materials": 32.8,
   "Game page": 32.2,
   "Gallery: panes layers": 32,
@@ -180,10 +185,10 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Game page, no rooms": 23.7,
   "Games, signed in": 23.6,
   "Games, empty": 23.4,
-  "Home, signed in": 23.1,
+  "Home, signed in": 19.9,
   "Home, empty": 21.7,
   "Developer settings, a game deletion request": 21.5,
-  "Developer settings, full": 21.3,
+  "Developer settings, full": 58.6,
   Games: 21,
   "Gallery: over-a-game sheets": 20.9,
   "Games, long names": 20.2,
@@ -193,7 +198,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Gallery: inputs pickers": 18.9,
   "Gallery: data numbers": 17,
   Home: 16.7,
-  "Developer settings": 16.3,
+  "Developer settings": 102.9,
   "Gallery: foundations look": 16.2,
   "Games, one genre": 15.4,
   "Gallery: data reading": 15.1,
@@ -205,7 +210,7 @@ const SWEEP_PAGE_COSTS_SEC = {
   "Home, full": 13.5,
   "Gallery: panes buying": 13.4,
   "Developer settings, a spending request": 13.1,
-  "Content rules": 13.1,
+  "Content rules": 21.3,
   "Buying, confirm with a PIN": 12.1,
 };
 const COSTS_BY_RUN = { pull_request: { page_costs_sec: PAGE_COSTS_SEC, unlisted_page_cost_sec: 4 }, sweep: { page_costs_sec: SWEEP_PAGE_COSTS_SEC, unlisted_page_cost_sec: 8 } };
@@ -307,6 +312,13 @@ const SETTLE = `(async () => {
   return true;
 })()`;
 
+/**
+ * What a page the check measures never sends: a game's play kept with the account (pages.ts, remember; home-script.ts, what only this
+ * device played), which would change the account's Continue playing under a home measured beside it as the same account, in whichever
+ * order their requests came.
+ */
+const KEPT_OFF_THE_ACCOUNT_PATTERNS = ["*/api/me/played", "*/api/me/played/*"];
+
 /** What a phone's and a tablet's browser call themselves (their user agent), for a page that guesses the device from it. */
 const PHONE_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
 const TABLET_BROWSER_NAME = "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -360,6 +372,8 @@ const PRESS_EVERY_ANSWER = `(async () => {
     // A gallery still shows what a button opens laid in place (a menu, a wheel field's wheels, a search's list), open for good: pressing it
     // changes nothing, by design. A field typed into (a search with its list) answers its typing, not a press: a press only puts the caret in it.
     .filter((el) => !el.matches("input:not([type=button], [type=submit], [type=checkbox], [type=radio]), textarea"))
+    // The folder of a sidebar or switch you're in stays open and does nothing when pressed, by design (switch.ts: "pressing it does nothing").
+    .filter((el) => !el.matches(".switch-folder.is-held"))
     .filter((el) => !document.getElementById(el.getAttribute("aria-controls") || el.getAttribute("popovertarget") || "")?.closest(".in-place"));
   const failures = [];
   const describe = (el) => (el.getAttribute("aria-label") || el.textContent || el.className || el.tagName).trim().replace(/\\s+/g, " ").slice(0, 48);
@@ -460,7 +474,7 @@ const KEYBOARD_START = `(() => {
     }
     state.scrollerCount = scrollersNow().length;
   });
-  state.arrivals.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  state.arrivals.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "aria-current"] });
   window.zaismaKeyboard = state;
   return { controlCount: state.rest.size, scrollerCount: state.scrollerCount };
 })()`;
@@ -626,9 +640,10 @@ async function checkPage(chrome, contextId, url, looks, options) {
     // seconds a first context and its shaders take with no graphics card. A run that takes pictures draws everything.
     if (!options.pictureOf) await send("Page.addScriptToEvaluateOnNewDocument", { source: MEASURE_ONLY });
     if (options.scriptOnNewDocument) await send("Page.addScriptToEvaluateOnNewDocument", { source: options.scriptOnNewDocument });
-    // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS).
+    // Nor its pictures: loading them is most of a page's time, and each one's box is sized before it loads (BLOCKED_PICTURE_PATTERNS). A
+    // game it plays isn't kept on the account's Continue playing (KEPT_OFF_THE_ACCOUNT_PATTERNS): a home measured beside it shows the test data.
     await send("Network.enable");
-    if (!options.pictureOf) await send("Network.setBlockedURLs", { urls: [...BLOCKED_PICTURE_PATTERNS] });
+    await send("Network.setBlockedURLs", { urls: [...KEPT_OFF_THE_ACCOUNT_PATTERNS, ...(options.pictureOf ? [] : BLOCKED_PICTURE_PATTERNS)] });
     // Every page opens as its own first visit, with no browser cache: one Chrome plays every screen here, and the cache it would share across
     // tabs holds pages others fetched ahead (prepared-pages.ts) for half a minute, sent under Chrome's own name and so drawn for a computer.
     await send("Network.setCacheDisabled", { cacheDisabled: true });
@@ -731,9 +746,9 @@ async function checkPage(chrome, contextId, url, looks, options) {
         const panes = await send("Runtime.evaluate", { expression: openEveryPane(), awaitPromise: true, returnByValue: true });
         found.push(...(panes.exceptionDetails ? [{ check: "the check couldn't open the gallery's panes", element: "", said: panes.exceptionDetails.exception?.description ?? panes.exceptionDetails.text }] : panes.result.value));
       }
-      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop, once (a press changes the page),
-      // in the sweep: pressing every button is most of a page's time.
-      if (options.tiers.includes("sweep") && size.name === "Laptop" && theme === "light" && !options.stepsToTake && !options.setUp) {
+      // Every press that answers in the page answers within 400 ms (the Doherty threshold), on a laptop at 200% text (the sweep's laptop), once
+      // (a press changes the page), in the sweep: pressing every button is most of a page's time.
+      if (options.tiers.includes("sweep") && size.name === PRESS_CHECK_SCREEN_NAME && theme === "light" && !options.stepsToTake && !options.setUp) {
         const answers = await send("Runtime.evaluate", { expression: PRESS_EVERY_ANSWER, awaitPromise: true, returnByValue: true });
         found.push(...(answers.exceptionDetails ? [{ check: "the check couldn't press the page's buttons", element: "", said: answers.exceptionDetails.exception?.description ?? answers.exceptionDetails.text }] : answers.result.value));
       }
@@ -839,18 +854,22 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
       }
       return browserContextId;
     };
-    const contextFor = async (account) => {
-      if (!contexts.has(account ?? "")) contexts.set(account ?? "", await newContext(account));
-      return contexts.get(account ?? "");
+    // A page that plays a game keeps it on the browser's own Continue playing (the game page's localStorage), which the home merges into an
+    // account's: an account's pages that play share a browser of their own, signed in once, so no home measured as it sees what they played.
+    const isPlaying = (page) => page.path.includes("?play");
+    const contextFor = async (page) => {
+      const key = `${page.account ?? ""}${isPlaying(page) ? " playing" : ""}`;
+      if (!contexts.has(key)) contexts.set(key, await newContext(page.account));
+      return contexts.get(key);
     };
     // Every account signs in first, one at a time, so the runs that share it don't each sign it in.
-    for (const page of pages) await contextFor(page.account);
+    for (const page of pages) if (page.account || !isPlaying(page)) await contextFor(page);
     // Each page's fingerprint, from its HTML fetched with its account's cookies: no tab opens for one that's skipped.
     if (measured) {
       for (const page of pages) {
         if (page.stepsToTake || page.setUp) continue;
         const base = page.isOnSignInSite ? signInSite : site;
-        const { cookies } = await chrome.send("Storage.getCookies", { browserContextId: await contextFor(page.account) });
+        const { cookies } = await chrome.send("Storage.getCookies", { browserContextId: await contextFor(page) });
         const response = await fetch(`${base}${page.path}`, { headers: { cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ") } }).catch(() => null);
         if (!response?.ok) continue;
         const fingerprint = pageFingerprint(await response.text(), page, looks, tiersOf(page));
@@ -873,9 +892,10 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
         const startedMs = Date.now();
         // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
-        // So does a guest playing a game, whose played list would put Continue playing on a guest's home page. An account stays in its own shared browser, signed in once.
-        const isOwnContext = Boolean(page.stepsToTake) || (!page.account && page.path.includes("?play"));
-        const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page.account);
+        // So does a guest playing a game, whose played list would put Continue playing on a guest's home page. An account stays in its own
+        // shared browser, signed in once, or its playing one (contextFor).
+        const isOwnContext = Boolean(page.stepsToTake) || (!page.account && isPlaying(page));
+        const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
         const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
         if (isOwnContext) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});

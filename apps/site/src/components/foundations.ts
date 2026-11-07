@@ -52,6 +52,8 @@ export interface GlassPaneOptions {
    * left with the game's world beside it. Left out, a fit pane sits in the column's middle, under the header's.
    */
   isAtStart?: boolean;
+  /** A thin frame of glass round what fills it: what has an edge sits at the compact frame gap, 4px, not 8px (an event banner's well). */
+  isCompact?: boolean;
 }
 
 /**
@@ -59,7 +61,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isCompact ? " compact" : ""}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
 }
 
 export interface FloatingPaneOptions {
@@ -443,7 +445,7 @@ export interface PageSettings {
   /** Light or dark. Left out, the system's. */
   theme?: "light" | "dark";
   glass?: {
-    /** Tints every piece of glass, as a #rrggbb color (like a game's color on the home). Glass tinted for a brand keeps its own color. */
+    /** Tints every piece of glass, as a #rrggbb color (like a game's color on its page). Glass tinted for a brand keeps its own color. */
     hueColor?: string;
   };
 }
@@ -589,7 +591,7 @@ component({
   slug: "backdrop",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, under a midday sky in light and the Milky Way in dark, or their own shader or 3D scene.",
+  summary: "Glass is never on a plain or solid color: there's always something behind it, still or moving. A game is its own backdrop; Zaisma's pages have Zaisma's own, mountain ranges in mist, in a pale haze in light and under the Milky Way in dark, or their own shader or 3D scene.",
   styles: `
 /* The backdrop: a canvas under everything on the page. Its parent is isolated, so the canvas sits above the page's own color and below the rest.
    Until the shader draws (and wherever WebGL is missing) it shows a still gradient in the same colors. Its height is the largest the window
@@ -603,10 +605,12 @@ component({
 .backdrop.is-own:not(.backdrop-placeholder) { background: none; opacity: 0; transition: opacity var(--motion-world) ease; }
 .backdrop.is-own.is-drawn { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .backdrop.is-own { transition: none; } }
-.backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
-[data-theme-choice="dark"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
-[data-theme-choice="light"] .backdrop-placeholder.is-own { --placeholder: url(data:image/webp;base64,UklGRowAAABXRUJQVlA4IIAAAABwBACdASogABIAPxF6s1IsKCSisBgIAYAiCWMAAC6AOlGZBdQsY4884ZGWAAD+silZrnzvjkJHcU9PFwkfo99Uhb6m71e/62qQdbwLu1+9agITU1om3SNLT4HSwGuPkH7S/o8sphtA5MJAMXNK5mz7YXomXDC74dJy0anoei7wAA==); }
+/* Its still follows the nearest theme, as the glass does (tokens.ts), smoked glass (.smoke) included: a box that fixes light (the gallery's stage) inside a page in dark
+   shows the light still, the one its shader would draw. Set where the theme is and inherited, so the closest choice wins, never the root's. */
+:root, [data-theme-choice="light"] { --own-backdrop-still: url(data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAADwBACdASogABIAPu1krVAppSQisBgIATAdiWUAxNgQ9KqdKxtJ/0JwEDvwZEwwTAAA/uejEEEw9qPFlbLfs8nFeAxPLv4R2Q4kGgQyY4iDPG9K72poZwtWhUL85RAiByecmBVQA3xZMkWQ4rknPFV0UAkmuq539SzSA7KYBMgw1aAA); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { --own-backdrop-still: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); } }
+[data-theme-choice="dark"], .smoke { --own-backdrop-still: url(data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAADQAwCdASogABIAPxFyrlAsJqQisAgBgCIJZwC7ACHXWXMTl7IftgAA/uvYtYeQLhiuOBCo60KDUuDtZ9szpcjCcyvbgHXQAAA=); }
+.backdrop-placeholder.is-own { --placeholder: var(--own-backdrop-still); }
 /* A game's world: its background picture or shader as a layer over Zaisma's own, fading in once it's ready (the home's, home-script.ts). */
 .backdrop.world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
 .backdrop.world.is-shown { opacity: 1; }
@@ -636,7 +640,7 @@ html.is-page-arriving-fresh main .glass:not(.glass .glass)::before, html.is-page
 `,
   render: backdrop,
   examples: [
-    { label: "Zaisma's own: behind every page, a midday sky in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
+    { label: "Zaisma's own: behind every page, a pale haze in light and the Milky Way in dark", isWide: true, markup: backdropFrame(backdrop({ isFramed: true })) },
     { label: "A page's own shader", markup: backdropFrame(backdrop({ isFramed: true, fragmentShader: CLOUDS_SHADER, isGlassAdaptive: true })) },
     { label: "A 3D scene the page draws", markup: backdropFrame(html`${backdrop({ isFramed: true, isScene: true })}`) },
   ],
@@ -667,7 +671,7 @@ component({
   slug: "game-background",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
+  summary: "A game's own world behind the glass on its page: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
    and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later: the same gentle

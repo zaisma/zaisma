@@ -1,10 +1,10 @@
 import { Raw } from "../markup.ts";
 
 /** How tall a control is, by its size class (tokens.ts's --control-height-*): a row sets every control in it to its tallest's. */
-export type ControlHeight = "small" | "regular" | "field" | "big";
+export type ControlHeight = "tiny" | "small" | "regular" | "field" | "big";
 
 /** The size classes from shortest to tallest, so a row can take its tallest. */
-export const CONTROL_HEIGHTS: ControlHeight[] = ["small", "regular", "field", "big"];
+export const CONTROL_HEIGHTS: ControlHeight[] = ["tiny", "small", "regular", "field", "big"];
 
 /**
  * A control's markup: what a layout (layout.ts) takes as a control, in a row, a stack or a pane's corner. It's a type of its own, made only

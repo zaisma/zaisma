@@ -251,8 +251,10 @@ import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playingNowAnswer } from "./live-world.ts";
+import { whatsOnAnswer } from "./whats-on.ts";
 import { playStats, playerPerformance, playingNowCounts } from "./plays.ts";
 import { sendAlert } from "./email.ts";
+import { reportMatch } from "./ncmec.ts";
 import { KNOWN_IMAGE_ALERT, aiReviewSpeedFor, holdForPerson, imageMatcher, passVersionsHeldForGore, publishFacts, publishRouteOf, publishWithReview, pruneVersions, replaceWaitingVersions, requestAiReview, routePublish, usualAiReviewDurations, type PublishFacts } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
@@ -378,6 +380,8 @@ export interface Caller {
   /** How far Zaisma banned the account (bans.ts), when, and the why the developer reads (null for child safety); banScope null when it isn't banned. */
   banScope: BanScope | null;
   bannedAtMs: number | null;
+  /** When a known-image match paused the account (ncmec.ts): it can't make, upload, publish or post until a person clears it; null when it isn't paused. */
+  safetyPausedAtMs: number | null;
   banReasonForDeveloper: string | null;
   /** Our own page, with the developer's passkey tapped in the last 10 minutes: may turn spending on or up (credit-api.ts), connect a Stripe account for sales (stripe-account-api.ts) and delete a game other people played (storage-api.ts). */
   isPasskeyConfirmed?: boolean;
@@ -518,6 +522,7 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
     canPublish: account.can_publish === 1,
     banScope: banScopeOf(account),
     bannedAtMs: account.banned_at_ms,
+    safetyPausedAtMs: account.safety_paused_at_ms,
     banReasonForDeveloper: account.ban_content_rule === "child_safety" ? null : account.ban_reason,
   };
 }
@@ -537,6 +542,13 @@ export function accountBanned(caller: Pick<Caller, "banScope" | "banReasonForDev
   const words = caller.banReasonForDeveloper ? `Zaisma banned this account's developer side for breaking the content rules: ${caller.banReasonForDeveloper.replace(/\.$/, "")}.` : "Zaisma banned this account's developer side for breaking Zaisma's rules.";
   return new ApiError("account_banned", { message: words, messageForPeople: words, fix: "Tell the developer. Only get_access, list_games and export_game work now; to appeal, they write to safety@zaisma.com with the username." });
 }
+
+/** The forum calls that post something, refused while the account is paused: votes, follows and bookmarks still work. */
+const PAUSED_FORUM_ROUTES = new Set(["POST /forum", "POST /forum/:topic_id/posts", "POST /forum/media"]);
+
+/** The account_paused refusal: a person needs to look, never why (telling could warn someone sharing abuse material). */
+export const accountPaused = (): ApiError =>
+  new ApiError("account_paused", { message: "A person at Zaisma needs to look at this account. Until then it can't make, upload or publish games, or post on the forum.", fix: "Tell the developer a person at Zaisma will look; don't retry until then. Playing still works. To ask, message safety@zaisma.com with the username." });
 
 /** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
 export async function apiResponse(env: Env, caller: Caller, path: string): Promise<Response> {
@@ -844,6 +856,7 @@ const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "r
 export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/access", answers: fromTool("get_access"), reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/playing-now", answers: fromTool("get_playing_now"), reaches: "nothing_private", access: anyKey }),
+  call({ method: "GET", path: "/whats-on", answers: fromTool("get_whats_on"), reaches: "nothing_private", access: anyKey }),
   call({ method: "GET", path: "/activity", answers: fromTool("get_activity"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/api-keys", answers: fromTool("list_api_keys"), reaches: "account", access: anyKey, isAccountWide: true, isFullKeyOnly: true }),
   call({ method: "GET", path: "/storage", answers: fromTool("get_storage"), reaches: "account", access: anyKey }),
@@ -1086,6 +1099,7 @@ export interface CheckedCall {
 async function checkCall(request: Request, env: Env, path: string, apiRoute: ApiRoute, caller: Caller): Promise<CheckedCall> {
   checkAccess(apiRoute, caller);
   if (caller.banScope && !(caller.banScope === "developer" && BANNED_DEVELOPER_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountBanned(caller);
+  if (caller.safetyPausedAtMs !== null && (apiRoute.isPublishing || PAUSED_FORUM_ROUTES.has(`${apiRoute.method} ${apiRoute.path}`))) throw accountPaused();
   if (apiRoute.isPublishing && !caller.canPublish) {
     throw new ApiError("publishing_not_open", {
       message: "Publishing opens with the beta. Until then, only accounts Zaisma adds can make, upload and publish games.",
@@ -1218,6 +1232,7 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
   const { game, pathValues } = checked;
 
   if (path === "/playing-now" && method === "GET") return answer(await playingNowAnswer(env));
+  if (path === "/whats-on" && method === "GET") return answer(await whatsOnAnswer(env));
   if (path === "/access" && method === "GET") {
     // The balance only for a caller that may read the credit.
     const creditBalanceCents = allows(caller.access.areaAccess, "credit_access", "read") && !caller.access.gameSlugs ? (await creditOf(env.DB, caller.ownerId)).balanceCents : null;
@@ -1230,7 +1245,7 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
           { tool: "connect_stripe_account", arguments: {}, after_sec: null, reason: "Or a Stripe account that can take payments opens them too. Ask the developer first." },
         ]
       : [];
-    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
+    return answer({ access: accessJson(caller.access), can_publish: caller.canPublish, banned_at: iso(caller.bannedAtMs), ban_scope: caller.banScope, safety_paused_at: iso(caller.safetyPausedAtMs), credit_balance_cents: creditBalanceCents, plan: await planFor(env.DB, caller.ownerId), standing: standingJson(standing), next_steps: standingSteps });
   }
   if (apiRoute.path === "/storage") return answer(...(await storageRoute(env, method, checked.body, caller)));
   if (apiRoute.path === "/pro" || apiRoute.path.startsWith("/pro/")) return answer(...(await proRoute(env, apiRoute.path, method, caller)));
@@ -1541,6 +1556,8 @@ async function answerCall(request: Request, env: Env, path: string, caller: Call
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
       await logCallerEvent(env, caller, "image_refused", { gameId: game.id, subjectName: kind });
       await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+      const matchMessage = matched.findings.filter((finding) => finding.code === KNOWN_IMAGE_CODE).map((finding) => finding.message).join(" ") || null;
+      await reportMatch(env, { where: `a ${kind} image for ${game.slug}`, gameId: game.id, versionId: null, accountId: caller.accountId, incidentUrl: `${env.SITE_ORIGIN}/g/${game.slug}`, connectionAddress: caller.where.connectionAddress, uploadedAtMs: Date.now(), media: [{ path: `${kind} image`, contentType: sniffed.type, matchMessage, isPubliclyAvailable: false, bytes }] });
       throw new ApiError("image_refused", { message: "This image can't be used.", field: "image_base64", fix: "Use a different image." });
     }
     const existing = await imagesForGame(env.DB, game.id);

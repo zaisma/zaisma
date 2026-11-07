@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // One command for a change's checks on this machine: the typecheck, the pattern rules (docs/PATTERN-RULES.md), the Node tests the change can reach and the change's own new or
-// changed Workers test files side by side, and the Layout check for the pages it changed when this checkout's preview is awake.
+// changed Workers test files side by side, and the Layout check and the motion sheet (scripts/motion-sheet.mjs) for the pages it changed
+// when this checkout's preview is awake.
 // Then as many of the other Workers test files the change reaches as fit the budget (scripts/check-budget.mjs), a batch at a time; the
 // rest are left to GitHub's check on the pull request, and so are its own when another Workers test run is already going on this machine
 // (one at a time, scripts/preview/memory.mjs). The whole site's and every screen's runs are always GitHub's. It runs at low priority, one
@@ -184,6 +185,7 @@ export function formatResult(result) {
   for (const failure of result.typecheck_failures) lines.push(`TYPE ${failure.file}:${failure.line}: ${failure.message}`);
   for (const failure of result.pattern_failures) lines.push(`PATTERN ${failure}`);
   for (const failure of result.layout_failures) lines.push(`LAYOUT ${failure}`);
+  for (const failure of result.motion_failures ?? []) lines.push(`MOTION ${failure}`);
   const forMemory = result.left_to_github_for_memory ?? [];
   const others = result.left_to_github.length - forMemory.length;
   if (others) lines.push(`Left to GitHub's check: ${others} Workers test file(s). Push, and read npm run check -- --pr <number>.`);
@@ -194,7 +196,7 @@ export function formatResult(result) {
   for (const warning of result.budget?.warnings ?? []) lines.push(`Warning: ${warning.line}.`);
   if (result.filed_task_count) lines.push(`Filed ${result.filed_task_count} optimization task(s).`);
   if (result.open_task_count) lines.push(`${result.open_task_count} optimization task(s) open: node scripts/check-records.mjs lists them.`);
-  const isFailed = result.test_failures.length || result.typecheck_failures.length || result.pattern_failures.length || result.layout_failures.length;
+  const isFailed = result.test_failures.length || result.typecheck_failures.length || result.pattern_failures.length || result.layout_failures.length || result.motion_failures?.length;
   const overBudgetText = (result.budget?.hard_limits ?? []).map((limit) => limit.line).join("; ");
   if (result.outcome === "handed_to_github") lines.push(`HANDED TO GITHUB: ${result.busy_reason}, so nothing ran here. Not a pass: push, and read npm run check -- --pr <number>.`);
   else if (result.outcome === "over_budget" && !isFailed) lines.push(`OVER BUDGET: ${overBudgetText}. It stopped there. Not a pass: what it didn't finish is left to GitHub's check, so push, and read npm run check -- --pr <number>.`);
@@ -447,6 +449,32 @@ async function checkLayout(changedPaths, affected, notes, checks) {
   return failures;
 }
 
+/**
+ * The motion sheet on the pages the Layout check measured: every state the Screens bench lists for each, on its screens, light and dark.
+ * A run it couldn't finish in its time says so in a note, never a pass of what it left.
+ */
+async function checkMotion(changedPaths, affected, notes, checks) {
+  if (!affected.is_layout_check_reached || !isPreviewAwake()) return [];
+  const pagePaths = pagesForChangedFiles(changedPaths, layoutPagePaths(), (path) => { try { return readFileSync(join(ROOT, path), "utf8"); } catch { return ""; } });
+  const failures = [];
+  for (const pagePath of pagePaths) {
+    const startMs = Date.now();
+    const { status, output, is_stopped: isStopped } = await run(process.execPath, [join(ROOT, "scripts/motion-sheet.mjs"), "--only", pagePath, "--json"], { ZAISMA_CHECK_RUN_PID: String(process.pid) });
+    if (isStopped) break;
+    const failureCount = failures.length;
+    try {
+      const report = JSON.parse(output.slice(output.indexOf("{")));
+      if (report.error) failures.push(`${pagePath}: ${report.message}`);
+      for (const failure of report.failures ?? []) failures.push(`${failure.page}, ${failure.state} (${failure.run}), ${failure.screen} ${failure.theme}: ${failure.kind.replace("_", " ")}: ${failure.piece}: ${failure.said}`);
+      if (status === 3) notes.push(`The motion sheet left ${report.unfinished_run_count} state(s) of ${pagePath} past its time: npm run motion:sheet -- --only ${pagePath} --state <state> for each.`);
+    } catch {
+      failures.push(`${pagePath}: the motion sheet printed nothing readable: ${firstLines(output)}`);
+    }
+    checks.push({ check_name: `motion ${pagePath}`, duration_sec: Math.round((Date.now() - startMs) / 100) / 10, check_status: failures.length > failureCount ? "failed" : "passed" });
+  }
+  return failures;
+}
+
 /** Runs a command as one check, recording what it took. */
 async function timedCheck(checks, checkName, work) {
   const startMs = Date.now();
@@ -532,7 +560,7 @@ export async function check({ base = "origin/main", say = () => {} } = {}) {
   const affected = affectedChecks({ changedPaths });
   const notes = [];
   const testFiles = affected.test_files.map((test) => test.path);
-  const emptyResult = { base, changed_path_count: changedPaths.length, test_file_count: testFiles.length, test_failures: [], typecheck_failures: [], pattern_failures: [], layout_failures: [], left_to_github_for_memory: [], notes };
+  const emptyResult = { base, changed_path_count: changedPaths.length, test_file_count: testFiles.length, test_failures: [], typecheck_failures: [], pattern_failures: [], layout_failures: [], motion_failures: [], left_to_github_for_memory: [], notes };
   const startedAt = new Date().toISOString();
   const earlierRuns = readRuns();
   const turn = await waitForRunTurn({ say });
@@ -567,6 +595,7 @@ export async function check({ base = "origin/main", say = () => {} } = {}) {
     const tests = await runTestsThatFit({ here: split.here, testFiles, normallyHere: splitTestFiles(testFiles, changedPaths).here, runVitest });
     checks.push(...testFileChecks(tests.report));
     const layoutFailures = await checkLayout(changedPaths, affected, notes, checks);
+    const motionFailures = await checkMotion(changedPaths, affected, notes, checks);
     const records = checkRecords({ runs: earlierRuns, failures: readFailures(), githubReads: readGithubReads() });
     const estimates = { localDurationsSec: localDurationsSecByCheck(earlierRuns), githubDurationsMs: JSON.parse(readFileSync(join(ROOT, "test/shard-weights.json"), "utf8")) };
     const ranked = rankExtraFiles(split.extras, changedPaths, { catchCountByFile: new Map(records.map((record) => [record.check_name, record.catch_count])), ...estimates });
@@ -574,7 +603,7 @@ export async function check({ base = "origin/main", say = () => {} } = {}) {
     if (affected.is_every_test_reached) notes.push(`${affected.every_test_reached_by.join(", ")} changed, which every test runs on: GitHub's check runs all ${affected.test_file_count}.`);
     const budget = verdictOn(budgetWatch.stop(), hardLimitsSeen);
     const testFailures = [...tests.failures, ...extras.failures];
-    const hasFailure = testFailures.length || typecheckFailures.length || patternFailures.length || layoutFailures.length;
+    const hasFailure = testFailures.length || typecheckFailures.length || patternFailures.length || layoutFailures.length || motionFailures.length;
     const isOverBudget = budget.hard_limits.length > 0;
     const result = {
       ...emptyResult,
@@ -582,6 +611,7 @@ export async function check({ base = "origin/main", say = () => {} } = {}) {
       typecheck_failures: typecheckFailures,
       pattern_failures: patternFailures,
       layout_failures: layoutFailures,
+      motion_failures: motionFailures,
       left_to_github: tests.leftToGithub.filter((path) => !extras.ranFiles.includes(path)),
       left_to_github_for_memory: tests.leftForMemory,
       budget,

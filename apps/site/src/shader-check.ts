@@ -44,6 +44,7 @@ import {
   type ShaderRenderInput,
 } from "../../../packages/cli/shader-check.mjs";
 import { sendAlert } from "./email.ts";
+import { reportMatch } from "./ncmec.ts";
 import type { Env } from "./env.ts";
 import { judgeShaderPictures } from "./listing-check.ts";
 import type { ListingJudge } from "./listing-judge.ts";
@@ -191,6 +192,14 @@ async function holdKnownImage(env: Env, slug: string, shader: GameShader, drawn:
   await settleShader(env.DB, shader, reason, null, null);
   await recordRestoreEvent(env, { event_kind: "shader_rejected", at_ms: Date.now(), shader_id: shader.id, review_reason: reason });
   await audit(env.DB, shader.game_id, "image-held", `A ${shader.screen} shader's frames matched known abuse material. Kept at ${keptKey("still")} and beside it; never shown.`, "shader check");
+  await reportMatch(env, {
+    where: `a shader's frames on ${slug}`,
+    gameId: shader.game_id,
+    versionId: null,
+    accountId: null,
+    incidentUrl: `${env.SITE_ORIGIN}/g/${slug}`,
+    media: [drawn.stillPng!, ...drawn.framePngs].map((pngBytes, index) => ({ path: `shader ${shader.id} ${index === 0 ? "still" : `frame ${index}`}`, contentType: "image/png", matchMessage: null, isPubliclyAvailable: false, bytes: pngBytes })),
+  });
   await sendAlert(env, `URGENT: known abuse image in a shader on ${slug}`, `${KNOWN_IMAGE_ALERT}\n\nShader ${shader.id}'s frames, kept at ${keptKey("still")} and beside it in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${shader.game_id}`);
 }
 
@@ -228,6 +237,7 @@ export async function runShaderDraft(env: Env, game: Game, screen: BackgroundScr
     const keptKey = heldImageKey(game.id, `shader-check-${crypto.randomUUID()}.png`);
     await env.GAMES.put(keptKey, sheetPng, { httpMetadata: { contentType: "image/png" } });
     await audit(env.DB, game.id, "image-held", `A shader check's sheet matched known abuse material. Kept at ${keptKey}; never shown.`, "shader check");
+    await reportMatch(env, { where: `a shader check on ${game.slug}`, gameId: game.id, versionId: null, accountId: null, incidentUrl: `${env.SITE_ORIGIN}/g/${game.slug}`, media: [{ path: "shader check sheet", contentType: "image/png", matchMessage: null, isPubliclyAvailable: false, bytes: sheetPng }] });
     await sendAlert(env, `URGENT: known abuse image in a shader check on ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA shader check's sheet, kept at ${keptKey} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
     return { ...answer, notes: [], sheet_url: null };
   }

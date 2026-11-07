@@ -3,9 +3,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { claimItem, commitAndPush, finishItem, markFindingFixed, pageLinesOf, pullClone, putItemBack, queueItemsOf, readState, settleItemCalls, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
+import { claimItem, commitAndPush, finishItem, markFindingFixed, pageLinesOf, pageShown, pullClone, putItemBack, queueItemsOf, readState, settleItemCalls, withFindingStatus, withoutQueueLines, withPageShows } from "../../scripts/security-map/private-repo.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
+import { SECTOR_IDS, SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
+// @ts-expect-error: a plain JavaScript script without types
+import { hashSymbol } from "../../scripts/security-map/anchors.mjs";
+// @ts-expect-error: a plain JavaScript script without types
+import { pageDataOfMapDir } from "../../scripts/security-map/page-data.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
@@ -74,11 +78,88 @@ describe("reading the private repo", () => {
       map_page_shows_data_hash: "abc123",
       page_data_hash: null,
       open_item_count: 0,
+      rescore_waiting_way_ids: [],
       last_review_date: null,
       is_map_page_behind: false,
       public_promises_next_step: null,
     });
     expect(pageLinesOf("# Zaisma security\n")).toEqual({ map_page_url: null, map_page_shows_data_hash: null });
+  });
+});
+
+describe("recording what the map page shows", () => {
+  const SCALES = {
+    defense_steps: [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `Lock words ${step_score}` })),
+    damage_steps: [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `Harm words ${step_score}` })),
+  };
+  const promiseWith = (promiseLine: string) => ({
+    sector_id: "rooms",
+    rollout_position: 1,
+    promise_line: promiseLine,
+    strengths: [{ strength_kind: "math", strength_line: "A strength line.", strength_reason: "A reason.", anchors: [], strength_stale_reason: null }],
+    ways_to_break: [{ way_id: "a-way", way_line: "A way line.", defense_score: 3, damage_score: 5, defense_reason: "A reason.", damage_reason: "A reason.", anchors: [], score_stale_reason: null }],
+  });
+
+  /** A clone whose last commit holds a page to draw, and a finding the page doesn't read. */
+  function cloneWithPage() {
+    const repos = remoteAndClone();
+    const { seedDir, cloneDir } = repos;
+    mkdirSync(join(seedDir, "promises"));
+    mkdirSync(join(seedDir, "findings"));
+    writeFileSync(join(seedDir, "promises", "scales.json"), JSON.stringify(SCALES));
+    writeFileSync(join(seedDir, "promises", "rooms.json"), JSON.stringify(promiseWith("A promise line.")));
+    writeFileSync(join(seedDir, "findings", "2026-10-18-some-slug.md"), "# A finding\n\nStatus: open\n");
+    git(seedDir, "add", "-A");
+    git(seedDir, "commit", "--quiet", "-m", "Promises");
+    git(seedDir, "push", "--quiet", "origin", "main");
+    pullClone(cloneDir);
+    return repos;
+  }
+
+  it("records the page's hash on a clean clone, and the page isn't behind after it", () => {
+    const { remoteDir, cloneDir } = cloneWithPage();
+    expect(readState(cloneDir).is_map_page_behind).toBe(true);
+    const { page_data_hash } = readState(cloneDir);
+    expect(pageShown(cloneDir)).toEqual({ map_page_shows_data_hash: page_data_hash, committed_paths: ["README.md"], pushed: true });
+    expect(readState(cloneDir).is_map_page_behind).toBe(false);
+    expect(git(remoteDir, "log", "-1", "--format=%s", "main")).toBe(`Map page shows ${page_data_hash.slice(0, 12)}`);
+  });
+
+  it("works past an uncommitted change that doesn't alter the page, and leaves it uncommitted, even when main moved", () => {
+    const { remoteDir, seedDir, cloneDir } = cloneWithPage();
+    const findingPath = join(cloneDir, "findings", "2026-10-18-some-slug.md");
+    writeFileSync(findingPath, "# A finding\n\nStatus: fix under way\n");
+    expect(pageShown(cloneDir, { isDry: true }).is_dry).toBe(true);
+    writeFileSync(join(seedDir, "log.md"), "A quiet night\n");
+    git(seedDir, "add", "-A");
+    git(seedDir, "commit", "--quiet", "-m", "Report");
+    git(seedDir, "push", "--quiet", "origin", "main");
+
+    expect(pageShown(cloneDir)).toMatchObject({ committed_paths: ["README.md"], pushed: true });
+    expect(git(remoteDir, "show", "--name-only", "--format=", "main")).toBe("README.md");
+    expect(git(cloneDir, "status", "--porcelain", "--untracked-files=no")).toBe("M findings/2026-10-18-some-slug.md");
+    expect(readFileSync(findingPath, "utf8")).toContain("fix under way");
+    expect(readState(cloneDir).is_map_page_behind).toBe(false);
+  });
+
+  it("refuses an uncommitted change that alters the page, and records nothing", () => {
+    const { remoteDir, cloneDir } = cloneWithPage();
+    const before = git(remoteDir, "rev-parse", "main");
+    writeFileSync(join(cloneDir, "promises", "rooms.json"), JSON.stringify(promiseWith("A different promise.")));
+    expect(() => pageShown(cloneDir)).toThrow(/alters what the page shows \(one of: M promises\/rooms\.json\)/);
+    expect(() => pageShown(cloneDir, { isDry: true })).toThrow(/alters what the page shows/);
+    expect(git(remoteDir, "rev-parse", "main")).toBe(before);
+    expect(git(cloneDir, "status", "--porcelain", "--untracked-files=no")).toBe("M promises/rooms.json");
+  });
+
+  it("refuses a change this commit would carry: to the README, or staged", () => {
+    const { cloneDir } = cloneWithPage();
+    writeFileSync(join(cloneDir, "README.md"), `${README}Someone's line.\n`);
+    expect(() => pageShown(cloneDir)).toThrow(/uncommitted change to README\.md/);
+    git(cloneDir, "checkout", "--", "README.md");
+    writeFileSync(join(cloneDir, "findings", "2026-10-18-some-slug.md"), "# A finding\n\nStatus: staged\n");
+    git(cloneDir, "add", "findings");
+    expect(() => pageShown(cloneDir)).toThrow(/staged files \(findings\/2026-10-18-some-slug\.md\)/);
   });
 });
 
@@ -163,9 +244,26 @@ describe("an item through the private repo", () => {
   const CALL = "Whether it asks or waits.";
   const anItem = () => ({ item_id: ITEM_ID, item_kind: "item", sector_id: SECTORS[0].sector_id, way_id: "some-way", item_line: "A line.", goal_line: "After this, it's impossible.", answer_kind: "remove", opened_at: NOW, opened_by: "merge_catch_up", item_state: "next", defense_score: 3, defense_reason: "reason", damage_score: 3, damage_reason: "reason", anchors: [], scored_at: NOW, score_stale_reason: null, score_changes: [], calls: [CALL], waits_on: [], proof_kind: "failing_test", proof_line: "A test fails.", test_path: "test/node/old.test.ts", finding_id: null, evidence: [] });
 
+  const GUARD_SOURCE = "export function guard() {\n  return 1;\n}\n";
+  const CHECK_SOURCE = "export const check = () => true;\n";
+  const ANCHOR = { anchor_id: "src/guard.ts:guard", source_path: "src/guard.ts", symbol_name: "guard", source_hash_sha256: "hash-before-the-fix" };
+  const steps = () => [1, 2, 3, 4, 5].map((step_score) => ({ step_score, step_example: `Step ${step_score}` }));
+  /** One promise per sector, the item's way in the first: scored before the item closed, behind one lock with money at stake. */
+  const promiseOf = (sectorId: string, index: number) => ({
+    sector_id: sectorId,
+    rollout_position: index + 1,
+    promise_line: "A promise.",
+    strengths: [{ strength_kind: "structure", strength_line: "A strength.", strength_reason: "A reason.", anchors: [ANCHOR], strength_stale_reason: null }],
+    ways_to_break: [{ way_id: index === 0 ? "some-way" : `way-${sectorId}`, way_line: "A way.", defense_score: 3, defense_reason: "One lock.", damage_score: 5, damage_reason: "Money.", anchors: [ANCHOR], scored_at: "2026-10-01T00:00:00.000Z", score_stale_reason: null, score_changes: [] }],
+  });
+  const RESCORE = { defense_score: 4, defense_reason: "Two locks now.", damage_score: 5, damage_reason: "Money.", changed_because: "The guard asks for a second proof." };
+
   function cloneWithItem(item: Record<string, unknown> = anItem()) {
     const { remoteDir, seedDir, cloneDir } = remoteAndClone();
     mkdirSync(join(seedDir, "items"));
+    mkdirSync(join(seedDir, "promises"));
+    writeFileSync(join(seedDir, "promises/scales.json"), JSON.stringify({ defense_steps: steps(), damage_steps: steps() }));
+    SECTOR_IDS.forEach((sectorId: string, index: number) => writeFileSync(join(seedDir, `promises/${sectorId}.json`), JSON.stringify(promiseOf(sectorId, index))));
     writeFileSync(join(seedDir, `items/${ITEM_ID}.json`), JSON.stringify(item));
     git(seedDir, "add", "-A");
     git(seedDir, "commit", "--quiet", "-m", "An item");
@@ -174,6 +272,7 @@ describe("an item through the private repo", () => {
     return { remoteDir, cloneDir };
   }
   const itemIn = (cloneDir: string) => JSON.parse(readFileSync(join(cloneDir, `items/${ITEM_ID}.json`), "utf8"));
+  const wayIn = (cloneDir: string) => JSON.parse(readFileSync(join(cloneDir, `promises/${SECTORS[0].sector_id}.json`), "utf8")).ways_to_break[0];
   const pushedMessage = (remoteDir: string) => git(remoteDir, "log", "-1", "--format=%s", "main");
 
   /** A public checkout with one test on its origin/main. */
@@ -184,7 +283,10 @@ describe("an item through the private repo", () => {
     git(workDir, "clone", "--quiet", remoteDir, repoRoot);
     git(repoRoot, "symbolic-ref", "HEAD", "refs/heads/main");
     mkdirSync(join(repoRoot, "test"));
+    mkdirSync(join(repoRoot, "src"));
     writeFileSync(join(repoRoot, "test/guard.test.ts"), "// a test\n");
+    writeFileSync(join(repoRoot, "src/guard.ts"), GUARD_SOURCE);
+    writeFileSync(join(repoRoot, "src/check.ts"), CHECK_SOURCE);
     git(repoRoot, "add", "-A");
     git(repoRoot, "commit", "--quiet", "-m", "Start");
     git(repoRoot, "push", "--quiet", "origin", "main");
@@ -229,7 +331,7 @@ describe("an item through the private repo", () => {
   it("closes a doing item only with a test on the public origin/main, as often as it's asked", () => {
     const { cloneDir } = cloneWithItem();
     const repoRoot = publicCheckout();
-    const finish = (testPath: string) => finishItem(cloneDir, { itemId: ITEM_ID, testPath, date: "2026-11-04", now: NOW, repoRoot });
+    const finish = (testPath: string) => finishItem(cloneDir, { itemId: ITEM_ID, testPath, isRescoreLater: true, date: "2026-11-04", now: NOW, repoRoot });
     expect(() => finish("test/guard.test.ts")).toThrow("only a doing item");
     claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
     expect(() => finish("test/missing.test.ts")).toThrow("isn't on origin/main");
@@ -242,7 +344,48 @@ describe("an item through the private repo", () => {
   it("sends an item with a finding to mark-fixed", () => {
     const { cloneDir } = cloneWithItem({ ...anItem(), finding_id: "fnd_2026-11-03_some-words" });
     claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
-    expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot: publicCheckout() })).toThrow("close it with mark-fixed");
+    expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", isRescoreLater: true, date: "2026-11-04", now: NOW, repoRoot: publicCheckout() })).toThrow("close it with mark-fixed");
+  });
+
+  it("rescores the item's way as it closes, on origin/main's code, with the fact that changed, in one commit", () => {
+    const { remoteDir, cloneDir } = cloneWithItem();
+    const repoRoot = publicCheckout();
+    writeFileSync(join(repoRoot, "src/guard.ts"), "export function guard() {\n  return 2;\n}\n");
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    expect(finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", rescore: RESCORE, date: "2026-11-04", now: NOW, repoRoot })).toMatchObject({ new_item_state: "done", way_id: "some-way", way_rescore: "rescored", committed_paths: [`items/${ITEM_ID}.json`, `promises/${SECTORS[0].sector_id}.json`], pushed: true });
+    expect(pushedMessage(remoteDir)).toBe(`${ITEM_ID}: done, some-way rescored`);
+    const way = wayIn(cloneDir);
+    expect(way).toMatchObject({ defense_score: 4, defense_reason: "Two locks now.", scored_at: NOW, score_stale_reason: null, way_line: "A way." });
+    expect(way.anchors[0].source_hash_sha256).toBe(hashSymbol(GUARD_SOURCE, "guard"));
+    expect(way.score_changes).toEqual([{ changed_at: NOW, old_defense_score: 3, old_damage_score: 5, new_defense_score: 4, new_damage_score: 5, changed_because: expect.stringMatching(new RegExp(`^The guard asks for a second proof\\. ${ITEM_ID} closed, guarded by test/guard\\.test\\.ts at [0-9a-f]{12}\\.$`)) }]);
+    expect(itemIn(cloneDir)).toMatchObject({ item_state: "done", done_at: NOW });
+    expect(pageDataOfMapDir(cloneDir).rescore_waiting_ways).toEqual([]);
+    expect(finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", rescore: RESCORE, date: "2026-11-04", now: NOW, repoRoot })).toMatchObject({ way_rescore: "already_rescored", is_changed: false });
+  });
+
+  it("leaves a way waiting for its rescore only when asked, off the thin spots, and rescores it later through a done item", () => {
+    const { cloneDir } = cloneWithItem();
+    const repoRoot = publicCheckout();
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    const finish = (fields: Record<string, unknown>) => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot, ...fields });
+    expect(() => finish({})).toThrow("needs one of --rescore");
+    expect(() => finish({ rescore: RESCORE, isRescoreLater: true })).toThrow("needs one of --rescore");
+    expect(() => finish({ rescore: { ...RESCORE, changed_because: " " } })).toThrow("empty changed_because");
+    expect(() => finish({ rescore: { ...RESCORE, note: "x" } })).toThrow("unknown field note");
+    expect(() => finish({ rescore: { ...RESCORE, defense_score: 9 } })).toThrow("outside 1 to 5");
+    expect(() => finish({ rescore: { ...RESCORE, added_anchors: [{ source_path: "src/guard.ts", symbol_name: "missing" }] } })).toThrow("code origin/main doesn't have: src/guard.ts:missing");
+    expect(() => finish({ rescore: { ...RESCORE, added_anchors: [{ source_path: "src/guard.ts" }] } })).toThrow("needs source_path and symbol_name");
+    expect(itemIn(cloneDir).item_state).toBe("doing");
+    expect(finish({ isRescoreLater: true })).toMatchObject({ new_item_state: "done", way_rescore: "waiting", committed_paths: [`items/${ITEM_ID}.json`] });
+    expect(wayIn(cloneDir)).toMatchObject({ defense_score: 3, scored_at: "2026-10-01T00:00:00.000Z" });
+    expect(readState(cloneDir).rescore_waiting_way_ids).toEqual(["some-way"]);
+    const pageData = pageDataOfMapDir(cloneDir);
+    expect(pageData.thin_ways.map((way: { sector_id: string }) => way.sector_id)).not.toContain(SECTORS[0].sector_id);
+    expect(pageData.rescore_waiting_ways).toEqual([{ sector_id: SECTORS[0].sector_id, sector_name: SECTORS[0].sector_name, way_line: "A way." }]);
+    const added_anchors = [{ source_path: "src/guard.ts", symbol_name: "guard" }, { source_path: "src/check.ts", symbol_name: "check" }];
+    expect(finish({ rescore: { ...RESCORE, added_anchors } })).toMatchObject({ old_item_state: "done", way_rescore: "rescored", committed_paths: [`promises/${SECTORS[0].sector_id}.json`] });
+    expect(wayIn(cloneDir).anchors.map((anchor: { anchor_id: string; source_hash_sha256: string }) => [anchor.anchor_id, anchor.source_hash_sha256])).toEqual([["src/guard.ts:guard", hashSymbol(GUARD_SOURCE, "guard")], ["src/check.ts:check", hashSymbol(CHECK_SOURCE, "check")]]);
+    expect(readState(cloneDir).rescore_waiting_way_ids).toEqual([]);
   });
 
   it("counts the open items where the coordinator reads the queue", () => {

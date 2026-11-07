@@ -700,13 +700,15 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function draw() { runPass(drawLine); }
     function drawLine() {
       var size = sizeOf(el), w = size[0], h = size[1]; if (!w || !h) return;
-      // Gliding, its two outlines (where it was, where it's going) are worked out once, at its size, not again each frame: they read the
-      // page's layout, and only the blend between them changes.
+      // Gliding, its two outlines (where it was, where it's going) are worked out once at its size, not again each frame: they read the
+      // page's layout, and only the blend between them changes. Only a part whose size moves with it (a switch's slab between tabs of
+      // different widths) has them worked out again as its size changes.
       var sizeKey = w + "x" + h;
       if (glide && glide.sizeKey !== sizeKey) { glide.sizeKey = sizeKey; glide.toShape = controlOutline(el, w, h); glide.fromShape = controlOutline(el, w, h, glide.from); }
       var shape = glide ? glide.toShape : controlOutline(el, w, h);
       if (glide) {
-        var t = Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
+        // A mover that draws it each frame says how far along it is (progress), so its shape keeps to the mover's own clock.
+        var t = glide.progress !== undefined ? glide.progress : Math.min(1, (performance.now() - glide.startMs) / glide.ms), eased = glide.ease ? glide.ease(t) : 1 - Math.pow(1 - t, 3), from = glide.fromShape;
         shape = shape.map(function (p, i) { return [from[i][0] + (p[0] - from[i][0]) * eased, from[i][1] + (p[1] - from[i][1]) * eased]; });
         // A mover that draws it each frame itself (isDriven: a switch's slab) has it drawn once a frame, not twice.
         if (t >= 1) glide = null; else if (!glide.isDriven) requestAnimationFrame(draw);
@@ -762,9 +764,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // redrawCut() draws it again where it is now, ending any glide: a mover that stops a move part way (a switch's slab put straight on its tab
     // when its room changes size) leaves no shape half blended. redrawCut({ from: { beside, ends }, ms, ease }) glides there from the shape
     // those attributes gave, on its mover's ease (a cubic ease-out by default), so its shape lands as it does; a mover that draws each frame
-    // itself (isDriven) calls redrawCut({ isFrame: true }) for the glide's next step.
+    // itself (isDriven) calls redrawCut({ isFrame: true, progress }) for the glide's next step, progress (0 to 1) its own clock's.
     el.redrawCut = function (move) {
-      if (move && move.isFrame) { draw(); return; }
+      if (move && move.isFrame) { if (glide && move.progress !== undefined) glide.progress = move.progress; draw(); return; }
       glide = move && move.ms > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? { from: move.from, ms: move.ms, ease: move.ease, isDriven: Boolean(move.isDriven), startMs: performance.now() } : null;
       draw();
     };
@@ -839,6 +841,27 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var panes = isEveryPaneDue ? Array.prototype.slice.call(document.querySelectorAll(PANE)) : Array.from(edgedPanes);
     isEveryPaneDue = false; edgedPanes.clear();
     runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
+    // A well's track or grid (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and again as
+    // a track scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
+    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track, [data-cut-line] > .layout-grid, [data-cut-line] > .grid-one-line > .layout-grid, [data-cut-line] > .game-grid-group > .layout-grid").forEach(function (track) {
+      var pieces = track.edgedPieces = Array.prototype.map.call(track.children, edgedPieceOf).filter(Boolean);
+      runBatch(function () { pieces.forEach(cutEdged); });
+      if (track.isCutOnScroll) return;
+      track.isCutOnScroll = true;
+      // What the cut lines draw (a card's glass, data-cut-line) is cut by them; anything else edged, by the edge rule above. Both again on scroll.
+      track.addEventListener("scroll", function () {
+        track.edgedPieces.forEach(function (piece) { var draw = edgedCuts.get(piece); if (draw) draw(); });
+        track.querySelectorAll("[data-cut-line]").forEach(function (piece) { if (piece.redrawCut) piece.redrawCut(); });
+      }, { passive: true });
+    });
+  }
+  // The first edged piece in a track's cell, the cell itself or what's in it: never a control or glass of its own (cut already), nor words.
+  function edgedPieceOf(el) {
+    if (el instanceof SVGElement || el.matches("[data-glass], [data-cut-line], .edge, .cut-line")) return null;
+    var css = getComputedStyle(el);
+    if (css.clipPath === "none" && hasEdge(el, css)) return el;
+    for (var i = 0; i < el.children.length; i += 1) { var found = edgedPieceOf(el.children[i]); if (found) return found; }
+    return null;
   }
   // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
   // { theme: "light" | "dark" | null } and { glass: { hueColor: "#rrggbb" | null } }, null going back to the default.

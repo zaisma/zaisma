@@ -8,6 +8,7 @@ import { WHEN_EMPTY_STYLES, row, stack, stackOfOne } from "./layout.ts";
 import { slab } from "./materials.ts";
 import { loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { progress } from "./reading.ts";
+import { SCREEN_QUERIES } from "./tokens.ts";
 
 /*
  * Data: an account's picture in its cut frame, and the glance list, one line per fact, each in its own look.
@@ -50,9 +51,12 @@ export interface FramedPerson {
   picture?: ShownPicture;
 }
 
-/** Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three, the rest are a +N at the back. */
-export function pictureRow(people: FramedPerson[], pictureSize: PictureSize): Raw {
-  const shown = people.slice(0, 3), hiddenCount = people.length - shown.length, placeCount = shown.length + (hiddenCount > 0 ? 1 : 0);
+/**
+ * Friends' pictures in a row, front to back: each lies over the next, casting a small shadow onto it; past three (or shownPictureCount),
+ * the rest are a +N at the back.
+ */
+export function pictureRow(people: FramedPerson[], pictureSize: PictureSize, options: { shownPictureCount?: number } = {}): Raw {
+  const shown = people.slice(0, options.shownPictureCount ?? 3), hiddenCount = people.length - shown.length, placeCount = shown.length + (hiddenCount > 0 ? 1 : 0);
   return html`<span class="picture-row ${pictureSize}">${shown.map(
     (shownPerson, placeIndex) => html`<span class="picture-row-place" style="z-index:${placeCount - placeIndex}">${pictureFrame(shownPerson.username, pictureSize, { picture: shownPerson.picture })}</span>`,
   )}${hiddenCount > 0 ? html`<span class="picture-row-place" style="z-index:1"><span class="frame ${pictureSize} glass more" data-glass data-glass-corners="0 0 0 0" data-glass-band="2" aria-hidden="true">+${hiddenCount}</span></span>` : ""}</span>`;
@@ -118,6 +122,8 @@ export interface GameKeyDetails {
   updatesHref?: string;
   /** Friends playing it now. */
   friends?: FramedPerson[];
+  /** Where Join takes you, into a friend's room that would let you in (a room link): a small Join after their names. */
+  friendsJoinHref?: string;
   /** Why it may not suit this device ("Needs a keyboard"), for a game made for others. */
   deviceNote?: string;
 }
@@ -133,7 +139,7 @@ export function gameKeyDetails(facts: GameKeyDetails): Raw {
   const shown: KeyDetail[] = [
     ...(facts.deviceNote ? [{ label: "This device", detailValue: facts.deviceNote }] : []),
     ...(facts.playerCount !== undefined ? [{ label: "Playing now", detailValue: facts.playerCount.toLocaleString("en-US") }] : []),
-    ...(friends.length ? [{ label: "Friends playing", detailValue: pictureRow(friends, "sm"), under: html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span>` }] : []),
+    ...(friends.length ? [{ label: "Friends playing", detailValue: pictureRow(friends, "sm"), under: facts.friendsJoinHref ? html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span><span class="key-detail-join">${secondaryButton("Join", { href: facts.friendsJoinHref, isSmall: true })}</span>` : html`<span class="one-line">${nameList(friends.map((friend) => friend.username))}</span>` }] : []),
     ...(isUpdateNews && facts.updatedAtMs !== undefined
       ? [{ label: "Updated", detailValue: html`<span class="is-new">${keepUnits(ago(nowMs - facts.updatedAtMs))}</span>`, ...(facts.updatesHref ? { under: textLink("What's new", facts.updatesHref) } : {}) }]
       : []),
@@ -167,6 +173,8 @@ export const KEY_DETAILS_STYLES = `
 .key-detail-under.good { color: var(--tag-new-ink); }
 /* Names on one line that end in an ellipsis rather than run past the pane. */
 .key-detail-under:has(> .one-line) { display: flex; }
+/* Join after friends' names, on their line, a control's gap from the words. */
+.key-detail-under:has(> .key-detail-join) { align-items: center; gap: var(--gap-words-control); }
 /* Before a row's buttons, the row's own gap parts them; the words margin is only for the pane's edge. */
 .row-cell:not(:last-child) > .key-details { padding-inline-end: 0; }
 `;
@@ -395,6 +403,8 @@ interface ListRowParts {
   titleIcon?: { icon: IconName; label: string; isHidden?: boolean };
   /** What sits at its end: a Tag (a version's state is VERSION_STATE_TAGS') or a few words. */
   end?: Raw | string;
+  /** Its end's words are the number rows are compared by (a room's 31/40): in the title's size and ink, figures lined up. */
+  isEndAnAmount?: boolean;
   /** A Usage meter's track under its lines, its numbers said in the detail: a game's hosting this month. */
   meter?: UsageMeterOptions;
   /** The gallery's fixed states. */
@@ -613,7 +623,7 @@ function listMarkup(options: { rows: ListRow[]; id?: string; label?: string; sho
     // What a meter row opens says so on its name's line, so the meter under it has the row's whole width.
     const opens = row.href || (row.press && (row.meter || row.action || row.press.hasChevron)) ? html`<span class="list-row-go${isNewTab ? " is-new-tab" : ""}" aria-hidden="true">${icon(isNewTab ? "out-of-page" : "chevron-right")}</span>` : "";
     const side = (row.href || row.press) && row.action ? html`<span class="list-row-action list-row-side">${Array.isArray(row.action) ? rowOf(row.action) : row.action}</span>` : "";
-    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
+    const inside = html`${row.lead ? html`<span class="list-row-lead${row.leadTone ? ` is-${row.leadTone}` : ""}">${row.lead}</span>` : ""}<span class="list-row-body"><span class="list-row-words">${row.titleIcon ? html`<span class="list-row-title-line"><span class="list-row-title">${row.title}</span><span class="list-row-title-icon" role="img" aria-label="${row.titleIcon.label}" title="${row.titleIcon.label}"${row.titleIcon.isHidden ? raw(" hidden") : ""}>${icon(row.titleIcon.icon)}</span></span>` : html`<span class="list-row-title">${row.title}</span>`}${row.activity ? html`<span class="list-row-activity">${row.activity}</span>` : ""}${details.map((line) => html`<span class="list-row-detail">${factLine(line, "list-row-fact")}</span>`)}${row.meter ? html`<span class="list-row-meter">${usageMeter({ ...row.meter, isTrackOnly: true })}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end${typeof row.end === "string" ? "" : " is-piece"}${row.isEndAnAmount ? " is-amount" : ""}">${row.end}</span>` : ""}${row.meter ? opens : ""}</span>`;
     return html`<li${row.isHidden ? raw(" hidden") : ""}>${row.href
       ? html`<a class="list-row flush-row is-link${row.isAway ? " is-away" : ""}${row.state ? ` ${row.state}` : ""}" data-lights${row.id ? html` id="${row.id}"` : ""} href="${row.href}"${isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""} data-cut-line="8">${CUT_LINE}${inside}${row.meter ? "" : opens}</a>${side}`
       : row.press
@@ -822,6 +832,7 @@ component({
 .list-row-meter { display: grid; }
 .list-row-fact { display: inline-block; max-width: 100%; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
+.list-row-end.is-amount { font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; }
 .list-row-action { flex: none; display: inline-flex; margin-left: auto; }
 /* A row pressed as a whole keeps its own buttons, siblings of the press, just before its arrow: what's worth doing without opening it (a player's Mute, a friend's Join). They take a column as wide as they are, in the row's own columns, so its words stop short of them whatever they are, and its arrow keeps the same place as any other row's. */
 .list-rows > li:has(> .list-row-side) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: var(--gap-words-control); align-items: center; }
@@ -831,7 +842,7 @@ component({
 .list-rows > li:has(> .list-row-side) > .list-row > .list-row-go { grid-column: 4; margin-inline-start: var(--gap-words-control); }
 .list-row-side { grid-area: 1 / 3; position: relative; z-index: 2; margin: 0; }
 /* On a phone, upright or on its side, a link's own buttons (Join, Accept) take the place of its arrow, for the name's room; the whole row still opens. A row that opens choices keeps its chevron: it's the only way to them. */
-@media (max-width: 760px), (orientation: landscape) and (max-height: 500px) {
+@media ${SCREEN_QUERIES.phone} {
   .list-rows > li > .list-row.is-link:has(+ .list-row-side) { --row-end: 0px; }
   .list-rows > li > .list-row.is-link:has(+ .list-row-side) > .list-row-go { display: none; }
 }
@@ -1544,7 +1555,9 @@ component({
 .detail dt { font: var(--type-facts); color: var(--muted); }
 .detail dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); font: var(--type-words); color: var(--ink); overflow-wrap: anywhere; }
 /* An entry: its line icon, quiet, then its words. */
-.detail-entry { display: inline-flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; }
+.detail-entry { display: inline-flex; align-items: center; gap: var(--gap-words-words); white-space: nowrap; max-width: 100%; }
+/* An entry longer than its line (Local co-op, 2–4 players on a phone) wraps its words beside its icon instead of running past the pane. */
+.detail-entry > :not(.ico) { white-space: normal; min-width: 0; }
 .detail-entry > .ico { color: var(--muted); }
 `,
   render: details,

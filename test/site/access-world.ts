@@ -99,6 +99,7 @@ export const text = (given: string) => new TextEncoder().encode(given);
 export const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /access": () => ({}),
   "GET /playing-now": () => ({}),
+  "GET /whats-on": () => ({}),
   "GET /activity": () => ({}),
   "GET /api-keys": () => ({}),
   "GET /games": () => ({}),

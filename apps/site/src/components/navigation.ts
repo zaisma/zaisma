@@ -2,13 +2,15 @@ import { accountPicture, html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
-import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, RAIL_PARTS, divider, floatingPane, glassPane, icon, logo, railMarkup, sheetMarkup, tag, type IconName, type ShownPicture } from "./foundations.ts";
 import { tabIconsAlone } from "./switch.ts";
-import { HEADER_RAIL_MEDIA, cutPolygon } from "./tokens.ts";
+import { HEADER_RAIL_MEDIA, SCREEN_QUERIES, cutPolygon } from "./tokens.ts";
 import { action, iconAloneFace, secondaryButton, tertiaryButton, primaryButton, textLink, type ListedIcon } from "./actions.ts";
 import { SEARCH_STAND_IN, searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
-import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { DROPDOWN_CHOICE_CLASS, DROPDOWN_TICK, STAND_IN_COVERS, dropdown, gameCard, gameGrid, type DropdownItem } from "./panes.ts";
+import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 import { listRows, stateNote } from "./data.ts";
+import { carving } from "./materials.ts";
 import { LOAD_FAILED_TEXT, loadMore, type LoadMoreOptions } from "./load-more.ts";
 import { grid, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 export { loadMore, type LoadMoreOptions };
@@ -98,6 +100,7 @@ function accountMenu(username: string, menuId: string, isOpen = false): Raw {
     { ...action("friends"), href: "/friends" },
     { ...action("developer"), href: "/dashboard" },
     { ...action("settings"), href: "/account" },
+    { ...action("installZaisma"), isButton: true, isHidden: true, dataAttributes: { "install-zaisma": "" } },
     { kind: "rule" },
     { ...action("signOut"), action: "/signout" },
   ];
@@ -126,7 +129,7 @@ export function accountButton(options: AccountButtonOptions): Raw {
  * and a laptop with the browser's text at 200%. In em, which media queries take from the browser's text size. How the header's pieces
  * give way is decided by its own room, not the screen's (HEADER_FIT_SCRIPT).
  */
-export const HEADER_SMALL_SCREEN_MEDIA = "(max-width: 64em)";
+export const HEADER_SMALL_SCREEN_MEDIA = SCREEN_QUERIES.headerSmall;
 
 /** Sign in as its icon alone: the row's room is gone with its words, which keep their own padding everywhere else. */
 const signInIconAlone = (signIn: string) => `  ${signIn} > .face > .ico { display: block; }
@@ -241,6 +244,24 @@ ${signInIconAlone(".top.has-icon-sign-in .end > [data-sign-in-icon]")}
  * search becomes its button, then the tabs draw in, then they're icons, then Sign in is too. It runs as the header arrives, so the first paint is right, and again
  * as its room or what's in it changes. A phone on its side stands the header up (layout.ts): always its button, with its own rules for the rest.
  */
+/** Install Zaisma in the account menu: shown only once the browser says it can install, so never in the installed window; the browser's own install does the rest. */
+export const INSTALL_SCRIPT = `/* install */(function () {
+  var offer = null;
+  window.addEventListener("beforeinstallprompt", function (event) {
+    event.preventDefault();
+    offer = event;
+    document.querySelectorAll("[data-install-zaisma]").forEach(function (choice) { choice.hidden = false; });
+  });
+  document.addEventListener("click", function (event) {
+    var choice = event.target.closest && event.target.closest("[data-install-zaisma]");
+    if (!choice || !offer) return;
+    offer.prompt();
+    offer = null;
+    choice.hidden = true;
+  });
+})();
+`;
+
 export const HEADER_FIT_SCRIPT = `/* header fit */(function () {
   var railMedia = window.matchMedia(${JSON.stringify(HEADER_RAIL_MEDIA)}), LAST_STEP = 4;
   function takeSteps(top, stepCount) { top.classList.toggle("has-search-button", stepCount > 0); top.classList.toggle("has-tight-tabs", stepCount > 1); top.classList.toggle("has-icon-tabs", stepCount > 2); top.classList.toggle("has-icon-sign-in", stepCount > 3); }
@@ -578,7 +599,8 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         var placed = { whole: isPage ? document.documentElement.scrollHeight : isSide ? scroller.scrollWidth : scroller.scrollHeight, view: isPage ? window.innerHeight : isSide ? scroller.clientWidth : scroller.clientHeight };
         placed.max = placed.whole - placed.view;
         // Under the header, or the whole way down beside it where it's a rail.
-        if (above) { var aboveRect = above.getBoundingClientRect(); placed.top = Math.round((aboveRect.height > aboveRect.width ? 0 : aboveRect.bottom) + GUTTER_PX) + "px"; }
+        // Beside a header that's a rail down the screen's side (a phone on its side), the stylesheet places it, clear of the screen's corners.
+        if (above) { var aboveRect = above.getBoundingClientRect(); placed.top = aboveRect.height > aboveRect.width ? "" : Math.round(aboveRect.bottom + GUTTER_PX) + "px"; }
         // Down a box, it runs the box's height at the right, keeping --rail-inset (the frame gap) from the edges of the glass or carving round
         // it, and never past the box itself: so it's as clear of a pane's edge as anything with an edge. Its channel's ends are square, as
         // anything in a box is by the edge rule; where the box reaches a cut corner, that end is cut, stopping where its slant keeps that
@@ -614,7 +636,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
         return placed;
       },
       putPlace: function (placed) {
-        if (placed.top) bar.style.top = placed.top;
+        if (placed.top !== undefined) bar.style.top = placed.top;
         if (placed.side) { bar.style.marginLeft = placed.side.left.toFixed(1) + "px"; bar.style.marginRight = placed.side.right.toFixed(1) + "px"; }
         if (placed.box) { bar.style.top = placed.box.top.toFixed(1) + "px"; bar.style.height = placed.box.height.toFixed(1) + "px"; bar.style.left = placed.box.left.toFixed(1) + "px"; }
         if (isShown !== placed.max > 4) { isShown = placed.max > 4; bar.classList.toggle("is-on", isShown); }
@@ -821,6 +843,22 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   var isSmallScreen = window.matchMedia("(max-width: 760px), (max-height: 500px)"), boxes = [], dueBoxes = null;
   function fadePx() { return isSmallScreen.matches ? 20 : 34; }
   window.zaismaScrollFadePx = fadePx;
+  // A fade's edges ease in and out over --motion-glide as an animation of their own, never a transition: a transition here would take the
+  // place of the box's own (a menu's body fading out as it closes, whose choices then went in one frame). change() sets the new length;
+  // until a box is eased (isEased: a box's own, from its first sync; a row's, from the frame after the page starts) it's there at once.
+  var GLIDE_MS = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--motion-glide")) || 0.45) * 1000, isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)"), fadeRuns = new WeakMap();
+  function easeFade(box, name, change, isAsked) {
+    var runs = fadeRuns.get(box); if (!runs) { runs = {}; fadeRuns.set(box, runs); }
+    var isEased = isAsked && !isReducedMotion.matches && box.animate, from = isEased ? getComputedStyle(box).getPropertyValue(name).trim() : "";
+    if (runs[name]) { runs[name].cancel(); runs[name] = null; }
+    change();
+    if (!isEased) return;
+    var to = getComputedStyle(box).getPropertyValue(name).trim(), keyframes = {};
+    if (!from || to === from) return;
+    keyframes[name] = [from, to];
+    runs[name] = box.animate(keyframes, { duration: GLIDE_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
+  }
+  function setFade(box, name, px) { var value = px + "px"; if (box.style.getPropertyValue(name) === value) return; easeFade(box, name, function () { box.style.setProperty(name, value); }, box.isFadeEased); }
   // Everything is read before anything is written, so a box syncing reads the page's layout once.
   function measure(box) {
     // A table's rows fade out under its head, which stays as they scroll: the fade starts where the head ends.
@@ -830,13 +868,14 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   function put(box, read) {
     var isScrollable = read.scrollHeight > read.clientHeight + 1;
     // Its whole length while there's anything more that way, however little, so the last words never sit whole against the edge; it eases
-    // away (the --fade transition) once there's nothing more.
+    // away (setFade's easing) once there's nothing more.
     var top = read.scrollTop > 0.5 ? fadePx() : 0, bottom = read.scrollHeight - read.clientHeight - read.scrollTop > 0.5 ? fadePx() : 0;
-    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    setFade(box, "--fade-top", Math.max(0, top)); setFade(box, "--fade-bottom", Math.max(0, bottom));
     if (read.headPx !== null) box.style.setProperty("--fade-from", read.headPx + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", isScrollable);
     box.classList.toggle("is-scrollable", isScrollable);
+    box.isFadeEased = true;
   }
   // Boxes syncing together are all read before any is written: one at a time, each write would make the next read lay the page out again.
   function syncAll(list) {
@@ -918,7 +957,8 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       var scrollLeft = row.scrollLeft, scrolledBefore = scrollLeft, scrolledAfter = reach.whole - reach.width - scrollLeft;
       return reach.start === null ? { before: scrolledBefore, after: scrolledAfter } : { before: Math.max(scrollLeft - reach.start, scrolledBefore), after: Math.max(reach.end - scrollLeft - reach.width, scrolledAfter) };
     }
-    function fades() { var span = shownSpan(); row.classList.toggle("more-left", span.before > 2); row.classList.toggle("more-right", span.after > 2); return span; }
+    function side(name, property, isOn) { if (row.classList.contains(name) !== isOn) easeFade(row, property, function () { row.classList.toggle(name, isOn); }, row.isSideFadeEased); }
+    function fades() { var span = shownSpan(); side("more-left", "--fade-left", span.before > 2); side("more-right", "--fade-right", span.after > 2); return span; }
     // It starts where the one you're on shows whole, once it's laid out (a gallery section off screen isn't yet), and again once the fonts are in.
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]'), isStarted = false;
     function start() { if (here && !isStarted && row.scrollWidth - row.clientWidth > 1) { isStarted = true; row.showWhole(here, false); } }
@@ -960,7 +1000,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     window.zaismaWatch.fontArrived(ends);
     ends();
     // Its fades show at once where the page starts, and only ease in and out from the next frame on, so nothing grows in after the first paint.
-    requestAnimationFrame(function () { requestAnimationFrame(function () { row.classList.add("fades-ease"); }); });
+    requestAnimationFrame(function () { requestAnimationFrame(function () { row.isSideFadeEased = true; }); });
   });
 })();
 `;
@@ -1096,12 +1136,16 @@ component({
    as its side lies from the side, and an end at a square corner is square; the thumb's ends nest in the channel's. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
-.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive); }
+/* It comes and goes with a fade (a box that starts or stops scrolling, the page's own once the page runs past the screen), never in one frame:
+   shown, it starts from nothing; hidden, it stays until it has faded. */
+.rail { display: none; position: absolute; z-index: 6; top: 0; left: 0; width: var(--rail-reach); opacity: 0.6; transition: opacity var(--motion-arrive), display var(--motion-arrive) allow-discrete; }
 .rail.is-on { display: block; }
 .glass > .rail { position: absolute; z-index: 6; }
 /* The page's sits in the middle of the page's right gutter, as clear of the screen's edge as of the glass. */
 .rail[data-rail="page"] { position: fixed; z-index: 12; left: auto; right: calc((var(--pad-pane) - var(--rail-reach)) / 2); top: 90px; bottom: 14px; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
+.rail.rail:not(.is-on) { opacity: 0; }
+@starting-style { .rail.rail.is-on { opacity: 0; } }
 /* What a rail's thumb is dragging follows it freely: it snaps once let go (settle in RAIL_SCRIPT). */
 .own-scroll.is-dragged { scroll-snap-type: none; }
 /* Its channel runs its whole length down the middle of its reach, both its ends slanted, longest on the side toward what scrolls; the thumb's
@@ -1153,11 +1197,11 @@ component({
 }
 /* In the narrow layout (a phone, or a small window), the page's rail starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height) + 10px); bottom: 10px; }
+  .rail[data-rail="page"] { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height) + 10px); bottom: max(10px, var(--screen-corner-room)); }
 }
-/* Beside the header's rail on a phone on its side, it runs the screen's whole height, clear of the notch. */
+/* Beside the header's rail on a phone on its side, it runs the screen's whole height, clear of the notch and the screen's rounded corners. */
 @media ${HEADER_RAIL_MEDIA} {
-  html:not(.is-playing):has(> body > .top.has-tab-row) .rail[data-rail="page"] { top: max(var(--pad-frame), var(--corner-room)); bottom: max(var(--pad-frame), var(--corner-room)); right: calc(var(--safe-right) + (var(--pad-pane) - var(--rail-reach)) / 2); }
+  html:not(.is-playing):has(> body > .top.has-tab-row) .rail[data-rail="page"] { top: max(var(--pad-frame), var(--corner-room), var(--screen-corner-room)); bottom: max(var(--pad-frame), var(--corner-room), var(--screen-corner-room)); right: calc(var(--safe-right) + (var(--pad-pane) - var(--rail-reach)) / 2); }
 }
 /* By touch, a finger on it drags the thumb instead of the page. A finger held on it never selects the words beside it, opens the phone's
    callout or flashes a tap's highlight. */
@@ -1198,39 +1242,54 @@ component({
 });
 
 /** Every stand-in game's cover, as a track's items. */
-const STAND_IN_COVER_ITEMS: LayoutItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
-export interface ShelfOptions {
+const STAND_IN_COVER_ITEMS: GridItem[] = Object.values(STAND_IN_COVERS).map((cover) => ({ kind: "block", markup: cover }));
+export interface GameRowOptions {
   /** Unique on the page: the shelf itself, for a page script (the home's Continue playing). */
   id: string;
   /** Its track's id, for a page script that fills it. */
   trackId: string;
   title: string;
-  /** Where its title goes, the whole list it's from (Browse, sorted the same way): the title is then a Link. Left out, it's words alone. */
-  titleHref?: string;
+  /**
+   * The whole list it's from (Browse, sorted the same way): See all at its heading's end, and, when the list holds more than the row shows,
+   * a See all card after its last (gameCardSeeAll), its art the next covers. coverPictures are every game's cover in the list, in order;
+   * gameCount is how many games the whole list holds. Left out, it has neither.
+   */
+  seeAll?: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] };
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
-  items: LayoutItem[];
+  items: GridItem[];
   /** What it says while it has no covers (Continue playing before you've played anything), in place of its row. */
   emptyText?: string;
   /**
-   * Its covers in lines down the page (a Grid) rather than a track that scrolls sideways: a shelf that's a part of a library (Your
-   * games), two to a line at the least. grid_with_lead_cell makes its first cover the one it's grounded on, twice the rest (Grid's hasLeadCell).
+   * A few cards all in view at once, never scrolling (What's on): on one line where they fit, two at the least, down the well in a column too
+   * narrow for two. isLeadWide makes the first one twice as wide where two fit across (three cards: one leading two).
    */
-  coversAs?: "track" | "grid" | "grid_with_lead_cell";
-  /** A link at the heading's end, to the whole of what the shelf shows part of (Recently played's All you've played). */
-  endLink?: { words: string; href: string };
+  allInView?: { isLeadWide: boolean };
 }
 
+/** The most games a Game row shows; past them its See all opens the whole list. */
+export const MAXIMUM_GAME_ROW_CARD_COUNT = 10;
+
 /**
- * A shelf: a row of games under its heading, with its sort at the heading's end, and its covers in a track that scrolls sideways on its
- * rail. Where the heading and the sort don't fit side by side (a phone), the sort goes under the heading and fills that line.
+ * A game row: one kind of list of games (a sort, a category, friends playing), alone on a pane of its own: its heading, with its sort or See all
+ * at the heading's end, and its covers in a well carved into the pane, a track that scrolls sideways on its rail. It shows at most
+ * MAXIMUM_GAME_ROW_CARD_COUNT and ends in See all when there's a whole list. Where the heading and the sort don't fit side by side (a phone),
+ * the sort goes under the heading and fills that line.
  */
-export function shelf(options: ShelfOptions): Raw {
+export function gameRow(options: GameRowOptions): Raw {
   const titleId = `${options.id}-title`;
-  const title = html`<h2 class="shelf-title" id="${titleId}">${options.titleHref ? textLink(options.title, options.titleHref) : options.title}</h2>`;
+  const title = html`<h2 class="game-row-title" id="${titleId}">${options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
-  return html`<section class="shelf" id="${options.id}" aria-labelledby="${titleId}">${stack({
+  const seeAll = options.seeAll ? tertiaryButton("See all", { href: options.seeAll.href, isSmall: true }) : undefined;
+  const shown = options.items.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
+  // Past its cap it ends on See all, its art the covers after the last shown (then from the list's start, to fill it).
+  const pictures = options.seeAll?.coverPictures ?? [];
+  const seeAllCard = options.seeAll && options.seeAll.gameCount > shown.length && shown.length
+    ? gameCard({ title: "See all", picture: null, href: options.seeAll.href, facts: {}, seeAll: { gameCount: options.seeAll.gameCount, coverPictures: [...pictures.slice(shown.length), ...pictures.slice(0, shown.length)] } })
+    : undefined;
+  const items = seeAllCard ? [...shown, { kind: "block" as const, markup: seeAllCard }] : shown;
+  return glassPane({ paneWidth: "full", label: options.title, body: stackOfOne(html`<section class="game-row${options.sortTabs ? " has-sorts" : ""}" id="${options.id}" aria-labelledby="${titleId}">${stack({
     items: [
       options.sortTabs
         ? {
@@ -1241,78 +1300,86 @@ export function shelf(options: ShelfOptions): Raw {
               items: [{ kind: "words", markup: title }, { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: options.sortTabs }) }] }) }],
             }),
           }
-        : options.endLink
-          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "words", markup: textLink(options.endLink.words, options.endLink.href) }] }) }
-          : { kind: "words", markup: title },
+        : seeAll
+          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "control", markup: seeAll }] }) }
+          : { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }] }) },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
-        : options.coversAs === "grid" || options.coversAs === "grid_with_lead_cell"
-          ? { kind: "block", markup: grid({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", hasLeadCell: options.coversAs === "grid_with_lead_cell", isAtLeastTwoAcross: true, items: options.items.filter((layoutItem): layoutItem is GridItem => layoutItem.kind !== "control") }) }
-          : { kind: "block", markup: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items: options.items }) },
+        : options.allInView
+          ? { kind: "block", markup: gameGrid({ isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: options.allInView.isLeadWide, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items: shown }) }
+          : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
     ],
-  })}</section>`;
+  })}</section>`) });
 }
 
 component({
-  name: "Shelf",
-  slug: "shelf",
+  name: "Game row",
+  slug: "game-row",
   group: "navigation",
   subgroup: "scrolling",
-  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in.",
+  summary: "A row of games under its heading: the home's Popular, Trending and Continue playing. Its sort or See all sits at the heading's end; its covers scroll sideways on its rail, a few showing with the next peeking in, and end in a See all card, four of the next covers in its art, when the list holds more.",
   styles: `
 /* A shelf: its heading, then its sort, in a row, then its track of covers. The heading keeps its whole width beside it, up to the
    shelf's own (a container), so the sort goes under it before it wraps; only a heading longer than the shelf wraps,
    keeping the pane's margin at its end too. */
-.shelf { container-type: inline-size; --shelf-words-inset: var(--pad-words); }
-.shelf .shelf-title { width: max-content; max-width: calc(100cqi - 2 * var(--shelf-words-inset)); margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
+/* Its heading sits tight over its well: its words the frame gap in from the well's edge, and the frame gap above and below them, so the
+   heading reads as the well's own and not as words floating on the pane. */
+.game-row { container-type: inline-size; --pad-words: var(--pad-frame); --game-row-words-inset: var(--pad-words); }
+.game-row > .layout-stack > .stack-cell + .stack-cell { margin-top: var(--pad-frame); }
+/* The heading's band is a small control's height whether or not a control sits in it, its words centered in it. */
+/* With no control beside it, the pane's edge rule would set it a words margin down: the band's own height already keeps it off the edge. */
+.game-row > .layout-stack > .stack-cell:first-child > .layout-row:not([data-control-height]) > .row-cell.is-words { --pad-words: 0px; }
+/* On the narrowest phones every heading takes a section's size, so a heading and its See all keep one line and the rows' headings match. */
+@media (max-width: 360px) { .game-row > .layout-stack .game-row-title { font: var(--type-section); } }
+/* Its covers rest in a well carved into the pane at the frame gap from its edges, its corners cut by the edge rule, the covers the frame gap
+   from the well's edges on every side and from each other. A track that fits keeps no room for a rail it won't get. */
+.game-row-well { padding-block: 0 var(--pad-frame); --rail-inset: var(--pad-frame); }
+.game-row-well:has(> .track-holder > .layout-track:not(.shows-side-rail)) { padding-bottom: 0; }
+.game-row-well > .track-holder > .layout-track { gap: var(--pad-frame); padding-inline: var(--pad-frame); scroll-padding-inline: var(--pad-frame); }
+/* The frame gap above and below the covers is the track's own room, inside what it scrolls, so their shadows fall in it uncut. */
+.game-row-well > .track-holder > .layout-track, .game-row-well > .track-holder > .layout-track:not(.shows-side-rail) { padding-block: var(--pad-frame); margin-block: 0; }
+/* Its rail runs along the well's foot, the frame gap from its sides, its foot and the covers above it: that gap is the rail script's alone
+   (--rail-inset, kept from the well's corner cuts), so its channel fills the bar from end to end. */
+.game-row-well > .track-holder > .rail.sideways { height: var(--rail-width); margin-top: 0; }
+.game-row-well > .track-holder > .rail.sideways > .rail-line { left: 0; right: 0; }
+.game-row .game-row-title { box-sizing: border-box; min-height: var(--control-height-small); display: flex; align-items: center; width: max-content; max-width: calc(100cqi - 2 * var(--game-row-words-inset)); margin: 0; font: var(--type-heading); color: var(--ink); text-wrap: balance; }
 /* Under the heading, the sort fills its line, never wider than it: the sort gives up room round its tabs' words to fit
    (Switch), so its cell may be narrower than its words at their roomiest (the heading's row has wrapped: is-wrapped, layout.ts). */
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
-.shelf > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block { flex: 1 1 100%; min-width: 0; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row { flex: 1 1 auto; }
+.game-row.has-sorts > .layout-stack > .stack-cell > .layout-row.is-wrapped > .row-cell.is-block > .layout-row > .row-cell.fills { min-width: 0; }
 /* With no games yet, a line in their place. */
 `,
-  render: shelf,
+  render: gameRow,
   examples: [
-    { label: "In lines down the page, its first cover the lead (Your games' Favorites)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-favorites", trackId: "example-shelf-favorites-grid", title: "Favorites", coversAs: "grid_with_lead_cell", items: STAND_IN_COVER_ITEMS })) }) },
-    { label: "In lines, with a link to the whole at the heading's end (Recently played)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-recent", trackId: "example-shelf-recent-grid", title: "Recently played", endLink: { words: "All you've played", href: "#shelf" }, coversAs: "grid", items: STAND_IN_COVER_ITEMS.slice(0, 5) })) }) },
-    { label: "Popular, its title a link to the whole list", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", titleHref: "#shelf", items: STAND_IN_COVER_ITEMS })) }) },
+    { label: "Popular, with See all for the whole list", isWide: true, markup: gameRow({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAll: { href: "#shelf", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES) }, items: STAND_IN_COVER_ITEMS }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({
+      markup: gameRow({
           id: "example-shelf-continue",
           trackId: "example-shelf-continue-track",
           title: "Continue playing",
           sortTabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(0, 5),
-        })),
       }),
     },
     {
       label: "A long title with its sort: on a phone the sort goes under it",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({
+      markup: gameRow({
           id: "example-shelf-long",
           trackId: "example-shelf-long-track",
           title: "Because you played Ashen Crown",
-          titleHref: "#shelf",
+          seeAll: { href: "#shelf", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES) },
           sortTabs: [{ label: "Most players", tabValue: "players", isCurrent: true }, { label: "Newest", tabValue: "newest", isCurrent: false }],
           items: STAND_IN_COVER_ITEMS.slice(2),
-        })),
       }),
     },
     {
       label: "Empty: Continue playing before you've played anything",
       isWide: true,
-      markup: glassPane({
-        paneWidth: "full",
-        body: stackOfOne(shelf({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." })),
-      }),
+      markup: gameRow({ id: "example-shelf-empty", trackId: "example-shelf-empty-track", title: "Continue playing", items: [], emptyText: "Games you play show up here." }),
     },
   ],
 });
@@ -1741,12 +1808,41 @@ export const FILTER_MENU_SCRIPT = `/* filter menus */(function () {
     if (rule && rule.matches("hr")) rule.hidden = !inUse;
     if (menu.zaismaPlace) menu.zaismaPlace();
   }
+  // A step moves on the pane's own time and curve (--motion-float, --ease-glide), as it opens and closes.
+  var rootStyle = getComputedStyle(document.documentElement), STEP_MS = (parseFloat(rootStyle.getPropertyValue("--motion-float")) || 0.12) * 1000, STEP_EASE = rootStyle.getPropertyValue("--ease-glide").trim() || "cubic-bezier(.2, .8, .2, 1)";
+  // A step still running ends where it was going, before the next one starts.
+  function endStep(menu) {
+    var step = menu.filterStep; if (!step) return;
+    menu.filterStep = null; cancelAnimationFrame(step.castFrame);
+    step.runs.forEach(function (run) { run.cancel(); });
+    step.leaving.hidden = true;
+    ["position", "top", "left", "width"].forEach(function (name) { step.leaving.style.removeProperty(name); });
+    menu.classList.remove("is-stepping");
+  }
   function show(menu, groupName, isFocused) {
-    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])");
+    endStep(menu);
+    var shown = null, was = menu.querySelector("[data-filter-panel]:not([hidden])"), fromHeightPx = menu.offsetHeight;
+    var leftAt = was ? { top: was.offsetTop, left: was.offsetLeft, width: was.offsetWidth } : null;
     menu.querySelectorAll("[data-filter-panel]").forEach(function (panel) { panel.hidden = panel.getAttribute("data-filter-panel") !== groupName; if (!panel.hidden) shown = panel; });
     if (menu.zaismaPlace) menu.zaismaPlace();
-    // Into a way's choices it slides in from the end, back to the ways from the start: a short step sideways, never a pop.
-    if (shown && was && shown !== was && !isStill && shown.animate) shown.animate([{ transform: "translateX(" + (groupName ? 12 : -12) + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    // Into a way's choices it slides in from the end, back to the ways from the start, and the ones it leaves slide out the other way over it,
+    // as a sheet's steps do: a short step sideways, never a pop. The pane eases to its new height (the shadow it casts with it), what's
+    // past its edge held inside it meanwhile; under its button it grows down, over it (is-above) up.
+    if (shown && was && shown !== was && !isStill && shown.animate) {
+      var side = groupName ? 12 : -12, toHeightPx = menu.offsetHeight, runs = [];
+      was.hidden = false; was.style.position = "absolute"; was.style.top = leftAt.top + "px"; was.style.left = leftAt.left + "px"; was.style.width = leftAt.width + "px";
+      menu.classList.add("is-stepping");
+      runs.push(shown.animate([{ transform: "translateX(" + side + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: STEP_MS, easing: STEP_EASE }));
+      runs.push(was.animate([{ transform: "none", opacity: 1 }, { transform: "translateX(" + -side + "px)", opacity: 0 }], { duration: STEP_MS, easing: STEP_EASE, fill: "forwards" }));
+      if (toHeightPx !== fromHeightPx) {
+        var shiftPx = menu.classList.contains("is-above") ? toHeightPx - fromHeightPx : 0;
+        runs.push(menu.animate([{ height: fromHeightPx + "px", transform: "translateY(" + shiftPx + "px)" }, { height: toHeightPx + "px", transform: "none" }], { duration: STEP_MS, easing: STEP_EASE }));
+      }
+      var step = menu.filterStep = { leaving: was, runs: runs, castFrame: 0 };
+      // Its shadow is cast again each frame while its height moves, so it keeps to the glass.
+      (function cast() { if (menu.filterStep !== step) return; if (menu.floatCast && window.zaismaCast) window.zaismaCast(menu); step.castFrame = requestAnimationFrame(cast); })();
+      runs[0].finished.then(function () { if (menu.filterStep === step) { endStep(menu); if (window.zaismaCast) window.zaismaCast(menu); } }, function () {});
+    }
     if (isFocused && shown) {
       // Back from a group, its row in the groups is focused again; into one, its picked choice, or else its first.
       var back = groupName === "" && menu.lastGroupName ? menu.querySelector('[data-filter-opens="' + menu.lastGroupName + '"]') : null;
@@ -1825,6 +1921,9 @@ component({
    and whose group's choices start with the way back. It's at least wide enough for its longest group and what's picked in it. */
 .floating-pane.filter-menu { min-width: min(15rem, 100%, calc(100vw - 2 * var(--pad-frame))); }
 .filter-panel[hidden] { display: none; }
+/* Stepping between its ways and a way's choices (FILTER_MENU_SCRIPT): what's past the pane's easing height is held inside it, unscrolled. */
+.floating-pane.filter-menu.is-stepping { overflow: clip; }
+.floating-pane.filter-menu.is-stepping > .floating-body { flex: none; overflow: hidden; }
 .filter-group > .filter-picked { margin-left: auto; color: var(--muted); font: var(--type-facts); }
 .filter-group > .ico:last-child, .filter-back > .ico { flex: none; width: 12px; height: 12px; }
 .filter-back { font: var(--type-name); color: var(--ink); }

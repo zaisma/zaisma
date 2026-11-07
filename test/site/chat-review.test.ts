@@ -79,9 +79,11 @@ describe("chat reviews", () => {
     const page = await SELF.fetch("http://localhost/admin/chat-reviews").then((response) => response.text());
     expect(page).toContain("send nudes");
     expect(page).toContain("From a developer&#39;s own server: you decide");
-    await SELF.fetch(`http://localhost/admin/chat-reviews/${ownServer.id}/reported`, { method: "POST", body: new FormData(), redirect: "manual" });
+    await SELF.fetch(`http://localhost/admin/chat-reviews/${ownServer.id}/report-to-ncmec`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect(await reviewOf(ownServer.id)).toMatchObject({ chat_review_status: "confirmed" });
-    expect((await reviewOf(ownServer.id))!.reported_at_ms).toBeGreaterThan(0);
+    // The press sends it (ncmec.test.ts); with no NCMEC keys here it fails, with why, and isn't marked reported.
+    expect(await env.DB.prepare("SELECT ncmec_report_status, last_error FROM ncmec_reports WHERE chat_review_id = ?").bind(ownServer.id).first()).toEqual({ ncmec_report_status: "failed", last_error: "NCMEC_USERNAME and NCMEC_PASSWORD aren't set" });
+    expect((await reviewOf(ownServer.id))!.reported_at_ms).toBeNull();
     expect(await stoppedReasonOf(ownServer.senderId)).toBe("removed");
     await SELF.fetch(`http://localhost/admin/chat-reviews/${unsure.id}/false-alarm`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect(await reviewOf(unsure.id)).toBeNull();

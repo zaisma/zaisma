@@ -52,8 +52,9 @@ import { moveFiles } from "./file-moves.ts";
 import { checkForumPosts } from "./forum-check.ts";
 import { checkProfiles } from "./profile-check.ts";
 import { reviewChatMessages } from "./chat-review.ts";
+import { sendWaitingReports } from "./ncmec.ts";
 import { handleForum } from "./forum-pages.ts";
-import { handleAnnouncements } from "./announcements.ts";
+import { handleWhatsOnArt } from "./whats-on.ts";
 import { handleFriends } from "./friends.ts";
 import { handleBlocks } from "./blocks.ts";
 import { handleFriendRequests } from "./friend-requests.ts";
@@ -169,8 +170,8 @@ async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): P
   const forum = await handleForum(request, env, path);
   if (forum) return forum;
 
-  const announcements = await handleAnnouncements(request, env, path);
-  if (announcements) return announcements;
+  const whatsOnArt = await handleWhatsOnArt(request, env, path);
+  if (whatsOnArt) return whatsOnArt;
 
   const passkeys = await handlePasskeys(request, env, path);
   if (passkeys) return passkeys;
@@ -291,7 +292,7 @@ export default {
     // While a restore from the backups runs, nothing else does: a cleanup would delete files whose owners haven't come back yet (restore.ts).
     if (await runWaitingRestore(env)) return;
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env), deleteWaitingSignIns(env)]), tellGameServerErrors(env), tellAnswerCuts(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), sendWaitingReports(env), deliverDueWebhooks(env), sealStoredSecrets(env.DB, env), eraseDuePlayers(env), deleteDueGames(env), ...(event.cron === DAILY ? [] : [runHostingJob(env).then(() => runSpendingJob(env)).then(() => tellAlertNotices(env)), retryPendingRefunds(env), deleteWaitingSignIns(env)]), tellGameServerErrors(env), tellAnswerCuts(env), recheckLinks(env), checkStanding(env), moveWaitingAiReviews(env), watchHealth(env), watchAccounts(env), testWaitingReviewPrecedents(env), queueListingChecks(env), queueShaderChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), fillMissingPlaceholders(env), failStaleSales(env), queueImageChecks(env), queueMissingCompression(env), startBackupRun(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob | ShaderCheckJob>;

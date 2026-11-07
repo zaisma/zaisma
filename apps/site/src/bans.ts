@@ -35,7 +35,8 @@ export async function banAccount(env: Env, ban: { account: Account; banScope: Ba
     });
   }
   const bannedAtMs = account.banned_at_ms ?? nowMs;
-  await env.DB.prepare("UPDATE accounts SET banned_at_ms = ?, ban_scope = ?, ban_reason = ?, ban_content_rule = ?, updated_at_ms = ? WHERE id = ?").bind(bannedAtMs, banScope, why, contentRule, nowMs, account.id).run();
+  // A ban settles what a known-image match's pause waited for (ncmec.ts).
+  await env.DB.prepare("UPDATE accounts SET banned_at_ms = ?, ban_scope = ?, ban_reason = ?, ban_content_rule = ?, safety_paused_at_ms = NULL, updated_at_ms = ? WHERE id = ?").bind(bannedAtMs, banScope, why, contentRule, nowMs, account.id).run();
 
   // Every game of theirs still up comes down, as a takedown from the queue does.
   const owner = await personOwner(env.DB, account.id);

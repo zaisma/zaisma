@@ -89,7 +89,7 @@ component({
    its holder, so the shadow follows the slab's cut. Pointed, it lifts a touch; pressed, it's pushed down in place, never smaller, its shadow
    drawn in close and its face shaded from above. */
 /* The thumb (materials.ts) sits in the track's flow, so the track is as tall as it; it's moved along by its offset. */
-.slider-thumb { position: relative; z-index: 2; display: block; left: calc((100% - var(--thumb)) * var(--fill)); pointer-events: none; }
+.slider-thumb { position: relative; z-index: 2; display: block; left: calc((100% - var(--thumb)) * var(--fill)); pointer-events: none; transition: filter var(--motion-state); }
 .slider:not(.is-disabled):hover .slider-thumb, .slider.is-pointed .slider-thumb { filter: var(--thumb-cast-pointed); }
 /* Can't be changed now: the thumb rests flat, the number goes quieter, and no orange, since there's nothing to do: the fill is grey. */
 .slider.is-disabled .slider-input { cursor: default; }
@@ -405,7 +405,8 @@ export const COPY_SCRIPT = `/* copy fields */(function () {
     if (!event.target.closest(".carving-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
     function saying(words) {
       said.textContent = words; field.classList.add("is-copied");
-      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
+      // It fades, and its words go once it has.
+      clearTimeout(said.timer); said.timer = setTimeout(function () { field.classList.remove("is-copied"); said.timer = setTimeout(function () { said.textContent = ""; }, 400); }, 1600);
     }
     // Where the clipboard isn't open to the page, the text is selected and copied the old way; when that fails too, it's left selected to copy.
     function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) saying("Copied"); }
@@ -432,8 +433,9 @@ component({
 .copy-label { font: var(--type-label); color: var(--ink-2); }
 .copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
-.copy-field.is-copied .well-end-note { display: grid; }
-.copy-field.is-copied .carving-end > .tertiary-btn .ico { visibility: hidden; }
+.copy-field.is-copied .well-end-note { opacity: 1; }
+.copy-field .carving-end > .tertiary-btn .ico { transition: opacity var(--motion-state); }
+.copy-field.is-copied .carving-end > .tertiary-btn .ico { opacity: 0; }
 .copy-field-text:focus-visible { outline: none; }
 /* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
 .copy-field:not(.is-code) .well { cursor: pointer; }

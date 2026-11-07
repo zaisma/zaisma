@@ -33,7 +33,7 @@ import {
   BodyPastCapError,
   readBodyBytes,
 } from "@zaisma/core";
-import { closedBody, ownGame, type Caller, type CheckedCall, type NextStep } from "./developer.ts";
+import { accountPaused, closedBody, ownGame, type Caller, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { affectedDeveloperCounts, authorOf, decideTopic, hasNews, imageTooBig, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicAddress, topicById, turnOffKeysIn, uploadDraftMedia } from "./forum-posts.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
@@ -202,6 +202,7 @@ export async function forumRoute(request: Request, env: Env, apiPath: string, ca
   }
   if (apiPath === "/forum/similar") return [{ topics: await similarTopics(env, caller, queryParameters.get("search_text") ?? "") }];
   if (apiPath === "/forum/media") {
+    if (caller.safetyPausedAtMs !== null) throw accountPaused();
     const bytes = await readBodyBytes(request, FORUM_LIMITS.imageSizeBytes).catch((error: unknown) => {
       throw error instanceof BodyPastCapError ? imageTooBig() : error;
     });
@@ -711,6 +712,7 @@ const POST_FIELDS = ["text_markdown", "debug_context", "author_kind", "images_ba
  * Zaisma. Answers with topics and known issues that look like the same thing.
  */
 export async function createTopic(env: Env, caller: Caller, body: Record<string, unknown>) {
+  if (caller.safetyPausedAtMs !== null) throw accountPaused();
   closedBody(body, ["kind", "title", "category", "tags", "is_public", "game_slug", "known_issue_topic_id", ...POST_FIELDS]);
   const kind = body.kind as TopicKind;
   if (!TOPIC_KINDS.includes(kind)) {
@@ -781,6 +783,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
 
 /** A reply to the topic, or to one post in it (reply_to_post_id). reopen: true reopens your own closed topic. */
 export async function replyTo(env: Env, caller: Caller, topicId: string, body: Record<string, unknown>) {
+  if (caller.safetyPausedAtMs !== null) throw accountPaused();
   closedBody(body, ["reply_to_post_id", "reopen", ...POST_FIELDS]);
   const topic = await readableTopic(env, caller, topicId);
   if (body.reopen !== undefined && typeof body.reopen !== "boolean") throw new ApiError("bad_reopen", { message: "reopen isn't true or false.", field: "reopen", fix: "Give true to reopen your own closed topic, or leave it out." });

@@ -8,7 +8,7 @@ const MARK_PATHS = '<path d="M1884.08,3033.91c767.645,0 1535.29,0 2302.930,0c33.
 export const ICONS = {
   // Zaisma's mark in glass: the Z over a running game. Its drawing is in the stylesheet (LOGO_ART, below), so no page carries it.
   zaisma: '<span class="logo mark"><span class="logo-art on-light"></span><span class="logo-art on-smoked"></span></span>',
-  "sign-in": stroke("0 0 20 20", '<path d="M9 4h7v12H9M3 10h8M8 7l3 3-3 3"/>'),
+  "sign-in": stroke("-0.5 0 20 20", '<path d="M9 4h7v12H9M3 10h8M8 7l3 3-3 3"/>'),
   "closed-door": stroke("0 0 20 20", '<path d="M5 17V3h10v14M3 17h14"/><path d="M12 10v.6"/>'),
   "at-sign": stroke("0 0 20 20", '<circle cx="10" cy="10" r="3"/><path d="M13 7v4.2a2.2 2.2 0 0 0 4.4 0V10a7.4 7.4 0 1 0-3 6"/>'),
   apps: stroke("0 0 20 20", '<path d="M3.5 3.5h5v5h-5zM11.5 3.5h5v5h-5zM3.5 11.5h5v5h-5zM11.5 11.5h5v5h-5z"/>'),
@@ -17,16 +17,16 @@ export const ICONS = {
   // Zaisma Pro: its guild seal, the same drawing as everywhere (guild-seal.ts).
   "guild-seal": '<svg class="ico" viewBox="0 0 1 1" aria-hidden="true"><image href="/guild-seal-64.webp" width="1" height="1"/></svg>',
   keypad: stroke("0 0 20 20", '<circle cx="5" cy="3.5" r="1"/><circle cx="10" cy="3.5" r="1"/><circle cx="15" cy="3.5" r="1"/><circle cx="5" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="15" cy="8" r="1"/><circle cx="5" cy="12.5" r="1"/><circle cx="10" cy="12.5" r="1"/><circle cx="15" cy="12.5" r="1"/><circle cx="10" cy="17" r="1"/>'),
-  hook: stroke("0 0 20 20", '<circle cx="11.5" cy="4" r="1.6"/><path d="M11.5 5.6v7a4.2 4.2 0 0 1-8.4 0V10l2.5 2.2"/>'),
+  hook: stroke("-1.9 -0.4 20 20", '<circle cx="11.5" cy="4" r="1.6"/><path d="M11.5 5.6v7a4.2 4.2 0 0 1-8.4 0V10l2.5 2.2"/>'),
   star: stroke("0 0 20 20", '<path d="M10 2.8l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8.1l5-.7z"/>'),
-  door: stroke("0 0 20 20", '<path d="M8 3.5H4v13h4"/><path d="M8.5 10H17M13.8 6.8 17 10l-3.2 3.2"/>'),
-  person: stroke("0 0 20 20", '<circle cx="10" cy="6.8" r="3.2"/><path d="M3.8 17.2c0-3.4 2.8-5.9 6.2-5.9s6.2 2.5 6.2 5.9"/>'),
+  door: stroke("0.5 0 20 20", '<path d="M8 3.5H4v13h4"/><path d="M8.5 10H17M13.8 6.8 17 10l-3.2 3.2"/>'),
+  person: stroke("0 0.4 20 20", '<circle cx="10" cy="6.8" r="3.2"/><path d="M3.8 17.2c0-3.4 2.8-5.9 6.2-5.9s6.2 2.5 6.2 5.9"/>'),
   people: stroke("0 0 16 16", '<circle cx="6" cy="5.2" r="2.4"/><path d="M1.8 13.2c0-2.4 1.9-4.2 4.2-4.2s4.2 1.8 4.2 4.2"/><circle cx="11.6" cy="5.8" r="1.9"/><path d="M10.9 9c2 .2 3.4 1.9 3.4 4"/>', ' stroke-width="1.28"'),
   // Adding a friend. The two people are friends you have.
-  "person-plus": stroke("0 0 20 20", '<circle cx="8" cy="6.5" r="3"/><path d="M2.5 17c0-3.2 2.4-5.5 5.5-5.5 1.2 0 2.3.3 3.2.9"/><path d="M15.5 11v6M12.5 14h6"/>'),
-  friends: stroke("0 0 20 20", '<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
+  "person-plus": stroke("0.5 0.25 20 20", '<circle cx="8" cy="6.5" r="3"/><path d="M2.5 17c0-3.2 2.4-5.5 5.5-5.5 1.2 0 2.3.3 3.2.9"/><path d="M15.5 11v6M12.5 14h6"/>'),
+  friends: stroke("0 0.5 20 20", '<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
   // Playing on your own, in your own world.
-  headphones: stroke("0 0 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
+  headphones: stroke("0 0.3 20 20", '<path d="M3.6 12.6V10a6.4 6.4 0 0 1 12.8 0v2.6"/><rect x="2.6" y="11.4" width="3.6" height="5.6" rx="1.5"/><rect x="13.8" y="11.4" width="3.6" height="5.6" rx="1.5"/>'),
   // Everyone, everywhere: meeting new players.
   globe: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M2.8 10h14.4M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2z"/>'),
   megaphone: stroke("0 0 20 20", '<path d="M3 8v4h3l7 4V4L6 8z"/><path d="M6 12l1.4 4.4h2.2L8.6 12.6M15.6 7.6a3.2 3.2 0 0 1 0 4.8"/>'),
@@ -34,12 +34,12 @@ export const ICONS = {
   calendar: stroke("0 0 20 20", '<path d="M3.5 5h13v11.5h-13z"/><path d="M3.5 8.6h13M7 3.2v3.4M13 3.2v3.4"/>'),
   // A bank card, for the card a buy is paid with.
   // Buying: a paid game's Buy.
-  cart: stroke("0 0 20 20", '<path d="M2.5 3.5h2.2l2 9.4h8.7l1.8-6.6H5.5"/><circle cx="8" cy="16.2" r="1.2"/><circle cx="14" cy="16.2" r="1.2"/>'),
+  cart: stroke("-0.15 0.45 20 20", '<path d="M2.5 3.5h2.2l2 9.4h8.7l1.8-6.6H5.5"/><circle cx="8" cy="16.2" r="1.2"/><circle cx="14" cy="16.2" r="1.2"/>'),
   card: stroke("0 0 20 20", '<path d="M2.5 5h15v10h-15z"/><path d="M2.5 8.6h15M5.4 12.2h3"/>'),
   "price-tag": stroke("0 0 20 20", '<path d="M10.6 2.8H17.2v6.6l-7.7 7.7a1.4 1.4 0 0 1-2 0l-4.6-4.6a1.4 1.4 0 0 1 0-2z"/><circle cx="13.7" cy="6.3" r="1.1"/>'),
   // Rolling a new secret.
   dice: stroke("0 0 20 20", '<path d="M10 2 17 6v8l-7 4-7-4V6z"/><path d="M3 6l7 4 7-4M10 10v8"/><path d="M10 6h.01M6 10.5h.01M7.5 14h.01M14 10.5h.01M12.5 14h.01" stroke-width="2.2"/>'),
-  lock: stroke("0 0 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
+  lock: stroke("0 0.55 20 20", '<path d="M4.5 9h11v8.5h-11z"/><path d="M7 9V6.6a3 3 0 0 1 6 0V9"/><path d="M10 12.4v2"/>'),
   mail: stroke("0 0 20 20", '<path d="M3 5h14v10.5H3z"/><path d="M3.4 5.6 10 11l6.6-5.4"/>'),
   gear: stroke(
     "0 0 20 20",
@@ -47,7 +47,7 @@ export const ICONS = {
     ' stroke-width="1.4"',
   ),
   code: stroke("0 0 20 20", '<path d="M7 5.5L2.5 10 7 14.5M13 5.5l4.5 4.5-4.5 4.5"/>'),
-  "sign-out": stroke("0 0 20 20", '<path d="M12 4H5v12h7M9 10h8M14 7l3 3-3 3"/>'),
+  "sign-out": stroke("1 0 20 20", '<path d="M12 4H5v12h7M9 10h8M14 7l3 3-3 3"/>'),
   search: stroke("0 0 20 20", '<circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4.5 4.5"/>', ' stroke-width="1.8"'),
   // What's visible, with eye-off for what's hidden (visibilityButton); Watch looks through it too.
   eye: stroke("0 0 20 20", '<path d="M1.8 10S5 4.5 10 4.5 18.2 10 18.2 10 15 15.5 10 15.5 1.8 10 1.8 10z"/><circle cx="10" cy="10" r="2.6"/>'),
@@ -70,8 +70,8 @@ export const ICONS = {
   copy: stroke("0 0 20 20", '<path d="M7 7h9.5v9.5H7z"/><path d="M13 7V3.5H3.5V13H7"/>'),
   upload: stroke("0 0 20 20", '<path d="M10 13.2V3.6M6.2 7.2 10 3.4l3.8 3.8"/><path d="M3.5 12.4v4.1h13v-4.1"/>'),
   warning: stroke("0 0 20 20", '<path d="M10 2.8 18.2 17H1.8z"/><path d="M10 8v4.2M10 14.6v.1"/>'),
-  passkey: stroke("0 0 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
-  share: stroke("0 0 20 20", '<path d="M10 2.8v10M6.4 6.2 10 2.6l3.6 3.6"/><path d="M4.5 10v6.5h11V10"/>'),
+  passkey: stroke("-1 1 24 24", '<circle cx="8" cy="9" r="4"/><path d="M2 20c0-3.3 2.7-6 6-6 1.5 0 2.9.6 4 1.5"/><circle cx="17.5" cy="13.5" r="2.5"/><path d="M17.5 16v5M17.5 19h2"/>', ' stroke-width="1.7"'),
+  share: stroke("0 -0.45 20 20", '<path d="M10 2.8v10M6.4 6.2 10 2.6l3.6 3.6"/><path d="M4.5 10v6.5h11V10"/>'),
   flag: stroke("0 0 20 20", '<path d="M4.5 17.5V3"/><path d="M4.5 3.5h10.5l-2.2 3.8 2.2 3.8H4.5"/>'),
   hash: stroke("0 0 20 20", '<path d="M4 7.5h13M3 12.5h13M8.5 3 7 17M13.5 3 12 17"/>'),
   "full-screen": stroke("0 0 20 20", '<path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/>'),
@@ -94,12 +94,12 @@ export const ICONS = {
   // Devices a game works on.
   phone: stroke("0 0 20 20", '<rect x="5.5" y="1.8" width="9" height="16.4" rx="2.2"/><path d="M8.8 15.6h2.4"/>'),
   tablet: stroke("0 0 20 20", '<rect x="2" y="3.8" width="16" height="12.4" rx="2"/><path d="M8.6 13.6h2.8"/>'),
-  computer: stroke("0 0 20 20", '<rect x="2.8" y="4" width="14.4" height="9.5" rx="1.8"/><path d="M7 17h6M10 13.5V17"/>'),
-  refresh: stroke("0 0 20 20", '<path d="M16.3 10a6.3 6.3 0 1 1-1.9-4.5"/><path d="M15.4 2.6v3.6h-3.6"/>'),
+  computer: stroke("0 0.5 20 20", '<rect x="2.8" y="4" width="14.4" height="9.5" rx="1.8"/><path d="M7 17h6M10 13.5V17"/>'),
+  refresh: stroke("0.01 -0.55 20 20", '<path d="M16.3 10a6.3 6.3 0 1 1-1.9-4.5"/><path d="M15.4 2.6v3.6h-3.6"/>'),
   download: stroke("0 0 20 20", '<path d="M10 3.5v9M6.2 8.8 10 12.6l3.8-3.8"/><path d="M4 16.5h12"/>'),
   "out-of-page": stroke("0 0 20 20", '<path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5"/><path d="M14.5 12v4.5h-11v-11H8"/>'),
   // Things a player does to a game, a post or a person.
-  heart: stroke("0 0 20 20", '<path d="M10 16.4S3.5 12.5 3.5 7.9A3.5 3.5 0 0 1 10 6a3.5 3.5 0 0 1 6.5 1.9c0 4.6-6.5 8.5-6.5 8.5z"/>'),
+  heart: stroke("0 0.35 20 20", '<path d="M10 16.4S3.5 12.5 3.5 7.9A3.5 3.5 0 0 1 10 6a3.5 3.5 0 0 1 6.5 1.9c0 4.6-6.5 8.5-6.5 8.5z"/>'),
   bookmark: stroke("0 0 20 20", '<path d="M5.5 3h9v14l-4.5-3.4L5.5 17z"/>'),
   "vote-up": stroke("0 0 20 20", '<path d="M10 3.6 16.2 11h-3.7v5.4h-5V11H3.8z"/>'),
   "vote-down": stroke("0 0 20 20", '<path d="M10 16.4 3.8 9h3.7V3.6h5V9h3.7z"/>'),
@@ -117,11 +117,11 @@ export const ICONS = {
   "speaker-low": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.3 7.4a3.7 3.7 0 0 1 0 5.2"/>'),
   "speaker-off": stroke("0 0 20 20", '<path d="M3.2 7.6h2.9l4-3.3v11.4l-4-3.3H3.2z"/><path d="M13.4 7.6l4.8 4.8M18.2 7.6l-4.8 4.8"/>'),
   ban: stroke("0 0 20 20", '<circle cx="10" cy="10" r="6.8"/><path d="M5.2 5.2l9.6 9.6"/>'),
-  bell: stroke("0 0 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
+  bell: stroke("0 1.25 20 20", '<path d="M5 13.6V9a5 5 0 0 1 10 0v4.6l1.6 2H3.4z"/><path d="M8.3 17.3a1.8 1.8 0 0 0 3.4 0"/>'),
   info: stroke("0 0 20 20", '<circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.3v.1"/>'),
   // A sidebar beside a page: folding it away or sliding it in.
   sidebar: stroke("0 0 20 20", '<rect x="2.8" y="3.8" width="14.4" height="12.4" rx="1.6"/><path d="M7.8 3.8v12.4"/>'),
-  filter: stroke("0 0 20 20", '<path d="M3 4.5h14l-5.5 6.4v5.3l-3-1.6v-3.7z"/>'),
+  filter: stroke("0 0.35 20 20", '<path d="M3 4.5h14l-5.5 6.4v5.3l-3-1.6v-3.7z"/>'),
   sort: stroke("0 0 20 20", '<path d="M6.5 4v12M3.5 7l3-3 3 3M13.5 16V4M10.5 13l3 3 3-3"/>'),
   key: stroke("0 0 20 20", '<circle cx="5.6" cy="10" r="3.6"/><path d="M9.2 10H18M14 10v3M17.3 10v3"/>'),
   image: stroke("0 0 20 20", '<path d="M3 4h14v12H3z"/><circle cx="7.4" cy="8" r="1.4"/><path d="M3.4 15.4l4.6-4.6 3 3 2-2 3.6 3.6"/>'),
@@ -171,8 +171,17 @@ export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="tru
 const LOGO_ART = '<span class="logo-art on-light"></span><span class="logo-art on-smoked"></span>';
 export const WORDMARK = raw(LOGO_ART);
 export const MARK = raw(LOGO_ART);
-/** A brand file as a CSS image: its text in a data: URL, with what a URL can't hold escaped. */
-const logoImage = (svg: string) => `url("data:image/svg+xml,${svg.replace(/"/g, "'").replace(/[#%<>\n]/g, encodeURIComponent)}")`;
+/**
+ * A drawing with its ids renamed to the shortest names, in the order they're defined, and every reference to them with them: an image's
+ * ids are its own, so it draws the same, and the first paint every page carries is shorter.
+ */
+export function withShortIds(svg: string): string {
+  const shortIds = new Map([...svg.matchAll(/ id="([^"]+)"/g)].map((found, index) => [found[1]!, index.toString(36)]));
+  return svg.replace(/( id=")([^"]+)(")|(#)([^)"]+)(?=[)"])/g, (whole, idBefore, id, idAfter, hash, referenced) =>
+    id !== undefined ? `${idBefore}${shortIds.get(id) ?? id}${idAfter}` : shortIds.has(referenced) ? `${hash}${shortIds.get(referenced)}` : whole);
+}
+/** A brand file as a CSS image: its text, with short ids, in a data: URL, with what a URL can't hold escaped. */
+const logoImage = (svg: string) => `url("data:image/svg+xml,${withShortIds(svg).replace(/"/g, "'").replace(/[#%<>\n]/g, encodeURIComponent)}")`;
 /** Each drawing's shape, from its viewBox, so it keeps it at the height the logo sets. */
 const logoShape = (svg: string) => (/viewBox="[^ ]+ [^ ]+ ([^ ]+) ([^"]+)"/.exec(svg)?.slice(1, 3) ?? ["1", "1"]).join(" / ");
 /** The Logo component's drawings (foundations.ts), for its styles. */

@@ -4,7 +4,8 @@ import { component } from "./component.ts";
 import { controlMarkup, type ControlMarkup } from "./control-markup.ts";
 import { CUT_LINE, glassPane, icon, tag, well, type IconName } from "./foundations.ts";
 import { stack } from "./layout.ts";
-import { HEADER_RAIL_MEDIA, tokenValue } from "./tokens.ts";
+import { selectField } from "./choices.ts";
+import { HEADER_RAIL_MEDIA, SCREEN_QUERIES, tokenValue } from "./tokens.ts";
 
 /*
  * The switch, from the sign-in draft's Sign in / Make an account switch and the home draft's sort switch, and the three foundations
@@ -52,6 +53,16 @@ export function tabSwitch(options: {
   isVertical?: boolean;
   /** Across only: it fills the width it's in, its tabs sharing it (a pane's head: Sign in or Make an account), rather than its words' width. */
   isFull?: boolean;
+  /**
+   * Its tabs are links to parts of this page (href "#overview", "#rooms"), and only the chosen one's part shows: the others are hidden, and
+   * the address's # opens the one it names, so a link to it lands there. The page hides all but the first itself, for the first paint.
+   */
+  isShowingOnePanel?: boolean;
+  /**
+   * A menu (a Select field) of the same choices, shown in the switch's place on a phone, upright or on its side, where a row of tabs
+   * would run past the screen: the switch on wider screens, the menu on narrow ones, never both. The page's script hears either.
+   */
+  menuWhenNarrow?: ControlMarkup;
 }): ControlMarkup {
   const isSmall = options.switchSize === "small";
   const inside = (tab: SwitchTab) =>
@@ -65,7 +76,7 @@ export function tabSwitch(options: {
     html`${tab.isFoldable && tab.isFolded ? raw(' tabindex="-1" aria-hidden="true"') : ""}${inShutFolder.has(tab) ? raw(" hidden") : ""}`;
   const folder = (tab: SwitchTab) =>
     html`<button type="button" class="flush-row quiet switch-folder" data-lights aria-expanded="${tab.isCurrent ? "true" : "false"}">${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span><span class="switch-folder-arrow">${icon("chevron-right")}</span></button>`;
-  const tabSwitch = html`<div class="tab-switch carving-parts ${kind}" role="group" aria-label="${options.label}"><span class="switch-slab slab-layer cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.flatMap((tab) => [tab, ...(tab.places ?? [])]).map((tab) =>
+  const tabSwitch = html`<div class="tab-switch carving-parts ${kind}" role="group" aria-label="${options.label}"${options.isShowingOnePanel ? raw(" data-shows-one-panel") : ""}><span class="switch-slab slab-layer cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span><span class="focus-ring" aria-hidden="true" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}</span>${options.tabs.flatMap((tab) => [tab, ...(tab.places ?? [])]).map((tab) =>
     tab.places?.length ? folder(tab) : tab.href
       ? // A link that can't be followed now has no address, so nothing reaches it; it still says what it is.
         html`<a class="flush-row quiet${classNames(tab) ? ` ${classNames(tab)}` : ""}" data-lights${tab.isDisabled ? raw(' aria-disabled="true"') : html` href="${tab.href}"`}${folding(tab)}${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
@@ -73,7 +84,7 @@ export function tabSwitch(options: {
   )}</div>`;
   // Its tabs sit in a Well, which stays put while they scroll inside it, fading at its ends: across, with the rail under the well;
   // stacked, with the rail beside its places.
-  return controlMarkup(
+  const switchMarkup = controlMarkup(
     well({
       kind: `switch-well ${kind}${options.isFull && !options.isVertical ? " is-full" : ""}`,
       scrollDirection: options.isVertical ? "down" : "across",
@@ -83,6 +94,7 @@ export function tabSwitch(options: {
     }),
     isSmall ? "small" : "regular",
   );
+  return options.menuWhenNarrow ? controlMarkup(html`<span class="switch-or-menu"><span class="as-switch">${switchMarkup}</span><span class="as-menu">${options.menuWhenNarrow}</span></span>`, options.menuWhenNarrow.controlHeight, { hasOwnWords: true }) : switchMarkup;
 }
 
 /** The gallery's pane with a full switch at its head, as the sign-in pane has it, on the tab named. */
@@ -105,8 +117,8 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
     var rowGapPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-row")) || 4;
     function besideReach(el) { return Math.max(0, ((Number(el.getAttribute("data-cut-line")) || 0) - rowGapPx) / 2); }
-    // The slab is one size on every tab (its tabs are one width), so it slides as a fixed piece of glass. One clock moves it: each frame its
-    // place is set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
+    // The slab slides as one piece of glass, its size easing with its place where its tabs differ in width. One clock moves it: each frame its
+    // place and size are set and its cut shape and bevel (which blend between a tab at the switch's end and one beside another) drawn in the same step,
     // so nothing trails it. It eases in and out to its tab with no overshoot (cubic-bezier(.4, 0, .2, 1)), landing on a whole device pixel,
     // so it never jumps as it starts, swings back past its place or snaps a pixel as it settles. --slide-ms long.
     var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -133,19 +145,28 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     // switch) moves where it lands without cutting the slide short.
     function slide(el, to, ms) {
       var carrier = el === slab ? pageGlide : null, ease = carrier ? carrier.ease : slideEase;
-      // Carrying the page, its clock starts on the first frame after the press, so the time the press took to draw isn't a jump at the start.
-      var from = el.slideAt || to, startMs = carrier ? null : performance.now(), id = (el.slideId || 0) + 1; el.slideId = id; el.slideTarget = to;
-      (function frame() {
+      // Its clock is the frames' own: it starts on the first frame after the press, so the time the press took to draw (a slow phone's first
+      // frame) is never a jump at the start, and each step is the time between the frames shown, whatever else ran in them.
+      var from = el.slideAt || to, startMs = null, id = (el.slideId || 0) + 1; el.slideId = id; el.slideTarget = to;
+      // A move by script says how long it runs while it runs (the motion sheet reads it as it reads a transition).
+      el.setAttribute("data-move-duration-ms", String(Math.round(ms)));
+      (function frame(frameMs) {
         if (el.slideId !== id) return;
-        var t = startMs === null ? 0 : Math.min(1, (performance.now() - startMs) / ms), e = ease(t); to = el.slideTarget;
+        var t = startMs === null || frameMs === undefined ? 0 : Math.min(1, (frameMs - startMs) / ms), e = ease(t); to = el.slideTarget;
         // Stopped on the way (a wheel, a touch), the page keeps where it is, and whatever follows the page says where the slab goes.
         if (carrier && carrier.isOn) window.scrollTo(window.scrollX, carrier.fromY + (carrier.toY - carrier.fromY) * e);
-        // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame.
-        if (el.redrawCut) el.redrawCut({ isFrame: true });
+        // Its shape is drawn before it's moved: drawing reads its size, and reading after a move would lay the page out again mid-frame. A
+        // slab changing size (a full switch's tabs of different widths) is sized first, so its shape is drawn for the size it shows.
+        var isResizing = from.size !== to.size || (to.width !== undefined && from.width !== to.width);
+        if (el.redrawCut && !isResizing) el.redrawCut({ isFrame: true, progress: t });
         // Between pixels as it moves (its own layer moves it smoothly there; whole steps stuttered where it goes slowly), on one as it lands.
-        place(el, { pos: t < 1 ? from.pos + (to.pos - from.pos) * e : to.pos, size: to.size, across: to.across === undefined ? undefined : t < 1 ? (from.across || 0) + (to.across - (from.across || 0)) * e : to.across, width: to.width });
-        if (t < 1) { requestAnimationFrame(function () { if (startMs === null) startMs = performance.now(); frame(); }); return; }
+        // Its size eases with its place, so a slab moving between tabs of different widths (a full switch's) never takes the new width at once.
+        var blend = function (start, end) { return t < 1 && start !== undefined ? start + (end - start) * e : end; };
+        place(el, { pos: blend(from.pos, to.pos), size: blend(from.size, to.size), across: to.across === undefined ? undefined : blend(from.across || 0, to.across), width: to.width === undefined ? undefined : blend(from.width, to.width) });
+        if (el.redrawCut && isResizing) el.redrawCut({ isFrame: true, progress: t });
+        if (t < 1) { requestAnimationFrame(function (nowMs) { if (startMs === null) startMs = nowMs; frame(nowMs); }); return; }
         // Landed, it's cut again where it rests, so its corners are always the edge rule's for the place it's in.
+        el.removeAttribute("data-move-duration-ms");
         el.slideTarget = null; if (el.redrawCut) el.redrawCut();
         if (carrier && carrier.isOn) carrier.land();
       })();
@@ -231,7 +252,7 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         slide(el, to, ms);
         return;
       }
-      el.slideId = (el.slideId || 0) + 1; el.slideTarget = null; place(el, to); if (el.redrawCut) el.redrawCut();
+      el.slideId = (el.slideId || 0) + 1; el.slideTarget = null; el.removeAttribute("data-move-duration-ms"); place(el, to); if (el.redrawCut) el.redrawCut();
     }
     function slideMs(el) { return el === slab && pageGlide ? pageGlide.ms : parseFloat(getComputedStyle(el).getPropertyValue("--slide-ms")) || 550; }
     // A stacked switch's place within this page: the page carries the move. Its distance sets the time, 400ms up to a screen and longer past that,
@@ -388,6 +409,31 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
         sw.pickTab(tab);
       });
     });
+    // Showing one part at a time: a tab shows its part and hides the rest, with no jump down the page; the address's # says which, so
+    // Back, a shared link and a link from elsewhere on the page open the same one.
+    if (sw.hasAttribute("data-shows-one-panel")) {
+      var panelOf = function (tab) { var id = tab.hash ? decodeURIComponent(tab.hash.slice(1)) : ""; return id ? document.getElementById(id) : null; };
+      var showPanel = function (tab) { tabs.forEach(function (each) { var panel = panelOf(each); if (panel) panel.hidden = each !== tab; }); };
+      var fromAddress = function () {
+        var named = Array.prototype.filter.call(tabs, function (each) { return each.hash && each.hash === location.hash; })[0];
+        if (!named) return;
+        showPanel(named);
+        if (named.getAttribute("aria-current") !== "page") sw.pickTab(named);
+      };
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function (event) {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !panelOf(tab)) return;
+          event.preventDefault();
+          history.replaceState(history.state, "", tab.hash);
+          showPanel(tab);
+          // The part comes in as its tab is picked, a short fade, never in one frame.
+          var shown = panelOf(tab); if (shown && shown.animate && !reduce) shown.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+        });
+      });
+      window.addEventListener("hashchange", fromAddress);
+      // Once the rest of this switch is set up (its folders), the address's part shows.
+      queueMicrotask(fromAddress);
+    }
     // A folder opens and shuts in place, its places growing from nothing or closing to it; the switch's changing height keeps the slab on its row.
     // The one you're in stays open, and opening another shuts the rest, so what's open never piles up.
     var folders = Array.prototype.slice.call(sw.querySelectorAll(":scope > .switch-folder"));
@@ -459,6 +505,10 @@ component({
   subgroup: "choices",
   summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Of links, a page's own sections under its title (a game's dashboard, a profile); stacked, a page's own places down its side.",
   styles: `
+/* A switch with a menu for narrow screens: the switch wider than a phone, the menu on a phone upright or on its side, never both. */
+.switch-or-menu { display: block; min-width: 0; }
+.switch-or-menu > .as-menu { display: none; }
+@media ${SCREEN_QUERIES.phone} { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }
 /* The switch: the header's and the home's. A carved well, a raised slab under the one you're on, lit like any raised glass, and a faint one under the
    one you point at. No orange: it's a choice, not the thing to do, so orange is left for keyboard focus.
    It's as big as what's in it: its size is its words' (a small switch's are 14px, a big one's 16px) and the room round them, all round
@@ -476,7 +526,8 @@ component({
   clip-path: none; font: 500 1rem/1.1 var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 /* Its tabs are at least its size's control height, less its inset, so it lines up with the controls beside it at any text size. */
 /* Across, it's as wide as its tabs, one line each, and its tabs are all one width, the widest's, so the slab is one size on every tab and
-   only slides: glass doesn't change size as it moves. Past the room it has, its Well stays put, a carving can't move or
+   only slides: glass doesn't change size as it moves. A full switch in less room than that (the sign-in pane on a phone) gives its tabs
+   their words' widths, and the slab's size eases with its slide (SWITCH_SCRIPT), never stepping in one frame. Past the room it has, its Well stays put, a carving can't move or
    fade, and what's in it scrolls inside it, fading at its ends, with the rail under the well. */
 .well.switch-well { align-items: stretch; width: max-content; max-width: 100%; min-height: 0; }
 .well.switch-well > .well-body { min-width: 0; padding: 0; font: inherit; }
@@ -579,6 +630,19 @@ component({
       label: `Full, at a pane's head: on ${current}`,
       markup: html`<div style="width:min(420px,100%)">${paneHeadSwitch(current)}</div>`,
     })),
+    {
+      label: "Showing one part at a time: each tab shows its part under it and hides the rest (a game's page: Overview, Rooms, Updates)",
+      markup: html`<div style="width:min(420px,100%)">${stack({ items: [
+        { kind: "control", markup: tabSwitch({ label: "The example's parts", switchSize: "regular", isShowingOnePanel: true, tabs: [{ label: "Overview", href: "#example-part-overview", isCurrent: true }, { label: "Rooms", href: "#example-part-rooms", isCurrent: false }, { label: "Updates", href: "#example-part-updates", isCurrent: false }] }) },
+        { kind: "words", id: "example-part-overview", markup: html`<p>What the game is, its details and what it sells.</p>` },
+        { kind: "words", id: "example-part-rooms", isHidden: true, markup: html`<p>Join by code, friends' rooms, then every room.</p>` },
+        { kind: "words", id: "example-part-updates", isHidden: true, markup: html`<p>The patch notes, newest first.</p>` },
+      ] })}</div>`,
+    },
+    {
+      label: "With a menu for narrow screens: the tabs here, a Select field of the same choices on a phone (a game's Rooms tab: its modes and maps)",
+      markup: tabSwitch({ label: "Mode", switchSize: "small", tabs: [{ label: "Any mode", tabValue: "", isCurrent: true }, { label: "Survival", tabValue: "Survival", isCurrent: false }, { label: "Creative", tabValue: "Creative", isCurrent: false }], menuWhenNarrow: selectField({ id: "example-switch-menu", name: "example_mode", label: "Mode", isLabelHidden: true, choices: [{ label: "Any mode", choiceValue: "" }, { label: "Survival", choiceValue: "Survival" }, { label: "Creative", choiceValue: "Creative" }] }) }),
+    },
     {
       label: "Small",
       markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] }),

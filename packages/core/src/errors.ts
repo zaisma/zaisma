@@ -43,6 +43,7 @@ export const ERROR_CODES = {
   slug_taken: { httpStatus: 409, meaning: "Another game has that link name, or a deleted game had it.", messageForPeople: "Another game has that link name, or had it. Pick another." },
   too_many_games: { httpStatus: 403, meaning: "The account has as many games as it can have.", messageForPeople: "Your account has as many games as an account can. Delete one to make another." },
   account_banned: { httpStatus: 403, meaning: "Zaisma banned the account's developer side, or the whole account: only get_access, list_games and export_game work, and for a whole-account ban nothing does.", messageForPeople: "Zaisma banned this account's developer side for breaking Zaisma's rules. Export your games to keep them." },
+  account_paused: { httpStatus: 403, meaning: "A person at Zaisma needs to look at the account: until then it can't make, upload or publish games, or post on the forum.", messageForPeople: "A person at Zaisma needs to look at this account. Until then it can't upload, publish or post." },
   publishing_not_open: { httpStatus: 403, meaning: "Until the beta, only accounts Zaisma adds can make, upload and publish games.", messageForPeople: "Until the beta, only accounts Zaisma adds can make, upload and publish games." },
   bad_title: { httpStatus: 400, meaning: "A game's, topic's or precedent's title is empty or too long.", messageForPeople: "A title can't be empty or longer than the field allows. Write a shorter one." },
   title_names_zaisma: { httpStatus: 400, meaning: "A game's title holds the whole word Zaisma, which only Zaisma's own games can use.", messageForPeople: "A game's title can't use the word Zaisma. Name the game something of its own." },
@@ -150,7 +151,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID.", messageForPeople: "The game has no such version. Reload the page." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, and a What's on entry's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned.", messageForPeople: "This version is still being scanned. It usually takes under a minute." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published.", messageForPeople: "This version didn't pass review, so it can't be published." },
 
@@ -374,6 +375,9 @@ export const ADMIN_ERROR_CODES = {
   // Bans
   already_banned: { httpStatus: 409, meaning: "The account is banned already at that scope or wider; only a developer ban widens to whole_account.", messageForPeople: "This account is banned already." },
   not_banned: { httpStatus: 409, meaning: "The account isn't banned, so there's nothing to lift.", messageForPeople: "This account isn't banned." },
+  no_ncmec_report: { httpStatus: 404, meaning: "There's no NCMEC report with that ID: list_ncmec_reports lists them.", messageForPeople: "There's no such NCMEC report." },
+  ncmec_report_not_sendable: { httpStatus: 409, meaning: "The NCMEC report is sent or being sent already: only one that's ready, stopped by the daily brake or failed can be sent.", messageForPeople: "That report is sent or being sent already." },
+  not_paused: { httpStatus: 409, meaning: "The account isn't paused.", messageForPeople: "That account isn't paused." },
   no_ban_match: { httpStatus: 404, meaning: "There's no ban match with that ID.", messageForPeople: "There's no such ban match." },
   ban_match_decided: { httpStatus: 409, meaning: "The ban match was decided already.", messageForPeople: "This ban match was decided already." },
   bad_ban_scope: { httpStatus: 400, meaning: "ban_scope isn't developer or whole_account.", messageForPeople: "A ban is of the developer side or the whole account." },
@@ -383,12 +387,15 @@ export const ADMIN_ERROR_CODES = {
   // Publishing before the beta
   unknown_username: { httpStatus: 404, meaning: "No account has that username.", messageForPeople: "No account has that username." },
 
-  // Announcements
-  no_announcement: { httpStatus: 404, meaning: "There's no announcement with that ID.", messageForPeople: "There's no such announcement." },
-  announcement_ended: { httpStatus: 409, meaning: "The announcement has ended already.", messageForPeople: "The announcement has ended already." },
-  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "An announcement is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
+  // What's on
+  no_whats_on_entry: { httpStatus: 404, meaning: "There's no What's on entry with that ID.", messageForPeople: "There's no such entry." },
+  whats_on_entry_ended: { httpStatus: 409, meaning: "The What's on entry has ended already.", messageForPeople: "That has ended already." },
+  bad_event_title: { httpStatus: 400, meaning: "An event's title isn't 1 to 60 characters.", messageForPeople: "An event's name is 1 to 60 characters." },
+  bad_news_title: { httpStatus: 400, meaning: "News's title isn't 1 to 60 characters.", messageForPeople: "News is 1 to 60 characters." },
+  bad_art: { httpStatus: 400, meaning: "An event's art isn't a PNG, WebP or JPEG within the size cap.", messageForPeople: "That art can't be used." },
+  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "Text is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
   bad_link_url: { httpStatus: 400, meaning: "link_url isn't an https address or a path on zaisma.com starting with /.", messageForPeople: "A link is an https address or a zaisma.com path starting with /." },
-  bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 30 characters, or was given without link_url.", messageForPeople: "A link's words are 1 to 30 characters, and come with a link." },
+  bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 20 characters.", messageForPeople: "A link's words are 1 to 20 characters." },
 
   // Page speed
   speed_not_set_up: { httpStatus: 503, meaning: "The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with.", messageForPeople: "Page speed isn't set up." },

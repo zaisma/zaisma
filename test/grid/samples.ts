@@ -194,6 +194,7 @@ export const OWNER_NOT_PROVEN: Readonly<Record<string, string>> = {
   "GET /js/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /css/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /img/*": "A served picture: test/site/uploads.test.ts.",
+  "GET /whats-on-art/*": "An event's art, Zaisma's own, served to anyone: test/site/whats-on.test.ts.",
   "GET /shaders/*": "A served shader: test/site/backgrounds.test.ts.",
   "GET /shader-checks/*": "A served sheet: test/site/shader-check.test.ts.",
   "POST /github/secret-scanning": "Signed with GitHub's key: test/site/leaked-keys.test.ts.",

@@ -183,12 +183,15 @@ export const STORED_VALUES: readonly StoredValue[] = [
   { stored: "chat_reviews.text", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.recent_texts_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "chat_reviews.ai_reason", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  // Zaisma's news for players, posted through the admin MCP (post_announcement).
-  { stored: "announcements.text", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
-  { stored: "announcements.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
-  // Its label shows on the home only beside a link in shape, which the hostile pass never plants with it, so no page is listed (it's escaped there).
-  { stored: "announcements.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
-  { stored: "announcements.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.details_json", format: "escaped_text", source: "player", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.ncmec_report_number", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "ncmec_reports.last_error", format: "escaped_text", source: "outside", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  // What's on's events and news for players, posted through the admin MCP.
+  { stored: "whats_on_entries.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  { stored: "whats_on_entries.link_url", format: "web_address", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [HOME] },
+  // Its words show only on an event's button, and the world the stored values test builds holds news, so no page is listed (it's escaped there).
+  { stored: "whats_on_entries.link_label", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
+  { stored: "whats_on_entries.created_by", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
   { stored: "precedents.title", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },
   { stored: "precedents.applies_when", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: ["page:GET /admin/precedents"] },
   { stored: "precedents.decision", format: "escaped_text", source: "zaisma", checked_by: null, saved_by_door_ids: [], shown_on_door_ids: [] },
@@ -212,6 +215,8 @@ export const STORED_VALUES: readonly StoredValue[] = [
 export const CLOSED_COLUMN_NAME = /^(id|kind|date|day|month|token|code|sha256)$|_(id|ids|sha256|hash|key|token|code|status|kind|level|mode|band|choice|via|access|date)$|^who_/;
 
 export const CLOSED_TEXT_COLUMNS: readonly string[] = [
+  // The announcements the admin MCP once posted: nothing writes or shows them since What's on's news took their place.
+  "announcements.text", "announcements.link_url", "announcements.link_label", "announcements.created_by",
   "door_answer_cuts.door_id",
   "door_answer_cuts.field_paths",
   // A game's own review status and reason, kept only to put back on the game (a bring-back).
@@ -220,7 +225,7 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   "games.visibility_after_ai_review", "versions.ai_review_speed", "versions.ai_review_waiting_reason",
   // What the AI review's readers found: only Zaisma's code writes it, and it's only read back into the judge's brief.
   "read_files.evidence_items",
-  "accounts.color_theme", "accounts.chat_stopped_reason", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
+  "accounts.color_theme", "accounts.chat_stopped_reason", "ncmec_reports.report_source", "accounts.ban_scope", "accounts.ban_content_rule", "ban_matches.decision", "api_keys.found_in", "mcp_clients.token_endpoint_auth_method", "audit_log.action", "chat_reviews.source", "checked_files.provider", "forum_post_ratings.rating", "forum_reports.reason", "forum_topic_tags.tag",
   "forum_topics.category", "forum_topics.severity", "game_backgrounds.screen", "game_backgrounds.source", "game_shaders.screen", "games.visibility", "games.purchase_delivery", "games.devices", "games.controls", "games.genres",
   "games.screen_orientation", "games.play_modes", "games.room_browsing", "games.built_in_server", "games.account_requirement", "friend_requests.answer", "profile_reports.reason", "reports.reason", "reports.player_reason",
   "review_precedents.decision", "review_precedents.content_rule", "room_message_types.direction", "save_history.copy_reason", "security_events.done_by", "webhooks.event_kinds",
@@ -234,6 +239,8 @@ export const CLOSED_TEXT_COLUMNS: readonly string[] = [
   // An item's prices in other currencies, from a closed list of currencies and whole numbers (checkItem); a purchase's item name, copied from the game's checked item;
   // a deleted game's slug and title, copied from its checked row as it's deleted (gameRowDeletions), shown only in its players' Download your data.
   "game_items.local_prices", "purchases.item_name", "purchases.deleted_game_slug", "purchases.deleted_game_title",
+  // A browser's buying key: exactly a P-256 public key in base64url (buy.ts, buyingPublicKeyOf), kept only after a confirm and never shown.
+  "buying_keys.public_key_base64", "purchase_confirmations.buying_public_key_base64",
   // Arrays of counts Zaisma's code adds up (player-performance.ts).
   "performance_days.loading_counts", "performance_days.frame_rate_seconds", "performance_days.memory_counts",
 ];

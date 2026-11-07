@@ -85,7 +85,9 @@ import {
 import { noteRulingOnGame } from "./standing.ts";
 import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
 import { sendAlert } from "./email.ts";
+import { readyPlayerReport } from "./ncmec.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
+import { adminNcmecAction, adminNcmecPage } from "./admin-ncmec.ts";
 import { adminPublishingAction, adminPublishingPage } from "./admin-publishing.ts";
 import { adminIdentity } from "./access.ts";
 import { clearFakeRewardItems, clearImageListingReason, clearTitleListingReason } from "./listing-check.ts";
@@ -211,6 +213,7 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (path === "/admin/audit") return auditPage(env);
   if (path === "/admin/profiles") return page(env, "Admin, profiles", "Profiles", await adminProfilesPage(env));
   if (path === "/admin/chat-reviews") return page(env, "Admin, chat reviews", "Chat reviews", await adminChatReviewsPage(env));
+  if (path === "/admin/ncmec") return page(env, "Admin, NCMEC reports", "NCMEC reports", await adminNcmecPage(env));
   if (path === "/admin/publishing") return page(env, "Admin, publishing", "Publishing", await adminPublishingPage(env, new URL(request.url).searchParams.get("not_found")));
   if (path === "/admin/reports") return reportQueue(env);
   if (path === "/admin/precedents") return page(env, "Admin, precedents", "Precedents", await precedentsPage(env));
@@ -262,6 +265,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   if (profileDone) return redirect(profileDone);
   const chatReviewDone = await adminChatReviewAction(env, path, actor);
   if (chatReviewDone) return redirect(chatReviewDone);
+  const ncmecDone = await adminNcmecAction(env, path, actor);
+  if (ncmecDone) return redirect(ncmecDone);
   const publishingDone = await adminPublishingAction(env, path, form, actor);
   if (publishingDone) return redirect(publishingDone);
   // Deciding a report in the queue can also set a precedent for cases like it.
@@ -546,7 +551,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await audit(env.DB, gameId, "social-stopped", `@${account.username}: ${PLAYER_REPORT_REASONS[stoppedReason]}. ${reason}`.trim(), actor);
       // Something sexual toward a teen, confirmed: the law asks for a report, which names someone to the police, so Julius sends it.
       if (isChildSafety) {
-        await sendAlert(env, `URGENT: report to NCMEC: @${account.username}`, `A person confirmed a child-safety report about @${account.username} (player ${lead!.player_id}) and turned off their social side. Don't delete anything; the reports stay on the admin page.\n\n${reason}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${gameId}`);
+        await readyPlayerReport(env, match[1]!, account.id);
+        await sendAlert(env, `URGENT: report to NCMEC: @${account.username}`, `A person confirmed a child-safety report about @${account.username} (player ${lead!.player_id}) and turned off their social side. Don't delete anything; the reports stay on the admin page. A report to NCMEC is ready: press Send at ${env.SITE_ORIGIN}/admin/ncmec.\n\n${reason}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${gameId}`);
       }
       return back("/admin/reports");
     }

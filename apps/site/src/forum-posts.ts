@@ -252,7 +252,7 @@ export async function storePost(
   const matched: { mediaId: string; isClean: boolean }[] = [];
   for (const image of post.images) {
     const mediaId = newId("media");
-    const outcome = await matchUpload(env, mediaId, image.bytes, image.contentType, caller.accountId);
+    const outcome = await matchUpload(env, mediaId, image.bytes, image.contentType, caller.accountId, undefined, caller.where.connectionAddress);
     if (outcome === "match") refuse();
     matched.push({ mediaId, isClean: outcome === "clean" });
   }
@@ -306,7 +306,7 @@ export async function uploadDraftMedia(env: Env, caller: Caller, bytes: Uint8Arr
   }
   const image = readImage(bytes);
   const id = newId("media");
-  const outcome = await matchUpload(env, id, image.bytes, image.contentType, caller.accountId);
+  const outcome = await matchUpload(env, id, image.bytes, image.contentType, caller.accountId, undefined, caller.where.connectionAddress);
   if (outcome === "match") refuse();
   await env.GAMES.put(forumMediaKey(id), image.bytes, { httpMetadata: { contentType: image.contentType } });
   await env.DB.prepare("INSERT INTO forum_media (id, post_id, account_id, content_type, position_index, created_at_ms, has_passed_matching, storage_key) VALUES (?, NULL, ?, ?, 0, ?, ?, ?)")

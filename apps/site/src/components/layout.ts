@@ -1,6 +1,6 @@
 import { Raw, html, raw, type EmptyNoteMarkup } from "../markup.ts";
 import { CONTROL_HEIGHTS, ControlMarkup, type ControlHeight } from "./control-markup.ts";
-import { BARE_GROUPS, HEADER_RAIL_MEDIA, WORDS_HOLDERS } from "./tokens.ts";
+import { BARE_GROUPS, HEADER_RAIL_MEDIA, SCREEN_QUERIES, WORDS_HOLDERS } from "./tokens.ts";
 
 /*
  * Layout: how a page puts components together, as components like any other (docs/DECISIONS.md, "A page is only gallery components,
@@ -227,11 +227,12 @@ export type GridOptions = {
   /**
    * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
-   * three, two and then one across as they run out of a cover's least width. hasLeadCell makes the first cover the one the list is
-   * grounded on (Your games' featured favorite): two cells wide and two lines tall where three or more fit across, the whole line at two.
-   * isAtLeastTwoAcross keeps two covers to a line however narrow it gets (a library on a phone), so a list of many shows more at a glance.
+   * three, two and then one across as they run out of a cover's least width. isAtLeastTwoAcross stops at two, however small the covers get (the
+   * home's What's on on a phone, a library on a phone). isLeadWideAtTwoAcross gives the first cell the whole line wherever it's two across, so
+   * three cells never leave one alone. hasLeadCell makes the first cover the one the list is grounded on (Your games' featured favorite): two
+   * cells wide and two lines tall where three or more fit across, the whole line at two.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; hasLeadCell?: boolean; isAtLeastTwoAcross?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isLeadWideAtTwoAcross?: boolean; hasLeadCell?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -249,7 +250,7 @@ const CONTROL_STACK_GAP_PX = 8;
 export function grid(options: GridOptions): LayoutMarkup {
   if (options.itemSize === "cover" && options.isAllOnOneLine) {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
-    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, " is-one-line")}</div>`);
+    return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}${options.isLeadWideAtTwoAcross ? " is-lead-wide" : ""}`)}</div>`);
   }
   const twoAcross = options.itemSize === "cover" && options.isAtLeastTwoAcross ? " is-at-least-two-across" : "";
   if (options.itemSize === "cover" && options.hasLeadCell) return asLayout(html`<div class="grid-lead-cell">${gridMarkup(options, ` has-lead-cell${twoAcross}`)}</div>`);
@@ -261,13 +262,29 @@ function gridMarkup(options: GridOptions, variantClass: string): Raw {
   return html`<div class="layout-grid item-${options.itemSize}${variantClass}"${options.id ? html` id="${options.id}"` : ""}${groupLabel(options.label)}>${options.items.map((layoutItem) => html`<div class="grid-cell is-${layoutItem.kind}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`)}</div>${options.whenEmpty ? html`<div class="when-empty"${options.items.some((layoutItem) => !layoutItem.isHidden) ? raw(" hidden") : ""}>${options.whenEmpty}</div>` : ""}`;
 }
 
+export interface LeadAndSideOptions {
+  lead: LayoutItem;
+  side: LayoutItem;
+}
+
+/**
+ * The thing a page is about and what goes beside it: the lead two thirds of the width and the side a third; half and half with less room; one under
+ * the other with less still. A one-line grid in the side stacks while the side is a third, so its covers stay whole and line up with the lead.
+ */
+export function leadAndSide(options: LeadAndSideOptions): LayoutMarkup {
+  return asLayout(html`<div class="lead-and-side"><div class="lead-and-side-in"><div class="lead-and-side-lead">${options.lead.markup}</div><div class="lead-and-side-side">${options.side.markup}</div></div></div>`);
+}
+
 export interface TrackOptions {
   /** Unique on the page: a page script fills it in. */
   id: string;
   /** Start to end: blocks, each one cell. A page script may add more of the same. */
   items: LayoutItem[];
-  /** What a cell holds, which names its width: a cover, with words under it, or a picture with an edge of its own and none (a game's screenshots). */
-  itemSize: "cover" | "picture";
+  /**
+   * What a cell holds, which names its width: a cover, with words under it; a picture with an edge of its own and none (a game's
+   * screenshots); or a thumbnail, a small picture under a large one (the rest of a game's screenshots, under its first).
+   */
+  itemSize: "cover" | "picture" | "thumbnail";
   label?: string;
   /** What shows in its place while it has no covers (an Empty state), a page script's included. */
   whenEmpty: EmptyNoteMarkup;
@@ -283,10 +300,21 @@ export interface ColumnsOptions {
   columns: [NotControlMarkup, NotControlMarkup];
   /** The column that stays in view under the header while the other scrolls: a game's details. */
   stickyColumn?: "first" | "second";
+  /** Even: half each. Wide first: the first gets three fifths (a game's pictures beside its name and Play). */
+  split?: "even" | "wide-first";
+  /**
+   * On a screen that's wide but short (a phone turned sideways), the two stay side by side down to a narrower least, so what the
+   * second holds (Play) isn't pushed below the screen by the first.
+   */
+  isSideBySideWhenShort?: boolean;
+  /** One over the other, the second comes first (a game's Rooms tab: the room code before the order and the options, on an upright phone). */
+  isSecondFirstWhenStacked?: boolean;
 }
 
 /** The least a column gets before the two go one over the other: a little more than a phone's width, so what's made for one fits. */
 export const COLUMN_LEAST_PX = 360;
+/** On a phone on its side (SCREEN_QUERIES.phoneSideways), side-by-side columns each get at least this much. */
+export const SHORT_COLUMN_LEAST_PX = 240;
 /** --gap-block-block, for the container query, which can't read a token. */
 const BLOCK_GAP_PX = 24;
 
@@ -295,7 +323,8 @@ const BLOCK_GAP_PX = 24;
  * fits what's in it; one that should take half the screen goes in a column here.
  */
 export function columns(options: ColumnsOptions): LayoutMarkup {
-  return asLayout(html`<div class="layout-columns${options.stickyColumn ? ` sticky-${options.stickyColumn}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
+  const kinds = [options.stickyColumn ? `sticky-${options.stickyColumn}` : "", options.split === "wide-first" ? "wide-first" : "", options.isSideBySideWhenShort ? "side-by-side-when-short" : "", options.isSecondFirstWhenStacked ? "second-first-when-stacked" : ""].filter(Boolean).join(" ");
+  return asLayout(html`<div class="layout-columns${kinds ? ` ${kinds}` : ""}"><div class="columns-in">${options.columns.map((column) => html`<div class="column">${column}</div>`)}</div></div>`);
 }
 
 export interface PanePartsOptions {
@@ -359,11 +388,13 @@ const WORDS_AT_FOOT: [string, string][] = [[":is(.cut-field, .pin-field)", "p:la
  */
 function edgeWords(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
+  const endHere = end;
   const own = edge === "top" ? WORDS_AT_TOP : WORDS_AT_FOOT;
   const selectorsOf = (depthCount: number) => {
     // Never into words beside a control: they sit on its center line instead. Never into a grid's or a track's first cell alone: the
     // others on its first line are at the edge too, so the grid or track takes the margin as a whole (BARE_UNITS).
-    const into = ` > *${end}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track)`.repeat(depthCount) + " > ";
+    // Never into a game card either: it's one piece with its own line, not words or rows at the pane's edge.
+    const into = ` > *${endHere}${BESIDE_CONTROLS}:not(.layout-grid, .layout-track, .cover)`.repeat(depthCount) + " > ";
     return [
       // A row's words are its own case, below.
       `${into}.is-words${end}:not(.row-cell)`,
@@ -403,8 +434,11 @@ function edgeRows(edge: "top" | "bottom"): string[] {
   const end = edge === "top" ? `:nth-child(1 of ${SHOWN})` : `:nth-last-child(1 of ${SHOWN})`;
   // A row on a field's boxes keeps to them.
   return PANE_CONTENT.filter((pane) => pane.isForRows && pane.edges.includes(edge))
-    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
+    .map((pane) => Array.from({ length: pane.depthCount }, (_, depthCount) => `${pane.holder}${` > *${end}:not(.cover)`.repeat(depthCount)} > .layout-row:not(.is-on-field-boxes)${end}`).join(",\n"));
 }
+
+/** Wider than this, lead and side stand side by side (equal halves, then two thirds and one third from 800px). */
+const LEAD_AND_SIDE_SIDE_BY_SIDE_PX = 440;
 
 export const STACK_STYLES = `
 /* A stack: one under another, each cell's gap above it picked by what's on each side (stack(), from the spacing table). A hidden cell takes no
@@ -524,7 +558,10 @@ ${rulesOf(edgeRows("bottom"), "align-items: flex-end;")}
    a control's gap apart. What comes last sits at its foot. As tall as the screen with the browser's bars showing, so it never resizes as they
    come and go. The page keeps the bar's room beside it, each clear of the notch. */
 @media ${HEADER_RAIL_MEDIA} {
-  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) { --header-room: var(--pad-frame); --header-gap: var(--pad-frame); }
+  /* The page's own panes are the bar's gap apart too, so every gap between glass on the page is one. */
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .layout-stack:not(.glass *) > .stack-cell.gap-top-block-block { margin-top: var(--pad-frame); }
+  html:not(.is-playing):has(> body > .bar-layout.has-tab-row) main .lead-and-side-in:not(.glass *) { gap: var(--pad-frame); }
   html:not(.is-playing):has(> body > .bar-layout.has-tab-row) body { padding-left: calc(max(var(--pad-frame), var(--safe-left), var(--corner-room)) + var(--header-height) + var(--pad-frame) - var(--pad-pane)); padding-right: var(--safe-right); }
   body > .bar-layout.has-tab-row:not(.searching) { top: var(--pad-frame); bottom: auto; left: max(var(--pad-frame), var(--safe-left), var(--corner-room)); width: var(--header-height); height: calc(100svh - 2 * var(--pad-frame)); transform: none; flex-direction: column; align-items: stretch; gap: var(--gap-control-stack); }
   body > .bar-layout.has-tab-row.has-tab-row:not(.searching) > * { margin: 0; max-width: none; }
@@ -572,15 +609,27 @@ export const GRID_STYLES = `
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 @container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: minmax(0, 1fr); } }
 /* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
    more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
 .grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
 /* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. */
-.layout-grid.item-cover.is-at-least-two-across { grid-template-columns: repeat(auto-fill, minmax(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), 1fr)); }
+.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * BLOCK_GAP_PX - 1}px) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
+@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
+@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
+`;
+
+export const LEAD_AND_SIDE_STYLES = `
+.lead-and-side { container: lead-and-side / inline-size; width: 100%; min-width: 0; }
+.lead-and-side-lead, .lead-and-side-side { min-width: 0; }
+.lead-and-side-in { display: grid; gap: var(--gap-block-block); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@container lead-and-side (min-width: ${LEAD_AND_SIDE_SIDE_BY_SIDE_PX}px) { .lead-and-side-in { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container lead-and-side (min-width: 800px) {
+  .lead-and-side-in { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .lead-and-side-side .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
+}
 `;
 
 export const TRACK_STYLES = `
@@ -599,10 +648,11 @@ export const TRACK_STYLES = `
 .layout-track { scroll-padding-inline: var(--pad-words); }
 @media (max-width: 760px), (max-height: 500px) { .layout-track { --fade-sideways-px: 28px; } }
 /* Pictures lie closer than game cards do: each has an edge of its own, side by side. */
-.layout-track.item-picture { gap: var(--gap-control-stack); }
+.layout-track:is(.item-picture, .item-thumbnail) { gap: var(--gap-control-stack); }
+.layout-track.item-thumbnail > * { flex: 0 0 clamp(96px, 18cqi, 160px); scroll-snap-align: start; }
 /* With no words under them, they keep no rail's room while they fit: nothing under them needs the words margin, so they sit at the frame gap
    from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
-.layout-track.item-picture:not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
+.layout-track:is(.item-picture, .item-thumbnail):not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
 .layout-track:is(.item-cover, .item-picture) > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
@@ -614,8 +664,18 @@ export const COLUMNS_STYLES = `
 .columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
 .columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .columns-in > .column > .glass-pane { width: 100%; }
+/* Words that start a column (a game's name beside its pictures) keep the words' margin above them, as words at a pane's top do, while a
+   block beside them (the pictures) sits at the frame gap. */
+.columns-in > .column > .layout-stack > .stack-cell.is-words:first-child { padding-block-start: var(--pad-words); }
 .layout-columns.sticky-first > .columns-in > .column:first-child, .layout-columns.sticky-second > .columns-in > .column:last-child { position: sticky; top: var(--header-room, var(--pad-pane)); }
 @container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .columns-in { grid-template-columns: minmax(0, 1fr); } .columns-in > .column { position: static !important; } }
+.layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@container (max-width: ${2 * COLUMN_LEAST_PX + BLOCK_GAP_PX - 1}px) { .layout-columns.wide-first > .columns-in { grid-template-columns: minmax(0, 1fr); } .layout-columns.second-first-when-stacked > .columns-in > .column:last-child { order: -1; } }
+@media ${SCREEN_QUERIES.phoneSideways} { @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short.second-first-when-stacked > .columns-in > .column:last-child { order: 0; } } }
+/* Wide but short (a phone on its side): side by side again from a narrower least, ${SHORT_COLUMN_LEAST_PX}px each. */
+@media ${SCREEN_QUERIES.phoneSideways} {
+  @container (min-width: ${2 * SHORT_COLUMN_LEAST_PX + BLOCK_GAP_PX}px) { .layout-columns.side-by-side-when-short > .columns-in { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .layout-columns.side-by-side-when-short.wide-first > .columns-in { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+}
 `;
 
 export const CARVING_END_STYLES = `

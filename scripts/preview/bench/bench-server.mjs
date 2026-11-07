@@ -13,7 +13,7 @@ export const GUEST_PROFILE = "guest";
 export const SCREEN_NAMES = ["phone", "turned", "laptop", "real"];
 const MARK_PATTERN = new RegExp(`^([a-z0-9-]+)\\.(${SCREEN_NAMES.join("|")})\\.(guest|[A-Za-z0-9_]+)\\.(still|moving)$`);
 /** The cookies a page's own script writes, so they stay the browser's. Every other cookie is the profile's. */
-const BROWSER_COOKIE_PATTERN = /^(__Host-)?(zaisma_played|zaisma_closed_news|download_started)$/;
+const BROWSER_COOKIE_PATTERN = /^(__Host-)?(zaisma_played|download_started)$/;
 /** A screen's device kind, as a real phone's or laptop's script would keep it (device-kind.ts). */
 const DEVICE_KIND_COOKIE = "zaisma_device_kind";
 const DEVICE_KIND_OF_SCREEN = { phone: "phone", turned: "phone", laptop: "computer" };

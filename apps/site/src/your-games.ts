@@ -13,12 +13,11 @@ import {
   type Account,
   type DeviceKind,
 } from "@zaisma/core";
-import { action, secondaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, tertiaryButton, textLink } from "./components/actions.ts";
 import { glassPane } from "./components/foundations.ts";
 import { cutField } from "./components/inputs.ts";
-import { grid, row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
-import { shelf } from "./components/navigation.ts";
-import { banner, gameCard, type DropdownItem } from "./components/panes.ts";
+import { row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
+import { banner, gameCard, gameGrid, type DropdownItem } from "./components/panes.ts";
 import { stateNote } from "./components/data.ts";
 import { tabSwitch } from "./components/switch.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
@@ -133,7 +132,7 @@ function card(options: CardOptions): LayoutItem {
       tintColor: game.glass_tint_color,
       facts: {
         playerCount: game.is_gone ? undefined : playerCount,
-        isUpdated: options.isUpdated && !game.is_gone,
+        tagWords: options.isUpdated && !game.is_gone ? "Updated" : undefined,
         friends: options.friendNames.length && !game.is_gone ? options.friendNames.map((username) => ({ username })) : undefined,
         reasonText: options.reasonText,
         priceText: game.full_game_price ? coverPriceText({ id: game.id, full_game_price: game.full_game_price }, options.ownedGameIds) : undefined,
@@ -144,6 +143,26 @@ function card(options: CardOptions): LayoutItem {
       hasHighPriority: options.isEager,
     })}</div>`,
   };
+}
+
+/**
+ * One of Your games' lists on a pane of its own: its heading, with a way to the whole list at its end where there is one, tight over its
+ * Game grid, two across at the least. hasLeadCell makes the first card the lead (Favorites' featured favorite).
+ */
+function gamesPane(options: { id: string; title: string; seeAll?: { words: string; href: string }; hasLeadCell?: boolean; items: LayoutItem[] }): Raw {
+  const title = html`<h2 id="${options.id}-title">${options.title}</h2>`;
+  return glassPane({
+    paneWidth: "full",
+    label: options.title,
+    body: stack({
+      items: [
+        options.seeAll
+          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "control", markup: tertiaryButton(options.seeAll.words, { href: options.seeAll.href, isSmall: true }) }] }) }
+          : { kind: "words", markup: title },
+        { kind: "block", markup: gameGrid({ id: `${options.id}-grid`, label: options.title, hasLeadCell: options.hasLeadCell, isAtLeastTwoAcross: true, items: options.items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", text: "" }) }) },
+      ],
+    }),
+  });
 }
 
 /** Games for this device first, each part keeping its order, as every list does. */
@@ -232,28 +251,23 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
     card({ game, isUpdated: isUpdatedSince(game), friendNames: friendNames.get(game.id) ?? [], removeBy: canRemove ? removeBy : undefined, ownedGameIds, menuIdPrefix, isEager });
 
   const hasAnything = favoritesInOrder.length > 0 || recentList.length > 0;
-  const favoritesPane = favoritesInOrder.length
-    ? glassPane({
-        paneWidth: "full",
-        label: "Favorites",
-        body: stack({ items: [{ kind: "block", markup: shelf({ id: "favorites", trackId: "favorites-grid", title: "Favorites", coversAs: "grid_with_lead_cell", items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, false)) }) }] }),
-      })
-    : "";
   const forYouItems = forYou.map(({ game, becauseTitle }) => card({ game: { ...game, is_gone: false }, isUpdated: false, friendNames: friendNames.get(game.id) ?? [], reasonText: `Because you played ${becauseTitle}`, ownedGameIds, menuIdPrefix: "for-you" }));
-  const restItems: LayoutItem[] = [
+  // A pane for each list: Favorites, its first the lead; Recently played, with All you've played; For you. The last ends the page.
+  const panes: Raw[] = [
+    ...(favoritesInOrder.length
+      ? [gamesPane({ id: "favorites", title: "Favorites", hasLeadCell: true, items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, false)) })]
+      : []),
     ...(recentList.length
-      ? [{ kind: "block" as const, markup: shelf({ id: "recently-played", trackId: "recently-played-grid", title: "Recently played", endLink: { words: "All you've played", href: "/your-games/played" }, coversAs: "grid", items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) }) }]
+      ? [gamesPane({ id: "recently-played", title: "Recently played", seeAll: { words: "All you've played", href: "/your-games/played" }, items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) })]
       : []),
-    ...(forYouItems.length
-      ? [{ kind: "block" as const, markup: shelf({ id: "for-you", trackId: "for-you-grid", title: "For you", coversAs: "grid", items: forYouItems }) }]
-      : []),
-    { kind: "words", markup: html`<p>That's all your games. ${textLink("Browse every game", "/games")}</p>` },
+    ...(forYouItems.length ? [gamesPane({ id: "for-you", title: "For you", items: forYouItems })] : []),
   ];
+  const endLine = html`<p>That's all your games. ${textLink("Browse every game", "/games")}</p>`;
   const guestLine: LayoutItem[] = !account && env.SUPABASE_URL
     ? [{ kind: "block", markup: banner({ text: "These are the games played on this device. Make an account to keep them, and your favorites, everywhere.", icon: "person", action: { label: "Make an account", href: "/join?next=/your-games" } }) }]
     : [];
   const body = hasAnything
-    ? html`<div id="your-games">${stack({ items: [...guestLine, ...(favoritesPane ? [{ kind: "block" as const, markup: favoritesPane }] : []), { kind: "block", markup: glassPane({ paneWidth: "full", label: "Recently played and For you", body: stack({ items: restItems }) }) }] })}</div>`
+    ? html`<div id="your-games">${stack({ items: [...guestLine, ...panes.map((pane): LayoutItem => ({ kind: "block", markup: pane })), { kind: "block", markup: glassPane({ paneWidth: "full", label: "The end of your games", body: stack({ items: [{ kind: "words", markup: endLine }] }) }) }] })}</div>`
     : html`<div id="your-games">${stack({ items: [...guestLine, { kind: "block", markup: glassPane({ paneWidth: "full", label: "Your games", body: stack({ items: [{ kind: "words", markup: html`<h1>Your games</h1>` }, { kind: "block", markup: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }] }) }) }] })}</div>`;
   const checkedPage: CheckedPageName = !hasAnything ? "Your games, nothing played" : account ? "Your games, signed in" : "Your games, a guest";
   const response = layout(env, {
@@ -314,7 +328,7 @@ export async function allPlayedPage(env: Env, request: Request): Promise<Respons
         },
         {
           kind: "block",
-          markup: grid({ id: "played-grid", itemSize: "cover", isAtLeastTwoAcross: true, items: items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }),
+          markup: gameGrid({ id: "played-grid", label: "Every game you've played", isAtLeastTwoAcross: true, items: items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }),
         },
       ],
     }),

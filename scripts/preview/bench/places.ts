@@ -51,6 +51,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       ACCOUNT_MENU,
       { stateValue: "home-guest", label: "As a guest", stateKind: "opened", seenBy: "guest", checkedPage: "Home" },
       { stateValue: "home-signed-in", label: "Signed in", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, signed in" },
+      { stateValue: "home-returning", label: "Returning", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, returning" },
       { stateValue: "home-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, long names" },
       { stateValue: "home-empty", label: "Empty", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, empty" },
       { stateValue: "home-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Home, full" },
@@ -78,7 +79,8 @@ export const BENCH_PLACES: BenchPlace[] = [
   {
     placeValue: "game-page", name: "Game page", path: "/g/cave-crew", pathPattern: "^/(g/[^/?]+(/report)?($|\\?(?!play))|t/)", seenBy: "both",
     states: [
-      { stateValue: "rooms", label: "Rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },
+      { stateValue: "rooms", label: "Overview", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },
+      { stateValue: "rooms-tab", label: "Rooms tab", stateKind: "opened", seenBy: "both", checkedPage: "Game page, rooms tab" },
       { stateValue: "game-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Game page, long names" },
       { stateValue: "no-rooms", label: "No rooms", stateKind: "opened", seenBy: "both", checkedPage: "Game page, no rooms" },
       { stateValue: "for-sale", label: "For sale", stateKind: "opened", seenBy: "both", checkedPage: "Game page, for sale" },
@@ -251,6 +253,7 @@ export const BENCH_PLACES: BenchPlace[] = [
       { stateValue: "admin-audit", label: "Audit log", stateKind: "opened", seenBy: "both", checkedPage: "Admin, audit log" },
       { stateValue: "admin-profiles", label: "Profiles", stateKind: "opened", seenBy: "both", checkedPage: "Admin, profiles" },
       { stateValue: "admin-chat", label: "Chat reviews", stateKind: "opened", seenBy: "both", checkedPage: "Admin, chat reviews" },
+      { stateValue: "admin-ncmec", label: "NCMEC reports", stateKind: "opened", seenBy: "both", checkedPage: "Admin, NCMEC reports" },
       { stateValue: "admin-publishing", label: "Publishing", stateKind: "opened", seenBy: "both", checkedPage: "Admin, publishing" },
       { stateValue: "admin-reports", label: "Reports", stateKind: "opened", seenBy: "both", checkedPage: "Admin, reports" },
       { stateValue: "admin-precedents", label: "Precedents", stateKind: "opened", seenBy: "both", checkedPage: "Admin, precedents" },
@@ -291,7 +294,7 @@ export const PAGES_NOT_ON_THE_BENCH: readonly { name: PageName; reason: string }
 export const PROFILE_WORDS: Record<string, string> = {
   Preview_Studio: "a developer with games", Moss_Runner: "an everyday player", Quiet_Comet: "14, private to friends", Bright_Reed: "16, open and social", Chat_Owl: "an adult who chats",
   Tall_Pine: "custom social settings", Kit_Spark: "in a full room", Key_Maker: "no passkey yet", Waiting_Key: "a passkey waiting", New_Passkey: "its only passkey waits", Guessed_At: "locked out",
-  Saved_Farmer: "no passkey or email", Quiet_Builder: "no email, has a key", Gone_Dev: "owns two games", Loud_Lynx: "reported in Arena", Stopped_Fox: "social side off", Card_Keeper: "has a saved card",
+  Saved_Farmer: "no passkey or email", Quiet_Builder: "no email, has a key", Gone_Dev: "owns two games", Loud_Lynx: "reported in Arena", Paused_Maker: "paused by a known-image match", Stopped_Fox: "social side off", Card_Keeper: "has a saved card",
   Pin_Keeper: "buys with a PIN", Banned_Dev: "developer side banned", Closed_Player: "a closed account", New_Studio: "3 days old", New_Teen: "16, an hour old", Mia_Plays: "has a row in a game",
   Longest_Names_Here: "the longest names", Empty_Handed: "nothing yet", Many_Things: "a great many things",
 };

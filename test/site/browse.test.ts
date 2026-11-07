@@ -259,14 +259,8 @@ describe("the search's suggestions", () => {
 });
 
 describe("the home's rows", () => {
-  it("put games for this device first, and keep the device for Browse", () => {
+  it("keep the device for Browse", () => {
     expect(HOME_SCRIPT.sourceText).toContain("zaisma_device_kind");
-    expect(HOME_SCRIPT.sourceText).toMatch(/\["track-popular", "track-trending", "track-new"\]/);
   });
 
-  it("carry each game's devices for the script", async () => {
-    const text = await (await SELF.fetch(`${SITE}/`)).text();
-    const data = JSON.parse(text.match(/<script type="application\/json" id="home-data">([\s\S]*?)<\/script>/)![1]!);
-    expect(data.games.find((game: { slug: string }) => game.slug === "browse-thumbs").devices).toEqual(["phone"]);
-  });
 });

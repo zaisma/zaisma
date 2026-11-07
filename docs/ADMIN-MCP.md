@@ -2,7 +2,7 @@
 
 The report queue, precedents, chat reviews and the developer forum's queue in a Claude session: pull the latest reports and topics in, talk them through, and decide there. It's at `zaisma.com/admin/mcp`, behind the same Cloudflare Access login as the admin pages (`apps/site/src/admin-mcp.ts`).
 
-Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`, `announcement_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
+Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the developer MCP's: every tool has an output schema (`apps/site/src/schemas.ts`, its answer or the error), times are ISO 8601 in UTC, every ID says its kind (`report_…`, `precedent_…`, `topic_…`, `post_…`, `chat_review_…`, `whats_on_entry_…`, `ban_match_…`), and arguments are closed: one a tool doesn't take is refused (`unknown_field`, naming the one it likely meant), and so is a value that isn't one it takes. A report group is named by its first report, so its ID is that report's (`report_group_id`). Calls that change something answer with `next_steps`.
 
 ## Tools
 
@@ -15,7 +15,10 @@ Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the
 | `list_precedents`, `set_precedent`, `approve_precedent`, `retire_precedent` | Read, set, change, approve and retire precedents. Only a dismissal can be applied by the AI alone (`can_ai_apply_alone`); asking for it on another decision is refused. |
 | `list_review_precedents`, `approve_review_precedent`, `retire_review_precedent` | Read, test and retire the rulings the AI game review follows when it was wrong (the pages are at `zaisma.com/admin/review-precedents`). Approving a version the review held or rejected drafts a pass ruling; upholding a hold, or rejecting or taking down a game the review passed, drafts a reject ruling; the person saves it in the same click, it's tried on the test set and goes live only if that holds. `list_review_precedents` includes each one's stand-in test game, so `npm run review-set -- --precedents <file>` can run them (`review-set/README.md`). `approve_review_precedent` sends a drafted or failed one to the test as written. |
 | `list_chat_reviews` | Sexual messages from adults to teens the chat filter stopped and kept (`apps/site/src/chat-review.ts`). By default (`chat_review_status` `waiting`) the ones that need the admin: the AI was unsure, they came from a developer's own server, the AI couldn't review them, or they're confirmed and not yet marked reported to NCMEC. Each with the game, the sender's username, its source, the AI's reason, the message and the sender's messages before it. |
-| `decide_chat_review` | `decision`: `false_alarm` deletes it and lifts the sender's pause; `remove_chat` confirms it, removes the sender's chat for good and keeps it a year; `reported` does the same and records that it was reported to NCMEC. The same as the buttons on `zaisma.com/admin/chat-reviews`. |
+| `decide_chat_review` | `decision`: `false_alarm` deletes it and lifts the sender's pause; `remove_chat` confirms it, removes the sender's chat for good and keeps it a year; `report_to_ncmec` does the same and sends the report to NCMEC. The same as the buttons on `zaisma.com/admin/chat-reviews`. |
+| `list_ncmec_reports` | Reports to NCMEC's CyberTipline (`apps/site/src/ncmec.ts`): a known-image match is sent by itself and pauses the account; a confirmed chat review or player report waits `ready` for `send_ncmec_report`. Each one's status, NCMEC's number and tries, and the paused accounts. |
+| `send_ncmec_report` | Send a report that's `ready`, `stopped_by_brake` (more than 3 accounts matched in a day) or `failed`, now. It names someone to the police and can't be taken back: ask the admin first. |
+| `clear_safety_pause` | Clear the pause a known-image match put on an account, by `username`, when a person decided the match was wrong (otherwise `ban_account`). Its report stands either way. |
 | `decide_notice` | A copyright (DMCA), defamation or trademark notice that reached dmca@ or safety@zaisma.com: `hold` hides the game without judging the notice (`notice_kind` `copyright`, `defamation` or `trademark`), and the developer reads `why`, what the notice names, as its `review_reason`; `show_again` puts a held game back. Publishing a fixed version emails the admin to check it; a counter-notice brings it back after 10 working days unless the sender has gone to court. The same as the Notice form on a game's admin page. |
 | `decide_country_block` | A notice from a court, regulator or police in one country, under a law US law doesn't share (the UK's hatred offences, say), that reached safety@zaisma.com: `block` stops players in that country (`country_code`, like GB) opening the game, on their word, and everyone else still can; the developer reads `why`, which law and what it names, in `country_blocks`, an alert and a `country_blocks_changed` webhook. `lift` ends it, once the live version no longer has what it names (publishing one emails the admin). The same as the Country blocks form on a game's admin page. |
 | `get_review_counts` | How the game review's scans came out over the last `period_duration_days` (30 by default, up to 90): `passed_count`, `rejected_count` (rejected by itself, no person), `held_for_person_count` and `waiting_count` (held only for a daily review or replaced). The goal is honest games passing and clear breaks rejected, so `held_for_person_count` falls toward zero (`reviewCounts` in `apps/site/src/admin-mcp.ts`). |
@@ -35,9 +38,11 @@ Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the
 | `get_topic` | One topic in full: every post and who wrote it (the developer or their AI), what the AI attached (`debug_context`), up to 3 images, the developer's name, the game, and the topics merged into it. |
 | `decide_topic` | Reply, set a `topic_status` or a known issue's phase (investigating, known (confirmed), planned, fixing, released (a fix is out, watching it hold), fixed (resolved), wont; on a known issue it reaches every topic in it, and developers can say it still happens while it's released, which takes it back to fixing and alerts you), merge a duplicate into a known issue, make a topic a known issue (a title, workaround and roadmap item every developer sees), mark a reply as a question's answer, and set severity and category. A private message made a known issue becomes a new public topic of Zaisma's own with the message under it; the reply goes to that developer alone. On a public topic, a reply is public. |
 | `decide_post` | `decision`: `show` shows a public forum post the check held or developers reported (which clears its reports), or `remove` removes it. Removing a topic's first post makes the topic private to its developer again. |
-| `list_announcements` | Announcements that are showing or still to start, and those that ended in the last 30 days, newest first: each with its `announcement_status` (`current`, `upcoming`, `ended`) and `is_shown`, whether it's the one players see now. |
-| `post_announcement` | Post short news for players: `text` (1 to 200 characters, one or two plain sentences), an optional `link_url` (https, or a path on zaisma.com like `/forum`) with its `link_label` (up to 30 characters; "Read more" when left out), `starts_at` (now when left out) and `ends_at` (at most 60 days after it). It shows at the top of zaisma.com's home for every player, signed in or not, until it ends or the player closes it. |
-| `end_announcement` | End an announcement now, by its `announcement_id`: it leaves the home at once (one that hadn't started never shows). |
+| `list_whats_on` | The events, news and picks a person added to What's on, current, upcoming and ended in the last 30 days, newest first. |
+| `post_whats_on_event` | Put an event across the top of the home: `title`, `wide_art_base64` (PNG, WebP or JPEG, up to 2 MB), optional `narrow_art_base64`, optional `card_art_base64` (its poster among What's on's cards while another event holds the strip, about 3 by 2), `link_url`, optional `link_label`, optional `starts_at`, `ends_at` (at most 60 days after the start). |
+| `post_whats_on_news` | Put news for players among What's on's cards, tagged News: `title`, `link_url`, optional `card_art_base64` (about 16 by 9), optional `starts_at`, `ends_at`. Never a change to Zaisma itself: those go on the developer forum. |
+| `post_whats_on_pick` | Put a listed game among What's on's cards, tagged Pick: `game_slug`, optional `starts_at`, `ends_at`. |
+| `end_whats_on_entry` | End an event, news or a pick now, by its `whats_on_entry_id`. |
 
 Child-safety reports come first. Triage never sorts them with AI, but here the admin is the person looking, so Claude can help read and decide them. Their pictures are never sent (a report triage only later found to be about child safety can carry one, and it could be abuse material itself), and they can't be passed to the developer. Decisions are recorded in the audit log under the service token's name. Player, game and forum text is untrusted; the MCP's instructions tell Claude not to follow it and to ask before deciding anything. Known-issue titles and workarounds are seen by every developer, so they're written without names, games or anything one developer said in private.
 
@@ -46,8 +51,6 @@ Chat reviews are child-safety cases too. Every 5 minutes an AI (`AI_REVIEW_MODEL
 Every few minutes an AI sorts new topics (`apps/site/src/forum-sort.ts`), on the same run and monthly AI budget as report triage: it sets severity (never the category: whoever posts picks it, and AI moves a topic only when someone flags it as misplaced), merges a duplicate into the topic or known issue it repeats (a developer merged into a known issue is told an AI matched it, and gets the workaround), alerts on anything urgent, and drafts a known issue for a new problem. The draft stays private until the admin approves it with `decide_topic`.
 
 Every public post in the developer forum is checked by AI before others see it (`apps/site/src/forum-check.ts`), as it's sent and again on the 5-minute run. One the check holds, or one it couldn't check (no AI key, or the month's budget used up), waits in `waiting_posts` for `decide_post`. Sorting never merges a public topic on its own: it says which one it's the `same_as_topic_id`, and the admin decides. Public posts that mention `@Zaisma` with no reply from Zaisma since come back in `list_topics` as `zaisma_mentions` (and under Asked for Zaisma on the admin pages); a reply in the topic answers them.
-
-Announcements are the one thing here every player sees: a banner at the top of zaisma.com's home (`apps/site/src/announcements.ts`). One shows at a time, the newest current one (the latest `starts_at`); a player who closes it doesn't see that one again on that browser, and a newer one shows again. `GET /api/announcements` answers the current ones for anyone, with no key (see [`docs/DEVELOPER-API.md`](DEVELOPER-API.md)). Posting and ending are recorded in the audit log.
 
 The same queue is on the admin pages at `zaisma.com/admin/feedback` (`apps/site/src/admin-feedback.ts`): the cards come from `list_topics`, each topic's page from `get_topic`, saving a card decides exactly what `decide_topic` would with only what the form changed, and the posts waiting for a check have Show it and Remove.
 
@@ -85,17 +88,23 @@ A refused call answers `{ "error": { code, message, field, fix, retry_after_sec 
 | `bad_chat_review_status` | 400 | chat_review_status isn't pending, needs_person, confirmed, waiting or all. |
 | `already_banned` | 409 | The account is banned already at that scope or wider; only a developer ban widens to whole_account. |
 | `not_banned` | 409 | The account isn't banned, so there's nothing to lift. |
+| `no_ncmec_report` | 404 | There's no NCMEC report with that ID: list_ncmec_reports lists them. |
+| `ncmec_report_not_sendable` | 409 | The NCMEC report is sent or being sent already: only one that's ready, stopped by the daily brake or failed can be sent. |
+| `not_paused` | 409 | The account isn't paused. |
 | `no_ban_match` | 404 | There's no ban match with that ID. |
 | `ban_match_decided` | 409 | The ban match was decided already. |
 | `bad_ban_scope` | 400 | ban_scope isn't developer or whole_account. |
 | `bad_username` | 400 | username isn't 1 to 30 characters. |
 | `bad_content_rule` | 400 | content_rule isn't one of the content rules. |
 | `unknown_username` | 404 | No account has that username. |
-| `no_announcement` | 404 | There's no announcement with that ID. |
-| `announcement_ended` | 409 | The announcement has ended already. |
+| `no_whats_on_entry` | 404 | There's no What's on entry with that ID. |
+| `whats_on_entry_ended` | 409 | The What's on entry has ended already. |
+| `bad_event_title` | 400 | An event's title isn't 1 to 60 characters. |
+| `bad_news_title` | 400 | News's title isn't 1 to 60 characters. |
+| `bad_art` | 400 | An event's art isn't a PNG, WebP or JPEG within the size cap. |
 | `bad_text` | 400 | text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks. |
 | `bad_link_url` | 400 | link_url isn't an https address or a path on zaisma.com starting with /. |
-| `bad_link_label` | 400 | link_label isn't 1 to 30 characters, or was given without link_url. |
+| `bad_link_label` | 400 | link_label isn't 1 to 20 characters. |
 | `speed_not_set_up` | 503 | The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with. |
 | `speed_unreadable` | 502 | Analytics Engine didn't answer the speed query. |
 

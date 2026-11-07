@@ -530,8 +530,8 @@ describe("making an account", () => {
     // It doesn't say the age, so there's no number to lie about.
     const page = await res.text();
     expect(page).toContain("You can't make an account");
-    // Its words, not its styles (where ::placeholder says "older").
-    expect(page.replace(/<style[^>]*>[\s\S]*?<\/style>/g, "")).not.toMatch(/13 and up|under 13|older/);
+    // Its words, not its styles or scripts (where ::placeholder says "older", and a selector names a "track-holder").
+    expect(page.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/g, "")).not.toMatch(/13 and up|under 13|older/);
     expect(b.jar.get("__Host-zaisma_age")).toBe("no");
     expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("You can't make an account");
     expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("You can't make an account");
@@ -1570,11 +1570,11 @@ describe("friends", () => {
     expect(page).not.toContain("secret-game");
     expect(page).toContain('href="/@Quiet_Comet"');
 
-    // The game page says who's playing it, in its key details; joining them is the rooms pane's.
+    // The game page says who's playing it, in its key details, with Join beside them when their room would let you in.
     const here = await (await ana.go("/g/arena-game/friends")).text();
     expect(here).toContain('<dt>Friends playing</dt>');
     expect(here).toContain('<span class="one-line">Quiet_Comet</span>');
-    expect(here).not.toContain("?room=ROOMAA");
+    expect(here).toContain('href="/g/arena-game?room=ROOMAA"');
     // Glass: only gallery components.
     expect(pageProblems(here)).toEqual([]);
     expect(await (await ana.go("/g/secret-game/friends")).text()).toBe("");
@@ -2791,9 +2791,11 @@ describe("a game for 16 and up", () => {
     expect(open).not.toMatch(/<iframe id="game" src=/);
 
     // A younger account never finds it: home and Continue playing; everyone else does.
+    // Zaisma's lists (the home's rows and Browse) leave it out for the teen and show it to the others.
     expect(await (await teen.go("/")).text()).not.toContain("grown-up");
-    expect(await (await adult.go("/")).text()).toContain('"slug":"grown-up"');
-    expect(await (await guest.go("/")).text()).toContain('"slug":"grown-up"');
+    expect(await (await teen.go("/games")).text()).not.toContain("grown-up");
+    expect(await (await adult.go("/games")).text()).toContain('href="/g/grown-up"');
+    expect(await (await guest.go("/games")).text()).toContain('href="/g/grown-up"');
     for (const b of [teen, adult]) await b.go("/api/me/played/grown-up", undefined, { method: "POST", body: "{}" });
     expect(await (await teen.go("/api/me/played")).json()).toEqual({ played: [] });
     expect(((await (await adult.go("/api/me/played")).json()) as { played: { slug: string }[] }).played.map((played) => played.slug)).toEqual(["grown-up"]);
@@ -3341,12 +3343,12 @@ describe("recently played", () => {
 
   it("shows games on the home page and patch notes on the game page", async () => {
     await liveGame("hop", "Hop");
-    const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect((pageDataOf(home, "home-data") as { games: { slug: string }[] }).games.map((game) => game.slug)).toContain("hop");
+    expect(await (await SELF.fetch(`${SITE}/games`)).text()).toContain('href="/g/hop"');
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
-    // Patch notes are a section of the one scroll: a heading, dated entries, the notes.
-    expect(page).toMatch(/id="updates"[\s\S]*?<h2>Updates<\/h2>[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
+    // Patch notes are the Updates tab's part: dated entries, the notes.
+    expect(page).toContain('href="#updates"');
+    expect(page).toMatch(/id="updates"[\s\S]*?<h3>[^<]+<\/h3><p>New levels\.<\/p>/);
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
     expect(pageDataOf(await (await SELF.fetch(`${SITE}/g/hop?play`)).text(), "game-page-data").autoplay).toBe("always");
   });

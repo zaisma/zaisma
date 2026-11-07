@@ -1,7 +1,50 @@
 
 
+/**
+ * The screens a piece may ask about (docs/DESIGN.md, Screens): each named once, spelled once, with what it is. A media query about the
+ * screen's size or shape is one of these or it fails the style rules (test/node/style-rules.test.ts, "asks only the named screens"), so a
+ * phone on its side gets what every other piece gives it and no piece invents a breakpoint of its own. What goes by the room a piece is
+ * given is a container query, and free.
+ */
+export const SCREEN_QUERIES = {
+  /** A phone either way up (and any window as small): where phones take a phone's sizes. */
+  phone: "(max-width: 760px), (max-height: 500px)",
+  /** A phone upright, never on its side: under 761px wide and upright, or tall enough not to be a phone on its side. */
+  phoneUpright: "(max-width: 760px) and ((orientation: portrait) or (min-height: 501px))",
+  /** A phone on its side: a landscape screen too short for a laptop. */
+  phoneSideways: "(orientation: landscape) and (max-height: 500px)",
+  /** Anything but a phone upright: wider than one, or a phone on its side. */
+  notPhoneUpright: "(min-width: 761px), (orientation: landscape) and (max-height: 500px)",
+  /** Neither way a phone: a tablet, a laptop or larger. */
+  notPhone: "(min-width: 761px) and (min-height: 501px)",
+  /** Under 761px wide: an upright phone or a narrow window. A phone on its side isn't one; a piece that asks this is the same there as on a laptop. */
+  narrow: "(max-width: 760px)",
+  /** A touch screen, or a screen as narrow as a phone: where the backdrop bleeds past the edges a finger drags. */
+  touchOrNarrow: "(pointer: coarse), (max-width: 760px)",
+  /** Where the header is a rail down the left: a phone on its side, with width to spare and little height. */
+  headerRail: "(orientation: landscape) and (max-height: 500px) and (max-width: 64em)",
+  /** Where the header folds its tabs to icons: a screen narrower than a laptop. */
+  headerSmall: "(max-width: 64em)",
+  /** A screen narrower than a narrow holder (NARROW_HOLDER_WIDTH): a small phone, where a row's buttons show their icons alone. */
+  narrowHolder: "(max-width: 28rem)",
+  /** The narrowest phones upright: where a Game row's heading takes a section's size, so it and its See all keep one line. */
+  phoneNarrowest: "(max-width: 360px)",
+  /** A small phone upright: where the color picker stacks its parts. */
+  phoneSmall: "(max-width: 480px)",
+  /** A phone a little wider: where a game's screenshots shrink to fit two across. */
+  phoneMedium: "(max-width: 520px)",
+  /** A phone or a small tablet upright: where an urgent card takes the screen's width less its frame gap. */
+  phoneLarge: "(max-width: 640px)",
+  /** An upright screen, taller than wide: where the live world shows its upright picture. */
+  upright: "(max-aspect-ratio: 3/4)",
+  /** A short screen (a laptop with its browser's bars, a phone on its side): where a store's large cover gives up room. */
+  short: "(max-height: 52em)",
+  /** Any screen but a very short one: where Confirm it's you keeps its full head. */
+  notVeryShort: "not (max-height: 30em)",
+} as const;
+
 /** Where the header is a rail down the left: a phone on its side, with width to spare and little height. */
-export const HEADER_RAIL_MEDIA = "(orientation: landscape) and (max-height: 500px) and (max-width: 64em)";
+export const HEADER_RAIL_MEDIA = SCREEN_QUERIES.headerRail;
 
 /** The cut corners of a kind of slab (the cut tokens), as a clip-path, for a frame that isn't glass the edge rule cuts (a demo's box). */
 export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
@@ -11,11 +54,11 @@ export const cutPolygon = (kind: "pane" | "header" | "menu"): string => {
 
 /** The glass's two kinds, as tokens: light glass with dark words, and smoked glass with light words. */
 /** A phone, either way up: where a notice over a game is one line. */
-export const NOTICE_STRIP_MEDIA = "(max-width: 760px), (orientation: landscape) and (max-height: 500px)";
+export const NOTICE_STRIP_MEDIA = SCREEN_QUERIES.phone;
 
 export const LIGHT_GLASS = `color-scheme: light;
   --glass-ground: #E7E4DF;
-  --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
+  --backdrop-ink: #14171C; --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   /* The materials (materials.ts): glass comes in four thicknesses, and each material is one of them wherever it's used. */
   --glass-tray: rgba(250, 252, 255, 0.14); --glass-thin: rgba(250, 252, 255, 0.35); --glass-regular: rgba(250, 252, 255, 0.62); --glass-thick: rgba(250, 252, 255, 0.72); --glass-over-game: rgba(250, 252, 255, 0.88);
@@ -40,7 +83,7 @@ export const LIGHT_GLASS = `color-scheme: light;
   --run-cast: drop-shadow(0 8px 12px rgba(20, 23, 28, 0.29)); --run-cast-up: drop-shadow(0 12px 17px rgba(20, 23, 28, 0.26)); --run-cast-down: drop-shadow(0 2px 3.8px rgba(20, 23, 28, 0.25)); /* On light glass a lit slab casts a shadow, not light: let go, it keeps its landed shadow and eases back as it rises, rather than flaring. */ --run-flare: var(--run-cast-down); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 6px 8.5px rgba(20, 23, 28, 0.34));
   /* A pane floating over the page (a list, the wheels): the shadow it casts, outside its edge, so it reads as on top; and the same as a filter. */
   --float-cast: drop-shadow(0 6px 13.5px rgba(20, 23, 28, 0.15));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(20, 30, 50, 0.2)); --slab-cast: drop-shadow(0 3px 5px rgba(20, 30, 50, 0.24)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(20, 30, 50, 0.2)); --slab-cast: drop-shadow(0 3px 5px rgba(20, 30, 50, 0.24)); --sleek-cast: drop-shadow(0 3px 6px rgba(20, 30, 50, 0.22)); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16); --run-flood: rgba(247, 147, 26, 0.14); --groove-shade: rgba(20, 30, 50, 0.3); --groove-lip: rgba(255, 255, 255, 0.95); --press-deep: inset 0 2px 12px rgba(20, 30, 50, 0.14), inset 0 0 0 100vmax rgba(20, 30, 50, 0.05);
   /* The edge of something you press, at rest (a check's box, a toggle's slot, a choice card): 3:1 or more against the glass. */
@@ -81,11 +124,11 @@ export const LIGHT_GLASS = `color-scheme: light;
   --thick-edge-light: rgb(112, 156, 240); --thick-edge-flood: rgba(112, 156, 240, 0.62); --thick-edge-flood-far: rgba(112, 156, 240, 0.24); --thick-edge-wake: rgba(112, 156, 240, 0.8);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-rim: transparent; --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
-  --backdrop-base: #BBD8F0; --backdrop-a: #DCEBF6; --backdrop-b: #7FA8A8; --backdrop-c: #6FA0E6;`;
+  --backdrop-base: #BACEE6; --backdrop-a: #DCE6F2; --backdrop-b: #9DB0CA; --backdrop-c: #9CBEE4;`;
 
 export const SMOKED_GLASS = `color-scheme: dark;
   --glass-ground: #121110;
-  --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
+  --backdrop-ink: #F7F9FC; --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tray: rgba(14, 17, 24, 0.18); --glass-thin: rgba(14, 17, 24, 0.35); --glass-regular: rgba(14, 17, 24, 0.72); --glass-thick: rgba(14, 17, 24, 0.82); --glass-over-game: rgba(14, 17, 24, 0.88);
   --glass-tint: var(--glass-regular); --glass-top: var(--glass-regular); --glass-dropdown: var(--glass-thin);
@@ -101,7 +144,7 @@ export const SMOKED_GLASS = `color-scheme: dark;
   --run-words: var(--run-hi);
   --run-cast: drop-shadow(0 3px 8.5px rgba(247, 147, 26, 0.45)); --run-cast-up: drop-shadow(0 5px 13.5px rgba(247, 147, 26, 0.51)); --run-cast-down: drop-shadow(0 1px 3.8px rgba(247, 147, 26, 0.62)); --run-flare: drop-shadow(0 2px 15.5px rgba(247, 147, 26, 1)); --toggle-ring: drop-shadow(1.5px 0 0 var(--run)) drop-shadow(-1.5px 0 0 var(--run)) drop-shadow(0 1.5px 0 var(--run)) drop-shadow(0 -1.5px 0 var(--run)); --toggle-cast: drop-shadow(0 3px 6.8px rgba(247, 147, 26, 0.66));
   --float-cast: drop-shadow(0 8px 16.5px rgba(0, 0, 0, 0.45));
-  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(0, 0, 0, 0.54)); --slab-cast: drop-shadow(0 3px 6.5px rgba(0, 0, 0, 0.69)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --slab: var(--slab-sheen), var(--slab-face); --slab-shade: 0 0 0 transparent; --slab-cast-pressed: drop-shadow(0 1px 1.8px rgba(0, 0, 0, 0.54)); --slab-cast: drop-shadow(0 3px 6.5px rgba(0, 0, 0, 0.69)); --sleek-cast: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.55)); --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: var(--slab-face); --btn-hover: var(--slab-face-pointed); --btn-press: var(--slab-face-pressed);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4); --run-flood: rgba(247, 147, 26, 0.28); --groove-shade: rgba(0, 0, 0, 0.75); --groove-lip: rgba(214, 228, 255, 0.45); --press-deep: inset 0 2px 14px rgba(0, 0, 0, 0.4), inset 0 0 0 100vmax rgba(0, 0, 0, 0.12);
   --press-rim: rgba(255, 255, 255, 0.45);
@@ -146,13 +189,13 @@ export const WORDS_SURFACES = [".glass-pane > .pane-in", ".sheet-in", ".playing-
 /**
  * Bare groups (docs/DESIGN.md, Spacing): a component whose words sit bare, with no edge of their own, is one unit, and the unit as a whole
  * keeps the words margin from a surface's edge on every side where it meets that edge, top and bottom included. Its parts line up with each
- * other inside it (a game card's cover, title and players now flush; a person's picture, name and line) and move together, so no part
+ * other inside it (a person's picture, name and line) and move together, so no part
  * is treated apart and a component never pads its own words. A row, a grid or a track of them is inset at its start, end and foot as one
- * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A cover always has its words under it (its title or players
- * now); a picture with none (a screenshot) has an edge all round and keeps the frame gap. A new bare group is added here and nowhere else;
+ * (the gaps between the units stay); one alone pads itself (BARE_GROUPS_STYLES). A game card is one piece of glass, an edge all round its art
+ * and words, so like a picture (a screenshot) it keeps the frame gap. A new bare group is added here and nowhere else;
  * test/site/design.test.ts holds its padding.
  */
-export const BARE_GROUPS = [".cover", ".person"];
+export const BARE_GROUPS = [".person"];
 
 /** The least a box that scrolls up and down scrolls by: one that scrolls by less (a sliver) only bounces under a finger. A select's list holds it (choices.ts). */
 export const LEAST_SCROLL_PX = 12;
@@ -160,6 +203,8 @@ export const LEAST_SCROLL_PX = 12;
 /** The bare groups' rule, once: the unit takes --pad-words at its sides, or the row, grid or track holding units does and its cells don't. */
 export const BARE_GROUPS_STYLES = `
 :where(${BARE_GROUPS.join(", ")}) { padding-inline: var(--pad-words); }
+/* The unit is padded, so nothing in it pads again: a row of words and controls in it (a card's title with Play) starts at its edge. */
+:where(${BARE_GROUPS.join(", ")}) > * { --pad-words: 0px; }
 :is(.layout-grid, .layout-track):has(> :is(${BARE_GROUPS.join(", ")}), > .grid-cell > :is(${BARE_GROUPS.join(", ")})) { padding-inline: var(--pad-words); }
 :is(.layout-grid, .layout-track) > :is(${BARE_GROUPS.join(", ")}), .grid-cell > :is(${BARE_GROUPS.join(", ")}) { padding-inline: 0; }
 `;
@@ -196,13 +241,14 @@ export const TOKEN_STYLES = `
 @property --face-color { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out.
    The fade curves: what's in its outer third is faint, and only its inner end is whole, so words never run into the edge. It comes and
-   goes over 0.45s, easing in and out, so it never snaps on or off as you reach an end. */
+   goes over 0.45s, easing in and out, so it never snaps on or off as you reach an end: an animation of its own (SCROLL_FADE_SCRIPT), never a
+   transition here, which would take the place of the box's own (a menu's body fading as it closes). */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 /* The words' inset in a pane (layout.ts), registered so it's worked out to a length where it's set, and reads as one. */
 @property --pad-words { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent);
-  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
+  mask-image: linear-gradient(to bottom, transparent, rgba(0,0,0,0.22) calc(var(--fade-top) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-top) * 0.7), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), rgba(0,0,0,0.66) calc(100% - var(--fade-bottom) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-bottom) * 0.35), transparent); }
 /* A row that scrolls sideways (data-fades-sideways: a header's tabs, the gallery's groups on a phone) fades out over a side with more past it,
    easing in and out, with no scrollbar; it starts scrolled to the one you're on, and never scrolls up and down. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -222,10 +268,9 @@ html { -webkit-tap-highlight-color: transparent; }
 :where(button, label, summary, select, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="switch"], .shell, .flush-row, .cover-art, .choice-card, .logo, .tag-remove, .field-legend) { -webkit-user-select: none; user-select: none; }
 :where(input, textarea, [contenteditable="true"], .copy-field-text) { -webkit-user-select: text; user-select: text; }
 :where(button, [role="button"], summary) { -webkit-touch-callout: none; }
-/* Each fade's edges ease in and out, all four named on both, so a box that scrolls both ways (a table) eases every edge whichever rule
-   wins; from the frame after the page starts (fades-ease, SCROLL_FADE_SCRIPT), so a fade there at the start is there at once. */
+/* Each fade's edges ease in and out by an animation of their own (SCROLL_FADE_SCRIPT), each edge apart, so a box that scrolls both ways (a
+   table) eases every edge; from the frame after the page starts, so a fade there at the start is there at once. */
 [data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-[data-fades-sideways].fades-ease { transition: --fade-top var(--motion-glide) var(--ease-standard), --fade-bottom var(--motion-glide) var(--ease-standard), --fade-left var(--motion-glide) var(--ease-standard), --fade-right var(--motion-glide) var(--ease-standard); }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, rgba(0,0,0,0.22) calc(var(--fade-left) * 0.35), rgba(0,0,0,0.66) calc(var(--fade-left) * 0.7), #000 var(--fade-left), #000 calc(100% - var(--fade-right)), rgba(0,0,0,0.66) calc(100% - var(--fade-right) * 0.7), rgba(0,0,0,0.22) calc(100% - var(--fade-right) * 0.35), transparent 100%);
@@ -358,6 +403,10 @@ html { -webkit-tap-highlight-color: transparent; }
 /* A phone's sizes, upright or on its side (a landscape phone is a phone's height, not a laptop's). */
 :root[data-cutout-side="left"] { --safe-right: 0px; }
 :root[data-cutout-side="right"] { --safe-left: 0px; }
+/* A phone's screen corners are rounded, up to about a 55px radius: what runs down the screen's edge (the page's rail) stops this far from
+   its top and foot, so the corner's curve never cuts it. A mouse's screen has square corners: no room needed. */
+:root { --screen-corner-room: 0px; }
+@media (pointer: coarse) { :root { --screen-corner-room: 36px; } }
 @media (max-width: 760px), (max-height: 500px) { :root { --pad-pane: 20px; --pad-frame: 8px; --control-height-big: 3rem; --type-title: 600 2rem/1.04 var(--display); --type-heading: 600 1.625rem/1.1 var(--display); --type-section: 600 1.25rem/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #E7E4DF; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #121110; } }

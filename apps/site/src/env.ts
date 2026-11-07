@@ -154,6 +154,13 @@ export interface Env {
   ARACHNID_SHIELD_URL?: string;
   /** Where registered links' sites are checked for malware and phishing: Cloudflare's DNS over HTTPS by default (LINK_CHECK_DNS_URL); tests point it at a stand-in. */
   LINK_CHECK_DNS_URL?: string;
+  /** NCMEC's CyberTipline API user (ncmec.ts). Without them, a known-image match is held and alerted, and Julius reports it by hand. */
+  NCMEC_USERNAME?: string;
+  NCMEC_PASSWORD?: string;
+  /** Only to point reports at NCMEC's test system (https://exttest.cybertip.org/ispws) or a stand-in. */
+  NCMEC_API_URL?: string;
+  /** Files sent in reports to NCMEC, kept a year apart from game files (ncmec.ts); a self-hosted copy without it keeps them in GAMES under reported/. */
+  REPORTED?: R2Bucket;
   /** Microsoft's PhotoDNA Cloud Service key. With PHOTODNA, PhotoDNA matches pictures alongside Arachnid Shield. */
   PHOTODNA_KEY?: string;
   /** The photodna Worker (apps/photodna), which hashes pictures with Microsoft's SDK and paces requests to Microsoft. */

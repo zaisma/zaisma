@@ -82,11 +82,13 @@ export function joinAndWatch(slug: string, doors: Pick<FriendsInGame, "join" | "
 }
 
 /**
- * On a game's page (into #friends-here, a Key detail beside Playing now): the friends playing it, their pictures and their names. Joining or watching them is the rooms
- * pane's, under the game's, so the game's pane stays its name, its Key details and Play.
+ * On a game's page (into #friends-here, a Key detail beside Playing now): the friends playing it, their pictures and their names, and Join
+ * when one's room would let you in. Watching, and rooms that won't, are the Rooms tab's.
  */
 export function friendsHere(here: FriendsInGame): Raw {
-  return gameKeyDetails({ friends: here.friends.map((friend) => ({ username: friend.name })) });
+  // Join only when a friend's room would let you in; a room that won't says why in the Rooms tab.
+  const joinHref = here.game && here.join && !here.join.refusal ? joinPath(here.game.slug, here.join) : undefined;
+  return gameKeyDetails({ friends: here.friends.map((friend) => ({ username: friend.name })), ...(joinHref ? { friendsJoinHref: joinHref } : {}) });
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

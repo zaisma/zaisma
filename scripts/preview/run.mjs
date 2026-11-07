@@ -148,6 +148,8 @@ const siteSettings = {
   ANTHROPIC_API_KEY: "preview", ANTHROPIC_BASE_URL: `http://localhost:${PORTS.ai}`,
   // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
   ARACHNID_SHIELD_KEY: "preview:preview", ARACHNID_SHIELD_URL: `http://localhost:${PORTS.shield}`,
+  // Reports to NCMEC go to a stand-in for its CyberTipline API on the same port (fake-shield.mjs): nothing leaves the machine.
+  NCMEC_USERNAME: "preview", NCMEC_PASSWORD: "preview", NCMEC_API_URL: `http://localhost:${PORTS.shield}/ispws`,
   // Registered links' sites are checked with a stand-in for Cloudflare's malware filter (fake-dns.mjs).
   LINK_CHECK_DNS_URL: `http://localhost:${PORTS.dns}/dns-query`,
   // Cloudflare's published test keys for its check on Play: invisible, and every browser passes. The
@@ -721,6 +723,8 @@ if (process.env.PREVIEW_SPENDING_STOP) {
   runSql("UPDATE game_hosting_months SET real_player_count = CASE WHEN game_id = (SELECT id FROM games WHERE slug = 'harbor-lights') THEN 0 ELSE 500 END WHERE month_start_date = date('now', 'start of month')");
 }
 seedFriendsNow();
+// Another developer's games, again this run, so a game page's More like this has games of its kind that aren't Preview_Studio's.
+seedOtherStudio();
 // Your games, again this run: Moss_Runner's favorites, history and a game gone private.
 seedYourGames();
 // Account standing, again this run: Preview_Studio is Zaisma's own, New_Studio three days old with 12 returning players, New_Teen an hour old.
@@ -743,6 +747,17 @@ runSql(`UPDATE games SET country_blocks = '${countryBlock("US", "A court order n
 runSql(`UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
      UPDATE accounts SET bio = 'Come find me, 12 Elm St', profile_check_status = 'passed' WHERE username = 'Loud_Lynx' AND bio IS NULL;
      UPDATE accounts SET who_can_chat = 'nobody', who_can_join = 'nobody', who_sees_playing_now = 'nobody', who_sees_played_games = 'nobody', who_sees_online = 'nobody', who_can_send_friend_requests = 'nobody', chat_stopped_reason = 'removed', social_stopped_at_ms = ${Date.now()}, social_stopped_reason = 'personal_details' WHERE username = 'Stopped_Fox' AND social_stopped_at_ms IS NULL`);
+// Reports to NCMEC beside the ones the image-matching test data sent by itself (/admin/ncmec), again this run: Paused_Maker is
+// paused with a match the daily brake stopped, a confirmed chat review from Chat_Owl waits ready for Send, and one failed. Their
+// files are none, so Send works against the stand-in. Preview_Studio's own pause from the test data is cleared, as a person would.
+runSql(`UPDATE accounts SET safety_paused_at_ms = COALESCE(safety_paused_at_ms, ${Date.now()}), chat_stopped_reason = COALESCE(chat_stopped_reason, 'in_review') WHERE username = 'Paused_Maker';
+     UPDATE accounts SET safety_paused_at_ms = NULL, chat_stopped_reason = CASE WHEN chat_stopped_reason = 'in_review' THEN NULL ELSE chat_stopped_reason END WHERE username = 'Preview_Studio';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, created_at_ms)
+       SELECT 'ncmec_report_previewbraked01', 'image_match', 'stopped_by_brake', id, '${ncmecDetails("Paused_Maker", "A known-image match in a cover image. Nobody at Zaisma viewed the files.")}', ${Date.now() - 3_600_000} FROM accounts WHERE username = 'Paused_Maker';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, created_at_ms)
+       SELECT 'ncmec_report_previewready001', 'chat_review', 'ready', id, '${ncmecDetails("Chat_Owl", "A chat message from an adult to a player aged 13 to 17, confirmed sexual toward a minor.")}', ${Date.now() - 7_200_000} FROM accounts WHERE username = 'Chat_Owl';
+     INSERT OR IGNORE INTO ncmec_reports (id, report_source, ncmec_report_status, account_id, details_json, send_attempt_count, last_error, created_at_ms)
+       SELECT 'ncmec_report_previewfailed01', 'player_report', 'failed', id, '${ncmecDetails("Loud_Lynx", "Players reported this account for child safety, and a person confirmed it.")}', 6, 'NCMEC answered /upload with 503', ${Date.now() - 86_400_000} FROM accounts WHERE username = 'Loud_Lynx'`);
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
 await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
@@ -751,8 +766,8 @@ await seedProtectAccount();
 seedFriendRequests();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
-// An announcement showing on the home, again this run (it keeps its ID, so closing it holds until --reset).
-seedAnnouncements();
+// An event across the top of the home and a pick among What's on's cards.
+seedWhatsOn();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
 // Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
@@ -802,9 +817,8 @@ console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Payments        ${STRIPE_TEST_VARS ? "Stripe test mode: try top-ups and Pro as Empty_Handed, whose payments are all Stripe's (add an email first)" : "stand-in Stripe"}
-  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's Neon Drift shader,
-                  Four in a Row's picture, Cave Crew's Emberfall shader, Tiny Farm's Verdant shader and Zaisma's own for the rest;
-                  Play starts the game in place and Back returns)
+  Home            ${SITE}/  (a first visit: the line flat on the backdrop, What's on, then what else is here; an event's art across the top.
+                  Played something, as a guest or as Many_Things: their game beside What's on, then what else is here)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
@@ -857,7 +871,7 @@ Zaisma preview is running. Nothing here touches the live site.
                   given and never sold; Preview_Studio's Stripe is connected (${STRIPE_TEST_VARS ? "connect your own Stripe test account on the dashboard" : "the stand-in's"}); as Card_Keeper (saved card, owns Straw Hat: buys with one press),
                   Pin_Keeper (purchase PIN ${PURCHASE_PIN}: every saved-card buy asks for it), Moss_Runner (neither) or Saved_Farmer (no email or passkey); as a guest the sheet asks to sign in)
                   ${SITE}/g/seaside-stand?play  (its developer has no Stripe connected: its Extra Lemons answer stripe_not_connected)
-  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Play the demo, Add-ons; as Card_Keeper, who owns it and the
+  Paid game       ${SITE}/g/ashfall  (sells itself for $24.99: Buy where Play is, Try the demo, Add-ons; as Card_Keeper, who owns it and the
                   Supporter pack: Play and Owned; ${SITE}/g/ashfall?buy as Moss_Runner opens the sheet; ${SITE}/g/ashfall-demo links Full game;
                   ${SITE}/games?price=15_to_30 filters by price, and covers carry the price for anyone who doesn't own it)
   Standing        ${SITE}/dashboard/harbor-lights/details#links  (as New_Studio: 12 of 20 returning players, so its own-site link waits,
@@ -945,6 +959,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Room list paging  ${SITE}/g/four-in-a-row#rooms  (6 rooms, Load more twice; small rooms, Watch beside Join, matches in
                   progress last with Join grayed)
   Free-use heads-up  ${SITE}/dashboard  (Four in a Row's card: 80% of free hours used)
+  More like this  ${SITE}/g/arena  and  ${SITE}/g/ashfall  (the end of the page: More from Preview_Studio, then More like this, Tall_Pine's games of the same kind)
   Friends playing ${SITE}/g/shard-dodge  and  ${SITE}/g/four-in-a-row  (signed in: who's playing it, under the title, with Join)
   Blocked         ${SITE}/friends#blocked  (Loud_Hornet, an ex-friend you blocked, with Unblock)
   Profiles        ${SITE}/@Preview_Studio  (a developer's: name, bio, links, Made by; signed in as it, Edit profile and
@@ -981,6 +996,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
   Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
   Social side off ${SITE}/account#social and ${SITE}/friends  (as Stopped_Fox)
+  NCMEC reports   ${SITE}/admin/ncmec  (sent by themselves from the image-matching test data, one stopped by the daily brake, one ready, one failed: Send goes to a stand-in; Paused_Maker's Clear pause)
+  Paused account  ${SITE}/account  (as Paused_Maker: a person at Zaisma needs to look; ${SITE}/dashboard refuses Make a game)
   Review learns   ${SITE}/admin/review-precedents  (a drafted ruling, one being tested, one that failed its test, one in force),
                   ${SITE}/admin/games/<phrase-menu id from /admin>  (its held version: Teach the review, ticked, with the drafted ruling and test game; Approve saves it in the same click)
   Fix vs its hold ${SITE}/admin/games/<ember-keep id from /admin>  (v3's "Changed since" the gore hold, with files and findings new or seen before; v2 replaced),
@@ -1033,6 +1050,12 @@ async function drawOrReuseShader(address, screen, source) {
 }
 
 // --- Test data, made through the same pages and API that people use ---
+
+/** What a test report to NCMEC sent, as ncmec.ts keeps it, ready for SQL. */
+function ncmecDetails(username, additionalInfo) {
+  const details = { incident_at_ms: Date.now(), incident_url: null, account: { account_id: "", username, email: null }, connection_address: null, uploaded_at_ms: null, intended_recipient_username: null, is_account_paused: false, additional_info: additionalInfo, files: [] };
+  return JSON.stringify(details).replaceAll("'", "''");
+}
 
 /** A game folder with its game server beside it as zaisma-server.js (types stripped), like a developer would upload. */
 function withServer(example, name) {
@@ -1087,8 +1110,14 @@ async function seed() {
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
     const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "x-preview-seed": "1", ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    const res = await send();
-    const data = await res.json();
+    let res = await send();
+    let data = await res.json();
+    // The image-matching test data below pauses Preview_Studio, as a real match would (ncmec.ts): the seed clears it, as a person would on /admin/ncmec, and goes on.
+    if (data.error?.code === "account_paused") {
+      runSql("UPDATE accounts SET safety_paused_at_ms = NULL, chat_stopped_reason = CASE WHEN chat_stopped_reason = 'in_review' THEN NULL ELSE chat_stopped_reason END WHERE username = 'Preview_Studio'");
+      res = await send();
+      data = await res.json();
+    }
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
@@ -1359,6 +1388,8 @@ async function seed() {
   }
   // Stopped_Fox: a person turned off its social side after a report, so its account page and /friends say why.
   await signedIn({ name: "Stopped_Fox", email: "stopped@example.test", year: "1994" }, "198.51.100.231");
+  // Paused_Maker: a known-image match paused it (ncmec.ts), so its account page says a person needs to look.
+  await signedIn({ name: "Paused_Maker", email: "paused@example.test", year: "1990" }, "198.51.100.232");
   stepDone("reports");
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
@@ -2050,6 +2081,14 @@ function seedFriendsNow() {
     Array.from({ length: roomCount }, (_, i) => `('${prefix}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(i / 32)]}${"23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[i % 32]}', 1, ${maximumPlayerCount})`).map(
       (values) => `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, column1, column2, column3, 1, 'NL', 'EU', ${later}, ${later} FROM (VALUES ${values})`,
     );
+  const ifManyMade = `WHERE EXISTS (SELECT 1 FROM accounts WHERE username = 'Many_Friend_8')`;
+  const manyFriendsInRoom = (slug, roomCode, playerCount, maximumPlayerCount, friendNumbers) => [
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, friend_joins_enabled, country, continent, created_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${playerCount}, ${maximumPlayerCount}, 1, 1, 'NL', 'EU', ${later}, ${later} ${ifManyMade}`,
+    ...friendNumbers.flatMap((friendNumber) => [
+      `INSERT OR REPLACE INTO presences (account_id, seen_at_ms, game_id, game_seen_at_ms) SELECT ${account(`Many_Friend_${friendNumber}`)}, ${later}, ${game(slug)}, ${later} ${ifManyMade}`,
+      `INSERT OR REPLACE INTO room_players (game_id, room_code, player_id, joined_at_ms, updated_at_ms) SELECT ${game(slug)}, '${roomCode}', ${player(`Many_Friend_${friendNumber}`)}, ${later}, ${later} ${ifManyMade}`,
+    ]),
+  ];
   const sql = [
     ...["Moss_Runner", "Kit_Spark", "Quiet_Comet", "Tall_Pine", "Swift_Otter", "Red_Lantern"].map((name) => `INSERT OR REPLACE INTO presences (account_id, seen_at_ms) SELECT ${account(name)}, ${later} ${ifMade}`),
     `UPDATE presences SET game_id = ${game("rocket-lab")}, game_seen_at_ms = ${later} WHERE account_id = ${account("Quiet_Comet")}`,
@@ -2077,8 +2116,24 @@ function seedFriendsNow() {
     `UPDATE live_rooms SET spectator_count = 3, maximum_spectator_count = 20 WHERE room_code IN ('MTCH22', 'MTCH23')`,
     // Some of the small rooms take spectators too, so Watch sits beside Join.
     `UPDATE live_rooms SET spectator_count = 1, maximum_spectator_count = 20 WHERE room_code IN (${["22", "23", "24", "25", "26", "27"].map((suffix) => `'QWRT${suffix}'`).join(", ")})`,
+    // Many friends in one game (Home, full): six of Many_Things's friends in one Arena room and two in Cave Crew, so a card shows several faces and how many more.
+    ...manyFriendsInRoom("arena", "MNYFRD", 6, 8, [1, 2, 3, 4, 5, 6]),
+    ...manyFriendsInRoom("cave-crew", "MNYCVE", 2, 16, [7, 8]),
   ];
   runSql(sql.join("; "));
+}
+
+/**
+ * A game page's More like this shows other developers' games of the same kind, and every listed game here is Preview_Studio's: Tall_Pine
+ * (a friend, otherwise only a player) becomes a developer with eight of Browse's other games, given the kinds the preview's own games
+ * have (action, adventure, survival, simulation, role-playing), so Shard Dodge, Arena, Cave Crew, Tiny Farm and Ashfall each get a row.
+ */
+function seedOtherStudio() {
+  const genresBySlug = { "browse-world-1": "action", "browse-world-2": "action,fighting", "browse-world-3": "adventure,survival", "browse-world-4": "survival", "browse-world-5": "simulation", "browse-world-6": "simulation,sandbox", "browse-world-7": "role_playing,adventure", "browse-world-8": "adventure" };
+  runSql([
+    `INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) SELECT 'owner_preview_other_studio', 'person', id, ${Date.now()} FROM accounts WHERE username = 'Tall_Pine'`,
+    ...Object.entries(genresBySlug).map(([slug, genres]) => `UPDATE games SET owner_id = 'owner_preview_other_studio', genres = '${genres}' WHERE slug = '${slug}' AND EXISTS (SELECT 1 FROM owners WHERE id = 'owner_preview_other_studio')`),
+  ].join("; "));
 }
 
 function seedFriendRequests() {
@@ -2376,14 +2431,15 @@ function seedSecurityLog() {
   runSql(sql.join("; "));
 }
 
-/**
- * Short news on the home's banner (apps/site/src/announcements.ts): one current announcement with a link, from an
- * hour ago to 30 days ahead, refreshed every run under the same ID, so a player who closed it doesn't see it again.
- */
-function seedAnnouncements() {
+/** What's on: an event with the gallery's example art, a second with a poster, and news for players, refreshed every run under the same IDs. */
+function seedWhatsOn() {
   const nowMs = Date.now();
-  const sql = `INSERT INTO announcements (id, text, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('announcement_previewkeptrooms01', 'Kept rooms are here: worlds that sleep when everyone leaves and wake as they were.', '/forum', NULL, ${nowMs - 3600_000}, ${nowMs + 30 * 86400_000}, ${nowMs - 3600_000}, 'preview') ON CONFLICT (id) DO UPDATE SET starts_at_ms = excluded.starts_at_ms, ends_at_ms = excluded.ends_at_ms`;
-  runSql(sql);
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewzombie01', 'event', 'Zombie weekend', 'whats-on-art/whats_on_entry_previewzombie01/wide', '/games?genre=survival', 'Go play', ${nowMs - 3600000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
+  spawnSync(...wrangler(["r2", "object", "put", "zaisma-games/whats-on-art/whats_on_entry_previewzombie01/wide", "--file", join(ROOT, "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  // Starts a little before the first, so the first keeps the strip and this one is a poster among the cards.
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, wide_art_key, card_art_key, link_url, link_label, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewraces01', 'event', 'Night races, till Sunday', 'whats-on-art/whats_on_entry_previewraces01/wide', 'whats-on-art/whats_on_entry_previewraces01/card', '/games?genre=racing', 'Go race', ${nowMs - 7200000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
+  for (const side of ["wide", "card"]) spawnSync(...wrangler(["r2", "object", "put", `zaisma-games/whats-on-art/whats_on_entry_previewraces01/${side}`, "--file", join(ROOT, side === "card" ? "brand/design/event-poster-example.svg" : "brand/event-example.svg"), "--content-type", "image/svg+xml", "--local", "--persist-to", STATE]), { cwd: join(ROOT, "apps/site"), stdio: "ignore" });
+  runSql(`INSERT INTO whats_on_entries (id, entry_kind, title, link_url, starts_at_ms, ends_at_ms, created_at_ms, created_by) VALUES ('whats_on_entry_previewnews01', 'news', 'Winter jam winners', '/forum', ${nowMs - 10800000}, ${nowMs + 30 * 86400000}, ${nowMs}, 'preview') ON CONFLICT (id) DO UPDATE SET ends_at_ms = excluded.ends_at_ms`);
 }
 
 /**
