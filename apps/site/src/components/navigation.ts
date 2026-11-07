@@ -931,6 +931,11 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
       var queued = false;
       box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
       window.zaismaWatch.size(box, function () { sync(box); }, inOnePass);
+      // What's in it can change length while the box keeps its own (a menu stepping into a group and back out, the step it left hidden): it
+      // syncs then too, so a fade shows only while there's really more to scroll to.
+      function watchParts(parts) { Array.prototype.forEach.call(parts, function (part) { if (part.nodeType === 1) window.zaismaWatch.size(part, function () { sync(box); }, inOnePass); }); }
+      watchParts(box.children);
+      new MutationObserver(function (changes) { changes.forEach(function (change) { watchParts(change.addedNodes); }); }).observe(box, { childList: true });
     });
     syncAll(found);
   }
