@@ -205,7 +205,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Games, ${nameEnding}` as const, area: "Playing" as const, path: "/games", account, shownStateName: "Games, signed in", mainActionShows: "nowhere" as const, isCoverAboveFold: true })),
-  // Your games: a signed-in player's favorites, history and For you; a guest's from this device (none here, so its empty state); nothing played.
+  // Your games: a signed-in player's favorites, history and For you; a guest's from this device (none here, so its empty state); empty.
   { name: "Your games, signed in", area: "Playing", path: "/your-games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Your games, long names", area: "Playing", path: "/your-games", account: "Longest_Names_Here", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Your games, full", area: "Playing", path: "/your-games", account: "Many_Things", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },

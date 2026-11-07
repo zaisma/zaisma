@@ -625,8 +625,7 @@ export const GRID_STYLES = `
 /* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. Both grow with the text (rem), so with
    larger text the covers widen with their titles, and fold to one across where half the line is too narrow for one: the floor is 120px at
    the usual text (two across on the narrowest phone) and grows faster than the text, 360px at twice it, so a title keeps its room. */
-.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { --cover-least-with-text: max(var(--size-cover), 11.25rem); --two-across-floor: calc(15rem - 120px);
-  grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), var(--cover-least-with-text)), var(--two-across-floor)), 1fr)); }
+.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover-with-text)), var(--size-two-across-least)), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
 /* Below three across (a cover's least width grows with the text, 11.25rem at the least), the lead takes the whole line, never a column past it. */
