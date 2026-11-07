@@ -49,6 +49,8 @@ export function orderedDoor(door) {
     trusts: door.trusts ?? [],
     covered_by_door_id: door.covered_by_door_id ?? null,
     stored_value: door.stored_value ?? null,
+    limit_level: door.limit_level ?? null,
+    why_no_limit: door.why_no_limit ?? null,
     door_removed_at: door.door_removed_at ?? null,
     cases: door.cases.map(orderedCase),
   };
@@ -104,7 +106,8 @@ export function mergeDoors({ map, doors, hashesOf, now, checklists = CHECKLISTS,
       summary.stale_case_refs.push(caseRefOf(codeDoor, theCase));
       return withStale(theCase, staleReason);
     });
-    merged.push({ ...codeDoor, anchors: codeDoor.anchors.map((anchor) => ({ ...anchor, source_hash_sha256: hashes[anchor.anchor_id] ?? null })), door_removed_at: null, cases });
+    // What its contract says of its limit, so seeding can tell a limit the grid tries from a reason for none.
+    merged.push({ ...codeDoor, limit_level: codeDoor.contract?.limit?.level ?? null, why_no_limit: codeDoor.contract?.limit?.whyNoLimit ?? null, anchors: codeDoor.anchors.map((anchor) => ({ ...anchor, source_hash_sha256: hashes[anchor.anchor_id] ?? null })), door_removed_at: null, cases });
   }
   const codeIds = new Set(doors.map((door) => door.door_id));
   for (const known of knownById.values()) {

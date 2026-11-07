@@ -31,7 +31,7 @@ const LATER = "2026-10-19T03:00:00.000Z";
 type Anchor = { anchor_id: string; source_path: string; symbol_name: string; source_hash_sha256?: string | null };
 type Evidence = { kind: string; ref: string; note: string };
 type Case = { case_id: string; case_name: string; status: string; severity_tier: string | null; evidence: Evidence | null; finding_id: string | null; verdict_at: string | null; verdict_anchor_hashes: Record<string, string | null> | null; stale_reason: string | null };
-type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; cases: Case[] };
+type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; limit_level?: string | null; why_no_limit?: string | null; cases: Case[] };
 type Sector = { sector_id: string; sector_name: string; attacker_goal: string; doors: Door[] };
 type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[]; STORED_VALUES: { stored: string }[] };
 
@@ -147,9 +147,10 @@ describe("doors from the real code", () => {
           expect(theCase.status).toBe("hole");
           continue;
         }
-        expect(theCase.status, `${door.door_id}#${theCase.case_id}`).toBe(accessCases.includes(theCase.case_id) ? "robust" : "unexplored");
+        const isLimitProven = theCase.case_id === "rate-or-lockout-missing" && Boolean(door.limit_level);
+        expect(theCase.status, `${door.door_id}#${theCase.case_id}`).toBe(accessCases.includes(theCase.case_id) || isLimitProven ? "robust" : "unexplored");
         if (theCase.status === "robust") {
-          expect(theCase.evidence!.ref).toBe("test/site/access-checks.test.ts");
+          expect(theCase.evidence!.ref).toBe(isLimitProven ? "test/grid/api.grid.ts" : "test/site/access-checks.test.ts");
           expect(theCase.verdict_anchor_hashes).toEqual(Object.fromEntries(door.anchors.map((anchor: Anchor) => [anchor.anchor_id, anchor.source_hash_sha256])));
         }
       }
@@ -163,6 +164,22 @@ describe("doors from the real code", () => {
     const again = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER });
     expect(again.seeded_case_refs).toEqual([]);
     expect(again.map).toEqual(seeded.map);
+  });
+
+  it("seeds a door's limit case only where its contract sets a level the grid tries, and never on a door the grid failed or couldn't try", () => {
+    const { map } = mergeDoors({ map: emptyMap(), doors, hashesOf: (door: Door) => anchorHashes(ROOT, door.anchors), now: NOW });
+    const allDoors = map.flatMap((sector: Sector) => sector.doors);
+    const limited = allDoors.find((door: Door) => door.door_kind === "api_call" && door.limit_level)!;
+    const withReason = allDoors.find((door: Door) => door.why_no_limit && door.cases.some((theCase: Case) => theCase.case_id === "rate-or-lockout-missing"))!;
+    const roomMessage = allDoors.find((door: Door) => door.door_kind === "room_message")!;
+    for (const kind of ["api_call", "admin_tool", "page_route", "page_form", "game_file_address", "room_message"]) expect(allDoors.filter((door: Door) => door.door_kind === kind).every((door: Door) => door.cases.some((theCase: Case) => theCase.case_id === "rate-or-lockout-missing")), kind).toBe(true);
+    const seeded = seedRobust(map, { repoRoot: ROOT, now: NOW });
+    expect(caseOf(doorIn(seeded.map, limited.door_id), "rate-or-lockout-missing").status).toBe("robust");
+    expect(caseOf(doorIn(seeded.map, withReason.door_id), "rate-or-lockout-missing").status).toBe("unexplored");
+    expect(caseOf(doorIn(seeded.map, roomMessage.door_id), "rate-or-lockout-missing").status).toBe("unexplored");
+    const failed = seedRobust(map, { repoRoot: ROOT, now: NOW, unprovenGridDoorIds: new Set([limited.door_id]) });
+    expect(caseOf(doorIn(failed.map, limited.door_id), "rate-or-lockout-missing").status).toBe("unexplored");
+    expect(caseOf(doorIn(failed.map, limited.door_id), "other-account-id").status).toBe("robust");
   });
 
   it("seeds nothing from a rule whose file isn't in the repo yet", () => {

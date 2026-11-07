@@ -14,7 +14,8 @@
     { "case_id": "age-13-15", "case_name": "A 13 to 15 player", "attack": "Use it to reach or change what a 13 to 15 player's rules keep closed." },
     { "case_id": "age-16-17", "case_name": "A 16 or 17 player", "attack": "Use it to reach or change what a 16 or 17 player's rules keep closed." },
     { "case_id": "game-on-own-server", "case_name": "A game on its own server", "attack": "Use it from or for a game that runs on the developer's own server, and look for more than Zaisma's rooms allow." },
-    { "case_id": "error-or-next-steps-leak", "case_name": "What errors give away", "attack": "Read errors and next_steps for anything private: whether another account's thing exists, its IDs or its details." }
+    { "case_id": "error-or-next-steps-leak", "case_name": "What errors give away", "attack": "Read errors and next_steps for anything private: whether another account's thing exists, its IDs or its details." },
+    { "case_id": "rate-or-lockout-missing", "case_name": "No limit", "attack": "Call it many times fast, looking for a missing limit, one set too high to protect, or a reason for no limit that doesn't hold." }
   ],
   "mcp_tool": [
     { "case_id": "tool-maps-to-declared-route", "case_name": "Only its declared calls", "attack": "Make the tool reach anything but the developer API calls it declares." }
@@ -23,7 +24,8 @@
     { "case_id": "reached-without-access", "case_name": "Without Cloudflare Access", "attack": "Reach the tool without passing Cloudflare Access." },
     { "case_id": "token-check-only-not-access", "case_name": "A token without Access", "attack": "Reach it with a token alone, where Access is the real check." },
     { "case_id": "cross-target-id", "case_name": "Another target's ID", "attack": "Act on a report, game or precedent other than the one named." },
-    { "case_id": "undeclared-input", "case_name": "An undeclared input", "attack": "Send an argument the tool doesn't declare." }
+    { "case_id": "undeclared-input", "case_name": "An undeclared input", "attack": "Send an argument the tool doesn't declare." },
+    { "case_id": "rate-or-lockout-missing", "case_name": "No limit", "attack": "Call it many times fast, looking for a missing limit or a reason for no limit that doesn't hold." }
   ],
   "page_form": [
     { "case_id": "cross-site-post", "case_name": "Posted from another site", "attack": "Submit the form from another site's page." },
@@ -38,7 +40,8 @@
     { "case_id": "private-data-to-stranger", "case_name": "Private data to a stranger", "attack": "Open it signed out or as another account and look for anything private." },
     { "case_id": "missing-security-header", "case_name": "A missing security header", "attack": "Check its answer for the security headers zaisma.com sends." },
     { "case_id": "other-account-id", "case_name": "Another account's ID", "attack": "Open it with another account's ID in the address." },
-    { "case_id": "id-enumeration", "case_name": "Guessing IDs", "attack": "Walk IDs or names in the address to learn what exists." }
+    { "case_id": "id-enumeration", "case_name": "Guessing IDs", "attack": "Walk IDs or names in the address to learn what exists." },
+    { "case_id": "rate-or-lockout-missing", "case_name": "No limit", "attack": "Open it many times fast, looking for a missing limit, one set too high to protect, or a reason for no limit that doesn't hold." }
   ],
   "game_file_address": [
     { "case_id": "private-game-file-public", "case_name": "A private game's files", "attack": "Open a private game's files without being let in." },
@@ -48,7 +51,8 @@
     { "case_id": "tester-link-after-off", "case_name": "A tester link after it's off", "attack": "Keep playing through a tester link after it's turned off or ends." },
     { "case_id": "preview-link-after-off", "case_name": "A preview link after it's off", "attack": "Keep opening a preview after its links are ended or it expires." },
     { "case_id": "other-games-file-by-name", "case_name": "Another game's file", "attack": "Reach another game's file from this game's address." },
-    { "case_id": "key-in-address", "case_name": "A key in the address", "attack": "Find a key or token left in an address, where logs and referrers keep it." }
+    { "case_id": "key-in-address", "case_name": "A key in the address", "attack": "Find a key or token left in an address, where logs and referrers keep it." },
+    { "case_id": "rate-or-lockout-missing", "case_name": "No limit", "attack": "Request it many times fast, looking for a missing limit or a reason for no limit that doesn't hold, such as work done before the cache." }
   ],
   "room_message": [
     { "case_id": "forged-or-replayed-pass", "case_name": "A forged or old pass", "attack": "Join or send with a forged, expired or another game's pass." },
@@ -56,7 +60,8 @@
     { "case_id": "act-as-another-player", "case_name": "As another player", "attack": "Make the room think the message came from another player." },
     { "case_id": "read-another-room", "case_name": "Another room", "attack": "Read or change another room through this message." },
     { "case_id": "undeclared-field", "case_name": "An undeclared field", "attack": "Send fields the message doesn't take, or the wrong types." },
-    { "case_id": "self-hosted-server-reach", "case_name": "Through a self-hosted server", "attack": "Use the self-hosted game server's version of this message to reach more than Zaisma's rooms allow." }
+    { "case_id": "self-hosted-server-reach", "case_name": "Through a self-hosted server", "attack": "Use the self-hosted game server's version of this message to reach more than Zaisma's rooms allow." },
+    { "case_id": "rate-or-lockout-missing", "case_name": "No limit", "attack": "Send it many times fast, looking for a missing limit, one set too high to protect, or a reason for no limit that doesn't hold." }
   ],
   "token_or_session": [
     { "case_id": "forged", "case_name": "Forged", "attack": "Make one without Zaisma's key." },
