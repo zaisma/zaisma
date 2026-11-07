@@ -2717,9 +2717,11 @@ describe("cloud saves", () => {
     expect(page).toContain(">Needs a Zaisma account<");
     expect(page).toContain('href="/signin?next=%2Fg%2Fmembers-only%3Froom%3DBCDFGH"');
     expect(page).toContain('href="/join?next=%2Fg%2Fmembers-only%3Froom%3DBCDFGH"');
-    // For a guest, the account gate's script makes Play "Sign in to play", and a room link starts the game only for a signed-in player.
+    // For a guest, Play says only Play, the account gate's script sends its press to sign in, and a room link starts the game only for a
+    // signed-in player.
+    expect(page).not.toContain("Sign in to play");
     expect(pageScriptNames(page)).toContain("account-gate");
-    expect(await pageScriptText(page, (path) => SELF.fetch(`${SITE}${path}`))).toContain("Sign in to play");
+    expect(await pageScriptText(page, (path) => SELF.fetch(`${SITE}${path}`))).toContain("gamePage.sign_in_url");
     expect(pageDataOf(page, "game-page-data")).toMatchObject({ account_requirement: "whole_game", room_code: "BCDFGH", sign_in_url: "/signin?next=%2Fg%2Fmembers-only%3Froom%3DBCDFGH", autoplay: "when_signed_in" });
     await env.DB.prepare("UPDATE games SET account_requirement = 'multiplayer' WHERE slug = 'members-only'").run();
     const online = await (await SELF.fetch(`${SITE}/g/members-only`)).text();
