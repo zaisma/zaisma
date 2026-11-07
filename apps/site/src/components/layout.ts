@@ -618,7 +618,8 @@ export const GRID_STYLES = `
 .layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), max(var(--size-cover), 11.25rem)), calc(15rem - 120px)), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
-@container (max-width: ${3 * COVER_LEAST_PX + 2 * BLOCK_GAP_PX - 1}px) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
+/* Below three across (a cover's least width grows with the text, 11.25rem at the least), the lead takes the whole line, never a column past it. */
+@container (max-width: calc(${3 * COVER_LEAST_PX / 16}rem + ${2 * BLOCK_GAP_PX - 1}px)) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
 @container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
 `;
