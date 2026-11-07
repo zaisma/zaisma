@@ -3,9 +3,10 @@ import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { GLASS_SCRIPT } from "../../apps/site/src/components/glass-script.ts";
 import { gameGrid } from "../../apps/site/src/components/panes.ts";
 import { html } from "../../apps/site/src/html.ts";
+import { stateNote } from "../../apps/site/src/components/data.ts";
 
 const cards = Array.from({ length: 4 }, (_, cardIndex) => ({ kind: "block" as const, markup: html`<div class="cover">${cardIndex}</div>` }));
-const whenEmpty = html`<p>None</p>`;
+const whenEmpty = stateNote({ stateKind: "empty", text: "None" });
 
 /** The wrapper a Game grid puts round its grid for each way it lays its cards: none, one line, a lead cell. */
 const wrapperClassesOf = (markup: string): string | null => {

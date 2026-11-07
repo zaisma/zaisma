@@ -136,7 +136,7 @@ export interface GameCardOptions {
   hasHighPriority?: boolean;
   /** Pointed at or pressed: the gallery's still copies. */
   state?: "is-pointed" | "is-pressed";
-  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available" on the line a reason takes, and no link. */
+  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available" in its tag's place, and no link. */
   isGone?: boolean;
   /** A small More at the end of its line under the art, opening a short menu (Your games' Remove). id: the menu's, unique on the page. */
   menu?: { id: string; label: string; items: DropdownItem[] };
@@ -154,7 +154,7 @@ export interface GameCardOptions {
 const cardLabel = (options: GameCardOptions): string =>
   [
     options.title,
-    options.facts.tagWords?.toLowerCase() ?? "",
+    options.isGone ? "not available" : options.facts.tagWords?.toLowerCase() ?? "",
     options.facts.priceText ?? "",
     options.facts.friends?.length ? `${options.facts.friends.map((friend) => friend.username).join(", ")} playing` : "",
     options.facts.deviceNote ?? "",
@@ -206,8 +206,9 @@ export function gameCard(options: GameCardOptions): Raw {
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", options.isGone ? "is-gone" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
-  // Gone for now: its art is no link and the reason line says so, so its title keeps the whole title line.
-  const tagWords = options.isGone ? undefined : facts.tagWords;
+  // Gone for now: its art is no link and its tag says so, in the place a tag always takes, so its plate keeps its one height. On a card
+  // too narrow for the tag beside its title, the title keeps the room: the greyed art says it, and its More's head says why.
+  const tagWords = options.isGone ? "Not available" : facts.tagWords;
   const tagAtEnd = tagWords ? tag(tagWords, /^(Updated|New)$/.test(tagWords) ? "new" : "plain") : undefined;
   // One line, the same on every card: who's in it (friends' faces), its name, and one thing at its end: Play or Join, else why it's here (a tag),
   // else its price, else players now. What doesn't fit is in its label for a screen reader and on its page; another device dims its art.
@@ -219,13 +220,13 @@ export function gameCard(options: GameCardOptions): Raw {
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined && !options.isGone ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
   const menu = options.menu
-    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
+    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, head: options.isGone ? { title: options.title, note: "Not available right now" } : undefined, items: options.menu.items })}</span>`
     : "";
   const well = options.isGone
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square role="img" aria-label="${cardLabel(options)}">${CUT_LINE}${art}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>`;
   const line = options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}${menu}</div>`;
-  const reasonText = options.isGone ? "Not available" : facts.reasonText;
+  const reasonText = facts.reasonText;
   const reason = reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : "";
   const data = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
   return html`<div class="${className} sleek-cast"${tint}${data}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}${reason ? " has-reason" : ""}">${line}${reason}</div></div></div>`;
@@ -642,9 +643,8 @@ const COVER_STYLES = `
 .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words, .cover-glass > .cover-plate > .cover-meta.has-actions > .layout-row > .row-cell.is-words > * { padding-block: 0; }
 .cover-name-line { display: flex; align-items: center; gap: var(--gap-words-words); flex: 1 1 0; min-width: 0; }
 .cover-name-line > .picture-row { flex: none; }
-/* In a row of cards every card is one height, the tallest's (a track stretches its cards, a grid its cells), and the plate takes what's left,
-   so a price or a friend under one title never makes its card taller than the rest. */
-.grid-cell > .cover { height: 100%; }
+/* A card is one shape wherever it sits: its cell never stretches it to its line's height (a lead cell two lines tall, a taller card beside it). */
+.layout-track > .cover { align-self: flex-start; }
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; text-decoration: none; container-type: inline-size; }
 /* See all's art: four covers two by two, the card's glass between them; the art's own cut takes the outer corners. */
 .cover-mosaic { position: absolute; inset: 0; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: var(--pad-frame-compact); }
@@ -698,6 +698,8 @@ const COVER_STYLES = `
 /* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label
    and on its page. */
 @container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag) { display: none; } }
+/* Gone, its tag is long: on a card under about two covers wide, its title keeps the line and its More's head says it isn't available. */
+@container (max-width: 300px) { .cover.is-gone .cover-plate.has-more > .cover-meta > .tag { display: none; } }
 .cover-reason { padding-inline: var(--pad-frame-compact); font: var(--type-facts); color: var(--ink-2); min-width: 0; }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 /* In a row where some card has a control on its title line (Join), every title line there is as tall as that control, so the cards line up. */
