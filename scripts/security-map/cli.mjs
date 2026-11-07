@@ -86,7 +86,9 @@ async function main() {
     for (const summary of promiseSummaries(refreshed)) console.log(`${summary.rollout_position}. ${summary.sector_id}: ${summary.promise_line}\n   ${summary.way_count} ways (${Object.entries(summary.way_count_by_priority).map(([priority, wayCount]) => `${priority} ${wayCount}`).join(", ")})`);
     list("Stale", promiseSummaries(refreshed).flatMap((summary) => summary.stale_refs));
   } else if (command === "seed") {
-    list("Seeded robust", seedMapDir({ repoRoot: REPO_ROOT, mapDir }));
+    const seeded = seedMapDir({ repoRoot: REPO_ROOT, mapDir });
+    list("Seeded robust", seeded.seeded_case_refs);
+    list("Went stale", seeded.stale_case_refs);
   } else if (command === "review-start") {
     console.log(JSON.stringify(await startReview({ repoRoot: REPO_ROOT, mapDir, date: options.date, warn }), null, 2));
   } else if (command === "review-finish") {

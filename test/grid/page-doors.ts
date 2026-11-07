@@ -1,12 +1,13 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterAll, afterEach, beforeAll, describe, it } from "vitest";
 import { createApiKey, type KeyScope } from "@zaisma/core";
-import { PATH_PARTS, SITE_DOORS, siteDoorIds, type SiteDoor } from "../../apps/site/src/doors.ts";
+import { PATH_PARTS, SITE_DOORS, type SiteDoor } from "../../apps/site/src/doors.ts";
 import { everything, keyFor, setUpOwnersCall, useRealServers, useStandInServers, type SiteWorker } from "../site/access-world.ts";
 import { samplePathOf } from "../door-samples.ts";
-import { CALLER_KINDS, cellOf, expectedAtSiteDoor, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { CALLER_KINDS, cellOf, expectedAtSiteDoor, ownLimitOnly, pastLimitProblem, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { pageRows } from "./file-doors.ts";
 import { makePageWorld } from "./page-world.ts";
-import { CHANGES_NOTHING, COVERED_ELSEWHERE, MAY_TOUCH_OWNER, OWNER_NOT_PROVEN, OWNER_SETUP_ROUTES, PAGE_SAMPLES, type PageSample, type PageWorld } from "./samples.ts";
+import { CHANGES_NOTHING, MAY_TOUCH_OWNER, OWNER_NOT_PROVEN, OWNER_SETUP_ROUTES, PAGE_SAMPLES, type PageSample, type PageWorld } from "./samples.ts";
 import { SITE, emptyWorlds, ownersThings, rememberEmptyTables, sessionCookie, showsPrivateValue, useSessions, whileBanned } from "./site-world.ts";
 
 const worker = (await import("../../apps/site/src/index.ts")).default as unknown as SiteWorker;
@@ -21,9 +22,7 @@ let address = 0;
 /** Each call its own address, since rate limits are live. */
 const nextAddress = () => `198.51.${Math.floor(address / 250)}.${(address++ % 250) + 1}`;
 
-const rows = SITE_DOORS.flatMap((door) => (door.methods === "any" ? (["POST"] as const) : door.methods).map((method) => ({ door, method })))
-  .filter(({ door, method }) => !(`${method} ${door.path}` in COVERED_ELSEWHERE))
-  .map(({ door, method }) => [door.methods === "any" ? siteDoorIds(door)[0]! : `page:${method} ${door.path}`, door, method] as const);
+const rows = pageRows(SITE_DOORS);
 
 /** The parts of a path a developer's door holds to its owner. */
 const OWNED_PARTS = new Set(["slug", "webhook_id", "sign_in_app_id", "spending_request_id", "top_up_id", "shader_id", "id"]);
@@ -127,6 +126,16 @@ export function gridPageDoors(share: number, shareCount: number): void {
       const scopeKey = async (scope?: KeyScope) => (scope ? (await createApiKey(env.DB, world.victimAccountId, `grid ${Math.random()}`, scope)).token : keyFor(world.victimAccountId));
       const sentBy = (path: string) => `${path} ${JSON.stringify(sample)}`;
 
+      // The owner past the door's own limit, first and on every row with one, the rows whose owner's call is proven elsewhere too: the guard
+      // refuses before any of the door's own code, so nothing changes, and only the door's own counter refuses, so the 429 is its limit's.
+      const { limit } = door.contract;
+      if ("level" in limit) {
+        const own = ownLimitOnly(limit, door.path);
+        const ownersPathHere = pathWith(door, world, { ...sample.pathValues, ...sample.ownerPathValues });
+        const past = await callDoor(method, ownersPathHere, sample, await credentialOf(door, "owner", world, scopeKey), { ...env, ...own.bindings } as typeof env);
+        cells.push(cellOf(doorId, "past_limit", pastLimitProblem(own.isCounted(), past.http_status === 429, String(past.http_status))));
+      }
+
       // Everyone but the owner first, then the owner on a world of their own: another account's call may rightly take what the owner's needs.
       // A banned developer keeps their account's own doors, so theirs may end the session or the account, and comes after everyone else's.
       for (const callerKind of [...CALLER_KINDS.filter((kind) => kind !== "owner" && kind !== "banned_developer"), "banned_developer" as const]) {
@@ -161,7 +170,7 @@ export function gridPageDoors(share: number, shareCount: number): void {
       const ownersPath = pathWith(door, ownersWorld, { ...ownersSample.pathValues, ...ownersSample.ownerPathValues });
 
       // What the door's contract says it takes and how much it can be used, before the owner's call, which may end the session or the account they'd need: a wrong shape and a door past its limit are refused before any of its own code runs.
-      const { takes, limit } = door.contract;
+      const { takes } = door.contract;
       const wrongSamples: PageSample[] = [];
       for (const [name, shape] of Object.entries(takes.query)) {
         const tooLong = tooLongFor(shape);
@@ -185,11 +194,6 @@ export function gridPageDoors(share: number, shareCount: number): void {
         const isChanged = (await everything(ownersWorld)) !== ownersBefore;
         const passed = answers.find((answer) => answer.http_status < 400 || answer.http_status >= 500);
         cells.push(cellOf(doorId, "wrong_shape", isChanged ? "A request of the wrong shape changed something." : passed ? `Answered ${passed.http_status} to a request of the wrong shape.` : null));
-      }
-      if ("level" in limit) {
-        const refusing = { ...env, [`LIMIT_${limit.level.toUpperCase()}`]: { limit: async () => ({ success: false }) } };
-        const past = await callDoor(method, ownersPath, ownersSample, ownerCredential, refusing as typeof env);
-        cells.push(cellOf(doorId, "past_limit", past.http_status === 429 ? null : `Answered ${past.http_status} past its limit.`));
       }
 
       const before = await everything(ownersWorld);

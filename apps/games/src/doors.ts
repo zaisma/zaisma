@@ -32,7 +32,8 @@ const ZAISMA_ADDRESSES = [
   "_zaisma/warm-redirects.json",
 ] as const;
 
-const BY_ADDRESS: DoorLimit = { level: "building", counts: "address" };
+/** One counter for an address across the whole game domain, which the guard checks in front of every address. */
+const BY_ADDRESS: DoorLimit = { level: "building", counts: "address", group: "game_files" };
 /** A game's files are public once it's live, and Cloudflare caches them: a game's own query is the game's, so a file door reads no names of its own. An address counts at the level a whole building clears. */
 const FILES = { takes: TAKES_NOTHING, answers: ANSWERS_FILE, limit: BY_ADDRESS } as const;
 const PUBLIC: DoorContract = { whoMayCall: "anyone", reaches: "nothing_private", trusts: [], ...FILES };

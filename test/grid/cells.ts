@@ -1,4 +1,4 @@
-import type { DoorContract } from "@zaisma/core";
+import { DOOR_LIMIT_LEVELS, type DoorContract, type DoorLimitBinding, type DoorLimitLevel } from "@zaisma/core";
 
 /**
  * The contract test grid (docs/DOORS.md): every door tried by every kind of caller, each cell's verdict from the door's
@@ -145,4 +145,30 @@ export function wrongValueOf(shape: Readonly<Record<string, unknown>>): unknown 
 export function tooLongFor(shape: Readonly<Record<string, unknown>>): string | undefined {
   const lengths = (Array.isArray(shape.anyOf) ? (shape.anyOf as Readonly<Record<string, unknown>>[]) : [shape]).map((option) => option.maxLength);
   return lengths.every((length) => typeof length === "number") ? "x".repeat(Math.min(Math.max(...(lengths as number[])) + 1, 40_000)) : undefined;
+}
+
+/**
+ * A Worker's rate limit bindings that refuse only one door's own counter (its group, or the door's name), and let every
+ * other counter through, the shared ones in front of every door included. A refusal past them can only be the door's own
+ * limit, and isCounted says whether the door asked its counter at all.
+ */
+export function ownLimitOnly(limit: { level: DoorLimitLevel; group?: string }, doorName: string): { bindings: Record<string, DoorLimitBinding>; isCounted: () => boolean } {
+  const counterName = `${limit.group ?? doorName}:`;
+  let isCounted = false;
+  const passing: DoorLimitBinding = { limit: async () => ({ success: true }) };
+  const bindings: Record<string, DoorLimitBinding> = Object.fromEntries(Object.keys(DOOR_LIMIT_LEVELS).map((level) => [`LIMIT_${level.toUpperCase()}`, passing]));
+  bindings[`LIMIT_${limit.level.toUpperCase()}`] = {
+    limit: async ({ key }) => {
+      if (!key.startsWith(counterName)) return { success: true };
+      isCounted = true;
+      return { success: false };
+    },
+  };
+  return { bindings, isCounted: () => isCounted };
+}
+
+/** Why a door past its own limit didn't prove it; null when it did. isRefused: the answer was the door's refusal for too many calls. */
+export function pastLimitProblem(isCounted: boolean, isRefused: boolean, answered: string): string | null {
+  if (!isCounted) return `Never counted on its own limit (${answered}), so the grid can't reach it.`;
+  return isRefused ? null : `Answered ${answered} past its own limit.`;
 }

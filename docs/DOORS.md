@@ -64,7 +64,9 @@ npm run grid
 
 runs it and prints every failure. GitHub's check runs `npm run grid -- --compare <the commit a change left>`: anyone can read a check's log, so it prints and fails only on what the change adds. A change to the grid itself gets a count, and a local run says the rest. A failure already on main is a security item, kept privately until it's fixed; a fix needs no change here, since main stops failing that cell.
 
-The grid also sends each door a request of the wrong shape, and calls it with its limit's binding refusing everything, as the `wrong_shape` and `past_limit` cells, and checks what the owner's call answered against the contract as the `answer_shape` cell; a door that doesn't refuse fails.
+The grid also sends each door a request of the wrong shape, as the `wrong_shape` cell, and checks what the owner's call answered against the contract as the `answer_shape` cell. Every door whose `limit` has a level is called past it as the `past_limit` cell: only the door's own counter (its `group`, or the door's own name) refuses, and every shared counter in front of it lets the call through, so the refusal proves the door's own limit. A door that doesn't refuse fails, and so does one that never asks its own counter; a socket must close as too busy. A grid file that fails as a whole names every door it covers (`test/grid/file-doors.ts`), not the file.
+
+A limit shared across a whole Worker's addresses says so with its `group`: every address on rooms.zaisma.com that counts the address shares `rooms`, every address on the game domain `game_files`.
 
 ## Adding a door
 

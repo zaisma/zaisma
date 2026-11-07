@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +50,9 @@ export function orderedDoor(door) {
     trusts: door.trusts ?? [],
     covered_by_door_id: door.covered_by_door_id ?? null,
     stored_value: door.stored_value ?? null,
+    // What a verdict on the door's row reads once the map is stored, where the whole row isn't kept: its limit and its hash.
+    limit: limitOf(door),
+    door_row_hash_sha256: rowHashOf(door),
     door_removed_at: door.door_removed_at ?? null,
     cases: door.cases.map(orderedCase),
   };
@@ -56,6 +60,25 @@ export function orderedDoor(door) {
 
 /** Every door on the map, with its sector. */
 export const allDoors = (map) => map.flatMap((sector) => sector.doors);
+
+/**
+ * A verdict that stands on a door's own row in its table (its contract: who may call it, what it takes, its limit) records
+ * this anchor beside the code's, and goes stale when the row changes. Only such verdicts carry it, so no other goes stale
+ * for it.
+ */
+export const DOOR_ROW_ANCHOR_ID = "the door's row in its table";
+
+/** JSON with every object's keys in order, so the same row always hashes the same. */
+const sortedJson = (value) => JSON.stringify(value, (_, given) => (given && typeof given === "object" && !Array.isArray(given) ? Object.fromEntries(Object.entries(given).sort(([first], [second]) => first.localeCompare(second))) : given));
+
+/** The hash of a door's row in its table. */
+export const doorRowHashOf = (door) => createHash("sha256").update(sortedJson(door.contract ?? null)).digest("hex");
+
+/** A door's limit as its row states it: from the code's row, or as the stored map kept it; null for a door with no row. */
+export const limitOf = (door) => (door.contract ? (door.contract.limit ?? null) : (door.limit ?? null));
+
+/** A door's row hash: from the code's row, or as the stored map kept it; null for a door with no row. */
+export const rowHashOf = (door) => (door.contract ? doorRowHashOf(door) : (door.door_row_hash_sha256 ?? null));
 
 /** Why a verdict no longer holds for these anchor hashes, or null when the code is identical. */
 export function staleReasonOf(verdictAnchorHashes, currentHashes) {
@@ -99,7 +122,8 @@ export function mergeDoors({ map, doors, hashesOf, now, checklists = CHECKLISTS,
     }
     const cases = mergedCases(codeDoor.door_kind, known?.cases ?? [], checklists).map((theCase) => {
       if (theCase.status === "unexplored" || theCase.status === "stale") return theCase;
-      const staleReason = staleReasonOf(theCase.verdict_anchor_hashes ?? {}, hashes);
+      const verdictHashes = theCase.verdict_anchor_hashes ?? {};
+      const staleReason = staleReasonOf(verdictHashes, DOOR_ROW_ANCHOR_ID in verdictHashes ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: rowHashOf(codeDoor) } : hashes);
       if (!staleReason) return theCase;
       summary.stale_case_refs.push(caseRefOf(codeDoor, theCase));
       return withStale(theCase, staleReason);

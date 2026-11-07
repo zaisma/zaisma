@@ -1,8 +1,9 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { addTesterLink, createAccessGrant, createApiKey, createAccount } from "@zaisma/core";
-import { GAME_FILE_DOORS } from "../../apps/games/src/doors.ts";
-import { cellOf, problemWithAnswer, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { GAME_FILE_DOORS, gameFileDoorAt } from "../../apps/games/src/doors.ts";
+import { gameFileAddresses } from "./file-doors.ts";
+import { cellOf, ownLimitOnly, pastLimitProblem, problemWithAnswer, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
  * Every address on the game domain by every kind of caller (test/grid/cells.ts). Nothing here reads a session: what proves a
@@ -53,22 +54,30 @@ describe("every address on the game domain", () => {
   });
   afterAll(() => env.DB.exec("DELETE FROM api_keys; DELETE FROM accounts; DELETE FROM game_access_passes; DELETE FROM tester_links;"));
 
-  const addresses = [
-    ...(["--preview", "--tester"] as const),
-    "/",
-    "/<file>",
-    ...Object.keys(GAME_FILE_DOORS).filter((name) => name.startsWith("_zaisma/")),
-  ];
+  const addresses = gameFileAddresses(GAME_FILE_DOORS);
 
   it.for(addresses.map((address) => [`game-file:${address}`, address] as const))("%s", { timeout: 60_000 }, async ([doorId, address], { task }) => {
     const cells: GridCell[] = (task.meta.grid_cells = []);
-    const push = (callerKind: CallerKind, problem: string | null) => cells.push(cellOf(doorId, callerKind, problem));
+    const push = (callerKind: CallerKind | "past_limit", problem: string | null) => cells.push(cellOf(doorId, callerKind, problem));
     const live = await addGame("live", "listed");
     const draft = await addGame("pending", "draft");
     const held = await addGame("held", "listed");
     const removed = await addGame("removed", "listed");
     // A game that was live and went private: its version is still its live one, and only its status may keep it in.
     const hidden = await addGame("live", "private");
+
+    // Past the address's own limit, at a live game: only the game domain's counter refuses, before anything of the game is read.
+    const doorPath = address === "--preview" || address === "--tester" ? `/${live.slug}${address}/` : address === "/" ? `/${live.slug}/` : address === "/<file>" ? `/${live.slug}/index.html` : `/${live.slug}/${address}`;
+    const door = gameFileDoorAt(address === "--preview" || address === "--tester" || address === "/" || address === "/<file>" ? "index.html" : address, address === "--preview" ? "preview" : address === "--tester" ? "tester" : null);
+    if ("level" in door.limit) {
+      const own = ownLimitOnly(door.limit, "game_files");
+      const gamesWorker = (await import("../../apps/games/src/index.ts")).default as unknown as { fetch: (request: Request, env: unknown, context: ExecutionContext) => Promise<Response> };
+      const context = createExecutionContext();
+      const past = await gamesWorker.fetch(new Request(`${G}${doorPath}`, { redirect: "manual" }), { ...env, ...own.bindings }, context);
+      await past.arrayBuffer();
+      await waitOnExecutionContext(context);
+      push("past_limit", pastLimitProblem(own.isCounted(), past.status === 429, String(past.status)));
+    }
 
     if (address === "--preview" || address === "--tester") {
       const addressKind = LINK_ADDRESSES[address];

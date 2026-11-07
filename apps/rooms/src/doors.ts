@@ -32,8 +32,10 @@ const OPEN_ANSWER = answersJson(JSON_OBJECT);
 const orNull = (type: string) => ({ type: [type, "null"] });
 const eitherAnswer = (...answers: DoorAnswer[]) => answersJson({ anyOf: answers.map((answer) => (answer as { schema: unknown }).schema) });
 
-/** Before a player is known, an address counts at the level a whole building clears. */
-const BY_ADDRESS: DoorLimit = { level: "building", counts: "address" };
+/** The counter the guard keeps for an address across all of rooms.zaisma.com, in front of every door. */
+const ROOMS_ADDRESS_GROUP = "rooms";
+/** Before a player is known, an address counts at the level a whole building clears, on the one counter the guard keeps for every address here. */
+const BY_ADDRESS: DoorLimit = { level: "building", counts: "address", group: ROOMS_ADDRESS_GROUP };
 const FROM_MEMORY: DoorLimit = { whyNoLimit: "answers_from_memory" };
 
 const open = (method: RoomAddressDoor["method"], path: string, answers: DoorAnswer, limit: DoorLimit, query: Record<string, DoorShape> = {}): RoomAddressDoor => ({
@@ -149,7 +151,8 @@ export const ROOM_ADDRESS_DOORS: readonly RoomAddressDoor[] = [
     BY_ADDRESS,
   ),
   proven("GET", "/v1/items/:slug", "game_page", "gameOrigin", "nothing_private", ["game_origin", "tester_link"], { query: TESTER, body: null }, answerOf({ items: JSON_LIST }), BY_ADDRESS),
-  proven("GET", "/v1/rooms/:slug/:room_code", "game_page", "gameOrigin", "room", ["game_origin", "tester_link", "player_pass"], { query: TESTER, body: null }, { kind: "empty" }, BY_ADDRESS),
+  // A room's socket counts the address on a counter of its own besides, before any room wakes.
+  proven("GET", "/v1/rooms/:slug/:room_code", "game_page", "gameOrigin", "room", ["game_origin", "tester_link", "player_pass"], { query: TESTER, body: null }, { kind: "empty" }, { level: "building", counts: "address" }),
 ];
 
 const patterns = ROOM_ADDRESS_DOORS.map((door) => ({ door, pattern: doorPathPattern(door.path, PATH_PARTS) }));
@@ -161,7 +164,7 @@ export function roomAddressDoorAt(path: string, method: string): RoomAddressDoor
 
 /** The address's ceiling across all of rooms.zaisma.com, then the row's shape: each before any of the door's own code runs. Answers why it refuses, or null. */
 export async function guardRoomDoor(request: Request, env: DoorLimitBindings, door: RoomAddressDoor): Promise<"past_limit" | { field: string; problem: string } | "too_big" | "bad_json" | null> {
-  if (await isPastLevel(env, "building", "rooms", request.headers.get("cf-connecting-ip") ?? "local")) return "past_limit";
+  if (await isPastLevel(env, "building", ROOMS_ADDRESS_GROUP, request.headers.get("cf-connecting-ip") ?? "local")) return "past_limit";
   const { takes } = door.contract;
   const problem = queryProblem(takes.query, new URL(request.url).searchParams, request.method === "GET");
   if (problem) return problem;

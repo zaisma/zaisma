@@ -1,13 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { compareGridResults, comparisonLines } from "../../scripts/contract-grid.mjs";
+import { GRID_FILES_BY_PART, compareGridResults, comparisonLines } from "../../scripts/contract-grid.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { collectDoors } from "../../scripts/security-map/doors.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
-import { CALLER_KINDS, cellOf, expectedAtSiteDoor, problemWithAnswer, type CallAnswer, type GridCell } from "../grid/cells.ts";
+import { CALLER_KINDS, cellOf, expectedAtSiteDoor, ownLimitOnly, pastLimitProblem, problemWithAnswer, type CallAnswer, type GridCell } from "../grid/cells.ts";
+import { doorIdsOfGridFile } from "../grid/file-doors.ts";
 import { CHANGES_NOTHING, COVERED_ELSEWHERE, MAY_TOUCH_OWNER, OWNER_NOT_PROVEN, OWNER_SETUP_ROUTES, PAGE_SAMPLES } from "../grid/samples.ts";
 
 /**
@@ -16,6 +17,7 @@ import { CHANGES_NOTHING, COVERED_ELSEWHERE, MAY_TOUCH_OWNER, OWNER_NOT_PROVEN, 
  */
 
 const ROOT = join(import.meta.dirname, "../..");
+const gridFiles = () => readdirSync(join(ROOT, "test/grid")).filter((name) => name.endsWith(".grid.ts")).map((name) => `test/grid/${name}`);
 const kept = (door: string, caller: GridCell["caller_kind"] = "stranger"): GridCell => cellOf(door, caller, null);
 const broken = (door: string, caller: GridCell["caller_kind"] = "stranger"): GridCell => cellOf(door, caller, "Answered 200, where it should refuse.");
 const results = (...cells: GridCell[]) => ({ cells, doors_not_tried: [] as string[] });
@@ -65,6 +67,27 @@ describe("What a comparison lets out", () => {
     const script = readFileSync(join(ROOT, "scripts/contract-grid.mjs"), "utf8");
     expect(script.match(/stdio: "ignore"/g)!.length).toBeGreaterThanOrEqual(2);
     expect(script).not.toMatch(/stdio: "inherit"/);
+  });
+});
+
+describe("A door past its own limit", () => {
+  it("refuses only the door's own counter, so a shared one in front of it lets the call through", async () => {
+    const own = ownLimitOnly({ level: "building", group: "api_files" }, "PUT /files/:slug");
+    const counter = own.bindings.LIMIT_BUILDING!;
+    expect(await counter.limit({ key: "api_address:203.0.113.1" })).toEqual({ success: true });
+    expect(await counter.limit({ key: "api:account_1" })).toEqual({ success: true });
+    expect(await own.bindings.LIMIT_BUSY!.limit({ key: "api_files:account_1" })).toEqual({ success: true });
+    expect(own.isCounted()).toBe(false);
+    expect(await counter.limit({ key: "api_files:account_1" })).toEqual({ success: false });
+    expect(own.isCounted()).toBe(true);
+    const byPath = ownLimitOnly({ level: "steady" }, "/account/username");
+    expect(await byPath.bindings.LIMIT_STEADY!.limit({ key: "/account/username:account_1" })).toEqual({ success: false });
+  });
+
+  it("fails a door that never counted on its own limit, and one that answered past it", () => {
+    expect(pastLimitProblem(true, true, "429")).toBeNull();
+    expect(pastLimitProblem(false, true, "429")).toContain("Never counted on its own limit");
+    expect(pastLimitProblem(true, false, "200")).toBe("Answered 200 past its own limit.");
   });
 });
 
@@ -156,18 +179,22 @@ describe("Every door can be tried", () => {
 
   it("tries every door on the security map but a stored value and a token, which are tried through the doors that use them", async () => {
     const doors = await collectDoors(ROOT, site);
-    const tried = new Set([
-      ...site.SITE_DOORS.flatMap((door: unknown) => site.siteDoorIds(door)),
-      ...site.API_ROUTES.map((route: { method: string; path: string }) => `api:${route.method} ${route.path}`),
-      ...site.TOOLS.filter((tool: { replacedBy?: string }) => !tool.replacedBy).map((tool: { name: string }) => `mcp:${tool.name}`),
-      ...site.ADMIN_TOOLS.map((tool: { name: string }) => `admin:${tool.name}`),
-      ...site.ROOM_ADDRESS_DOORS.map((door: { path: string }) => `rooms:${door.path}`),
-      ...Object.keys(site.ROOM_MESSAGE_DOORS).map((type) => `room-message:${type}`),
-      ...["game-file:--preview", "game-file:--tester", "game-file:/", "game-file:/<file>"],
-      ...Object.keys(site.GAME_FILE_DOORS).filter((name) => name.startsWith("_zaisma/")).map((name) => `game-file:${name}`),
-    ]);
+    // A row another file covers is tried there, by the calls or tools behind it.
+    const coveredElsewhere = site.SITE_DOORS.flatMap((door: { path: string }) => site.siteDoorIds(door).filter((doorId: string) => Object.keys(COVERED_ELSEWHERE).some((row) => row.endsWith(` ${door.path}`))));
+    const tried = new Set([...gridFiles().flatMap((file) => doorIdsOfGridFile(file, site) ?? []), ...coveredElsewhere]);
     const untried = doors.filter((door: { door_kind: string; door_id: string }) => door.door_kind !== "stored_value" && door.door_kind !== "token_or_session" && !tried.has(door.door_id)).map((door: { door_id: string }) => door.door_id);
     expect(untried).toEqual([]);
+  });
+
+  it("knows every grid file's doors, so a file that fails as a whole lands on them", () => {
+    expect(gridFiles().length).toBeGreaterThan(5);
+    expect(gridFiles().filter((file) => !doorIdsOfGridFile(file, site)?.length)).toEqual([]);
+    expect(gridFiles().filter((file) => !Object.values(GRID_FILES_BY_PART as Record<string, string[]>).flat().some((part) => file.startsWith(part)))).toEqual([]);
+  });
+
+  it("tries every page door with a limit of its own past it: a row tried elsewhere states none", () => {
+    const covered = site.SITE_DOORS.filter((door: { methods: string[] | "any"; path: string; contract: { limit: object } }) => "level" in door.contract.limit && (door.methods === "any" ? ["POST"] : door.methods).some((method) => `${method} ${door.path}` in COVERED_ELSEWHERE));
+    expect(covered.map((door: { path: string }) => door.path)).toEqual([]);
   });
 
   it("names doors the grid tries on every stored value", () => {
