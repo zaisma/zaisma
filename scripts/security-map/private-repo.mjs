@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { allDoors, defaultMapDir, generateMap, readMap, staleMissingEvidence, writeMap } from "./generate.mjs";
 import { anchorHashes } from "./anchors.mjs";
-import { isOpenItem, isWayWaitingForRescore, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
+import { caseIdsOf, isOpenItem, isWayWaitingForRescore, itemBackToNext, itemDoneWithTest, itemFilePathOf, itemProblems, itemQueueOf, itemsWithFindingFixed, itemWithCallsSettled, itemWithClaim, readItems } from "./items.mjs";
 import { lastReviewDateOf, pageDataHashOf, pageDataOfMapDir } from "./page-data.mjs";
 import { isFilledText, isObject, promiseProblems, readPromises, rescoreWay, unknownFieldProblems } from "./promises.mjs";
 import { publicPromisesNextStepOf } from "./public-promises.mjs";
@@ -34,7 +34,8 @@ import { caseRefOf, withVerdict } from "./schema.mjs";
  *        a doing item done, with the test on origin/main that guards it, and the way it's about rescored on
  *        origin/main's code with the fact that changed (defense_score, defense_reason, damage_score,
  *        damage_reason, changed_because, and added_anchors for code the fix added), in one commit; --rescore-later leaves the way fixed and waiting
- *        for its rescore. Run again with --rescore on a done item to rescore a way that's waiting.
+ *        for its rescore. Run again with --rescore on a done item to rescore a way that's waiting. An item about
+ *        cases has no way: it takes neither flag, and the next review settles its cases.
  *
  * Options: --map-dir <path> (default ZAISMA_SECURITY_DIR, then ~/zaisma-private/security), --dry (say
  * what a change would do, change nothing), --date <YYYY-MM-DD> (mark-fixed, default today in UTC).
@@ -385,7 +386,6 @@ function liveAnchorHashes(repoRoot, anchors) {
  */
 export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescoreLater = false, date, now, repoRoot = REPO_ROOT, isDry = false }) {
   if (!testPath) throw new Error("item-done needs --test <path>: the test in zaisma/zaisma that now guards it, like test/node/guard.test.ts.");
-  if (Boolean(rescore) === isRescoreLater) throw new Error("item-done needs one of --rescore <rescore.json> (the way rescored with the fact that changed: defense_score, defense_reason, damage_score, damage_reason, changed_because) or --rescore-later (the way left waiting for the next review's rescore).");
   if (rescore) {
     const problems = rescoreProblems(rescore);
     if (problems.length) throw new Error(`The rescore would break its shape: ${problems.join("; ")}.`);
@@ -397,6 +397,20 @@ export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescore
   const next = item.item_state === "done" ? item : itemDoneWithTest(item, { testPath, date, now, commit });
   const itemProblemList = itemProblems(next);
   if (itemProblemList.length) throw new Error(`The item would break its shape: ${itemProblemList.join("; ")}.`);
+  if (next.way_id === null) {
+    if (rescore || isRescoreLater) throw new Error(`${itemId} is about cases (${caseIdsOf(next).join(", ")}), not a way to break, so there's no way to rescore: run it without --rescore or --rescore-later, and the next review settles the cases.`);
+    const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: null, case_ids: caseIdsOf(next), way_rescore: "no_way" };
+    if (isDry) return { ...answer, is_dry: true };
+    if (JSON.stringify(next) === JSON.stringify(item)) return { ...answer, is_changed: false };
+    writeFileSync(join(mapDir, itemFilePathOf(itemId)), `${JSON.stringify(next, null, 2)}\n`);
+    try {
+      return { ...answer, is_changed: true, ...commitAndPush(mapDir, { message: `${itemId}: done`, paths: [itemFilePathOf(itemId)] }) };
+    } catch (error) {
+      restoreClone(mapDir);
+      throw error;
+    }
+  }
+  if (Boolean(rescore) === isRescoreLater) throw new Error("item-done needs one of --rescore <rescore.json> (the way rescored with the fact that changed: defense_score, defense_reason, damage_score, damage_reason, changed_because) or --rescore-later (the way left waiting for the next review's rescore).");
   const stored = readPromises(mapDir);
   const promise = stored.promises.find((candidate) => candidate.sector_id === next.sector_id);
   const wayIndex = promise?.ways_to_break.findIndex((way) => way.way_id === next.way_id) ?? -1;
@@ -418,7 +432,7 @@ export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescore
     if (problems.length) throw new Error(`The promises would break their shape: ${problems.join("; ")}.`);
     writes.push({ path: `promises/${next.sector_id}.json`, record: promise });
   }
-  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: way.way_id, way_rescore: wayRescore, ...(wayRescore === "rescored" ? { new_defense_score: rescore.defense_score, new_damage_score: rescore.damage_score } : {}) };
+  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: way.way_id, case_ids: [], way_rescore: wayRescore, ...(wayRescore === "rescored" ? { new_defense_score: rescore.defense_score, new_damage_score: rescore.damage_score } : {}) };
   if (isDry) return { ...answer, is_dry: true };
   if (!writes.length) return { ...answer, is_changed: false };
   for (const { path, record } of writes) writeFileSync(join(mapDir, path), `${JSON.stringify(record, null, 2)}\n`);

@@ -1,9 +1,10 @@
-import { env, SELF } from "cloudflare:test";
+import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { bodyProblem, createAccount, issueRoomKey } from "@zaisma/core";
+import { BUSY_CLOSE_CODE, ROOM_MESSAGE_DOORS } from "@zaisma/game-server/internal";
 import { ROOM_ADDRESS_DOORS } from "../../apps/rooms/src/doors.ts";
 import type { Env } from "../../apps/rooms/src/index.ts";
-import { cellOf, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
+import { cellOf, ownLimitOnly, pastLimitProblem, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type GridCell } from "./cells.ts";
 
 /**
  * Every address on rooms.zaisma.com and the `hello` that joins a room, by every kind of caller (test/grid/cells.ts). A game's
@@ -46,22 +47,40 @@ async function socketStatus(socket: WebSocket): Promise<number> {
   return given;
 }
 
+/** How a socket closed, or 0 when it opened and answered instead. */
+async function socketClose(socket: WebSocket): Promise<number> {
+  socket.accept();
+  const code = new Promise<number>((resolve) => {
+    socket.addEventListener("message", (event) => event.data === "pong" && resolve(0));
+    socket.addEventListener("close", (event) => resolve(event.code));
+  });
+  socket.send("ping");
+  const given = await code;
+  socket.close();
+  return given;
+}
+
 const answered = async (response: Response): Promise<CallAnswer> => ({ http_status: response.webSocket ? await socketStatus(response.webSocket) : response.status, location: response.headers.get("location"), is_owners_changed: false, is_private_value_shown: false });
 
 const passFor = async (game: { id: string; slug: string }, accountId?: string) => (await (await hit("POST", "/v1/pass", ORIGIN, { gameSlug: game.slug, roomKey: await issueRoomKey(e.DB, game.id, accountId) })).json<{ pass: string }>()).pass;
 
 /** Whether a pass opens a room: the room's first answer, or its closing. */
 async function helloAnswer(game: { slug: string }, pass: string): Promise<string> {
+  return (await helloReply(game, pass)).type;
+}
+
+/** The room's first answer to a hello, as its type and, for a refusal, its code; "refused" when it closed with none. */
+async function helloReply(game: { slug: string }, pass: string): Promise<{ type: string; code?: string }> {
   const response = await SELF.fetch(`${R}/v1/rooms/${game.slug}/K7Q2MX`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   const socket = response.webSocket;
-  if (!socket) return "refused";
+  if (!socket) return { type: "refused" };
   socket.accept();
-  const first = new Promise<string>((resolve) => {
+  const first = new Promise<{ type: string; code?: string }>((resolve) => {
     socket.addEventListener("message", (event) => {
-      const type = typeof event.data === "string" ? (JSON.parse(event.data) as { type: string }).type : "bytes";
-      if (type !== "probe") resolve(type);
+      const reply = typeof event.data === "string" ? (JSON.parse(event.data) as { type: string; code?: string }) : { type: "bytes" };
+      if (reply.type !== "probe") resolve(reply);
     });
-    socket.addEventListener("close", () => resolve("refused"));
+    socket.addEventListener("close", () => resolve({ type: "refused" }));
   });
   socket.send(JSON.stringify({ type: "hello", protocolVersionNumber: 1, pass, room: { isListed: true } }));
   const answer = await first;
@@ -118,6 +137,23 @@ describe("every address on rooms.zaisma.com", () => {
     const takesRoomKey = "roomKey" in fields;
     const ownersProof = takesRoomKey ? await issueRoomKey(e.DB, game.id, "grid-rooms-owner") : pass;
 
+    // The owner's page past the door's own limit, on every address with one: only that door's counter refuses, so the shared one in
+    // front of every address lets it through, and a socket must close as too busy, not open.
+    if ("level" in limit) {
+      const own = ownLimitOnly(limit, door.path);
+      const roomsWorker = (await import("../../apps/rooms/src/index.ts")).default as unknown as { fetch: (request: Request, env: Env) => Promise<Response> };
+      const proof = takesRoomKey ? await issueRoomKey(e.DB, game.id, "grid-rooms-owner") : pass;
+      const body = bodyOf(game.slug, proof);
+      const isSocket = /\/:room_code$/.test(door.path);
+      const past = await roomsWorker.fetch(
+        new Request(`${R}${pathOf(game.slug)}`, { method, headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}`, ...(isSocket ? { Upgrade: "websocket" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }),
+        { ...e, ...own.bindings } as unknown as Env,
+      );
+      const closeCode = past.webSocket ? await socketClose(past.webSocket) : null;
+      const isRefused = closeCode === null ? past.status === 429 : closeCode === BUSY_CLOSE_CODE;
+      cells.push(cellOf(doorId, "past_limit", pastLimitProblem(own.isCounted(), isRefused, closeCode === null ? String(past.status) : `a socket closed with ${closeCode}`)));
+    }
+
     if (door.contract.whoMayCall === "anyone") {
       const answer = await answered(await hit(method, pathOf(game.slug), null));
       for (const callerKind of ["owner", "another_account", "stranger", "banned_developer", "banned_account", "weaker_key", "another_games_key"] as const) push(callerKind, answer.http_status >= 500 ? `Answered ${answer.http_status}.` : null);
@@ -144,12 +180,6 @@ describe("every address on rooms.zaisma.com", () => {
         const answer = await hit(method, `${pathOf(game.slug)}?${queryField[0]}=${tooLongFor(queryField[1])}`, ORIGIN);
         cells.push(cellOf(doorId, "wrong_shape", answer.status >= 400 && answer.status < 500 ? null : `Answered ${answer.status} to a request of the wrong shape.`));
       }
-    }
-    if ("level" in limit) {
-      const roomsWorker = (await import("../../apps/rooms/src/index.ts")).default as unknown as { fetch: (request: Request, env: Env) => Promise<Response> };
-      const refusing = { ...e, LIMIT_BUILDING: { limit: async () => ({ success: false }) } } as unknown as Env;
-      const past = await roomsWorker.fetch(new Request(`${R}${pathOf(game.slug)}`, { method: door.method === "ANY" ? "GET" : door.method, headers: { Origin: ORIGIN, ...(/\/:room_code$/.test(door.path) ? { Upgrade: "websocket" } : {}) }, ...(door.method === "POST" ? { body: JSON.stringify({ gameSlug: game.slug }) } : {}) }), refusing);
-      cells.push(cellOf(doorId, "past_limit", past.status === 429 || past.webSocket ? null : `Answered ${past.status} past its limit.`));
     }
     if (!(door.path in OWNER_NOT_PROVEN)) push("owner", problemWithAnswer("goes_through", null, await answered(await hit(method, pathOf(game.slug), ORIGIN, bodyOf(game.slug, ownersProof)))));
     // Another site's page, and no page at all: the same body, from where a game's page isn't, and a door a game's page proves says so
@@ -187,5 +217,17 @@ describe("every address on rooms.zaisma.com", () => {
     cells.push(cellOf(doorId, "another_games_key", isRefused(await helloAnswer(game, await passFor(other)))));
     cells.push(cellOf(doorId, "stranger", isRefused(await helloAnswer(game, "not-a-pass"))));
     cells.push(cellOf(doorId, "another_account", isRefused(await helloAnswer(game, "a.b.c"))));
+    // Past its own limit, in a room of its own: the room's bindings refuse only the hello's counter, and the room must say it's busy.
+    const limited = await addGame();
+    const { limit } = ROOM_MESSAGE_DOORS.hello;
+    if ("level" in limit) {
+      const own = ownLimitOnly(limit, "hello");
+      await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName(`${limited.slug}:K7Q2MX`)), (room: object) => {
+        const roomEnv = room as unknown as { env: Env };
+        roomEnv.env = { ...roomEnv.env, ...own.bindings } as unknown as Env;
+      });
+      const reply = await helloReply(limited, await passFor(limited));
+      cells.push(cellOf(doorId, "past_limit", pastLimitProblem(own.isCounted(), reply.type === "error" && reply.code === "busy", reply.code ? `${reply.type} ${reply.code}` : reply.type)));
+    }
   });
 });

@@ -1,16 +1,19 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FINISHED_STATES, isOpenItem, isWayWaitingForRescore, priorityOfItem, readItems } from "./items.mjs";
-import { readPromises } from "./promises.mjs";
-import { SECTORS } from "./schema.mjs";
+import { readMap } from "./generate.mjs";
+import { FINISHED_STATES, isCaseItem, isOpenItem, isWayWaitingForRescore, priorityOfItem, readItems } from "./items.mjs";
+import { PRIORITIES, readPromises } from "./promises.mjs";
+import { coveragePctOf, DONE_STATUSES, hasOpenFinding, SECTORS } from "./schema.mjs";
 
 /**
  * What the Security map page shows, worked out from the private repo's records. Every field is copied by
  * name, so a reason, an anchor, a proof or a finding id can't reach the page, and a score leaves only as the
  * words and picture of its step. The rules here are the page's: a shield follows its worst open item, and
  * only a proven item moves one. A way an item closed after its last score shows as fixed and waiting for its
- * rescore, never as work ahead.
+ * rescore, never as work ahead. A bug is never a way to break: a found one is an open item on the cases it sits
+ * in, and the ones not found yet show as each sector's case coverage, how much of its doors' checklist is
+ * tested and solid against how much is unexplored or stale.
  */
 
 /** A shield's states, from whole to worst. */
@@ -95,8 +98,35 @@ function attentionItemsOf(items, scales) {
     }));
 }
 
+/**
+ * How much of a sector's doors' checklist is known: tested and solid (robust or fixed), unexplored, stale
+ * (its code changed since the verdict), and found soft (weak) or open (a hole, or a stale case that was one).
+ */
+export function caseCoverageOf(doors) {
+  const casesWithNested = (cases) => cases.flatMap((theCase) => [theCase, ...casesWithNested(theCase.cases ?? [])]);
+  const cases = casesWithNested(doors.filter((door) => !door.door_removed_at).flatMap((door) => door.cases));
+  const isOpenHole = (theCase) => theCase.status === "hole" || hasOpenFinding(theCase);
+  return {
+    case_count: cases.length,
+    solid_case_count: cases.filter((theCase) => DONE_STATUSES.includes(theCase.status)).length,
+    coverage_pct: coveragePctOf(cases),
+    unexplored_case_count: cases.filter((theCase) => theCase.status === "unexplored").length,
+    stale_case_count: cases.filter((theCase) => theCase.status === "stale" && !isOpenHole(theCase)).length,
+    weak_case_count: cases.filter((theCase) => theCase.status === "weak").length,
+    hole_case_count: cases.filter(isOpenHole).length,
+  };
+}
+
+/** A sector's open items about cases, proven or not: each a bug found or suspected, open until a test guards its fix. Worst first. */
+function caseItemsOf(sectorItems, items, scales) {
+  return sectorItems
+    .filter((item) => isCaseItem(item) && isOpenItem(item))
+    .sort((first, second) => PRIORITIES.indexOf(priorityOfItem(first)) - PRIORITIES.indexOf(priorityOfItem(second)) || second.damage_score - first.damage_score || first.item_id.localeCompare(second.item_id))
+    .map((item) => ({ item_line: item.item_line, goal_line: item.goal_line, is_question: item.item_kind === "question", shield_state: shieldStateOfItem(item), item_standing: itemStandingOf(item, items), ...harmAndLockOf(item, scales) }));
+}
+
 /** The page's whole data: one shield for Zaisma, one per sector in rollout order, what needs attention, the thin spots and the work ahead. grid and patterns are null before their first run. */
-export function pageDataOf({ scales, promises, items, grid, patterns, lastReviewDate }) {
+export function pageDataOf({ scales, promises, items, map = [], grid, patterns, lastReviewDate }) {
   const shieldItems = items.filter(isShieldItem);
   const countOfPriority = (priority) => shieldItems.filter((item) => priorityOfItem(item) === priority).length;
   const attentionItems = attentionItemsOf(items, scales);
@@ -123,6 +153,7 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
       .sort((first, second) => first.rollout_position - second.rollout_position)
       .map((promise) => {
         const sectorItems = items.filter((item) => item.sector_id === promise.sector_id);
+        const sectorMap = map.find((sector) => sector.sector_id === promise.sector_id);
         return {
           sector_id: promise.sector_id,
           sector_name: sectorNameOf(promise.sector_id),
@@ -132,6 +163,9 @@ export function pageDataOf({ scales, promises, items, grid, patterns, lastReview
           watch_item_count: sectorItems.filter((item) => isShieldItem(item) && priorityOfItem(item) === "watch").length,
           strengths: promise.strengths.map(({ strength_kind, strength_line }) => ({ strength_kind, strength_line })),
           ways: promise.ways_to_break.map((way) => ({ way_line: way.way_line, is_waiting_for_rescore: isWayWaitingForRescore(way, promise.sector_id, items), ...harmAndLockOf(way, scales) })),
+          has_doors: !SECTORS.find((sector) => sector.sector_id === promise.sector_id)?.has_no_doors,
+          case_coverage: caseCoverageOf(sectorMap?.doors ?? []),
+          case_items: caseItemsOf(sectorItems, items, scales),
         };
       }),
     attention_items: attentionItems,
@@ -155,6 +189,7 @@ export function readPageInputs(mapDir) {
   return {
     ...readPromises(mapDir),
     items: readItems(mapDir),
+    map: readMap(mapDir),
     grid: readJsonOrNull(join(mapDir, "grid", "failures.json")),
     patterns: readJsonOrNull(join(mapDir, "patterns", "findings.json")),
     lastReviewDate: lastReviewDateOf(mapDir),
