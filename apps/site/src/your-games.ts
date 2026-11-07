@@ -120,11 +120,11 @@ function card(options: CardOptions): LayoutItem {
       ? { ...action("remove"), isButton: true, dataAttributes: { "remove-from-device": game.slug } }
       : null;
   // Details opens the game's page; a game gone for now has no page to open.
-  const menuItems: DropdownItem[] = [...(game.is_gone ? [] : [{ label: "Details", href: `/g/${game.slug}` }]), ...(removeItem ? [removeItem] : [])];
+  const menuItems: DropdownItem[] = [...(game.is_gone ? [] : [{ ...action("details"), href: `/g/${game.slug}` }]), ...(removeItem ? [removeItem] : [])];
   const playerCount = game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined;
   return {
     kind: "block",
-    markup: html`<div class="your-game" data-slug="${game.slug}" data-title="${game.title.toLowerCase()}">${gameCard({
+    markup: gameCard({
       title: game.title,
       picture: game.cover_picture,
       // The cover plays the game: Your games is the one list that starts a game at a press; every other list opens its page.
@@ -141,7 +141,8 @@ function card(options: CardOptions): LayoutItem {
       menu: menuItems.length ? { id: `${options.menuIdPrefix}-${game.slug}-more`, label: game.title, items: menuItems } : undefined,
       isEager: options.isEager,
       hasHighPriority: options.isEager,
-    })}</div>`,
+      dataAttributes: { slug: game.slug, title: game.title.toLowerCase() },
+    }),
   };
 }
 
@@ -285,7 +286,7 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
 }
 
 
-/** GET /your-games/played: All you've played, every game, searched as you type and sorted by Recently played or Recently updated. */
+/** GET /your-games/played: All you've played, every game, searched as you type and sorted by Last played or Last updated. */
 export async function allPlayedPage(env: Env, request: Request): Promise<Response> {
   const viewer = await viewerOf(request, env);
   const account = viewer.account;
@@ -322,7 +323,7 @@ export async function allPlayedPage(env: Env, request: Request): Promise<Respons
             label: "Search and sort",
             items: [
               { kind: "control", markup: cutField({ id: "played-search", name: "search_text", label: "Search your games", type: "search", icon: "search", text: "", autocomplete: "off" }) },
-              { kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", href: "/your-games/played", isCurrent: sort === "played" }, { label: "Recently updated", href: "/your-games/played?sort=updated", isCurrent: sort === "updated" }] }) },
+              { kind: "control", markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Last played", href: "/your-games/played", isCurrent: sort === "played" }, { label: "Last updated", href: "/your-games/played?sort=updated", isCurrent: sort === "updated" }] }) },
             ],
           }),
         },
@@ -393,10 +394,10 @@ ${KEEP_PLAYED_COOKIE_SOURCE}
 const search = document.getElementById("played-search");
 if (search) search.addEventListener("input", () => {
   const words = search.value.trim().toLowerCase();
-  for (const game of document.querySelectorAll(".your-game")) game.parentElement.hidden = Boolean(words) && !game.dataset.title.includes(words);
+  for (const game of document.querySelectorAll(".cover[data-slug]")) game.parentElement.hidden = Boolean(words) && !game.dataset.title.includes(words);
 });
 function takeAway(slug) {
-  for (const game of document.querySelectorAll('.your-game[data-slug="' + CSS.escape(slug) + '"]')) game.parentElement.remove();
+  for (const game of document.querySelectorAll('.cover[data-slug="' + CSS.escape(slug) + '"]')) game.parentElement.remove();
 }
 document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-from-device]");

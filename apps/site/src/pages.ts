@@ -458,7 +458,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
           ? row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions })
           : otherGameLink
             ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Favorite, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, ...smallActions] }) }] })
-            : row({ widths: "lead-fills", label: "Play, Favorite, Share and Report", items: [...mainAction, ...smallActions] }),
+            // Favorite, Share and Report keep together: where they don't fit beside Play (a phone) they go under it as one line.
+            : row({ widths: "lead-fills", label: "Play, Favorite, Share and Report", items: [...mainAction, { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions }) }] }),
       },
     ],
   });

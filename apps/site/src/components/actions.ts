@@ -603,6 +603,8 @@ export interface TertiaryButtonOptions extends ButtonTarget {
   isSmall?: boolean;
   /** The id of what it acts on (aria-controls): a copy field's text, for its Copy. */
   controls?: string;
+  /** It opens what it controls (a menu: a game card's More): whether that's open now (aria-expanded). Left out, it opens nothing. */
+  isExpanded?: boolean;
   /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
   hasArrow?: boolean;
   /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
@@ -624,7 +626,7 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 export function tertiaryButton(button: ButtonWords, options: TertiaryButtonOptions = {}): ControlMarkup {
   const { label, chosenIcon, pressedIcon } = faceOf(button);
   const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}`;
   return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? iconPair(chosenIcon, pressedIcon) : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 

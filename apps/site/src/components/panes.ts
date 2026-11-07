@@ -136,10 +136,12 @@ export interface GameCardOptions {
   hasHighPriority?: boolean;
   /** Pointed at or pressed: the gallery's still copies. */
   state?: "is-pointed" | "is-pressed";
-  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available right now" on the line a reason takes, and no link. */
+  /** The game can't be opened now (its developer made it private, or is deleting it): the art greyed, "Not available" on the line a reason takes, and no link. */
   isGone?: boolean;
   /** A small More at the end of its line under the art, opening a short menu (Your games' Remove). id: the menu's, unique on the page. */
   menu?: { id: string; label: string; items: DropdownItem[] };
+  /** Data a page script reads off the card (Your games' search and Remove): data-<name> on it. Names are lowercase words joined by hyphens. */
+  dataAttributes?: Record<string, string>;
   /** An event's poster (What's on): its picture is the whole card, the event's own art, with no line under it; facts are left unsaid. */
   isPoster?: boolean;
   /** The card a list ends on past its cap: its picture four of the list's covers (coverPictures), its line See all and gameCount. */
@@ -204,8 +206,8 @@ export function gameCard(options: GameCardOptions): Raw {
   const hasTint = Boolean(options.tintColor && /^#[0-9a-fA-F]{6}$/.test(options.tintColor));
   const tint = hasTint ? html` style="--card-tint: ${options.tintColor}"` : "";
   const className = ["cover", isPlaceholder ? "is-placeholder" : "", facts.deviceNote ? "is-other-device" : "", options.isGone ? "is-gone" : "", hasTint ? "has-tint" : "", options.state ?? ""].filter(Boolean).join(" ");
-  // Gone for now: its tag says so, in the place a tag always takes, and its art is no link.
-  const tagWords = options.isGone ? "Not available" : facts.tagWords;
+  // Gone for now: its art is no link and the reason line says so, so its title keeps the whole title line.
+  const tagWords = options.isGone ? undefined : facts.tagWords;
   const tagAtEnd = tagWords ? tag(tagWords, /^(Updated|New)$/.test(tagWords) ? "new" : "plain") : undefined;
   // One line, the same on every card: who's in it (friends' faces), its name, and one thing at its end: Play or Join, else why it's here (a tag),
   // else its price, else players now. What doesn't fit is in its label for a screen reader and on its page; another device dims its art.
@@ -217,14 +219,16 @@ export function gameCard(options: GameCardOptions): Raw {
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined && !options.isGone ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
   const menu = options.menu
-    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
+    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, items: options.menu.items })}</span>`
     : "";
   const well = options.isGone
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square role="img" aria-label="${cardLabel(options)}">${CUT_LINE}${art}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>`;
   const line = options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}${menu}</div>`;
-  const reason = facts.reasonText ? html`<span class="cover-reason one-line">${facts.reasonText}</span>` : "";
-  return html`<div class="${className} sleek-cast"${tint}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}${reason ? " has-reason" : ""}">${line}${reason}</div></div></div>`;
+  const reasonText = options.isGone ? "Not available" : facts.reasonText;
+  const reason = reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : "";
+  const data = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  return html`<div class="${className} sleek-cast"${tint}${data}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}${reason ? " has-reason" : ""}">${line}${reason}</div></div></div>`;
 }
 
 /**
@@ -684,8 +688,16 @@ const COVER_STYLES = `
    More has it, so the list stays one shape. */
 .cover-meta .cover-more { position: relative; display: inline-flex; flex: none; margin-inline-end: calc(-1 * var(--pad-frame-compact)); }
 .cover-plate.has-more { height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
-/* Why a list chose it (For you's Because you played): a quiet line of its own under the title's, every card in that list has one. */
-.cover-plate.has-reason { height: auto; min-height: calc(var(--cover-plate-height) + 1lh); align-content: start; }
+/* Why a list chose it (For you's Because you played), or that it's gone for now: a quiet line of its own under the title's. A card with one
+   is a line taller; the cards beside it stretch to its height, and every title line keeps its place at the top of its plate, its own height. */
+.cover-plate { align-content: start; container-type: inline-size; }
+.cover-plate > .cover-meta { min-height: var(--control-height-tiny); }
+.cover-plate.has-more > .cover-meta { min-height: var(--control-height-small); }
+.cover-plate.has-reason { height: auto; min-height: calc(var(--cover-plate-height) + 1lh); }
+.cover-plate.has-more.has-reason { min-height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact) + 1lh); }
+/* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label
+   and on its page. */
+@container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag) { display: none; } }
 .cover-reason { padding-inline: var(--pad-frame-compact); font: var(--type-facts); color: var(--ink-2); min-width: 0; }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 /* In a row where some card has a control on its title line (Join), every title line there is as tall as that control, so the cards line up. */

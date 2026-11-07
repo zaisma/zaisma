@@ -5108,7 +5108,7 @@ describe("Your games", () => {
     expect(at('id="recently-played"')).toBeLessThan(at('id="for-you"'));
     // The lead is the favorite updated since it was played, first in its grid.
     expect(at('data-slug="updated-fav"')).toBeLessThan(at('data-slug="unplayed-fav"'));
-    expect(page).toContain("Not available right now");
+    expect(page).toContain("Not available");
     expect(page).toContain('data-slug="hidden-one"');
     expect(page).not.toContain("taken-down");
     expect(page).toContain("Because you played Game recent-one");
