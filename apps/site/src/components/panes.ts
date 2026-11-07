@@ -221,7 +221,7 @@ export function gameCard(options: GameCardOptions): Raw {
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined && !options.isGone ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
   const menu = options.menu
-    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, head: options.isGone ? { title: options.title, note: "Not available right now" } : facts.reasonText ? { title: options.title, note: facts.reasonText } : undefined, items: options.menu.items })}</span>`
+    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isTiny: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, head: options.isGone ? { title: options.title, note: "Not available right now" } : facts.reasonText ? { title: options.title, note: facts.reasonText } : undefined, items: options.menu.items })}</span>`
     : "";
   const well = options.isGone
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square role="img" aria-label="${cardLabel(options)}">${CUT_LINE}${art}</span>`
@@ -683,10 +683,8 @@ const COVER_STYLES = `
 /* Gone for now (made private, or being deleted): the art greyed, no light, its tag saying so. */
 .cover.is-gone .cover-picture { filter: grayscale(1) brightness(0.7); }
 .cover.is-gone .cover-name { color: var(--ink-2); }
-/* Its More, at the line's end: a small control, so its plate is a small control's height (like Play's); every card in a list that gives
-   More has it, so the list stays one shape. */
+/* Its More, at the line's end: a tiny control, so its plate is the one height every card's is. */
 .cover-meta .cover-more { position: relative; display: inline-flex; flex: none; }
-.cover:has(> .cover-glass > .cover-plate.has-more) { --cover-plate-height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
 /* Its plate measures its own width, so what its line says can give way on a narrow card. */
 .cover-plate { container-type: inline-size; }
 /* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label

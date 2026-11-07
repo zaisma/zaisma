@@ -18,6 +18,7 @@ import { glassPane } from "./components/foundations.ts";
 import { cutField } from "./components/inputs.ts";
 import { row, stack, type GridItem, type LayoutItem } from "./components/layout.ts";
 import { banner, gameCard, gameGrid, type DropdownItem } from "./components/panes.ts";
+import { gameRow } from "./components/navigation.ts";
 import { stateNote } from "./components/data.ts";
 import { tabSwitch } from "./components/switch.ts";
 import type { CheckedPageName } from "./components/checked-pages.ts";
@@ -146,26 +147,6 @@ function card(options: CardOptions): LayoutItem {
   };
 }
 
-/**
- * One of Your games' lists on a pane of its own: its heading, with a way to the whole list at its end where there is one, tight over its
- * Game grid, two across at the least. hasLeadCell makes the first card the lead (Favorites' featured favorite).
- */
-function gamesPane(options: { id: string; title: string; seeAll?: { words: string; href: string }; hasLeadCell?: boolean; items: LayoutItem[] }): Raw {
-  const title = html`<h2 id="${options.id}-title">${options.title}</h2>`;
-  return glassPane({
-    paneWidth: "full",
-    label: options.title,
-    body: stack({
-      items: [
-        options.seeAll
-          ? { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }, { kind: "control", markup: tertiaryButton(options.seeAll.words, { href: options.seeAll.href, isSmall: true }) }] }) }
-          : { kind: "words", markup: title },
-        { kind: "block", markup: gameGrid({ id: `${options.id}-grid`, label: options.title, hasLeadCell: options.hasLeadCell, isAtLeastTwoAcross: true, items: options.items as GridItem[], whenEmpty: stateNote({ stateKind: "empty", text: "" }) }) },
-      ],
-    }),
-  });
-}
-
 /** Games for this device first, each part keeping its order, as every list does. */
 function forDeviceFirst<Game extends { devices: string[] }>(games: Game[], deviceKind: DeviceKind): Game[] {
   const fits = (game: Game) => !game.devices.length || game.devices.includes(deviceKind);
@@ -256,12 +237,12 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
   // A pane for each list: Favorites, its first the lead; Recently played, with All you've played; For you. The last ends the page.
   const panes: Raw[] = [
     ...(favoritesInOrder.length
-      ? [gamesPane({ id: "favorites", title: "Favorites", hasLeadCell: true, items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, false)) })]
+      ? [gameRow({ id: "favorites", trackId: "favorites-grid", title: "Favorites", inLines: { hasLeadCell: true }, items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, false)) as GridItem[] })]
       : []),
     ...(recentList.length
-      ? [gamesPane({ id: "recently-played", title: "Recently played", seeAll: { words: "All you've played", href: "/your-games/played" }, items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) })]
+      ? [gameRow({ id: "recently-played", trackId: "recently-played-grid", title: "Recently played", inLines: { hasLeadCell: false }, seeAll: { words: "All you've played", href: "/your-games/played", gameCount: recentList.length, coverPictures: recentList.map((game) => game.cover_picture) }, items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) as GridItem[] })]
       : []),
-    ...(forYouItems.length ? [gamesPane({ id: "for-you", title: "For you", items: forYouItems })] : []),
+    ...(forYouItems.length ? [gameRow({ id: "for-you", trackId: "for-you-grid", title: "For you", inLines: { hasLeadCell: false }, items: forYouItems as GridItem[] })] : []),
   ];
   const endLine = html`<p>That's all your games. ${textLink("Browse every game", "/games")}</p>`;
   const guestLine: LayoutItem[] = !account && env.SUPABASE_URL
