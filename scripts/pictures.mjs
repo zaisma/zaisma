@@ -4,10 +4,10 @@
 // for the Mac's one heavy run, and none waits behind another's.
 //
 //   npm run pictures -- --pr <number> --path <a page's whole path> [--path <another>…] --out <folder> [--json]
-//       dispatches Pictures on the pull request's head, waits for it (one runner a page, side by side: usually a few minutes, at most 40),
-//       and downloads every page's into <folder>: sheets/ (each state's contact sheet), strips/ (each run's strip and still), and
-//       pictures.json, with the head, the run, and whether each page's layout check and motion sheet passed. Their output is in
-//       <folder>/runs/pictures-<n>/layout.txt and motion.txt. The last line is PICTURES PASS or PICTURES FAIL; --json prints the answer.
+//       dispatches Pictures on the pull request's head, waits for it (two runners a page, side by side: about a quarter of an hour,
+//       at most 40 minutes), and downloads every page's into <folder>: sheets/ (each state's contact sheet), strips/ (each run's strip and still), and
+//       pictures.json, with the head, the run, and whether each page's layout check and motion sheet passed, and where each one's
+//       output is (<folder>/runs/pictures-<n>/layout.txt or motion.txt). The last line is PICTURES PASS or PICTURES FAIL; --json prints the answer.
 //       A file two pages both make is kept as <page>--<name>, so no page's picture overwrites another's.
 //   Push first: the pictures are of the head on GitHub. Run it in the background; it only waits on GitHub.
 import { execFileSync } from "node:child_process";
@@ -58,6 +58,15 @@ export function flattenedPictures(pages) {
   const counts = new Map();
   for (const page of pages) for (const name of page.names) counts.set(name, (counts.get(name) ?? 0) + 1);
   return pages.flatMap((page) => page.names.map((name) => ({ from: join(page.folder, name), name: counts.get(name) > 1 ? `${pathSlug(page.page_path)}--${name}` : name })));
+}
+
+/** Each page's two jobs (run.json: page_path, check_kind, check_outcome) as one: { page_path, layout_outcome, motion_outcome, *_output_path }. */
+export function pagesOfJobs(jobs, pagePaths) {
+  return pagePaths.map((pagePath) => {
+    const jobOf = (kind) => jobs.find((job) => job.page_path === pagePath && job.check_kind === kind);
+    const layout = jobOf("layout"), motion = jobOf("motion");
+    return { page_path: pagePath, layout_outcome: layout?.check_outcome ?? "missing", motion_outcome: motion?.check_outcome ?? "missing", layout_output_path: layout ? join(layout.folder, "layout.txt") : null, motion_output_path: motion ? join(motion.folder, "motion.txt") : null };
+  });
 }
 
 /** The answer's last line. */
@@ -121,19 +130,20 @@ async function main() {
   } catch (error) {
     stop("download_failed", `The run's pictures didn't download: ${String(error.stderr || error.message).trim()}. The run: ${run.url}`);
   }
-  const pages = readdirSync(runsFolder).sort().flatMap((name) => {
+  const jobs = readdirSync(runsFolder).sort().flatMap((name) => {
     const runPath = join(runsFolder, name, "run.json");
     if (!existsSync(runPath)) return [];
     return [{ ...JSON.parse(readFileSync(runPath, "utf8")), folder: join(runsFolder, name) }];
   });
   for (const kind of ["sheets", "strips"]) {
     mkdirSync(join(outFolder, kind), { recursive: true });
-    for (const { from, name } of flattenedPictures(pages.map((page) => ({ page_path: page.page_path, folder: join(page.folder, kind), names: picturesIn(join(page.folder, kind)) })))) copyFileSync(from, join(outFolder, kind, name));
+    for (const { from, name } of flattenedPictures(jobs.map((job) => ({ page_path: job.page_path, folder: join(job.folder, kind), names: picturesIn(join(job.folder, kind)) })))) copyFileSync(from, join(outFolder, kind, name));
   }
+  const pages = pagesOfJobs(jobs, pagePaths);
   const answer = {
     pull_request_number: pullRequestNumber, head_sha: headSha, run_url: run.url,
     sheets_folder: join(outFolder, "sheets"), strips_folder: join(outFolder, "strips"),
-    pages: pages.map(({ page_path, layout_outcome, motion_outcome, folder }) => ({ page_path, layout_outcome, motion_outcome, layout_output_path: join(folder, "layout.txt"), motion_output_path: join(folder, "motion.txt") })),
+    pages,
     is_passed: pages.length > 0 && pages.every((page) => page.layout_outcome === "success" && page.motion_outcome === "success"),
   };
   writeFileSync(join(outFolder, "pictures.json"), JSON.stringify(answer, null, 2));

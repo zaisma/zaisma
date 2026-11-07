@@ -4,8 +4,9 @@
 # refuses (localRunRefusal in scripts/layout-check.mjs, picturesRefusal in scripts/motion-sheet.mjs).
 #
 # Started by npm run pictures -- --pr <number> --path <path> … (scripts/pictures.mjs), which dispatches this on main's copy of it, waits,
-# and downloads each page's artifact: sheets/, strips/, layout.txt, motion.txt and run.json (whether each passed). It's no part of
-# "Tests and typecheck", so its time isn't held to CI's 5:00: one runner a page, side by side, each up to 40 minutes.
+# and downloads each job's artifact: sheets/ and layout.txt, or strips/ and motion.txt, and run.json (whether it passed). It's no
+# part of "Tests and typecheck", so its time isn't held to CI's 5:00: two runners a page (the sheets, the strips), side by side,
+# about a quarter of an hour each (Nov 7, 2026: Home's sheets 15 minutes, its strips 9), at most 40.
 name: Pictures
 run-name: Pictures for #${{ inputs.pull_request_number }} at ${{ inputs.head_sha }} (${{ inputs.request_id }})
 
@@ -44,15 +45,18 @@ env:
 
 jobs:
   pictures:
-    name: Pictures of ${{ matrix.page_path }}
+    name: ${{ matrix.check_kind == 'layout' && 'Contact sheets' || 'Motion strips' }} of ${{ matrix.page_path }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         page_path: ${{ fromJSON(inputs.page_paths || '["/", "/design/inputs/fields"]') }}
+        # The layout check's sheets and the motion sheet's strips side by side: each takes about a quarter of an hour on a page.
+        check_kind: [layout, motion]
     env:
       PAGE_PATH: ${{ matrix.page_path }}
+      CHECK_KIND: ${{ matrix.check_kind }}
       HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
       PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
     steps:
@@ -117,19 +121,20 @@ jobs:
       - run: npm run preview:start -- ${{ steps.snapshot.outputs.cache-matched-key == '' && '--reset' || '' }}
       - run: mkdir -p pictures/sheets pictures/strips
       - id: layout
+        if: matrix.check_kind == 'layout'
         continue-on-error: true
         shell: bash
         run: npm run layout:check -- --path "$PAGE_PATH" --screens all --pictures pictures/sheets 2>&1 | tee pictures/layout.txt
       - id: motion
+        if: matrix.check_kind == 'motion'
         continue-on-error: true
         shell: bash
         run: npm run motion:sheet -- --path "$PAGE_PATH" --pictures pictures/strips 2>&1 | tee pictures/motion.txt
       - if: always()
         env:
-          LAYOUT_OUTCOME: ${{ steps.layout.outcome }}
-          MOTION_OUTCOME: ${{ steps.motion.outcome }}
+          CHECK_OUTCOME: ${{ matrix.check_kind == 'layout' && steps.layout.outcome || steps.motion.outcome }}
         run: |
-          node -e 'require("fs").writeFileSync("pictures/run.json", JSON.stringify({ page_path: process.env.PAGE_PATH, head_sha: process.env.HEAD_SHA, pull_request_number: Number(process.env.PULL_REQUEST_NUMBER), layout_outcome: process.env.LAYOUT_OUTCOME || "skipped", motion_outcome: process.env.MOTION_OUTCOME || "skipped" }))'
+          node -e 'require("fs").writeFileSync("pictures/run.json", JSON.stringify({ page_path: process.env.PAGE_PATH, head_sha: process.env.HEAD_SHA, pull_request_number: Number(process.env.PULL_REQUEST_NUMBER), check_kind: process.env.CHECK_KIND, check_outcome: process.env.CHECK_OUTCOME || "skipped" }))'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -137,9 +142,9 @@ jobs:
           path: pictures
           retention-days: 7
           compression-level: 1
-      - if: steps.layout.outcome != 'success' || steps.motion.outcome != 'success'
+      - if: (matrix.check_kind == 'layout' && steps.layout.outcome || steps.motion.outcome) != 'success'
         run: |
-          echo "Layout check: ${{ steps.layout.outcome }}. Motion sheet: ${{ steps.motion.outcome }}. Their output is in this page's artifact (layout.txt, motion.txt)."
+          echo "The $CHECK_KIND check didn't pass: its output is in this job's artifact ($CHECK_KIND.txt)."
           exit 1
       - if: failure()
         run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/servers.log || true

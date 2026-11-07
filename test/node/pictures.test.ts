@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { WORKFLOW_FILE, flattenedPictures, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
+import { WORKFLOW_FILE, flattenedPictures, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { picturesRefusal } from "../../scripts/motion-sheet.mjs";
 
@@ -31,6 +31,19 @@ describe("npm run pictures", () => {
       { page_path: "/games", folder: "b", names: ["Games.png", "Sign in sheet.png"] },
     ]);
     expect(flat.map((each: { name: string }) => each.name)).toEqual(["Home.png", "home--Sign in sheet.png", "Games.png", "games--Sign in sheet.png"]);
+  });
+
+  it("joins each page's two jobs, and says a job that left nothing is missing", () => {
+    const pages = pagesOfJobs([
+      { page_path: "/", check_kind: "layout", check_outcome: "success", folder: "runs/pictures-0" },
+      { page_path: "/", check_kind: "motion", check_outcome: "failure", folder: "runs/pictures-1" },
+      { page_path: "/games", check_kind: "layout", check_outcome: "success", folder: "runs/pictures-2" },
+    ], ["/", "/games"]);
+    expect(pages).toEqual([
+      { page_path: "/", layout_outcome: "success", motion_outcome: "failure", layout_output_path: join("runs/pictures-0", "layout.txt"), motion_output_path: join("runs/pictures-1", "motion.txt") },
+      { page_path: "/games", layout_outcome: "success", motion_outcome: "missing", layout_output_path: join("runs/pictures-2", "layout.txt"), motion_output_path: null },
+    ]);
+    expect(verdictLine(pages)).toMatch(/^PICTURES FAIL: \/ \(layout check success, motion sheet failure\); \/games \(layout check success, motion sheet missing\)/);
   });
 
   it("passes only when every page's layout check and motion sheet passed", () => {
