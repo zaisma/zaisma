@@ -1152,7 +1152,7 @@ component({
   styles: `
 /* The frame gap round the cards and between them, as in a Game row's well. */
 .carving.game-grid { padding: var(--pad-frame); --rail-inset: var(--pad-frame); }
-.carving.game-grid > .layout-grid, .carving.game-grid > .grid-one-line > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
+.carving.game-grid > .layout-grid, .carving.game-grid > :is(.grid-one-line, .grid-lead-cell) > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 /* Two groups in one well: the second after a line across it, the line the frame gap from the well's sides and from the cards round it. */
 .carving.game-grid.has-groups { display: flex; flex-direction: column; gap: var(--pad-frame); }
 .carving.game-grid.has-groups > .game-grid-group[hidden] { display: none; }
