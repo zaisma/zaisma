@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { temporaryFolder } from "../temporary-folder.ts";
 // @ts-expect-error: a Node script with no types of its own.
 import { WORKFLOW_FILE, flattenedPictures, isPicturesFolder, pagePrefix, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
 // @ts-expect-error: a Node script with no types of its own.
@@ -53,17 +53,13 @@ describe("npm run pictures", () => {
   });
 
   it("writes only a new or empty folder, or one it filled before", () => {
-    const root = mkdtempSync(join(tmpdir(), "pictures-"));
-    try {
-      expect(isPicturesFolder(join(root, "new"))).toBe(true);
-      expect(isPicturesFolder(root)).toBe(true);
-      writeFileSync(join(root, "notes.md"), "mine");
-      expect(isPicturesFolder(root)).toBe(false);
-      writeFileSync(join(root, "pictures.json"), "{}");
-      expect(isPicturesFolder(root)).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    const root = temporaryFolder("zaisma-pictures-");
+    expect(isPicturesFolder(join(root, "new"))).toBe(true);
+    expect(isPicturesFolder(root)).toBe(true);
+    writeFileSync(join(root, "notes.md"), "mine");
+    expect(isPicturesFolder(root)).toBe(false);
+    writeFileSync(join(root, "pictures.json"), "{}");
+    expect(isPicturesFolder(root)).toBe(true);
   });
 
   it("passes only when every page's layout check and motion sheet passed", () => {
