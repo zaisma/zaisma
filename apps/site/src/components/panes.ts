@@ -685,8 +685,9 @@ const COVER_STYLES = `
 .cover.is-gone .cover-name { color: var(--ink-2); }
 /* Its More, at the line's end: a tiny control, so its plate is the one height every card's is. */
 .cover-meta .cover-more { position: relative; display: inline-flex; flex: none; }
-/* Its plate measures its own width, so what its line says can give way on a narrow card. */
-.cover-plate { container-type: inline-size; }
+/* In a grid two across at the least (a phone's library), its plate measures its own width, so what its line says can give way on a narrow
+   card. Only there: a plate that measures itself gives its card no width of its own, so anywhere that sizes to its cards would fold them away. */
+.layout-grid.is-at-least-two-across:not(.is-one-line) > .grid-cell > .cover .cover-plate { container-type: inline-size; }
 /* On a narrow card with a More (two across on a phone) players now and an Updated tag give the title their room; they're in its label and on
    its page. A price stays: a paid game never looks free. */
 @container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag.new) { display: none; } }
