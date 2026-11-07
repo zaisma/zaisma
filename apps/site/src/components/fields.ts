@@ -955,6 +955,10 @@ const FIELD_STYLES = `
    what's in it, the pane's width where that's wider, never past it. */
 .cut-field > .field:not(.select, .long) { width: var(--size-card); min-width: 100%; max-width: 100%; }
 .cut-field.is-short > .field:not(.select, .long) { width: var(--size-field-short); min-width: 0; }
+/* Beside other controls in a row, a short field is short at least and takes what its cell is given: as wide as its label above it in a row of
+   fitting things, so the control beside it meets it and they slant toward each other, never sitting apart; all the room left in a row its
+   field leads. */
+.row-cell.is-control > .cut-field.is-short > .field:not(.select, .long) { min-width: 100%; }
 /* Its face is a layer of its own under its words (the field's ::before), so the words can fade out at an end with more of them past it
    (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
 .field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
