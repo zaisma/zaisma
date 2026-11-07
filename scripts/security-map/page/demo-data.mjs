@@ -31,11 +31,13 @@ const DEMO_PROMISES = SECTORS.map(({ sector_id, sector_name }, index) => ({
 
 const PROMISES_WITH_NO_THIN_WAYS = DEMO_PROMISES.map((promise) => ({ ...promise, ways_to_break: promise.ways_to_break.slice(0, 3) }));
 
-function demoItem(sector_id, itemNumber, { defense_score, damage_score, item_state = "next", item_kind = "item", calls = [], waits_on = [] }) {
+function demoItem(sector_id, itemNumber, { defense_score, damage_score, item_state = "next", item_kind = "item", calls = [], waits_on = [], case_ids = undefined }) {
   return {
     item_id: `itm_demo_${itemNumber}`,
     item_kind,
     sector_id,
+    way_id: case_ids ? null : `${sector_id}-way-1`,
+    case_ids: case_ids ?? [],
     item_state,
     defense_score,
     damage_score,
@@ -47,7 +49,8 @@ function demoItem(sector_id, itemNumber, { defense_score, damage_score, item_sta
 }
 
 const EACH_BROKEN_ITEMS = [
-  demoItem("player-data", 1, { defense_score: 1, damage_score: 4, item_state: "doing" }),
+  demoItem("player-data", 1, { defense_score: 1, damage_score: 4, item_state: "doing", case_ids: ["other-account-id"] }),
+  demoItem("accounts", 7, { defense_score: 3, damage_score: 2, item_kind: "question", case_ids: ["guessable"] }),
   demoItem("money", 2, { defense_score: 4, damage_score: 5, calls: ["A sample call."] }),
   demoItem("rooms", 3, { defense_score: 2, damage_score: 1 }),
 ];
@@ -55,14 +58,21 @@ const EACH_BROKEN_ITEMS = [
 /** A done item on the first sector's thin way, so that way shows fixed and waiting for a fresh look. */
 const DONE_ITEM = { ...demoItem(SECTORS[0].sector_id, 6, { defense_score: 3, damage_score: 5, item_state: "done" }), way_id: `${SECTORS[0].sector_id}-way-4`, done_at: "2026-11-03T12:00:00.000Z" };
 
-const WATCH_ITEMS = [demoItem("rooms", 4, { defense_score: 4, damage_score: 2 }), demoItem("accounts", 5, { defense_score: 5, damage_score: 1 }), DONE_ITEM];
+const WATCH_ITEMS = [demoItem("rooms", 4, { defense_score: 4, damage_score: 2, case_ids: ["forged"] }), demoItem("accounts", 5, { defense_score: 5, damage_score: 1 }), DONE_ITEM];
 
 function manyItems() {
   const shapes = [{ defense_score: 2, damage_score: 2 }, { defense_score: 3, damage_score: 4 }, { defense_score: 4, damage_score: 3 }, { defense_score: 1, damage_score: 2 }, { defense_score: 4, damage_score: 1 }];
   return Array.from({ length: 60 }, (_, index) => demoItem(SECTORS[index % SECTORS.length].sector_id, index + 10, shapes[index % shapes.length]));
 }
 
-const dataOf = (items, extra = {}) => pageDataOf({ scales: DEMO_SCALES, promises: DEMO_PROMISES, items, grid: null, patterns: null, lastReviewDate: "2026-11-03", ...extra });
+/** Made-up doors for each sector with doors, their cases spread over every status, more of them tested further down the rollout. */
+const DEMO_STATUSES = ["robust", "robust", "fixed", "unexplored", "unexplored", "stale", "weak", "robust", "unexplored", "robust"];
+const DEMO_MAP = SECTORS.map(({ sector_id, has_no_doors }, index) => ({
+  sector_id,
+  doors: has_no_doors ? [] : Array.from({ length: 3 + index }, (_, doorIndex) => ({ door_id: `demo:${sector_id}-${doorIndex}`, door_removed_at: null, cases: DEMO_STATUSES.slice(0, 4 + ((doorIndex + index) % 7)).map((status, caseIndex) => ({ case_id: `case-${caseIndex}`, status, finding_id: null })) })),
+}));
+
+const dataOf = (items, extra = {}) => pageDataOf({ scales: DEMO_SCALES, promises: DEMO_PROMISES, items, map: DEMO_MAP, grid: null, patterns: null, lastReviewDate: "2026-11-03", ...extra });
 
 /** The states to judge: every shield whole with thin spots left and one way fixed, waiting for a fresh look, one sector in each broken state, nothing at all, and many items ahead. */
 export const demoScenarios = () => [

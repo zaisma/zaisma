@@ -203,6 +203,15 @@ describe("doors from the real code", () => {
     expect(seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { failures: [], doors_not_tried: [] } }).stale_case_refs).toEqual([]);
   });
 
+  it("gives every door kind with a limit a No limit case, left unexplored but where a test proves the limit", () => {
+    const { map } = mergeDoors({ map: emptyMap(), doors, hashesOf: (door: Door) => anchorHashes(ROOT, door.anchors), now: NOW });
+    const seeded = seedRobust(map, { repoRoot: ROOT, now: NOW }).map.flatMap((sector: Sector) => sector.doors);
+    const proven = ["page:POST /signin", "page:POST /signin/email", "page:POST /signin/code"];
+    for (const kind of ["api_call", "admin_tool", "page_route", "page_form", "game_file_address", "room_message"]) {
+      for (const door of seeded.filter((candidate: Door) => candidate.door_kind === kind)) expect(caseOf(door, "rate-or-lockout-missing").status, door.door_id).toBe(proven.includes(door.door_id) ? "robust" : "unexplored");
+    }
+  });
+
   it("seeds nothing from a rule whose file isn't in the repo yet", () => {
     const { map } = mergeDoors({ map: emptyMap(), doors, hashesOf: (door: Door) => anchorHashes(ROOT, door.anchors), now: NOW });
     const missingFileRule = { ...SEED_RULES.find((rule: { requiresFile?: boolean }) => rule.requiresFile), evidence: { kind: "ship_check", ref: "scripts/not-here-yet.mjs", note: "a check from a slice that hasn't merged" } };

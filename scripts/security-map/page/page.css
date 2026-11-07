@@ -103,3 +103,5 @@ details[open] > summary .chevron { transform: rotate(180deg); }
 .demo-switch label:hover { background: var(--plate-hi); }
 .demo-input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .scenario { display: none; gap: 36px; }
+.meter { height: 6px; border-radius: 3px; background: var(--plate-hi); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; margin-bottom: 6px; }
+.meter > span { display: block; height: 100%; background: var(--level-1); }
