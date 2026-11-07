@@ -371,16 +371,16 @@ describe("room browsing on the game page", () => {
     expect(orderPage).toContain('data-room-order="most_players"');
     expect(full).toContain('data-shown="|[]|best_to_join|false"');
     expect(full).toContain('href="/g/arena/rooms?cursor=6"');
+    // An old link's is_hiding_full_rooms is let go: full rooms always show, last, and the Load more carries only the order.
     const fewestPanel = await roomsList("?room_order=fewest_players&is_hiding_full_rooms=true");
-    expect(fewestPanel).toContain('data-shown="|[]|fewest_players|true"');
-    expect(fewestPanel).toContain("cursor=6&amp;room_order=fewest_players&amp;is_hiding_full_rooms=true");
+    expect(fewestPanel).toContain('data-shown="|[]|fewest_players|false"');
+    expect(fewestPanel).toContain('href="/g/arena/rooms?cursor=6&amp;room_order=fewest_players"');
     expect(fewestPanel).toContain('data-count="12"');
-    expect(fewestPanel).not.toContain(">Full<");
     expect(fewestPanel.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
     const fewestNext = await roomsList("?cursor=6&room_order=fewest_players&is_hiding_full_rooms=true");
-    expect(fewestNext.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(7);
+    expect(fewestNext.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(9);
     expect(fewestNext.match(/<span class="list-row-end">In a match<\/span>/g)).toHaveLength(3);
-    expect(fewestNext).not.toContain(">Full<");
+    expect(fewestNext).toContain(">Full<");
     expect(fewestNext).not.toContain("data-load-more");
     expect(pageProblems(fewestPanel)).toEqual([]);
     // Full rooms shown, they are where the order puts them: the fullest first.
@@ -392,11 +392,12 @@ describe("room browsing on the game page", () => {
     for (const query of ["?room_order=nonsense", "?room_order=", "?is_hiding_full_rooms=yes", "?is_hiding_full_rooms=1", "?room_order=MOST_PLAYERS"]) {
       expect(await roomsList(query)).toBe(full);
     }
-    // Everything hidden: a say-so with the box still there to untick.
+    // Every room full, even from an old link that hid them: the full rooms show, nothing says the list is empty.
     await env.DB.exec("DELETE FROM live_rooms WHERE is_open = 0");
     await env.DB.exec("UPDATE live_rooms SET player_count = maximum_player_count");
-    const none = await roomsList("?is_hiding_full_rooms=true");
-    expect(none).toContain("No open rooms with space right now.");
+    const allFull = await roomsList("?is_hiding_full_rooms=true");
+    expect(allFull).toContain(">Full<");
+    expect(allFull).not.toContain("No open rooms with space right now.");
   });
 
   it("carries the region and labels picked into the next page, and tells no sentences about rooms past the list", async () => {
