@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GAME_LINE_MAXIMUM_LETTER_COUNT, GAME_PAGE_SHELF_GAME_COUNT, firstSentence, gamePageShelves } from "../../apps/site/src/pages.ts";
+import { readRoomPick } from "../../apps/site/src/rooms.ts";
 import type { ShowGame } from "../../apps/site/src/home.ts";
 
 /**
@@ -45,6 +46,12 @@ describe("a game page's shelves", () => {
     expect(gamePageShelves(game, showcase, counts).likeGames.map((otherGame) => otherGame.slug)).toEqual(["frostline", "lantern"]);
   });
 
+  it("leave the developer's own games kept off the shelves out of More from", () => {
+    const withHeld = [...showcase, shown("studio-held", "owner_studio", ["adventure"])];
+    const held = { ...counts, offShelfSlugs: new Set(["held", "studio-held"]) };
+    expect(gamePageShelves(game, withHeld, held).developerGames.map((otherGame) => otherGame.slug)).toEqual(["ashfall-demo"]);
+  });
+
   it("show no More like this for a game with no kind", () => {
     expect(gamePageShelves({ ...game, genres: "" }, showcase, counts).likeGames).toEqual([]);
   });
@@ -52,5 +59,11 @@ describe("a game page's shelves", () => {
   it("hold at most a shelf's worth each", () => {
     const many = Array.from({ length: 20 }, (_, gameIndex) => shown(`other-${gameIndex}`, "owner_other", ["adventure"]));
     expect(gamePageShelves(game, many, counts).likeGames).toHaveLength(GAME_PAGE_SHELF_GAME_COUNT);
+  });
+});
+
+describe("the Rooms tab's order from the address", () => {
+  it("keeps room_order and lets an old link's is_hiding_full_rooms go, so full rooms always show, last", () => {
+    expect(readRoomPick(new URLSearchParams("room_order=most_players&is_hiding_full_rooms=true"))).toEqual({ roomOrder: "most_players", isHidingFullRooms: false });
   });
 });

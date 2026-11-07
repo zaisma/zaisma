@@ -1,4 +1,4 @@
-import { checkText, gameBySlug, hasSpace, hasWatchSpace, leaveOut, listRoomPage, MAXIMUM_PAGE_ROOM_COUNT, readIsHidingFullRoomsParameter, readLabelParameter, readLeftParameter, readRoomOrderParameter, type Game, type ListedRoom, type RoomOrder, type RoomPage } from "@zaisma/core";
+import { checkText, gameBySlug, hasSpace, hasWatchSpace, leaveOut, listRoomPage, MAXIMUM_PAGE_ROOM_COUNT, readLabelParameter, readLeftParameter, readRoomOrderParameter, type Game, type ListedRoom, type RoomOrder, type RoomPage } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, securityHeaders, type Raw } from "./html.ts";
 import { action, secondaryButton } from "./components/actions.ts";
@@ -160,8 +160,8 @@ const moreRooms = (slug: string, list: RoomPage, picked: Record<string, string>)
 /** Which region, labels, order and full-rooms setting a panel shows, so the page knows when to load another. The page's script builds the same key (roomsKey). */
 export const shownKey = (region: string | null, picked: Record<string, string>, roomOrder: RoomOrder, isHidingFullRooms: boolean) => `${region ?? ""}|${JSON.stringify(Object.entries(picked).sort())}|${roomOrder}|${isHidingFullRooms}`;
 
-/** The order and full-rooms setting a request asks for (room_order, is_hiding_full_rooms): anything else is the default. */
-export const readRoomPick = (query: URLSearchParams) => ({ roomOrder: readRoomOrderParameter(query.get("room_order")), isHidingFullRooms: readIsHidingFullRoomsParameter(query.get("is_hiding_full_rooms")) });
+/** The order a request asks for (room_order): anything else is the default. Full rooms always show, last, so an old link's is_hiding_full_rooms is let go. */
+export const readRoomPick = (query: URLSearchParams) => ({ roomOrder: readRoomOrderParameter(query.get("room_order")), isHidingFullRooms: false });
 
 /**
  * A room's row: its name and labels (or how full it is, when it has neither), then how full, how many watch and where it runs, in words;

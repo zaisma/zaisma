@@ -540,8 +540,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   // On a phone, Roblox-simple: the art, the name and Play up top, then About, Details and Add-ons folded shut, each a row that opens. On
   // a computer, Steam-rich: About beside Details, then Add-ons, all open.
   const learnItems: LayoutItem[] = view.deviceKind === "phone"
-    ? [{ kind: "block", markup: pane("About", [{ kind: "block", markup: listRows({
+    ? [{ kind: "block", markup: pane("About this game", [{ kind: "block", markup: listRows({
         whenEmpty: NO_EMPTY_NOTE,
+        label: "About, details and add-ons",
         rows: [
           { title: "About", fold: { body: stack({ items: aboutItems }) } },
           { title: "Details", fold: { body: stack({ items: detailsItems }) } },
@@ -1250,10 +1251,11 @@ function remember() {
   } catch {}
   if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/" + gamePage.slug, { method: "POST", keepalive: true }).catch(() => {});
 }
-// A guest's last time here, from this device's list (an account's comes with the page), and the updates since: ago() in foundations.ts.
+// A guest's last time here, from this device's list (an account's comes with the page, and a device's list may be someone else's), and
+// the updates since: ago() in foundations.ts.
 (() => {
   const lastPlayed = document.getElementById("last-played");
-  if (!lastPlayed || !lastPlayed.hidden) return;
+  if (!lastPlayed || !lastPlayed.hidden || /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
   let playedAtMs = 0;
   try { playedAtMs = Number((JSON.parse(localStorage.getItem("zaisma:played") || "[]").find((entry) => entry.slug === gamePage.slug) || {}).played_at_ms) || 0; } catch {}
   if (!playedAtMs) return;
@@ -1284,12 +1286,14 @@ if (roomsPanel) new IntersectionObserver((entries) => { isRoomsSeen = entries.so
 let roomsAt = Date.now();
 let roomsRegion = "";
 let roomsLabels = {};
-// The order and the full-rooms box are in the address (room_order, is_hiding_full_rooms), so a refresh or a shared link keeps them.
+// The order is in the address (room_order), so a refresh or a shared link keeps it.
 const roomOrders = ${JSON.stringify(ROOM_ORDERS)};
 const askedFor = new URLSearchParams(location.search);
 let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get("room_order") : roomOrders[0];
 // Full rooms always show, last in every order: nothing on the page hides them any more, so an old link's setting is let go.
 const isHidingFullRooms = false;
+// The region a device kept before the region menu stopped being remembered.
+try { localStorage.removeItem("zaisma:rooms-region"); } catch {}
 const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|" + isHidingFullRooms;
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
