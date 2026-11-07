@@ -46,6 +46,8 @@ function cacheKey(request: Request, env: Env, url: URL): Request | null {
   if (!GUEST_CACHED_PAGES.some((page) => page.test(path))) return null;
   if (url.pathname.length + url.search.length > MAXIMUM_ADDRESS_CHARACTER_COUNT) return null;
   if (path === "/" && HOME_OWN_PART_COOKIES.some((name) => readCookie(request, env, name))) return null;
+  // A game this device played holds its Last played slot from the first frame: a copy made for another guest wouldn't.
+  if (path.startsWith("/g/") && (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").includes(path.slice(3))) return null;
   // The key is an address of its own on the site: the page, its query, the device kind it was laid out for and the country it was made
   // for (a game a developer blocked there answers 451).
   const key = new URL(`/__guest-page${path}`, url.origin);

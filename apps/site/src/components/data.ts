@@ -93,6 +93,8 @@ export interface KeyDetail {
   id?: string;
   /** Not shown for now, its room given back; with every detail hidden, the whole strip takes none. */
   isHidden?: boolean;
+  /** Its room kept from the first frame but not shown yet: a detail a page's script fills in, so nothing moves when it arrives. */
+  isHeld?: boolean;
 }
 
 /**
@@ -103,7 +105,7 @@ export interface KeyDetail {
 export function keyDetails(options: { details: KeyDetail[]; label?: string }): Raw {
   return html`<dl class="key-details words-margin hairline-above"${options.label ? html` aria-label="${options.label}"` : ""}>${options.details.map(
     (detail) =>
-      html`<div class="key-detail"${detail.id ? html` id="${detail.id}"` : ""}${detail.isHidden ? raw(" hidden") : ""}><dt>${detail.label}</dt><dd class="key-detail-value">${detail.unit ? html`<span class="key-detail-amount">${detail.detailValue}</span><span class="key-detail-unit">${detail.unit}</span>` : detail.detailValue}</dd>${
+      html`<div class="key-detail${detail.isHeld ? " is-held" : ""}"${detail.id ? html` id="${detail.id}"` : ""}${detail.isHidden ? raw(" hidden") : ""}><dt>${detail.label}</dt><dd class="key-detail-value">${detail.unit ? html`<span class="key-detail-amount">${detail.detailValue}</span><span class="key-detail-unit">${detail.unit}</span>` : detail.detailValue}</dd>${
         detail.under ? html`<dd class="key-detail-under${detail.isUnderGood ? " good" : ""}">${detail.under}</dd>` : ""
       }</div>`,
   )}</dl>`;
@@ -156,6 +158,7 @@ export const KEY_DETAILS_STYLES = `
 .key-details { margin: 0; display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
 .key-detail { flex: none; min-width: var(--size-number); max-width: 100%; display: grid; align-content: start; gap: 2px; }
 .key-detail[hidden] { display: none; }
+.key-detail.is-held { visibility: hidden; }
 .stack-cell:has(> .key-details:not(:has(> .key-detail:not([hidden])))) { display: none; }
 .key-detail > dt { font: var(--type-facts); color: var(--ink-2); }
 .key-detail > dd { margin: 0; min-width: 0; }
