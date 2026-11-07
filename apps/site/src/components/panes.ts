@@ -2201,7 +2201,10 @@ component({
 /* Opening a page, it hangs from the header at the frame gap (the header's own gap is --header-gap), so it reads as the header's, not as one more block. */
 main .layout-stack:not(.glass *) > .stack-cell:first-child > .event-banner { margin-top: calc(var(--pad-frame) - var(--header-gap, var(--gap-block-block))); }
 /* Its art, the link, sits in from the carving's rim (2px a side, materials.ts), so the well is that much taller than a touch target. */
-.event-banner-well { position: relative; height: calc(var(--touch-target) + var(--pad-frame-compact)); }
+/* As tall as a control and its margin, and taller when bigger text makes its button taller: its button sits in the flow at the end, the
+   carving's margin from its edges, and the art fills the well either way. */
+.event-banner-well { position: relative; min-height: calc(var(--touch-target) + var(--pad-frame-compact)); }
+.event-banner-well > .carving-end { position: relative; top: auto; right: auto; margin: var(--pad-frame-compact); margin-inline: auto calc(var(--pad-frame-compact) + var(--slant-end, 0px)); }
 .event-banner-well > .well-body { position: absolute; inset: 0; padding: 0; }
 .event-banner-picture img { object-position: left center; }
 .event-banner-art:has(.is-narrow) .event-banner-picture.is-narrow { display: none; }
