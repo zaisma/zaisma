@@ -435,7 +435,7 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   open(["GET"], "/your-games", { trusts: ["session"] }),
   open(["GET"], "/your-games/played", { trusts: ["session"], takes: query("sort") }),
   open(["GET"], "/games/suggestions", { trusts: ["session"], takes: BROWSE_QUERY, ...jsonAnswer("finishes", "games") }),
-  open(["GET"], "/g/:slug", { trusts: ["session"], takes: query("room", "server", "watch", "play", "buy", "theme", "state", "screen", "preview_bar", "favorite") }),
+  open(["GET"], "/g/:slug", { trusts: ["session"], takes: query("room", "server", "watch", "play", "buy", "theme", "state", "screen", "preview_bar") }),
   open(["GET"], "/g/:slug/rooms", { takes: query("room_order", "is_hiding_full_rooms", "labels", "cursor", "region", "shown_row_count", "left") }),
   open(["GET"], "/g/:slug/live-version", jsonAnswer("live_version_id", "live_version_match_update_mode")),
   open(["GET"], "/g/:slug/qr-code.svg", { takes: query("room"), answers: ANSWERS_FILE }),

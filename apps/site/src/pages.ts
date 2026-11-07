@@ -445,12 +445,12 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const otherGameLink = demoSlug ? secondaryButton("Try the demo", { href: `/g/${demoSlug}?play`, isBig: true, isFullWidth: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true, isFullWidth: true }) : null;
   // Under Play: a paid game's demo or a demo's full game, then Share and Report, small. The page itself is the game's details.
   const smallActions = [
-    // The heart, for Your games' Favorites: a guest is sent to sign in, and the game is favorited once they're back (?favorite).
+    // The heart, for Your games' Favorites: a guest is asked to make an account, and favorites it with a press once back.
     ...(view.tester || isClosed
       ? []
       : [{ kind: "control" as const, markup: view.viewer.account
           ? toggleButton(action("favorite", view.isFavorite ? "Remove from favorites" : "Favorite"), { id: "favorite", type: "button", isLabelHidden: true, isPressed: Boolean(view.isFavorite) })
-          : toggleButton(action("favorite"), { href: `/signin?next=${encodeURIComponent(`/g/${game.slug}?favorite`)}`, isLabelHidden: true, isPressed: false }) }]),
+          : toggleButton(action("favorite"), { href: `/join?next=${encodeURIComponent(`/g/${game.slug}`)}`, isLabelHidden: true, isPressed: false }) }]),
     { kind: "control" as const, markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
     { kind: "control" as const, markup: secondaryButton(action("report"), { href: reportHref, isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
   ];
@@ -1253,7 +1253,7 @@ function warmUp() {
 if (document.readyState === "complete") setTimeout(warmUp, 1000);
 else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
-// The heart: favorite or not, flipped at once and kept by the server; back from signing in with ?favorite, it's favorited.
+// The heart: favorite or not, flipped at once and kept by the server. Only a press favorites a game, never an address.
 const heart = document.getElementById("favorite");
 function setFavorite(isFavorite) {
   if (!heart) return;
@@ -1264,13 +1264,6 @@ function setFavorite(isFavorite) {
     .catch(() => heart.setAttribute("aria-pressed", String(!isFavorite)));
 }
 if (heart) heart.addEventListener("click", () => setFavorite(heart.getAttribute("aria-pressed") !== "true"));
-const favoriteAsked = new URLSearchParams(location.search);
-if (heart && favoriteAsked.has("favorite") && heart.getAttribute("aria-pressed") !== "true") {
-  setFavorite(true);
-  favoriteAsked.delete("favorite");
-  const rest = favoriteAsked.toString();
-  history.replaceState(history.state, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
-}
 // Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 function remember() {

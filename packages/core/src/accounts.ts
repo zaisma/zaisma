@@ -710,10 +710,13 @@ export interface FavoriteGame extends Omit<PlayedGame, "played_at_ms"> {
 /** Add a favorite: "already" when it is one, "too_many" past MAXIMUM_FAVORITE_GAME_COUNT. */
 export async function addFavoriteGame(database: D1Database, accountId: string, gameId: string, favoritedAtMs = Date.now()): Promise<"added" | "already" | "too_many"> {
   if (await isFavoriteGame(database, accountId, gameId)) return "already";
-  const favoriteCount = await database.prepare("SELECT COUNT(*) AS favorite_count FROM favorite_games WHERE account_id = ?").bind(accountId).first<number>("favorite_count");
-  if ((favoriteCount ?? 0) >= MAXIMUM_FAVORITE_GAME_COUNT) return "too_many";
-  await database.prepare("INSERT INTO favorite_games (account_id, game_id, favorited_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").bind(accountId, gameId, favoritedAtMs).run();
-  return "added";
+  // The cap is checked in the insert itself, so requests sent at once can't pass it together.
+  const inserted = await database
+    .prepare("INSERT INTO favorite_games (account_id, game_id, favorited_at_ms) SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM favorite_games WHERE account_id = ?) < ? ON CONFLICT DO NOTHING")
+    .bind(accountId, gameId, favoritedAtMs, accountId, MAXIMUM_FAVORITE_GAME_COUNT)
+    .run();
+  if (inserted.meta.changes) return "added";
+  return (await isFavoriteGame(database, accountId, gameId)) ? "already" : "too_many";
 }
 
 export async function removeFavoriteGame(database: D1Database, accountId: string, gameId: string): Promise<void> {

@@ -8,6 +8,7 @@ import {
   gameBySlug,
   isFavoriteGame,
   playedHistory,
+  NOT_BLOCKED_IN_COUNTRY_SQL,
   removeFavoriteGame,
   requestCountryCode,
   type Account,
@@ -67,16 +68,16 @@ interface YourGame {
 }
 
 /** The games behind these ids or slugs, with what their cards need, in no order. */
-async function yourGamesBy(env: Env, column: "id" | "slug", keys: string[]): Promise<YourGame[]> {
+async function yourGamesBy(env: Env, column: "id" | "slug", keys: string[], countryCode: string | null): Promise<YourGame[]> {
   if (!keys.length) return [];
   const [{ results }, playingNow] = await Promise.all([
     env.DB.prepare(
       `SELECT games.id, games.slug, games.title, games.visibility, games.review_status, games.live_version_id, games.big_update_at_ms, games.minimum_player_age_years,
          games.devices, games.genres, games.glass_tint_color, games.full_game_item_name, ${newestPictureJsonSql("cover", "games.id")} AS cover,
          EXISTS (SELECT 1 FROM game_deletions WHERE game_deletions.game_id = games.id) AS is_being_deleted
-       FROM games WHERE games.${column} IN (SELECT value FROM json_each(?))`,
+       FROM games WHERE games.${column} IN (SELECT value FROM json_each(?)) AND ${NOT_BLOCKED_IN_COUNTRY_SQL}`,
     )
-      .bind(JSON.stringify(keys))
+      .bind(JSON.stringify(keys), countryCode ?? "")
       .all<{ id: string; slug: string; title: string; visibility: string; review_status: string; live_version_id: string | null; big_update_at_ms: number | null; minimum_player_age_years: number; devices: string; genres: string; glass_tint_color: string | null; full_game_item_name: string | null; cover: string | null; is_being_deleted: number }>(),
     playingNowCounts(env),
   ]);
@@ -107,7 +108,7 @@ interface CardOptions {
   /** For you's why: "Because you played Ash Hollow". */
   reasonText?: string;
   /** Remove: a signed-in player's form, or a guest's button the page's script answers. Left out, no More. */
-  removeBy?: "account" | "device";
+  removeBy?: "account" | "device" | "favorites";
   ownedGameIds: ReadonlySet<string>;
   menuIdPrefix: string;
   isEager?: boolean;
@@ -117,6 +118,8 @@ function card(options: CardOptions): LayoutItem {
   const game = options.game;
   const removeItem: DropdownItem | null = options.removeBy === "account"
     ? { ...action("remove"), action: `/api/me/played/${game.slug}/remove` }
+    : options.removeBy === "favorites"
+      ? { ...action("remove"), label: "Remove from favorites", action: `/api/me/favorites/${game.slug}/remove` }
     : options.removeBy === "device"
       ? { ...action("remove"), isButton: true, dataAttributes: { "remove-from-device": game.slug } }
       : null;
@@ -205,8 +208,9 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
   const playedEntries: { game_id: string; played_at_ms: number | null; slug: string }[] = history
     ? history.map((entry) => ({ game_id: entry.game_id, played_at_ms: entry.played_at_ms, slug: entry.slug }))
     : deviceSlugs.map((slug) => ({ game_id: "", played_at_ms: null, slug }));
-  const games = await yourGamesBy(env, "slug", [...new Set([...playedEntries.map((entry) => entry.slug), ...favorites.map((favorite) => favorite.slug)])]);
-  const gameBySlugHere = new Map(games.filter((game) => !game.is_removed && game.minimum_player_age_years <= viewer.ageFloorYears).map((game) => [game.slug, game]));
+  const games = await yourGamesBy(env, "slug", [...new Set([...playedEntries.map((entry) => entry.slug), ...favorites.map((favorite) => favorite.slug)])], countryCode);
+  // A guest's list comes from a cookie anyone can write, so it shows only games out now: never one private, a draft or off the air.
+  const gameBySlugHere = new Map(games.filter((game) => !game.is_removed && game.minimum_player_age_years <= viewer.ageFloorYears && (account || !game.is_gone)).map((game) => [game.slug, game]));
   const playedAtBySlug = new Map(playedEntries.map((entry) => [entry.slug, entry.played_at_ms]));
   const isUpdatedSince = (game: YourGame) => {
     const playedAtMs = playedAtBySlug.get(game.slug);
@@ -229,18 +233,18 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
     new Set([...gameBySlugHere.keys()]),
   );
   const removeBy = account ? "account" : "device";
-  const cardOf = (game: YourGame, menuIdPrefix: string, isEager = false, canRemove = true) =>
-    card({ game, isUpdated: isUpdatedSince(game), friendNames: friendNames.get(game.id) ?? [], removeBy: canRemove ? removeBy : undefined, ownedGameIds, menuIdPrefix, isEager });
+  const cardOf = (game: YourGame, menuIdPrefix: string, isEager = false, removeFrom: CardOptions["removeBy"] = removeBy) =>
+    card({ game, isUpdated: isUpdatedSince(game), friendNames: friendNames.get(game.id) ?? [], removeBy: removeFrom, ownedGameIds, menuIdPrefix, isEager });
 
   const hasAnything = favoritesInOrder.length > 0 || recentList.length > 0;
-  const forYouItems = forYou.map(({ game, becauseTitle }) => card({ game: { ...game, is_gone: false }, isUpdated: false, friendNames: friendNames.get(game.id) ?? [], reasonText: `Because you played ${becauseTitle}`, ownedGameIds, menuIdPrefix: "for-you" }));
+  const forYouItems = forDeviceFirst(forYou.map((pick) => ({ ...pick, devices: pick.game.devices ?? [] })), deviceKind).map(({ game, becauseTitle }) => card({ game: { ...game, is_gone: false }, isUpdated: false, friendNames: friendNames.get(game.id) ?? [], reasonText: `Because you played ${becauseTitle}`, ownedGameIds, menuIdPrefix: "for-you" }));
   // A pane for each list: Favorites, its first the lead; Recently played, with All you've played; For you. The last ends the page.
   const panes: Raw[] = [
     ...(favoritesInOrder.length
-      ? [gameRow({ id: "favorites", trackId: "favorites-grid", title: "Favorites", inLines: { hasLeadCell: true }, items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, false)) as GridItem[] })]
+      ? [gameRow({ id: "favorites", trackId: "favorites-grid", title: "Favorites", inLines: { hasLeadCell: true }, items: favoritesInOrder.map((game, coverIndex) => cardOf(game, "favorite", coverIndex < 3, "favorites")) as GridItem[] })]
       : []),
     ...(recentList.length
-      ? [gameRow({ id: "recently-played", trackId: "recently-played-grid", title: "Recently played", inLines: { hasLeadCell: false }, seeAll: { words: "All you've played", href: "/your-games/played", gameCount: recentList.length, coverPictures: recentList.map((game) => game.cover_picture) }, items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) as GridItem[] })]
+      ? [gameRow({ id: "recently-played", trackId: "recently-played-grid", title: "Recently played", inLines: { hasLeadCell: false }, seeAll: { words: "All you've played", href: "/your-games/played", gameCount: playedEntries.filter((entry) => gameBySlugHere.has(entry.slug)).length, coverPictures: recentList.map((game) => game.cover_picture) }, items: recentList.slice(0, RECENTLY_PLAYED_SHOWN_COUNT).map((game, coverIndex) => cardOf(game, "recent", !favoritesInOrder.length && coverIndex < 3)) as GridItem[] })]
       : []),
     ...(forYouItems.length ? [gameRow({ id: "for-you", trackId: "for-you-grid", title: "For you", inLines: { hasLeadCell: false }, items: forYouItems as GridItem[] })] : []),
   ];
@@ -274,7 +278,7 @@ export async function allPlayedPage(env: Env, request: Request): Promise<Respons
   const sort = new URL(request.url).searchParams.get("sort") === "updated" ? "updated" : "played";
   const history = account ? await playedHistory(env.DB, account.id, viewer.ageFloorYears) : null;
   const slugs = history ? history.map((entry) => entry.slug) : devicePlayedSlugs(request, env);
-  const games = (await yourGamesBy(env, "slug", slugs)).filter((game) => !game.is_removed && game.minimum_player_age_years <= viewer.ageFloorYears);
+  const games = (await yourGamesBy(env, "slug", slugs, requestCountryCode(request))).filter((game) => !game.is_removed && game.minimum_player_age_years <= viewer.ageFloorYears && (account || !game.is_gone));
   const bySlug = new Map(games.map((game) => [game.slug, game]));
   const playedAtBySlug = new Map((history ?? []).map((entry) => [entry.slug, entry.played_at_ms]));
   const ordered = slugs.flatMap((slug) => bySlug.get(slug) ?? []);
@@ -343,15 +347,16 @@ export async function handleYourGamesChanges(request: Request, env: Env, path: s
   if (list === "played" && !remove) return null;
   const isForm = !(request.headers.get("Accept") ?? "").includes("application/json");
   const answer = (body: Record<string, unknown>, httpStatus: number, cookies: string[] = []) => {
-    const back = list === "favorites" ? `/g/${slug}` : "/your-games";
+    // A favorite added goes back to its game; one taken off, or a game taken off the history, back to Your games.
+    const back = list === "favorites" && !remove ? `/g/${slug}` : "/your-games";
     const response = isForm && httpStatus < 400 ? new Response(null, { status: 303, headers: { Location: back } }) : Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
     for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
     return response;
   };
   const session = await currentSession(request, env);
-  if (!session) return answer({ error: { code: "not_signed_in", message_for_people: "Sign in to keep favorites.", fix: "Sign in, then try again." } }, 401);
+  if (!session) return answer({ error: { code: "not_signed_in", message: "Sign in to keep favorites.", message_for_people: "Sign in to keep favorites.", fix: "Sign in, then try again." } }, 401);
   const game = await gameBySlug(env.DB, slug!);
-  if (!game) return answer({ error: { code: "game_not_found", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
+  if (!game) return answer({ error: { code: "game_not_found", message: "There's no game at that link.", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
   if (list === "played") {
     await forgetPlayed(env.DB, session.userId, game.id);
     return answer({ ok: true }, 200, session.cookies);
@@ -360,9 +365,11 @@ export async function handleYourGamesChanges(request: Request, env: Env, path: s
     await removeFavoriteGame(env.DB, session.userId, game.id);
     return answer({ ok: true, is_favorite: false }, 200, session.cookies);
   }
-  if (!playable(game)) return answer({ error: { code: "game_not_found", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
+  // Never a game above the player's age limit, which shows them nowhere: the server holds it, not only the page.
+  const viewer = await viewerOf(request, env);
+  if (!playable(game) || game.minimum_player_age_years > viewer.ageFloorYears) return answer({ error: { code: "game_not_found", message: "There's no game at that link.", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
   const added = await addFavoriteGame(env.DB, session.userId, game.id);
-  if (added === "too_many") return answer({ error: { code: "too_many_favorites", message_for_people: "You have 1,000 favorites. Remove one to add another.", fix: "Remove a favorite from Your games, then add this one." } }, 400, session.cookies);
+  if (added === "too_many") return answer({ error: { code: "too_many_favorites", message: "You have 1,000 favorites. Remove one to add another.", message_for_people: "You have 1,000 favorites. Remove one to add another.", fix: "Remove a favorite from Your games, then add this one." } }, 400, session.cookies);
   return answer({ ok: true, is_favorite: await isFavoriteGame(env.DB, session.userId, game.id) }, 200, session.cookies);
 }
 
@@ -377,6 +384,14 @@ if (search) search.addEventListener("input", () => {
   const words = search.value.trim().toLowerCase();
   for (const game of document.querySelectorAll(".cover[data-slug]")) game.parentElement.hidden = Boolean(words) && !game.dataset.title.includes(words);
 });
+// This device's list too, so the next sign-in or the home's sync never brings a removed game back.
+function forgetOnDevice(slug) {
+  try {
+    const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((entry) => entry.slug !== slug);
+    localStorage.setItem("zaisma:played", JSON.stringify(list));
+    keepPlayedCookie(list);
+  } catch {}
+}
 function takeAway(slug) {
   for (const game of document.querySelectorAll('.cover[data-slug="' + CSS.escape(slug) + '"]')) game.parentElement.remove();
 }
@@ -384,18 +399,17 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-from-device]");
   if (!button) return;
   const slug = button.dataset.removeFromDevice;
-  try {
-    const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((entry) => entry.slug !== slug);
-    localStorage.setItem("zaisma:played", JSON.stringify(list));
-    keepPlayedCookie(list);
-  } catch {}
+  forgetOnDevice(slug);
   takeAway(slug);
 });
 document.addEventListener("submit", (event) => {
   const form = event.target;
-  const match = (form.getAttribute("action") || "").match(/^\/api\/me\/played\/([a-z0-9-]+)\/remove$/);
+  const match = (form.getAttribute("action") || "").match(/^\/api\/me\/(played|favorites)\/([a-z0-9-]+)\/remove$/);
   if (!match) return;
   event.preventDefault();
-  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } }).then((response) => { if (response.ok) takeAway(match[1]); }).catch(() => form.submit());
+  if (match[1] === "played") forgetOnDevice(match[2]);
+  fetch(form.action, { method: "POST", headers: { Accept: "application/json" } })
+    .then((response) => { if (response.ok) { if (match[1] === "played") takeAway(match[2]); else location.reload(); } })
+    .catch(() => form.submit());
 });
 })();`);

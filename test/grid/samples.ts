@@ -194,6 +194,8 @@ export const CHANGES_NOTHING: Readonly<Record<string, string>> = {
  * For these the refusal comes from the proof itself, so a bad sample can't be what refused.
  */
 export const OWNER_NOT_PROVEN: Readonly<Record<string, string>> = {
+  "POST /api/me/played/:slug/remove": "Takes a game off the caller's own history, which the grid's owner has none of: test/site/accounts.test.ts (Your games).",
+  "POST /api/me/favorites/:slug/remove": "Takes a game off the caller's own favorites, which the grid's owner has none of: test/site/accounts.test.ts (Your games).",
   "GET /js/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /css/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /img/*": "A served picture: test/site/uploads.test.ts.",

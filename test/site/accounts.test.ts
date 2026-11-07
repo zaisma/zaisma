@@ -5134,7 +5134,9 @@ describe("Your games", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS favorite_count FROM favorite_games WHERE account_id = ?").bind(accountId).first("favorite_count")).toBe(1);
     expect(await favoriteCount(env.DB, gameId)).toBe(1);
     expect((await favorite(b, "draft-one")).status).toBe(404);
-    await favorite(b, "liked-one", true);
+    // Taken off from Your games, it goes back there.
+    const removed = await favorite(b, "liked-one", true);
+    expect(removed.headers.get("Location")).toBe("/your-games");
     expect(await favoriteCount(env.DB, gameId)).toBe(0);
     const guest = new Browser();
     expect((await favorite(guest, "liked-one")).status).not.toBe(200);
@@ -5153,6 +5155,11 @@ describe("Your games", () => {
     const page = await (await guest.go("/your-games")).text();
     expect(page).toContain('data-slug="device-one"');
     expect(page).toContain("Make an account");
+    // The cookie is the device's to write, so a game not out shows nowhere from it.
+    await yourGame("secret-draft", { visibility: "draft" });
+    guest.jar.set(cookieName(env, PLAYED_COOKIE), "device-one,secret-draft");
+    expect(await (await guest.go("/your-games")).text()).not.toContain("secret-draft");
+    expect(await (await guest.go("/your-games/played")).text()).not.toContain("secret-draft");
   });
 
   it("never shows a younger account a game for older players", async () => {
@@ -5162,5 +5169,8 @@ describe("Your games", () => {
     await played(await idOf("Quiet_Comet"), gameId, 1000);
     expect(await (await teen.go("/your-games")).text()).not.toContain("grown-only");
     expect(await (await teen.go("/your-games/played")).text()).not.toContain("grown-only");
+    // Nor can one favorite it: the server refuses it as a game that isn't there.
+    expect((await favorite(teen, "grown-only")).status).toBe(404);
+    expect(await favoriteCount(env.DB, gameId)).toBe(0);
   });
 });
