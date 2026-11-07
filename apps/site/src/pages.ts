@@ -55,7 +55,7 @@ import { RENTED_SHARE_VPN_TEXT,
   GENRE_LABELS,
   type Genre,
 } from "@zaisma/core";
-import { authConfigured } from "./auth.ts";
+import { authConfigured, readCookie } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
@@ -74,7 +74,7 @@ import { backgroundMarkup, backgroundOf, type ShownBackground } from "./backgrou
 import { glassMessage, html, layout, pageData, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { coverPriceText, paidGamesOwnedBy, shelfCounts, showcase, type ShowGame } from "./home.ts";
-import { KEEP_PLAYED_COOKIE_SOURCE } from "./home-script.ts";
+import { KEEP_PLAYED_COOKIE_SOURCE, PLAYED_COOKIE } from "./home-script.ts";
 import { viewerOf, type Viewer } from "./viewer.ts";
 import { SAVES_SCRIPT } from "./saves-client.ts";
 import { reportScript, reportSheet, reportStep } from "./report.ts";
@@ -188,6 +188,8 @@ export interface GamePageView {
   ownedPaidGameIds: ReadonlySet<string>;
   /** When a signed-in viewer last played the game, or null; a guest's comes from this device's list, by the page's script. */
   lastPlayedAtMs: number | null;
+  /** This device played it (PLAYED_COOKIE) and the server doesn't know when: the page's script says when, into a slot held from the first frame. */
+  isPlayedOnDevice: boolean;
 }
 
 // A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
@@ -297,6 +299,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     fullGameSlug: fullGame?.slug ?? null,
     ownedPaidGameIds,
     lastPlayedAtMs: lastPlayed?.played_at_ms ?? null,
+    isPlayedOnDevice: !lastPlayed && (readCookie(request, env, PLAYED_COOKIE) ?? "").split(",").includes(game.slug),
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
@@ -487,6 +490,7 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   ].join(" · ").replace(/-/g, "\u2011");
   // A returning player's own first (on a guest's device, the page's script fills it): when they last played, and what's new since.
   const lastPlayedAtMs = tester ? null : view.lastPlayedAtMs;
+  const isLastPlayedHeld = !tester && lastPlayedAtMs === null && view.isPlayedOnDevice;
   const latestUpdateAtMs = view.updates[0]?.first_published_at_ms ?? null;
   const newSinceLink = textLink("What's new", "#updates");
   const titleBlock = stack({
@@ -498,8 +502,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       // Not on a phone, as the concept's phone has it: the name, who made it and Play keep its first screen.
       ...(gameLine && view.deviceKind !== "phone" ? [{ kind: "words" as const, markup: html`<p>${gameLine}</p>` }] : []),
       // The live line: hidden until it says something (people playing, or friends the page's script finds).
-      { kind: "block", id: "live-line", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT && lastPlayedAtMs === null, markup: keyDetails({ details: [
-        ...(tester ? [] : [{ id: "last-played", isHidden: lastPlayedAtMs === null, label: "Last played", detailValue: lastPlayedAtMs === null ? "" : ago(Date.now() - lastPlayedAtMs), under: html`<span id="new-since"${lastPlayedAtMs !== null && latestUpdateAtMs !== null && latestUpdateAtMs > lastPlayedAtMs ? "" : raw(" hidden")}>${newSinceLink}</span>` }]),
+      { kind: "block", id: "live-line", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT && lastPlayedAtMs === null && !isLastPlayedHeld, markup: keyDetails({ details: [
+        ...(tester ? [] : [{ id: "last-played", isHidden: lastPlayedAtMs === null && !isLastPlayedHeld, isHeld: isLastPlayedHeld, label: "Last played", detailValue: lastPlayedAtMs === null ? (isLastPlayedHeld ? "14 days ago" : "") : ago(Date.now() - lastPlayedAtMs), under: html`<span id="new-since"${lastPlayedAtMs !== null && latestUpdateAtMs !== null && latestUpdateAtMs > lastPlayedAtMs ? "" : raw(" hidden")}>${newSinceLink}</span>` }]),
         { id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, label: "Playing now", detailValue: playingNowPlayerCount.toLocaleString("en-US") },
         ...(tester || !canSignIn || isClosed ? [] : [{ id: "friends-here", isHidden: true, label: "Friends playing", detailValue: "" }]),
       ] }) },
@@ -518,8 +522,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const media = shots.length
     ? gameMedia({ id: "screenshots", gameTitle: game.title, arrangement: "featured", whenEmpty: NO_EMPTY_NOTE, items: shots.map((shot) => ({ mediaKind: "picture" as const, picture: shot })) })
     : null;
+  // With no pictures beside it, the name and Play fit what they hold, as one piece, rather than run the page's width.
   const gamePane = glassPane({
-    paneWidth: "full",
+    paneWidth: media ? "full" : "fit",
     label: game.title,
     body: stack({ items: [{ kind: "block", markup: media ? columns({ split: "wide-first", isSideBySideWhenShort: true, columns: [media, titleBlock] }) : titleBlock }, ...paneFoot] }),
   });
@@ -1295,10 +1300,12 @@ function remember() {
 // the updates since: ago() in foundations.ts.
 (() => {
   const lastPlayed = document.getElementById("last-played");
-  if (!lastPlayed || !lastPlayed.hidden || /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
+  const isHeld = lastPlayed?.classList.contains("is-held");
+  if (!lastPlayed || (!lastPlayed.hidden && !isHeld) || /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
   let playedAtMs = 0;
   try { playedAtMs = Number((JSON.parse(localStorage.getItem("zaisma:played") || "[]").find((entry) => entry.slug === gamePage.slug) || {}).played_at_ms) || 0; } catch {}
-  if (!playedAtMs) return;
+  lastPlayed.classList.remove("is-held");
+  if (!playedAtMs) { lastPlayed.hidden = true; return; }
   const minuteCount = Math.max(1, Math.round((Date.now() - playedAtMs) / 60000)), dayCount = Math.round(minuteCount / 1440);
   lastPlayed.querySelector(".key-detail-value").textContent = minuteCount < 60 ? minuteCount + " min ago" : minuteCount < 1440 ? Math.round(minuteCount / 60) + " h ago" : dayCount === 1 ? "yesterday" : dayCount + " days ago";
   document.getElementById("new-since").hidden = !(gamePage.latest_update_at_ms > playedAtMs);
