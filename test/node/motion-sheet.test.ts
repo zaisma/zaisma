@@ -136,6 +136,9 @@ describe("what the motion sheet finds in a recording", () => {
     expect(states.length).toBeGreaterThan(0);
     expect(motionRuns("/signin", "wrong-password").states).toHaveLength(1);
     expect(markedUrl("http://localhost:8800", "/g/cave-crew?play", "turned", "Moss_Runner")).toBe("http://localhost:8800/g/cave-crew?play&bench_screen=motion.turned.Moss_Runner.still");
+    expect(markedUrl("http://localhost:8800", "/g/cave-crew?play", "turned", "Moss_Runner", "dark")).toBe("http://localhost:8800/g/cave-crew?play&bench_screen=motion.turned.Moss_Runner.still");
+    // A gallery page's theme is its address's: a dark run without it would measure the light glass twice.
+    expect(markedUrl("http://localhost:8800", "/design/panes/menus", "phone", undefined, "dark")).toBe("http://localhost:8800/design/panes/menus?theme=dark&bench_screen=motion.phone.guest.still");
   });
 });
 

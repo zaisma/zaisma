@@ -470,11 +470,15 @@ export function motionRuns(only, stateAsked = null) {
   return { places, states };
 }
 
-/** The bench screen's mark on an address: the bench's server signs it in as the profile and puts the screen's script in the page. */
-export function markedUrl(site, path, screenName, profile) {
+/**
+ * The bench screen's mark on an address: the bench's server signs it in as the profile and puts the screen's script in the page. A gallery
+ * page takes its theme from its address (?theme=dark), never from the browser's, so a dark run asks for it there, as the layout check does.
+ */
+export function markedUrl(site, path, screenName, profile, theme = "light") {
   // Added by hand, so a bare word (?play) stays one: URLSearchParams would write it ?play=.
   const url = new URL(path, site);
-  return `${url.origin}${url.pathname}${url.search ? `${url.search}&` : "?"}bench_screen=motion.${screenName}.${profile ?? "guest"}.still${url.hash}`;
+  const themeMark = theme === "dark" && url.pathname.startsWith("/design/") ? "theme=dark&" : "";
+  return `${url.origin}${url.pathname}${url.search ? `${url.search}&` : "?"}${themeMark}bench_screen=motion.${screenName}.${profile ?? "guest"}.still${url.hash}`;
 }
 
 /** What the page's own controls are, when the bench lists no state for it: what opens, switches or toggles, in view, up to MOST_PRESSES_PER_PAGE. */
@@ -585,7 +589,7 @@ export async function moveThroughPages({ chromePath, site, pages, looks, picture
             const loaded = new Promise((done) => { const off = chrome.listen(sessionId, (method) => method === "Page.loadEventFired" && (off(), done())); });
             // Every page is a bench screen: its profile signed in, its states the bench's, and the backdrop still, as the bench shows it
             // (a moving one drawn without the GPU takes more cores than the budget has).
-            const url = site ? markedUrl(site, path, screen.screenName, profile) : path;
+            const url = site ? markedUrl(site, path, screen.screenName, profile, theme) : path;
             await film();
             if (runKind === "switch") await evaluate(`(location.assign(${JSON.stringify(url)}), true)`);
             else await send("Page.navigate", { url });
