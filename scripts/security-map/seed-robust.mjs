@@ -23,22 +23,26 @@ const PAST_LIMIT_GRID_FILES = {
   "api:": "test/grid/api.grid.ts",
   "rooms:": "test/grid/rooms.grid.ts",
   "room-message:": "test/grid/rooms.grid.ts",
-  "game-file:": "test/grid/game-files.grid.ts",
 };
 /**
- * Counters a whole Worker keeps for an address in front of every door it serves. A door whose limit is one of them has nothing
- * of its own for the grid to prove, so its No limit case stays the night's: whether one counter across the Worker is enough there.
+ * Whether the door's row states a limit of its own: a level on the door's own counter or a group it names, but not an address's
+ * counter shared between doors, which a Worker keeps in front of every address it serves (rooms, the game domain). Such a door has
+ * nothing of its own for the grid to prove, so its No limit case stays the night's: whether one counter there is enough.
  */
-const WORKER_WIDE_GROUPS = ["rooms", "game_files"];
-/** Whether the door's row states a limit of its own: a level, on a counter that isn't a whole Worker's. */
 const hasOwnLimit = (door) => {
   const limit = limitOf(door);
-  return Boolean(limit && "level" in limit && !WORKER_WIDE_GROUPS.includes(limit.group));
+  return Boolean(limit && "level" in limit && !(limit.counts === "address" && limit.group));
 };
 /** Whether the grid's last run on main proved the door's own limit: its past_limit cell kept (scripts/contract-grid.mjs --record). */
 const isPastLimitProven = (door, grid) => hasOwnLimit(door) && Boolean(grid?.past_limit_kept_door_ids?.includes(door.door_id));
-/** Whether the grid's last run on main found the door's own limit gone: its past_limit cell failed, or its row no longer states one. A file that couldn't run proves nothing either way. */
-const isPastLimitDisproven = (door, grid) => !hasOwnLimit(door) || Boolean(grid?.failures?.some((cell) => cell.door_id === door.door_id && cell.caller_kind === "past_limit"));
+/**
+ * Why the door's own limit no longer holds as seeded, or null: its row no longer states one, or its past_limit cell failed on the
+ * grid's last run on main. A file that couldn't run proves nothing either way; the grid counts it as a failure of its own.
+ */
+const pastLimitStaleReason = (door, grid) => {
+  if (!hasOwnLimit(door)) return "its row no longer states a limit of its own";
+  return grid?.failures?.some((cell) => cell.door_id === door.door_id && cell.caller_kind === "past_limit") ? "its past_limit cell failed on the contract grid's last run on main" : null;
+};
 const isPastLimitVerdict = (theCase) => theCase.case_id === NO_LIMIT_CASE_ID && Object.values(PAST_LIMIT_GRID_FILES).includes(theCase.evidence?.ref) && DOOR_ROW_ANCHOR_ID in (theCase.verdict_anchor_hashes ?? {});
 
 const PAST_LIMIT_RULES = Object.entries(PAST_LIMIT_GRID_FILES).map(([doorIdStart, ref]) => ({
@@ -143,9 +147,10 @@ export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, grid = null
       for (const rule of activeRules) if (rule.appliesTo(door, { grid })) for (const caseId of rule.caseIds) if (!rulesByCaseId.has(caseId)) rulesByCaseId.set(caseId, rule);
       const isGridRead = Array.isArray(grid?.past_limit_kept_door_ids);
       const staleCases = (theCase) => {
-        if (!isGridRead || theCase.status !== "robust" || !isPastLimitVerdict(theCase) || !isPastLimitDisproven(door, grid)) return theCase;
+        const staleReason = isGridRead && theCase.status === "robust" && isPastLimitVerdict(theCase) ? pastLimitStaleReason(door, grid) : null;
+        if (!staleReason) return theCase;
         staleCaseRefs.push(caseRefOf(door, theCase));
-        return withStale(theCase, "its past_limit cell failed on the contract grid's last run on main, or its row no longer states a limit of its own");
+        return withStale(theCase, staleReason);
       };
       const hashes = Object.fromEntries(door.anchors.map((anchor) => [anchor.anchor_id, anchor.source_hash_sha256]));
       if (rulesByCaseId.size === 0 || Object.values(hashes).some((hash) => hash === null)) return { ...door, cases: door.cases.map(staleCases) };

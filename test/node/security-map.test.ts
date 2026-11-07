@@ -189,7 +189,7 @@ describe("doors from the real code", () => {
     // A door that states no limit, and one whose cell the grid didn't keep, are the night's to read.
     expect(caseOf(doorIn(seeded.map, "page:/api/dev"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
     expect(caseOf(doorIn(seeded.map, "api:GET /stripe-account"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
-    // A counter the whole rooms Worker keeps for an address proves nothing of the door's own.
+    // An address's counter shared between doors (rooms.zaisma.com's, the game domain's) proves nothing of the door's own.
     expect(caseOf(doorIn(seeded.map, "rooms:/v1/rooms"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
 
     // The code alone moving nothing, the door's row changing.
@@ -207,6 +207,12 @@ describe("doors from the real code", () => {
     const cellFailing = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { ...grid, failures: [failed], past_limit_kept_door_ids: ["rooms:/v1/friends"] } });
     expect(cellFailing.stale_case_refs).toEqual([`api:GET /credit#${NO_LIMIT_CASE_ID}`]);
     expect(caseOf(doorIn(cellFailing.map, "rooms:/v1/friends"), NO_LIMIT_CASE_ID).status).toBe("robust");
+    expect(caseOf(doorIn(cellFailing.map, "api:GET /credit"), NO_LIMIT_CASE_ID).stale_reason).toContain("past_limit cell failed");
+    // A row that stops stating a limit of its own.
+    const unlimited = seeded.map.map((sector: Sector) => ({ ...sector, doors: sector.doors.map((door: Door) => (door.door_id === "rooms:/v1/friends" ? { ...door, limit: { whyNoLimit: "answers_from_memory" } } : door)) }));
+    const rowUnlimited = seedRobust(unlimited, { repoRoot: ROOT, now: LATER, grid });
+    expect(rowUnlimited.stale_case_refs).toEqual([`rooms:/v1/friends#${NO_LIMIT_CASE_ID}`]);
+    expect(caseOf(doorIn(rowUnlimited.map, "rooms:/v1/friends"), NO_LIMIT_CASE_ID).stale_reason).toContain("no longer states a limit");
     // A record from before the grid named its kept cells stales nothing.
     expect(seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { failures: [], doors_not_tried: [] } }).stale_case_refs).toEqual([]);
   });

@@ -123,7 +123,7 @@ export function mergeDoors({ map, doors, hashesOf, now, checklists = CHECKLISTS,
     const cases = mergedCases(codeDoor.door_kind, known?.cases ?? [], checklists).map((theCase) => {
       if (theCase.status === "unexplored" || theCase.status === "stale") return theCase;
       const verdictHashes = theCase.verdict_anchor_hashes ?? {};
-      const staleReason = staleReasonOf(verdictHashes, DOOR_ROW_ANCHOR_ID in verdictHashes ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: doorRowHashOf(codeDoor) } : hashes);
+      const staleReason = staleReasonOf(verdictHashes, DOOR_ROW_ANCHOR_ID in verdictHashes ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: rowHashOf(codeDoor) } : hashes);
       if (!staleReason) return theCase;
       summary.stale_case_refs.push(caseRefOf(codeDoor, theCase));
       return withStale(theCase, staleReason);
