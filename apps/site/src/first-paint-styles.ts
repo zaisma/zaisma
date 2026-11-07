@@ -307,6 +307,48 @@ function animationText(nodes: CssNode[]): string {
   return text;
 }
 
+/**
+ * CSS as short as it reads the same: no comments, no space after a colon or comma or round a child combinator, none round braces and
+ * semicolons, one space for any run of it, and no semicolon before a closing brace. Quoted strings, url()s and escapes are kept as
+ * written, and so is an empty custom property's space; a plus, a minus and a tilde keep their spaces (calc() needs them). Whitespace is
+ * CSS's own (space, tab, line breaks), never a no-break space, which CSS reads as part of a name.
+ */
+export function compactCss(css: string): string {
+  let out = "", plain = "", isAfterVerbatim = false;
+  const flush = (): void => {
+    // Read after what was last written as a string or url(), so a semicolon that follows one still drops before its brace.
+    const before = isAfterVerbatim ? "\"" : "";
+    out += `${before}${plain}`.replace(/[ \t\n\r\f]+/g, " ").replace(/(:?) ([{};])/g, (whole, colon: string, mark: string) => (colon ? whole : mark)).replace(/([{};]) /g, "$1")
+      .replace(/([:,]) (?![;}])/g, "$1").replace(/ ?> ?/g, ">").replace(/([^:]);}/g, "$1}").slice(before.length);
+    plain = "";
+  };
+  /** Where a quoted string that opens at openIndex ends: its closing quote, past escapes, or the end of the text when it never closes. */
+  const stringEnd = (openIndex: number): number => {
+    let index = openIndex + 1;
+    while (index < css.length && css[index] !== css[openIndex]) index += css[index] === "\\" ? 2 : 1;
+    return Math.min(index, css.length - 1);
+  };
+  for (let i = 0; i < css.length; i++) {
+    const character = css[i]!;
+    if (character === "/" && css[i + 1] === "*") { const closeIndex = css.indexOf("*/", i + 2); i = closeIndex < 0 ? css.length : closeIndex + 1; continue; }
+    let endIndex = -1;
+    if (character === "\\") endIndex = /^[0-9a-fA-F]/.test(css[i + 1] ?? "") ? i + (/^[0-9a-fA-F]{1,6}[ \t\n\r\f]?/.exec(css.slice(i + 1))![0].length) : i + 1;
+    else if (character === '"' || character === "'") endIndex = stringEnd(i);
+    else if (character === "(" && /url$/i.test(plain)) {
+      endIndex = i + 1;
+      while (endIndex < css.length && css[endIndex] !== ")") endIndex = css[endIndex] === '"' || css[endIndex] === "'" ? stringEnd(endIndex) + 1 : endIndex + (css[endIndex] === "\\" ? 2 : 1);
+    }
+    if (endIndex < 0) { plain += character; continue; }
+    flush();
+    out += css.slice(i, endIndex + 1);
+    // An escape ends a name, and what follows it keeps its space; a string or url() is a value the space after can go from.
+    isAfterVerbatim = character !== "\\";
+    i = endIndex;
+  }
+  flush();
+  return out.trim();
+}
+
 const STYLES_KEPT_COUNT = 200;
 const stylesByKey = new Map<string, string>();
 
@@ -320,7 +362,7 @@ export function firstPaintStyles(styles: PageStyle[], markup: string): string {
   if (known !== undefined) return known;
   const kept = matching(styles.flatMap(parsedSheet), { classes, levelCountsByClass });
   const read = readProperties(kept, markupReads.map((name) => `var(${name})`).join(" "));
-  const shown = written(kept, read, animationText(kept));
+  const shown = compactCss(written(kept, read, animationText(kept)));
   if (stylesByKey.size >= STYLES_KEPT_COUNT) stylesByKey.delete(stylesByKey.keys().next().value!);
   stylesByKey.set(key, shown);
   return shown;

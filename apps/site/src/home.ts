@@ -20,7 +20,7 @@ import { viewerDeviceKind } from "./device-kind.ts";
 /**
  * The home page and what it needs: one sheet of rows, there as the page opens, and Zaisma's news above them while there is any. The
  * page is the same for everyone but the player's own part, Continue playing: an account's list, or what this device played (PLAYED_COOKIE),
- * from the first paint, and the browser adds this device's to an account's.
+ * from the first paint. The browser sends an account what this device played that it doesn't have, for the next visit's first paint.
  */
 
 export interface ShowGame {
@@ -370,6 +370,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
       games: browserGames,
+      // The account's Continue playing as the page shows it, for the script to sort and to send it what only this device played; null for a guest.
+      account_played: account ? accountPlayed : null,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
       icons: { people: icon("people").html },
       parts: { updated_tag: tag("Updated", "new-on-glass").html, cut_line: CUT_LINE.html },
