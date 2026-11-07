@@ -37,7 +37,7 @@ export interface HeaderOptions {
   isOnSignInPage?: boolean;
   /** Tabs of the page's own in place of Zaisma's (the admin pages'). */
   ownTabs?: SwitchTab[];
-  /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
+  /** Where Your games is: the tab shows, for guests too (their games on this device). */
   yourGamesHref?: string;
   /** The page shows its own runner (a game's Play, a form's Save), so Sign in is a secondary button: one runner in view. */
   hasPageRunner?: boolean;
@@ -73,7 +73,7 @@ export function header(options: HeaderOptions): Raw {
   const tabs = options.ownTabs ?? [
     { ...tab(action("home").label, "/", options.current === "home"), icon: action("home").icon },
     { ...tab(action("browse").label, "/games", options.current === "browse"), icon: action("browse").icon },
-    ...(account && options.yourGamesHref ? [{ ...tab(action("yourGames").label, options.yourGamesHref, options.current === "your-games"), icon: action("yourGames").icon }] : []),
+    ...(options.yourGamesHref ? [{ ...tab(action("yourGames").label, options.yourGamesHref, options.current === "your-games"), icon: action("yourGames").icon }] : []),
     { ...tab(action("developer").label, account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), icon: action("developer").icon },
     { ...tab(action("forum").label, "/forum", options.current === "forum", true, isOpen), icon: action("forum").icon },
   ];
@@ -1278,7 +1278,7 @@ export interface GameRowOptions {
    * a See all card after its last (gameCardSeeAll), its art the next covers. coverPictures are every game's cover in the list, in order;
    * gameCount is how many games the whole list holds. Left out, it has neither.
    */
-  seeAll?: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[] };
+  seeAll?: { href: string; gameCount: number; coverPictures: (ShownPicture | null)[]; words?: string };
   /** A small switch between ways to sort it (Recently played, Recently updated), after the title. */
   sortTabs?: SwitchTab[];
   /** Its covers. A page script may fill them in instead. */
@@ -1290,6 +1290,11 @@ export interface GameRowOptions {
    * narrow for two. isLeadWide makes the first one twice as wide where two fit across (three cards: one leading two).
    */
   allInView?: { isLeadWide: boolean };
+  /**
+   * Its cards in lines down the well, never scrolling, two across at the least (Your games' lists). hasLeadCell makes the first card the
+   * lead, two cells wide and two lines tall (Favorites' featured favorite).
+   */
+  inLines?: { hasLeadCell: boolean };
 }
 
 /** The most games a Game row shows; past them its See all opens the whole list. */
@@ -1305,8 +1310,9 @@ export function gameRow(options: GameRowOptions): Raw {
   const titleId = `${options.id}-title`;
   const title = html`<h2 class="game-row-title" id="${titleId}">${options.title}</h2>`;
   const isEmpty = options.items.length === 0 && options.emptyText !== undefined;
-  const seeAll = options.seeAll ? tertiaryButton("See all", { href: options.seeAll.href, isSmall: true }) : undefined;
-  const shown = options.items.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
+  const seeAll = options.seeAll ? tertiaryButton(options.seeAll.words ?? "See all", { href: options.seeAll.href, isSmall: true }) : undefined;
+  // In lines with no whole list to open (Favorites), it shows every card; otherwise at most the cap.
+  const shown = options.inLines && !options.seeAll ? options.items : options.items.slice(0, MAXIMUM_GAME_ROW_CARD_COUNT);
   // Past its cap it ends on See all, its art the covers after the last shown (then from the list's start, to fill it).
   const pictures = options.seeAll?.coverPictures ?? [];
   const seeAllCard = options.seeAll && options.seeAll.gameCount > shown.length && shown.length
@@ -1329,6 +1335,8 @@ export function gameRow(options: GameRowOptions): Raw {
           : { kind: "block", markup: row({ widths: "lead-fills", items: [{ kind: "words", markup: title }] }) },
       isEmpty
         ? { kind: "block", markup: stateNote({ stateKind: "empty", text: options.emptyText! }) }
+        : options.inLines
+          ? { kind: "block", markup: gameGrid({ id: options.trackId, label: options.title, isAtLeastTwoAcross: true, hasLeadCell: options.inLines.hasLeadCell, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items }) }
         : options.allInView
           ? { kind: "block", markup: gameGrid({ isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: options.allInView.isLeadWide, whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), items: shown }) }
           : { kind: "block", markup: carving({ kind: "game-row-well", body: track({ whenEmpty: stateNote({ stateKind: "empty", text: options.emptyText ?? "" }), id: options.trackId, itemSize: "cover", items }) }) },
@@ -1377,6 +1385,8 @@ component({
   render: gameRow,
   examples: [
     { label: "Popular, with See all for the whole list", isWide: true, markup: gameRow({ id: "example-shelf-popular", trackId: "example-shelf-popular-track", title: "Popular", seeAll: { href: "#shelf", gameCount: 48, coverPictures: Object.values(STAND_IN_COVER_PICTURES) }, items: STAND_IN_COVER_ITEMS }) },
+    { label: "In lines, its first card the lead (Your games' Favorites)", isWide: true, markup: gameRow({ id: "example-row-favorites", trackId: "example-row-favorites-grid", title: "Favorites", inLines: { hasLeadCell: true }, items: STAND_IN_COVER_ITEMS }) },
+    { label: "In lines, with its own words for the whole list (Recently played)", isWide: true, markup: gameRow({ id: "example-row-recent", trackId: "example-row-recent-grid", title: "Recently played", inLines: { hasLeadCell: false }, seeAll: { href: "#shelf", gameCount: 3, coverPictures: [], words: "All you've played" }, items: STAND_IN_COVER_ITEMS.slice(0, 3) }) },
     {
       label: "Continue playing, with its sort",
       isWide: true,

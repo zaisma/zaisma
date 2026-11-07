@@ -215,7 +215,7 @@ export function gameRowDeletions(database: D1Database, gameId: string): D1Prepar
     database.prepare("DELETE FROM kept_room_restore_failures WHERE kept_room_restore_batch_id IN (SELECT id FROM kept_room_restore_batches WHERE game_id = ?)").bind(gameId),
     ...[
       "play_days", "play_returns", "game_returning_players", "play_tickets", "play_networks", "performance_days", "room_usage", "room_message_types", "live_rooms", "live_games", "kept_rooms", "room_players", "room_keys", "game_access_passes", "tester_links",
-      "game_server_errors", "game_server_schedules", "relay_reads", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "kept_room_restores", "kept_room_restore_batches", "deleted_kept_rooms", "games_ever_played", "played", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
+      "game_server_errors", "game_server_schedules", "relay_reads", "game_log_days", "alert_notices", "game_hosting_months", "player_erases", "database_restores", "kept_room_restores", "kept_room_restore_batches", "deleted_kept_rooms", "games_ever_played", "played", "favorite_games", "saves", "save_history", "game_images", "game_shaders", "game_backgrounds", "domains",
       "game_items", "game_deletion_requests", "audit_log", "reports", "versions",
     ].map(deleteFrom),
     database.prepare("DELETE FROM games WHERE id = ?").bind(gameId),

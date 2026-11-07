@@ -843,7 +843,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     runBatch(function () { panes.forEach(function (pane) { if (pane.isConnected) edgedIn(pane).forEach(cutEdged); }); });
     // A well's track or grid (a Game row's): what's edged in each of its cells is cut along the well's corners where it stands, and again as
     // a track scrolls by, so a card passing a corner takes the corner's cut and one past it is square.
-    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track, [data-cut-line] > .layout-grid, [data-cut-line] > .grid-one-line > .layout-grid, [data-cut-line] > .game-grid-group > .layout-grid").forEach(function (track) {
+    document.querySelectorAll("[data-cut-line] > .track-holder > .layout-track, [data-cut-line] > .layout-grid, [data-cut-line] > .grid-one-line > .layout-grid, [data-cut-line] > .grid-lead-cell > .layout-grid, [data-cut-line] > .game-grid-group > .layout-grid").forEach(function (track) {
       var pieces = track.edgedPieces = Array.prototype.map.call(track.children, edgedPieceOf).filter(Boolean);
       runBatch(function () { pieces.forEach(cutEdged); });
       if (track.isCutOnScroll) return;

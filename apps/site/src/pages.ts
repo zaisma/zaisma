@@ -13,6 +13,7 @@ import { RENTED_SHARE_VPN_TEXT,
   fullGameOwner,
   itemsOf,
   ownedItemNames,
+  isFavoriteGame,
   priceFor,
   priceText,
   purchaseLabelFor,
@@ -56,7 +57,7 @@ import { RENTED_SHARE_VPN_TEXT,
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./components/actions.ts";
+import { action, secondaryButton, primaryButton, tertiaryButton, textLink, toggleButton } from "./components/actions.ts";
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
@@ -175,6 +176,8 @@ export interface GamePageView {
   items: GameItem[];
   /** The permanent items the viewer owns in it. */
   ownedItemNames: string[];
+  /** It's in the viewer's favorites: the heart is on. */
+  isFavorite?: boolean;
   /** Where the viewer is (CF-IPCountry), for the prices they pay; null when unknown. */
   countryCode: string | null;
   /** A paid game's free demo, still there for players; null for none. */
@@ -222,7 +225,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
   const code = roomCodeOf(url, isClosed || isForSale);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing, lastPlayed] = await Promise.all([
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing, lastPlayed, isFavorite] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -256,6 +259,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     standingOf(env.DB, game.owner_id, Date.now()),
     // A returning player's own first: when they last played it.
     viewer.account && !tester ? env.DB.prepare("SELECT played_at_ms FROM played WHERE account_id = ? AND game_id = ?").bind(viewer.account.id, game.id).first<{ played_at_ms: number }>() : null,
+    // The heart: whether it's in the viewer's favorites (Your games). Not on tester links, where the game isn't out.
+    viewer.account && !tester ? isFavoriteGame(env.DB, viewer.account.id, game.id) : false,
   ]);
   const { developerGames, likeGames } = gamePageRows(game, otherGames, await shelfCounts(env, viewer.ageFloorYears));
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, [...developerGames, ...likeGames]);
@@ -286,6 +291,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     isFullGameOwner,
     items,
     ownedItemNames: ownedNames,
+    isFavorite,
     countryCode,
     demoGameSlug: demo?.slug ?? null,
     fullGameSlug: fullGame?.slug ?? null,
@@ -439,11 +445,17 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const otherGameLink = demoSlug ? secondaryButton("Try the demo", { href: `/g/${demoSlug}?play`, isBig: true, isFullWidth: true }) : view.fullGameSlug ? secondaryButton("Full game", { href: `/g/${view.fullGameSlug}?buy`, isBig: true, isFullWidth: true }) : null;
   // Under Play: a paid game's demo or a demo's full game, then Share and Report, small. The page itself is the game's details.
   const smallActions = [
+    // The heart, for Your games' Favorites: a guest is asked to make an account, and favorites it with a press once back.
+    ...(view.tester || isClosed
+      ? []
+      : [{ kind: "control" as const, markup: view.viewer.account
+          ? toggleButton(action("favorite", view.isFavorite ? "Remove from favorites" : "Favorite"), { id: "favorite", type: "button", isLabelHidden: true, isPressed: Boolean(view.isFavorite) })
+          : toggleButton(action("favorite"), { href: `/join?next=${encodeURIComponent(`/g/${game.slug}`)}`, isLabelHidden: true, isPressed: false }) }]),
     { kind: "control" as const, markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
     { kind: "control" as const, markup: secondaryButton(action("report"), { href: reportHref, isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
   ];
   // Share and Report are one cell, so a line too narrow for the row puts them together under what leads it.
-  const shareAndReport: LayoutItem = { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Share and Report", items: smallActions }) };
+  const shareAndReport: LayoutItem = { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions }) };
   // Play (or Buy) fills the row, Share and Report small at its end; a paid game's demo or a demo's full game goes under it.
   const paneActions = stack({
     items: [
@@ -452,11 +464,11 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
       {
         kind: "block",
         markup: !mainAction.length
-          ? row({ widths: "fit", alignment: "end", label: "Share and Report", items: smallActions })
+          ? row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions })
           : otherGameLink
-            ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, shareAndReport] }) }] })
+            ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Favorite, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, shareAndReport] }) }] })
             // Where Buy and its price can't share the line (the narrowest phone), Buy takes it alone and the pair goes under it.
-            : row({ widths: "lead-fills", label: "Play, Share and Report", items: [...mainAction, shareAndReport] }),
+            : row({ widths: "lead-fills", label: "Play, Favorite, Share and Report", items: [...mainAction, shareAndReport] }),
       },
     ],
   });
@@ -1241,6 +1253,33 @@ function warmUp() {
 if (document.readyState === "complete") setTimeout(warmUp, 1000);
 else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
+// The heart: favorite or not, flipped at once and kept by the server. Only a press favorites a game, never an address.
+const heart = document.getElementById("favorite");
+// One request at a time: quick presses each flip the heart at once, and the server is told only the last, once the one before has answered.
+let savedFavorite = heart ? heart.getAttribute("aria-pressed") === "true" : false;
+let isSending = false;
+function showFavorite(isFavorite) {
+  heart.setAttribute("aria-pressed", String(isFavorite));
+  heart.setAttribute("aria-label", isFavorite ? "Remove from favorites" : "Favorite");
+}
+function sendFavorite() {
+  const wanted = heart.getAttribute("aria-pressed") === "true";
+  if (isSending || wanted === savedFavorite) return;
+  isSending = true;
+  fetch("/api/me/favorites/" + gamePage.slug + (wanted ? "" : "/remove"), { method: "POST", headers: { Accept: "application/json" } })
+    .then((response) => response.ok ? (savedFavorite = wanted) : response.json().then((answer) => {
+      showFavorite(savedFavorite);
+      if (answer && answer.error && answer.error.message_for_people) zaismaLayers.say({ text: answer.error.message_for_people, tone: "problem" });
+    }))
+    .catch(() => showFavorite(savedFavorite))
+    .finally(() => { isSending = false; sendFavorite(); });
+}
+function setFavorite(isFavorite) {
+  if (!heart) return;
+  showFavorite(isFavorite);
+  sendFavorite();
+}
+if (heart) heart.addEventListener("click", () => setFavorite(heart.getAttribute("aria-pressed") !== "true"));
 // Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
 ${KEEP_PLAYED_COOKIE_SOURCE}
 function remember() {

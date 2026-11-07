@@ -26,6 +26,7 @@
 //   npm run layout:check -- --sweep          every page and state on the measured screens, in light, at 200% text, every rule (as each night)
 //   npm run layout:check -- --json           the same, as JSON
 //   npm run layout:check -- --only /signin   only the pages whose path has that in it
+//   npm run layout:check -- --path /         only the page whose path is exactly that (Home alone, where --only / is every page)
 //   npm run layout:check -- --tabs 2         how many pages it opens at once (DEFAULT_TAB_COUNT: one fewer than the cores, at most 4)
 //   npm run layout:check -- --screens all    the measured screens, and 200% text (--screens every: all seven; or --screens Phone,Tablet: screens
 //                                            by name), in place of the run's
@@ -38,7 +39,8 @@
 //                                            <file> already: its markup, the check and the run are as they were when it was measured.
 //                                            The merge queue runs the sweep this way on the pages its change reaches (check.yml)
 //   npm run layout:check -- --pictures <dir> one contact sheet per page and state, <dir>/<state>.png: its screens side by side, light over dark,
-//                                            with its pictures and drawing
+//                                            with its pictures and drawing. Made on GitHub's runners only (npm run pictures): on a
+//                                            person's machine --pictures refuses (localRunRefusal)
 //   CHROME_PATH=/path/to/chrome npm run layout:check
 //
 // Chrome is the system's or one downloaded before (scripts/chrome.mjs); without either it fetches Chrome for Testing into
@@ -97,8 +99,9 @@ const isStressPage = (page) => STRESS_ACCOUNTS.some((stress) => stress.account =
 export const MOST_LOCAL_PAGE_COUNT = 20;
 
 /** Why this run can't go on a person's machine, or null: whole-site runs are GitHub's. */
-export function localRunRefusal({ isOnGithub, only, pagesAsked, shard, pageCount }) {
+export function localRunRefusal({ isOnGithub, only, pagesAsked, shard, pageCount, picturesFolder = null }) {
   if (isOnGithub) return null;
+  if (picturesFolder) return "Contact sheets are made on GitHub's runners, never on a person's machine: push, then npm run pictures -- --pr <number> --path <a page's whole path> --out <folder>.";
   if (only === null && pagesAsked === null && shard === null) return "The whole site runs on GitHub's check, never on a person's machine: pass --only <part of a page's path> for the pages you changed, push, and read npm run check -- --pr <number>.";
   if (pageCount > MOST_LOCAL_PAGE_COUNT) return `That's ${pageCount} pages, past the ${MOST_LOCAL_PAGE_COUNT} a run measures on a person's machine: narrow --only to the pages you changed, and leave the rest to GitHub's check.`;
   return null;
@@ -111,6 +114,9 @@ export const LAYOUT_CHECK_RUNS = {
 /** Pages open at once, each in its own window (tabs that share one aren't drawn): one fewer than the cores, so the preview keeps one. */
 /** How long one page at one size and theme may take, loading and settling included, before it fails. */
 const RUN_TIME_LIMIT_MS = 90_000;
+/** The same with pictures: every screen drawn whole, light and dark, on a runner's CPU (Nov 7, 2026: a gallery group's run took
+ * about 80 s a screen, at the measuring limit's edge, and failed there on a busier runner). Only GitHub's Pictures runs take them. */
+export const PICTURES_RUN_TIME_LIMIT_MS = 270_000;
 // On GitHub's runners four; on a laptop two, so a local run stays cool (Julius, Oct 29, 2026).
 export const DEFAULT_TAB_COUNT = Math.max(1, Math.min(process.env.CI ? 4 : 2, availableParallelism() - 1));
 
@@ -889,7 +895,8 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const theme = runLooks[0].theme;
         const url = `${base}${page.path}${page.isGallery && theme === "dark" ? `${page.path.includes("?") ? "&" : "?"}theme=dark` : ""}`;
         // A page that never settles (a load or a frame that doesn't come) fails by name instead of holding up the rest.
-        const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${(RUN_TIME_LIMIT_MS * runLooks.length) / 1000}s` }]);
+        const runLimitMs = (picturesFolder ? PICTURES_RUN_TIME_LIMIT_MS : RUN_TIME_LIMIT_MS) * runLooks.length;
+        const tooSlow = runLooks.map(() => [{ check: "the page didn't settle in time", element: "", said: `nothing measured within ${runLimitMs / 1000}s` }]);
         const startedMs = Date.now();
         // A page that sends forms gets a browser of its own, so what its answers leave (a cookie that says too young) reaches no other page.
         // So does a guest playing a game, whose played list would put Continue playing on a guest's home page. An account stays in its own
@@ -897,7 +904,7 @@ export async function checkPages({ site, signInSite, pages = LAYOUT_CHECK_PAGES,
         const isOwnContext = Boolean(page.stepsToTake) || (!page.account && isPlaying(page));
         const contextId = isOwnContext ? await newContext(page.account) : await contextFor(page);
         const pictureOf = picturesFolder ? (size, theme, jpegBase64) => { if (!picturesByPage.has(page.name)) picturesByPage.set(page.name, []); picturesByPage.get(page.name).push({ size, theme, jpegBase64 }); } : null;
-        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(RUN_TIME_LIMIT_MS * runLooks.length).then(() => tooSlow)]);
+        const foundByLook = await Promise.race([checkPage(chrome, contextId, url, runLooks, { ...page, pictureOf, tiers: tiersOf(page) }), wait(runLimitMs).then(() => tooSlow)]);
         if (isOwnContext) await chrome.send("Target.disposeBrowserContext", { browserContextId: contextId }).catch(() => {});
         secondsByPage[page.name] = Math.round(((secondsByPage[page.name] ?? 0) + (Date.now() - startedMs) / 1000) * 10) / 10;
         foundByRun[runIndex] = runLooks.flatMap(({ size, theme: lookTheme }, lookIndex) => foundByLook[lookIndex].map((failure) => ({ page: page.name, path: page.path, size: size.name, theme: lookTheme, ...failure })));
@@ -943,15 +950,17 @@ export async function chromeToRun() {
 
 async function main() {
   const args = process.argv.slice(2);
-  const VALUED = ["--only", "--tabs", "--screens", "--text", "--shard", "--pictures", "--pages", "--measured"];
+  const VALUED = ["--only", "--path", "--tabs", "--screens", "--text", "--shard", "--pictures", "--pages", "--measured"];
   const valueOf = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
   const isJson = args.includes("--json");
   const runName = args.includes("--sweep") ? "sweep" : "pull_request";
   const layoutRun = LAYOUT_CHECK_RUNS[runName];
-  const only = valueOf("--only");
+  if (args.includes("--only") && args.includes("--path")) stop("Give --only <part of a page's path> or --path <a page's whole path>, not both.", isJson);
+  const exactPath = valueOf("--path");
+  const only = exactPath ?? valueOf("--only");
   const tabCount = args.includes("--tabs") ? Number(valueOf("--tabs")) : DEFAULT_TAB_COUNT;
   const unknown = args.filter((arg, i) => !["--json", "--sweep", "--changed-only", ...VALUED].includes(arg) && !VALUED.includes(args[i - 1]));
-  const OPTIONS_WORDS = "The options are --sweep, --json, --only <part of a page's path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all, every or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
+  const OPTIONS_WORDS = "The options are --sweep, --json, --only <part of a page's path>, --path <a page's whole path>, --pages <JSON list of page names>, --tabs <pages at once>, --screens all, every or <name>,<name>, --text 200, --shard <n>/<count>, --pictures <folder>, and --measured <file> with --changed-only.";
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
   if (!Number.isInteger(tabCount) || tabCount < 1 || tabCount > 16) stop("--tabs takes a whole number from 1 to 16, like --tabs 2.", isJson);
   const screensAsked = valueOf("--screens"), textAsked = valueOf("--text"), shard = valueOf("--shard"), picturesFolder = valueOf("--pictures"), pagesAsked = valueOf("--pages"), measuredPath = valueOf("--measured");
@@ -964,12 +973,14 @@ async function main() {
   } catch (error) {
     stop(error.message, isJson);
   }
+  // Before Chrome and the preview: a picture run never starts anything on a person's machine.
+  if (picturesFolder && !process.env.CI) stop(localRunRefusal({ isOnGithub: false, only, pagesAsked, shard, pageCount: 0, picturesFolder }), isJson, "whole_site_on_github");
   const chromePath = await chromeToRun();
   if (!chromePath) stop("No Chrome: set CHROME_PATH, or let it download Chrome for Testing (it couldn't).", isJson, "no_chrome");
   const sites = previewSites();
   if (!sites) stop("The preview didn't start: see .wrangler/preview-run/preview.log.", isJson, "no_preview");
   const allPages = layoutRun.pages;
-  let pages = only ? allPages.filter((page) => page.path.includes(only)) : allPages;
+  let pages = exactPath ? allPages.filter((page) => page.path === exactPath) : only ? allPages.filter((page) => page.path.includes(only)) : allPages;
   if (pagesAsked !== null) {
     try {
       const named = pagesNamed(pages, (() => { try { return JSON.parse(pagesAsked); } catch { return null; } })());
@@ -995,8 +1006,8 @@ async function main() {
     console.log(isJson ? JSON.stringify({ checked_page_count: 0, failures: [], failed_page_names: [], skipped_page_names: [], seconds_by_page: {} }) : `LAYOUT PASS: no page in share ${shard}.`);
     process.exit(0);
   }
-  if (!pages.length) stop(`No page's path has ${only} in it.`, isJson);
-  const refusal = localRunRefusal({ isOnGithub: Boolean(process.env.CI), only, pagesAsked, shard, pageCount: pages.length });
+  if (!pages.length) stop(exactPath ? `No page's path is ${exactPath}.` : `No page's path has ${only} in it.`, isJson);
+  const refusal = localRunRefusal({ isOnGithub: Boolean(process.env.CI), only, pagesAsked, shard, pageCount: pages.length, picturesFolder });
   if (refusal) stop(refusal, isJson, "whole_site_on_github");
   runAtLowPriority();
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });

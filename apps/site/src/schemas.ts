@@ -867,6 +867,7 @@ export const TOP_UP_REFUNDED = object({
 export const STATS = object({
   period_duration_days: countOf(),
   play_stats: PLAY_STATS,
+  favorite_count: countOf("Accounts with the game in their favorites now (Your games). Never who."),
   performance: nullable(PLAYER_PERFORMANCE),
   multiplayer_days: list(
     object({

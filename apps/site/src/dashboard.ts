@@ -775,6 +775,7 @@ function playersSection(game: GameJson, reports: Reports, stats: Stats): Raw {
   const ownServer = game.multiplayer_mode === "own" || stats.schedules.length > 0 || stats.multiplayer_days.some((day) => day.game_server !== null);
   return html`<h2 class="rule-h" id="plays">Plays <span class="muted">Last 30 days</span></h2>
 ${playsPanel(stats.play_stats)}
+<p class="muted">${formatted(stats.favorite_count)} ${stats.favorite_count === 1 ? "player has" : "players have"} this game in their favorites.</p>
 ${hostingPanel(game, stats, ownServer)}
 <h2 class="rule-h" id="reports">Player reports</h2>
 ${reportsPanel(reports)}
@@ -1397,6 +1398,7 @@ ${reports.player_reports.length
 }
 
 interface Stats {
+  favorite_count: number;
   play_stats: {
     days: { date: string; play_count: number; player_count: number; new_player_count: number; play_duration_min: number; started_play_count: number }[];
     play_count: number;

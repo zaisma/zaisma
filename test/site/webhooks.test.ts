@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KEPT_PLAYED_GAME_COUNT, MAXIMUM_WEBHOOK_ATTEMPT_COUNT, failedPlayerErases, accountById, accountDeletionReach, createAccount, createApiKey, createGame, createReport, deleteAccount, queuePlayerErase, recordPlayed, signatureFor, useSignInGrant } from "@zaisma/core";
+import { KEPT_PLAYED_GAME_COUNT, forgetPlayed, MAXIMUM_WEBHOOK_ATTEMPT_COUNT, failedPlayerErases, accountById, accountDeletionReach, createAccount, createApiKey, createGame, createReport, deleteAccount, queuePlayerErase, recordPlayed, signatureFor, useSignInGrant } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
@@ -582,7 +582,7 @@ describe("deleting an account reaches developers", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS played_count FROM games_ever_played WHERE account_id = 'mia'").first("played_count")).toBe(0);
   });
 
-  it("remembers every game played, not only Continue playing's newest 20", async () => {
+  it("remembers every game played, even one removed from Your games, for deleting the account", async () => {
     await createAccount(env.DB, { id: "mia", username: "mia_plays", ageBand: "18+" });
     const ownerId = (await env.DB.prepare("SELECT owner_id FROM games WHERE slug = 'sky-hopper'").first<{ owner_id: string }>())!.owner_id;
     await recordPlayed(env.DB, "mia", await gameId("sky-hopper"), Date.now() - 60_000);
@@ -590,7 +590,9 @@ describe("deleting an account reaches developers", () => {
       const game = await createGame(env.DB, { slug: `filler-${i}`, title: `Filler ${i}`, description: "", ownerId });
       await recordPlayed(env.DB, "mia", game.id, Date.now() + i);
     }
-    expect(await env.DB.prepare("SELECT COUNT(*) AS played_count FROM played WHERE account_id = 'mia' AND game_id = ?").bind(await gameId("sky-hopper")).first("played_count")).toBe(0);
+    // Every game stays in the history now; Remove takes one off it, and deleting the account still reaches it.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS played_count FROM played WHERE account_id = 'mia' AND game_id = ?").bind(await gameId("sky-hopper")).first("played_count")).toBe(1);
+    await forgetPlayed(env.DB, "mia", await gameId("sky-hopper"));
     expect((await accountDeletionReach(env.DB, "mia")).gameIds).toContain(await gameId("sky-hopper"));
   });
 

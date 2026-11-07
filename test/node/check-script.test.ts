@@ -295,4 +295,8 @@ describe("the whole site's Layout check stays on GitHub", () => {
     expect(localRunRefusal({ ...asked, pagesAsked: '["Home"]', pageCount: 1 })).toBeNull();
     expect(localRunRefusal({ ...asked, only: "/", pageCount: MOST_LOCAL_PAGE_COUNT + 1 })).toMatch(/narrow --only/);
   });
+  it("makes contact sheets only on GitHub", () => {
+    expect(localRunRefusal({ ...asked, only: "/", pageCount: 1, picturesFolder: "sheets" })).toMatch(/npm run pictures/);
+    expect(localRunRefusal({ ...asked, isOnGithub: true, only: "/", pageCount: 1, picturesFolder: "sheets" })).toBeNull();
+  });
 });

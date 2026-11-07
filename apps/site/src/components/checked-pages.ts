@@ -126,6 +126,25 @@ export const STRESS_ACCOUNTS = [
 /** The page's name its stress entries start with: a signed-in state's without its ", signed in". */
 export const stressBaseName = (name: string): string => name.replace(/, signed in$/, "");
 
+/**
+ * The gallery's places as a sheet, opened as a person does where it's a sheet: the Groups button they can see, pressed. On a screen wide
+ * enough for the sidebar beside the page, that button folds it instead, so there the sheet opens by itself. It waits for the page's sheet
+ * first, since a busy runner can start a setUp before the page has loaded whole (Nov 7, 2026: the sheet wasn't there yet in one Pictures
+ * run, dark).
+ */
+const OPEN_GALLERY_PLACES_SHEET = `(async () => {
+  const until = async (find) => { for (const endMs = Date.now() + 60000; Date.now() < endMs; await new Promise((done) => setTimeout(done, 100))) { const found = find(); if (found) return found; } return null; };
+  const places = await until(() => document.getElementById("gallery-places") && document.getElementById("gallery-places-sheet") ? document.getElementById("gallery-places") : null);
+  if (!places) throw new Error("The gallery's places and their sheet never came.");
+  const isSheet = getComputedStyle(places).getPropertyValue("--sidebar-is-sheet").trim() === "1";
+  const button = [...document.querySelectorAll('[data-sidebar-button][aria-controls^="gallery-places"]')].find((each) => each.getClientRects().length > 0);
+  if (isSheet && !button) throw new Error("No Groups button in view.");
+  if (isSheet) button.click(); else document.getElementById("gallery-places-sheet").showModal();
+  const sheet = await until(() => { const found = document.getElementById("gallery-places-sheet"); return found && found.open ? found : null; });
+  if (!sheet) throw new Error("The Groups button didn't open the places sheet.");
+  await new Promise((done) => setTimeout(done, 400));
+  return sheet.open;
+})()`;
 /** The Players sheet, opened from the playing bar's Players button. */
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
 /** The cards over a running game that start hidden (the game asking to sign in, signed out), shown one under another. */
@@ -205,6 +224,16 @@ const CHECKED_PAGE_LIST = [
   { name: "Games", area: "Playing", path: "/games", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, signed in", area: "Playing", path: "/games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
   ...STRESS_ACCOUNTS.map(({ account, nameEnding }) => ({ name: `Games, ${nameEnding}` as const, area: "Playing" as const, path: "/games", account, shownStateName: "Games, signed in", mainActionShows: "nowhere" as const, isCoverAboveFold: true })),
+  // Your games: a signed-in player's favorites, history and For you; a guest's from this device (none here, so its empty state); empty.
+  { name: "Your games, signed in", area: "Playing", path: "/your-games", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, long names", area: "Playing", path: "/your-games", account: "Longest_Names_Here", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, full", area: "Playing", path: "/your-games", account: "Many_Things", shownStateName: "Your games, signed in", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "Your games, empty", area: "Playing", path: "/your-games", account: "Empty_Handed", shownStateName: "Your games, signed in", mainActionShows: "nowhere" },
+  { name: "Your games, a guest", area: "Playing", path: "/your-games", mainActionShows: "nowhere" },
+  { name: "All you've played", area: "Playing", path: "/your-games/played", account: "Moss_Runner", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "All you've played, long names", area: "Playing", path: "/your-games/played", account: "Longest_Names_Here", shownStateName: "All you've played", mainActionShows: "nowhere", isCoverAboveFold: true },
+  { name: "All you've played, empty", area: "Playing", path: "/your-games/played", account: "Empty_Handed", shownStateName: "All you've played", mainActionShows: "nowhere" },
+  { name: "All you've played, full", area: "Playing", path: "/your-games/played", account: "Many_Things", shownStateName: "All you've played", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, one genre", area: "Playing", path: "/games?genre=strategy", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, multiplayer", area: "Playing", path: "/games?players=multiplayer", mainActionShows: "nowhere", isCoverAboveFold: true },
   { name: "Games, a search", area: "Playing", path: "/games?search_text=farm", mainActionShows: "nowhere", isCoverAboveFold: true },
@@ -249,7 +278,7 @@ const CHECKED_PAGE_LIST = [
   { name: "Connect an app", area: "Signing in", path: "/mcp-start", isOnSignInSite: true, account: "Preview_Studio", mainActionShows: "everywhere" },
   { name: "Sign in with Zaisma", area: "Signing in", path: "/start", isOnSignInSite: true, account: "Moss_Runner", mainActionShows: "everywhere" },
   ...GALLERY_PLACES().map((place) => ({ name: galleryPageName(place), path: galleryPagePath(place.group, place.subgroup), ...GALLERY })),
-  { name: "Gallery: the sidebar over the page", path: "/design/inputs/fields", ...GALLERY, stateBeforeSetUp: "Gallery: inputs fields", setUp: `(async () => { const sheet = document.getElementById("gallery-places-sheet"); sheet.showModal(); await new Promise((done) => setTimeout(done, 400)); return sheet.open; })()` },
+  { name: "Gallery: the sidebar over the page", path: "/design/inputs/fields", ...GALLERY, stateBeforeSetUp: "Gallery: inputs fields", setUp: OPEN_GALLERY_PLACES_SHEET },
   { name: "Screens", path: "/design/screens", ...GALLERY, screenNames: ["Laptop"] },
 ] as const satisfies readonly CheckedPage[];
 export const CHECKED_PAGES: readonly CheckedPage[] = CHECKED_PAGE_LIST;
