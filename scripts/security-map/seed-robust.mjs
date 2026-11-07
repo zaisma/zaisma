@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readMap, writeMap } from "./generate.mjs";
 import { withVerdict } from "./schema.mjs";
@@ -14,10 +14,6 @@ import { withVerdict } from "./schema.mjs";
 const isSitePage = (door) => (door.door_kind === "page_route" || door.door_kind === "page_form") && door.door_id.startsWith("page:");
 const isGameFile = (door, addresses) => door.door_kind === "game_file_address" && addresses.includes(door.door_id);
 const SERVED_GAME_FILES = ["game-file:/", "game-file:/<file>"];
-
-/** A door whose contract sets a limit level: the contract grid calls it past that limit on every merge and expects 429. One that says why it has none is left for a look at whether the reason holds. */
-const hasLimitLevel = (door) => Boolean(door.limit_level);
-const GRID_LIMIT_NOTE = "The contract grid calls it past its contract's limit on every merge, and it answers 429.";
 
 export const SEED_RULES = [
   {
@@ -76,24 +72,6 @@ export const SEED_RULES = [
     caseIds: ["tool-maps-to-declared-route"],
   },
   {
-    evidence: { kind: "test", ref: "test/grid/api.grid.ts", note: GRID_LIMIT_NOTE },
-    appliesTo: (door) => door.door_kind === "api_call" && hasLimitLevel(door),
-    caseIds: ["rate-or-lockout-missing"],
-    isFromGrid: true,
-  },
-  {
-    evidence: { kind: "test", ref: "test/grid/page-doors.ts", note: GRID_LIMIT_NOTE },
-    appliesTo: (door) => isSitePage(door) && hasLimitLevel(door),
-    caseIds: ["rate-or-lockout-missing"],
-    isFromGrid: true,
-  },
-  {
-    evidence: { kind: "test", ref: "test/grid/rooms.grid.ts", note: GRID_LIMIT_NOTE },
-    appliesTo: (door) => door.door_kind === "page_route" && door.door_id.startsWith("rooms:") && hasLimitLevel(door),
-    caseIds: ["rate-or-lockout-missing"],
-    isFromGrid: true,
-  },
-  {
     evidence: { kind: "ship_check", ref: "scripts/ship-checks.mjs", note: "Ship check: the private check game stays closed on the game domain, on every ship." },
     appliesTo: (door) => isGameFile(door, SERVED_GAME_FILES),
     caseIds: ["private-game-file-public"],
@@ -115,11 +93,10 @@ export const SEED_RULES = [
 
 /**
  * The map with every SEED_RULES case set robust where it's still unexplored. A rule with requiresFile
- * seeds nothing while its ref isn't in the repo (a sibling slice's file that hasn't merged), and a rule
- * isFromGrid seeds nothing on a door the grid's last run on main failed or couldn't try. Answers the new
- * map and the case refs it seeded.
+ * seeds nothing while its ref isn't in the repo (a sibling slice's file that hasn't merged). Answers the
+ * new map and the case refs it seeded.
  */
-export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, unprovenGridDoorIds = new Set() }) {
+export function seedRobust(map, { repoRoot, now, rules = SEED_RULES }) {
   const activeRules = rules.filter((rule) => !rule.requiresFile || existsSync(join(repoRoot, rule.evidence.ref)));
   const seededCaseRefs = [];
   const next = map.map((sector) => ({
@@ -127,7 +104,7 @@ export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, unprovenGri
     doors: sector.doors.map((door) => {
       if (door.door_removed_at) return door;
       const caseIds = new Map();
-      for (const rule of activeRules) if (rule.appliesTo(door) && !(rule.isFromGrid && unprovenGridDoorIds.has(door.door_id))) for (const caseId of rule.caseIds) if (!caseIds.has(caseId)) caseIds.set(caseId, rule.evidence);
+      for (const rule of activeRules) if (rule.appliesTo(door)) for (const caseId of rule.caseIds) if (!caseIds.has(caseId)) caseIds.set(caseId, rule.evidence);
       if (caseIds.size === 0) return door;
       const hashes = Object.fromEntries(door.anchors.map((anchor) => [anchor.anchor_id, anchor.source_hash_sha256]));
       if (Object.values(hashes).some((hash) => hash === null)) return door;
@@ -147,15 +124,7 @@ export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, unprovenGri
 
 /** Seeds the map in mapDir. Run after generate, so the doors' anchor hashes are today's. */
 export function seedMapDir({ repoRoot, mapDir, now = new Date().toISOString() }) {
-  const { map, seeded_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now, unprovenGridDoorIds: unprovenGridDoorIdsOf(mapDir) });
+  const { map, seeded_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now });
   writeMap(mapDir, map);
   return seeded_case_refs;
-}
-
-/** The doors the contract grid's last run on main failed (any cell) or couldn't try, from grid/failures.json; none before its first run. */
-export function unprovenGridDoorIdsOf(mapDir) {
-  const path = join(mapDir, "grid", "failures.json");
-  if (!existsSync(path)) return new Set();
-  const grid = JSON.parse(readFileSync(path, "utf8"));
-  return new Set([...(grid.failures ?? []).map((cell) => cell.door_id), ...(grid.doors_not_tried ?? [])]);
 }
