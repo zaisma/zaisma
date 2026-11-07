@@ -42,8 +42,8 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026; the first share 20 more for its two Continue playing tests, Nov 6): they take that much fewer pages. */
-const BROKEN_ON_PURPOSE_COSTS_SEC = [85, 185, 75];
+/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026; the first share 10 more for its test of what the home sends an account, Nov 6): they take that much fewer pages. */
+const BROKEN_ON_PURPOSE_COSTS_SEC = [75, 185, 75];
 const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: BROKEN_ON_PURPOSE_COSTS_SEC }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 const isSecondShare = !shard || shard.startsWith("2/");
@@ -176,7 +176,8 @@ describe.skipIf(!sites)("the layout check", () => {
         await loaded;
       };
       const accountPlayed = `JSON.parse(document.getElementById("home-data").textContent).account_played`;
-      const gameLinks = `[...new Set([...document.querySelectorAll('a[href^="/g/"]')].map((link) => link.getAttribute("href").slice(3)))]`;
+      // Only a game's own address: a Play button's ?play or anything after the slug isn't a game.
+      const gameLinks = `[...new Set([...document.querySelectorAll('a[href^="/g/"]')].map((link) => link.getAttribute("href").slice(3)).filter((slug) => /^[a-z0-9-]+$/.test(slug)))]`;
       await home();
       const played: { slug: string; played_at_ms: number }[] = await evaluate(accountPlayed);
       expect(played.length).toBeGreaterThan(1);
