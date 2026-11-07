@@ -11,7 +11,6 @@ name: Pictures
 run-name: Pictures for #${{ inputs.pull_request_number }} at ${{ inputs.head_sha }} (${{ inputs.request_id }})
 
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -32,7 +31,7 @@ permissions:
 
 concurrency:
   # A newer ask for a pull request's pictures replaces one still running.
-  group: pictures-${{ inputs.pull_request_number || github.event.pull_request.number }}
+  group: pictures-${{ inputs.pull_request_number }}
   cancel-in-progress: true
 
 env:
@@ -45,21 +44,20 @@ env:
 
 jobs:
   pictures:
-    name: Trial ${{ matrix.trial_number }}, ${{ matrix.check_kind == 'layout' && 'Contact sheets' || 'Motion strips' }} of ${{ matrix.page_path }}
+    name: ${{ matrix.check_kind == 'layout' && 'Contact sheets' || 'Motion strips' }} of ${{ matrix.page_path }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        page_path: ${{ fromJSON(inputs.page_paths || '["/design/inputs/fields"]') }}
-        trial_number: [1, 2, 3]
+        page_path: ${{ fromJSON(inputs.page_paths) }}
         # The layout check's sheets and the motion sheet's strips side by side: each takes about a quarter of an hour on a page.
-        check_kind: [layout]
+        check_kind: [layout, motion]
     env:
       PAGE_PATH: ${{ matrix.page_path }}
       CHECK_KIND: ${{ matrix.check_kind }}
-      HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
-      PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
     steps:
       - shell: bash
         run: |
@@ -74,7 +72,7 @@ jobs:
           (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          ref: ${{ inputs.head_sha }}
       # Its folder right after the checkout (which empties the workspace), so a job that stops early still leaves its run.json and why.
       - run: mkdir -p pictures/sheets pictures/strips
       - uses: actions/setup-node@v4
