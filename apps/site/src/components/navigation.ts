@@ -507,13 +507,15 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     });
   }
   var wiredBars = new WeakSet(), isPageRailWaiting = false;
+  // The page has begun after its header: what the header waits for to show whole (HEADER_FIT_SCRIPT), so the rail shows with it.
+  function isPageArrived() { var top = document.querySelector("body > header.top"); return Boolean(top && top.nextElementSibling); }
   // Each rail is wired once: the page's, those of the boxes found at the start and those of boxes added later.
   function wireRails() {
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     if (wiredBars.has(bar)) return;
     // The page's rail comes first in its body: the browser's own scrollbar goes at once, so it never takes its room for a moment, and the
-    // rail is wired once the page is read, when the parts it marks and the header it starts below are there.
-    if (bar.getAttribute("data-rail") === "page" && document.readyState === "loading") { document.documentElement.classList.add("own-scroll"); if (!isPageRailWaiting) { isPageRailWaiting = true; window.zaismaWatch.whenRead(wireRails); } return; }
+    // rail is wired once the header it starts below has the page after it, so it shows with the header; the parts it marks join it as they arrive.
+    if (bar.getAttribute("data-rail") === "page" && document.readyState === "loading" && !isPageArrived()) { document.documentElement.classList.add("own-scroll"); if (!isPageRailWaiting) { isPageRailWaiting = true; window.zaismaWatch.arriving(function () { if (isPageArrived()) wireRails(); }); window.zaismaWatch.whenRead(wireRails); } return; }
     wiredBars.add(bar);
     var isPage = bar.getAttribute("data-rail") === "page", isSide = bar.getAttribute("data-rail") === "side", scroller = isPage ? null : bar.previousElementSibling;
     while (scroller && scroller.hasAttribute("data-rail")) scroller = scroller.previousElementSibling;
@@ -557,7 +559,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var box = scroller.getBoundingClientRect(), r = part.getBoundingClientRect();
       return isSide ? r.left - box.left + scroller.scrollLeft : r.top - box.top + scroller.scrollTop;
     }
-    var marks = parts.map(function (part) {
+    function markFor(part) {
       var mark = document.createElement("button"), name = document.createElement("span");
       mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag rail-name"; name.setAttribute("data-cut-line", "0"); name.appendChild(document.createElement("span")).textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
@@ -572,6 +574,16 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       }
       mark.goToPart = go;
       return { part: part, mark: mark, name: name };
+    }
+    var marks = parts.map(markFor);
+    // Wired while the page still arrives, the page's rail marks each part as it comes, with it.
+    if (isPage && document.readyState === "loading") window.zaismaWatch.arriving(function () {
+      var known = marks.map(function (m) { return m.part; });
+      var more = Array.prototype.filter.call(document.querySelectorAll("[data-rail-mark]"), function (part) { return known.indexOf(part) < 0 && !part.closest("[data-rail-marks-own]"); });
+      if (!more.length) return;
+      if (!riding) { riding = document.createElement("span"); riding.className = "tag rail-name rail-riding"; riding.setAttribute("data-cut-line", "0"); riding.appendChild(document.createElement("span")); bar.appendChild(riding); }
+      more.forEach(function (part) { marks.push(markFor(part)); });
+      layOutSoon(rail);
     });
     // --label-shift moves a name from its mark.
     function spread(track) {
@@ -1172,6 +1184,9 @@ component({
    opens the nearest mark's name on a small glass label to its left; dragging, the name of the part the thumb is in rides beside it. */
 /* Its click area is far bigger than the etch: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 28px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
+/* A mark added as its part arrives (the page's rail, wired with the header) fades in with it, never popping onto a rail already shown. */
+.rail-mark { transition: opacity var(--motion-arrive); }
+@starting-style { .rail.is-on .rail-mark { opacity: 0; } }
 .rail-mark::before { content: ""; position: absolute; left: 17px; right: 5px; top: 11.5px; height: 1px; }
 .rail-mark[hidden] { display: none; }
 /* While the thumb is dragged, the marks don't answer the pointer: only the part the thumb is in is named and lit. */
