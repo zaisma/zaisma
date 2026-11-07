@@ -244,7 +244,12 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & 
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall || options.isTiny ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? html`${raw(String(icon(options.icon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isTiny ? "tiny" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall || options.isTiny ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? iconPair(options.icon, pressedIcon) : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isTiny ? "tiny" : options.isSmall || options.isInWell ? "small" : "regular");
+}
+
+/** A control's icon for each state (Show and Hide, Play and Pause): the two lie in one place and cross-fade as its state changes (ICON_PAIR_STYLES). */
+function iconPair(offIcon: IconName, onIcon: IconName): Raw {
+  return html`<span class="ico-pair">${raw(String(icon(offIcon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(onIcon)).replace("<svg ", '<svg data-shown-when="on" '))}</span>`;
 }
 
 const GOOGLE = raw(
@@ -620,7 +625,7 @@ export function tertiaryButton(button: ButtonWords, options: TertiaryButtonOptio
   const { label, chosenIcon, pressedIcon } = faceOf(button);
   const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
   const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? html`${raw(String(icon(chosenIcon)).replace("<svg ", '<svg data-shown-when="off" '))}${raw(String(icon(pressedIcon)).replace("<svg ", '<svg data-shown-when="on" '))}` : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? iconPair(chosenIcon, pressedIcon) : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -637,7 +642,7 @@ component({
    it is, never moving it. Keyboard focus is the cut stroke round its slab, as on every other button. */
 .tertiary-btn { --control-height: var(--control-height-regular); vertical-align: middle; max-width: 100%; }
 /* With an icon for on: it shows the one that fits, Play or Pause, Full screen or Exit. */
-.tertiary-btn:not([data-is-on="true"]) svg[data-shown-when="on"], .tertiary-btn[data-is-on="true"] svg[data-shown-when="off"] { display: none; }
+.tertiary-btn:not([data-is-on="true"]) .ico-pair > [data-shown-when="on"], .tertiary-btn[data-is-on="true"] .ico-pair > [data-shown-when="off"] { opacity: 0; }
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .tertiary-btn.small { --control-height: var(--control-height-small); }
 /* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
@@ -727,9 +732,11 @@ component({
 /* On: risen over its front surface, the glass lit or shadowed below it. Turning on, its face eases from pressed to lit as it rises, never a
    jump: a translucent face that changed at once would flash. */
 .toggle-btn[aria-pressed="true"], .toggle-btn[aria-pressed="true"]:not(.in-well):hover, .toggle-btn[aria-pressed="true"].is-pointed, .toggle-btn[aria-pressed="true"]:active, .toggle-btn[aria-pressed="true"].is-pressed { filter: var(--toggle-cast); }
-.toggle-btn[aria-pressed="true"] > .face > .ico { color: var(--toggle-icon-on); }
-/* A toggle with an icon for each state shows the one for the state it's in. */
-.toggle-btn[aria-pressed="true"] > .face > .ico[data-shown-when="off"], .toggle-btn[aria-pressed="false"] > .face > .ico[data-shown-when="on"] { display: none; }
+.toggle-btn[aria-pressed="true"] > .face > :is(.ico, .ico-pair > .ico) { color: var(--toggle-icon-on); }
+/* A toggle with an icon for each state shows the one for the state it's in, the other fading out where it lies. */
+.ico-pair { display: inline-grid; flex: none; place-items: center; }
+.ico-pair > .ico { grid-area: 1 / 1; transition: opacity var(--motion-state), color var(--motion-state); }
+.toggle-btn[aria-pressed="true"] .ico-pair > [data-shown-when="off"], .toggle-btn[aria-pressed="false"] .ico-pair > [data-shown-when="on"] { opacity: 0; }
 .toggle-btn[aria-pressed="true"]:active > .face, .toggle-btn[aria-pressed="true"].is-pressed > .face { box-shadow: none; --face-color: var(--btn); }
 .toggle-btn[aria-pressed="true"]:active > .face > .cut-line, .toggle-btn[aria-pressed="true"].is-pressed > .face > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
 /* Keyboard focus: one ring round the whole button as you see it, top and front surfaces together, not one round each. */

@@ -405,7 +405,8 @@ export const COPY_SCRIPT = `/* copy fields */(function () {
     if (!event.target.closest(".carving-end > .tertiary-btn") && field.classList.contains("is-code")) { selectAll(text); return; }
     function saying(words) {
       said.textContent = words; field.classList.add("is-copied");
-      clearTimeout(said.timer); said.timer = setTimeout(function () { said.textContent = ""; field.classList.remove("is-copied"); }, 1600);
+      // It fades, and its words go once it has.
+      clearTimeout(said.timer); said.timer = setTimeout(function () { field.classList.remove("is-copied"); said.timer = setTimeout(function () { said.textContent = ""; }, 400); }, 1600);
     }
     // Where the clipboard isn't open to the page, the text is selected and copied the old way; when that fails too, it's left selected to copy.
     function byHand() { selectAll(text); var isCopied = false; try { isCopied = document.execCommand("copy"); } catch (error) {} if (isCopied) saying("Copied"); }
@@ -432,8 +433,9 @@ component({
 .copy-label { font: var(--type-label); color: var(--ink-2); }
 .copy-said { font: var(--type-facts); color: var(--ink); opacity: 0; transition: opacity var(--motion-state); }
 .copy-field.is-copied .copy-said { opacity: 1; }
-.copy-field.is-copied .well-end-note { display: grid; }
-.copy-field.is-copied .carving-end > .tertiary-btn .ico { visibility: hidden; }
+.copy-field.is-copied .well-end-note { opacity: 1; }
+.copy-field .carving-end > .tertiary-btn .ico { transition: opacity var(--motion-state); }
+.copy-field.is-copied .carving-end > .tertiary-btn .ico { opacity: 0; }
 .copy-field-text:focus-visible { outline: none; }
 /* Words: one line tall, the address cut short at its end; a press anywhere on the well copies, so pointing at it brings up Copy's slab. */
 .copy-field:not(.is-code) .well { cursor: pointer; }

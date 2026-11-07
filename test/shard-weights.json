@@ -1,6 +1,7 @@
 {
   "test/site/access-checks.test.ts": 62234,
   "test/node/cli.test.ts": 53740,
+  "test/node/motion-sheet.test.ts": 38435,
   "test/site/accounts.test.ts": 34440,
   "test/site/design.test.ts": 32200,
   "test/site/backups.test.ts": 27135,

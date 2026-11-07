@@ -397,7 +397,8 @@ describe("the stack of sheets", () => {
     page.layers.step(sheet, "report", { isBackShown: false });
     expect(back(2).hidden).toBe(true);
     sheet.close();
-    vi.advanceTimersByTime(400);
+    // Once it's gone: its fade's end, or at the latest 700 ms on (a sheet the browser closed at once still fades out first).
+    vi.advanceTimersByTime(700);
     expect(shown()).toEqual(["players"]);
   });
 });
