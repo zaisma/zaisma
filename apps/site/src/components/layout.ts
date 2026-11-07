@@ -241,14 +241,16 @@ export type GridOptions = {
 export const MAXIMUM_ONE_LINE_COVER_COUNT = 6;
 /**
  * --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below
- * two, one. In rem, as the token is, so a cover's least width grows with its words when the browser's text is set larger, and a line folds to
- * fewer across instead of cutting its titles.
+ * two, one. At the browser's own text size; the queries ask for it in rem, as the token is, so a cover's least width grows with its words when
+ * the browser's text is set larger, and a line folds to fewer across instead of cutting its titles.
  */
-const COVER_LEAST_REM = 11.25;
+const COVER_LEAST_PX = 180;
+/** The browser's own text size, which a rem is at 100%. */
+const BROWSER_TEXT_PX = 16;
 /** --gap-control-stack, the gap between covers on one line, for the same queries: in px, as gaps don't grow with the text. */
 const CONTROL_STACK_GAP_PX = 8;
 /** The widest a line of covers is while it can't hold this many of their least width and the gaps between them. */
-const coversShortOf = (coverCount: number): string => `calc(${coverCount * COVER_LEAST_REM}rem + ${(coverCount - 1) * CONTROL_STACK_GAP_PX - 1}px)`;
+const coversShortOf = (coverCount: number): string => `calc(${(coverCount * COVER_LEAST_PX) / BROWSER_TEXT_PX}rem + ${(coverCount - 1) * CONTROL_STACK_GAP_PX - 1}px)`;
 
 /**
  * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of
