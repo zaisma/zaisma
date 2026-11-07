@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DOOR_ROW_ANCHOR_ID, doorRowHashOf, readMap, writeMap } from "./generate.mjs";
+import { DOOR_ROW_ANCHOR_ID, limitOf, readMap, rowHashOf, writeMap } from "./generate.mjs";
 import { caseRefOf, withStale, withVerdict } from "./schema.mjs";
 
 /**
@@ -25,9 +25,20 @@ const PAST_LIMIT_GRID_FILES = {
   "room-message:": "test/grid/rooms.grid.ts",
   "game-file:": "test/grid/game-files.grid.ts",
 };
-const hasLimitLevel = (door) => Boolean(door.contract?.limit && "level" in door.contract.limit);
+/**
+ * Counters a whole Worker keeps for an address in front of every door it serves. A door whose limit is one of them has nothing
+ * of its own for the grid to prove, so its No limit case stays the night's: whether one counter across the Worker is enough there.
+ */
+const WORKER_WIDE_GROUPS = ["rooms", "game_files"];
+/** Whether the door's row states a limit of its own: a level, on a counter that isn't a whole Worker's. */
+const hasOwnLimit = (door) => {
+  const limit = limitOf(door);
+  return Boolean(limit && "level" in limit && !WORKER_WIDE_GROUPS.includes(limit.group));
+};
 /** Whether the grid's last run on main proved the door's own limit: its past_limit cell kept (scripts/contract-grid.mjs --record). */
-const isPastLimitProven = (door, grid) => hasLimitLevel(door) && Boolean(grid?.past_limit_kept_door_ids?.includes(door.door_id));
+const isPastLimitProven = (door, grid) => hasOwnLimit(door) && Boolean(grid?.past_limit_kept_door_ids?.includes(door.door_id));
+/** Whether the grid's last run on main found the door's own limit gone: its past_limit cell failed, or its row no longer states one. A file that couldn't run proves nothing either way. */
+const isPastLimitDisproven = (door, grid) => !hasOwnLimit(door) || Boolean(grid?.failures?.some((cell) => cell.door_id === door.door_id && cell.caller_kind === "past_limit"));
 const isPastLimitVerdict = (theCase) => theCase.case_id === NO_LIMIT_CASE_ID && Object.values(PAST_LIMIT_GRID_FILES).includes(theCase.evidence?.ref) && DOOR_ROW_ANCHOR_ID in (theCase.verdict_anchor_hashes ?? {});
 
 const PAST_LIMIT_RULES = Object.entries(PAST_LIMIT_GRID_FILES).map(([doorIdStart, ref]) => ({
@@ -118,7 +129,7 @@ export const SEED_RULES = [
  * The map with every SEED_RULES case set robust where it's still unexplored. A rule with requiresFile
  * seeds nothing while its ref isn't in the repo (a sibling slice's file that hasn't merged). grid: the
  * contract grid's last record on main, or null; a door's own limit seeded from it goes stale once its
- * cell stops passing there. Answers the new map, the case refs it seeded and the ones it made stale.
+ * cell fails there or its row stops stating a limit of its own. Answers the new map, the case refs it seeded and the ones it made stale.
  */
 export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, grid = null }) {
   const activeRules = rules.filter((rule) => !rule.requiresFile || existsSync(join(repoRoot, rule.evidence.ref)));
@@ -132,20 +143,19 @@ export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, grid = null
       for (const rule of activeRules) if (rule.appliesTo(door, { grid })) for (const caseId of rule.caseIds) if (!rulesByCaseId.has(caseId)) rulesByCaseId.set(caseId, rule);
       const isGridRead = Array.isArray(grid?.past_limit_kept_door_ids);
       const staleCases = (theCase) => {
-        if (!isGridRead || theCase.status !== "robust" || !isPastLimitVerdict(theCase) || isPastLimitProven(door, grid)) return theCase;
+        if (!isGridRead || theCase.status !== "robust" || !isPastLimitVerdict(theCase) || !isPastLimitDisproven(door, grid)) return theCase;
         staleCaseRefs.push(caseRefOf(door, theCase));
-        return withStale(theCase, "its past_limit cell no longer passes on the contract grid's last run on main");
+        return withStale(theCase, "its past_limit cell failed on the contract grid's last run on main, or its row no longer states a limit of its own");
       };
-      if (rulesByCaseId.size === 0) return { ...door, cases: door.cases.map(staleCases) };
       const hashes = Object.fromEntries(door.anchors.map((anchor) => [anchor.anchor_id, anchor.source_hash_sha256]));
-      if (Object.values(hashes).some((hash) => hash === null)) return door;
+      if (rulesByCaseId.size === 0 || Object.values(hashes).some((hash) => hash === null)) return { ...door, cases: door.cases.map(staleCases) };
       return {
         ...door,
         cases: door.cases.map((theCase) => {
           const rule = rulesByCaseId.get(theCase.case_id);
           if (!rule || theCase.status !== "unexplored") return staleCases(theCase);
           seededCaseRefs.push(`${door.door_id}#${theCase.case_id}`);
-          return withVerdict(theCase, { status: "robust", evidence: rule.evidence, verdict_at: now, verdict_anchor_hashes: rule.isOnDoorRow ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: doorRowHashOf(door) } : hashes });
+          return withVerdict(theCase, { status: "robust", evidence: rule.evidence, verdict_at: now, verdict_anchor_hashes: rule.isOnDoorRow ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: rowHashOf(door) } : hashes });
         }),
       };
     }),
@@ -159,9 +169,9 @@ const readGrid = (mapDir) => {
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
 };
 
-/** Seeds the map in mapDir. Run after generate, so the doors' anchor hashes are today's. */
+/** Seeds the map in mapDir. Run after generate, so the doors' anchor hashes are today's. Answers the case refs it seeded and the ones it made stale. */
 export function seedMapDir({ repoRoot, mapDir, now = new Date().toISOString() }) {
-  const { map, seeded_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now, grid: readGrid(mapDir) });
+  const { map, seeded_case_refs, stale_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now, grid: readGrid(mapDir) });
   writeMap(mapDir, map);
-  return seeded_case_refs;
+  return { seeded_case_refs, stale_case_refs };
 }

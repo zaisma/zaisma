@@ -50,6 +50,9 @@ export function orderedDoor(door) {
     trusts: door.trusts ?? [],
     covered_by_door_id: door.covered_by_door_id ?? null,
     stored_value: door.stored_value ?? null,
+    // What a verdict on the door's row reads once the map is stored, where the whole row isn't kept: its limit and its hash.
+    limit: limitOf(door),
+    door_row_hash_sha256: rowHashOf(door),
     door_removed_at: door.door_removed_at ?? null,
     cases: door.cases.map(orderedCase),
   };
@@ -70,6 +73,12 @@ const sortedJson = (value) => JSON.stringify(value, (_, given) => (given && type
 
 /** The hash of a door's row in its table. */
 export const doorRowHashOf = (door) => createHash("sha256").update(sortedJson(door.contract ?? null)).digest("hex");
+
+/** A door's limit as its row states it: from the code's row, or as the stored map kept it; null for a door with no row. */
+export const limitOf = (door) => (door.contract ? (door.contract.limit ?? null) : (door.limit ?? null));
+
+/** A door's row hash: from the code's row, or as the stored map kept it; null for a door with no row. */
+export const rowHashOf = (door) => (door.contract ? doorRowHashOf(door) : (door.door_row_hash_sha256 ?? null));
 
 /** Why a verdict no longer holds for these anchor hashes, or null when the code is identical. */
 export function staleReasonOf(verdictAnchorHashes, currentHashes) {

@@ -8,7 +8,7 @@ import { adminDoors, apiDoors, collectDoors, mcpDoors } from "../../scripts/secu
 // @ts-expect-error: a plain JavaScript script without types
 import { exportMapDir, exportPublic, historyIndexOf, publicExportProblems, checkMapDirExport } from "../../scripts/security-map/export-public.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { CHECKLISTS, DOOR_ROW_ANCHOR_ID, generateMap, mergeDoors, readMap, writeMap } from "../../scripts/security-map/generate.mjs";
+import { CHECKLISTS, DOOR_ROW_ANCHOR_ID, generateMap, mergeDoors, orderedDoor, readMap, writeMap } from "../../scripts/security-map/generate.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
 // @ts-expect-error: a plain JavaScript script without types
@@ -32,6 +32,7 @@ type Anchor = { anchor_id: string; source_path: string; symbol_name: string; sou
 type Evidence = { kind: string; ref: string; note: string };
 type Case = { case_id: string; case_name: string; status: string; severity_tier: string | null; evidence: Evidence | null; finding_id: string | null; verdict_at: string | null; verdict_anchor_hashes: Record<string, string | null> | null; stale_reason: string | null };
 type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; contract?: unknown; cases: Case[] };
+type GridCellLike = { door_id: string; caller_kind: string; cell_verdict: string; problem_line: string | null };
 type Sector = { sector_id: string; sector_name: string; attacker_goal: string; doors: Door[] };
 type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[]; STORED_VALUES: { stored: string }[] };
 
@@ -168,12 +169,14 @@ describe("doors from the real code", () => {
   it("seeds a door's own limit from its passing past_limit cell, and stales it when its row changes or the cell stops passing", { timeout: 30_000 }, () => {
     const sourceByPath = new Map();
     const hashesOf = (door: Door) => anchorHashes(ROOT, door.anchors, sourceByPath);
-    const { map } = mergeDoors({ map: emptyMap(), doors, hashesOf, now: NOW });
+    // As the stored map keeps it: no door's whole row, only its limit and the row's hash.
+    const map = mergeDoors({ map: emptyMap(), doors, hashesOf, now: NOW }).map.map((sector: Sector) => ({ ...sector, doors: sector.doors.map(orderedDoor) }));
+    expect(map.flatMap((sector: Sector) => sector.doors).some((door: Door) => "contract" in door)).toBe(false);
     const limited = (doorId: string) => (doors.find((door) => door.door_id === doorId)!.contract as { limit: object }).limit;
     expect(limited("api:GET /credit")).toHaveProperty("level");
     expect(limited("rooms:/v1/friends")).toHaveProperty("level");
     expect(limited("page:/api/dev")).toHaveProperty("whyNoLimit");
-    const grid = { failures: [], doors_not_tried: [], past_limit_kept_door_ids: ["api:GET /credit", "rooms:/v1/friends", "page:/api/dev"] };
+    const grid = { failures: [] as GridCellLike[], doors_not_tried: [] as string[], past_limit_kept_door_ids: ["api:GET /credit", "rooms:/v1/friends", "rooms:/v1/rooms", "page:/api/dev"] };
 
     expect(seedRobust(map, { repoRoot: ROOT, now: NOW }).seeded_case_refs.filter((ref: string) => ref.endsWith(`#${NO_LIMIT_CASE_ID}`) && !ref.startsWith("page:POST /signin"))).toEqual([]);
     const seeded = seedRobust(map, { repoRoot: ROOT, now: NOW, grid });
@@ -186,6 +189,8 @@ describe("doors from the real code", () => {
     // A door that states no limit, and one whose cell the grid didn't keep, are the night's to read.
     expect(caseOf(doorIn(seeded.map, "page:/api/dev"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
     expect(caseOf(doorIn(seeded.map, "api:GET /stripe-account"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
+    // A counter the whole rooms Worker keeps for an address proves nothing of the door's own.
+    expect(caseOf(doorIn(seeded.map, "rooms:/v1/rooms"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
 
     // The code alone moving nothing, the door's row changing.
     const again = mergeDoors({ map: seeded.map, doors, hashesOf, now: LATER });
@@ -196,7 +201,10 @@ describe("doors from the real code", () => {
     expect(caseOf(doorIn(afterRowChange.map, "api:GET /credit"), NO_LIMIT_CASE_ID).stale_reason).toContain(DOOR_ROW_ANCHOR_ID);
 
     // The cell failing on a later run.
-    const cellFailing = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { ...grid, past_limit_kept_door_ids: ["rooms:/v1/friends"] } });
+    // A file that couldn't run proves nothing either way.
+    expect(seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { ...grid, doors_not_tried: ["api:GET /credit"], past_limit_kept_door_ids: ["rooms:/v1/friends"] } }).stale_case_refs).toEqual([]);
+    const failed = { door_id: "api:GET /credit", caller_kind: "past_limit", cell_verdict: "broken", problem_line: "Answered 200 past its own limit." };
+    const cellFailing = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { ...grid, failures: [failed], past_limit_kept_door_ids: ["rooms:/v1/friends"] } });
     expect(cellFailing.stale_case_refs).toEqual([`api:GET /credit#${NO_LIMIT_CASE_ID}`]);
     expect(caseOf(doorIn(cellFailing.map, "rooms:/v1/friends"), NO_LIMIT_CASE_ID).status).toBe("robust");
     // A record from before the grid named its kept cells stales nothing.
