@@ -468,11 +468,12 @@ function round(value, places) {
 
 /**
  * The runs of a page: its load, a switch to each of its own pages, and an open and a close of each state it holds. With isExact, only the
- * page whose path is exactly that (--path /: Home alone); without it, every page whose path has it in it, or whose pattern takes it (--only).
+ * place whose path is exactly that or whose pattern takes it (--path /: Home alone; --path /g/tiny-farm: the game page); without it, every
+ * place whose path has it in it, or whose pattern takes it (--only).
  */
 export function motionRuns(only, stateAsked = null, { isExact = false } = {}) {
   const isPathTaken = (path) => (isExact ? path === only : path.includes(only));
-  const places = BENCH_PLACES.filter((place) => isPathTaken(place.path) || (!isExact && new RegExp(place.pathPattern).test(only)));
+  const places = BENCH_PLACES.filter((place) => isPathTaken(place.path) || new RegExp(place.pathPattern).test(only));
   const states = readyStates().filter((state) => places.some((place) => place.placeValue === state.placeValue) || isPathTaken(state.path)).filter((state) => !stateAsked || state.stateValue === stateAsked);
   return { places, states };
 }

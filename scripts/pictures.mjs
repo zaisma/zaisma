@@ -11,6 +11,7 @@
 //       A file two pages both make is kept as <page>--<name>, so no page's picture overwrites another's.
 //   Push first: the pictures are of the head on GitHub. Run it in the background; it only waits on GitHub.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,14 +51,19 @@ export function pathSlug(pagePath) {
   return pagePath.replace(/^\/+|\/+$/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "home";
 }
 
+/** A page's own prefix for a file name it shares: its slug and a short hash of its whole path, so /g/a-b and /g/a/b never meet. */
+export function pagePrefix(pagePath) {
+  return `${pathSlug(pagePath)}-${createHash("sha256").update(pagePath).digest("hex").slice(0, 6)}`;
+}
+
 /**
  * Where each page's pictures go in one folder: [{ from, name }], by kind (sheets or strips). A name two pages both make is kept as
- * <page>--<name> for each of them, so none overwrites another.
+ * <page prefix>--<name> for each of them, so none overwrites another.
  */
 export function flattenedPictures(pages) {
   const counts = new Map();
   for (const page of pages) for (const name of page.names) counts.set(name, (counts.get(name) ?? 0) + 1);
-  return pages.flatMap((page) => page.names.map((name) => ({ from: join(page.folder, name), name: counts.get(name) > 1 ? `${pathSlug(page.page_path)}--${name}` : name })));
+  return pages.flatMap((page) => page.names.map((name) => ({ from: join(page.folder, name), name: counts.get(name) > 1 ? `${pagePrefix(page.page_path)}--${name}` : name })));
 }
 
 /** Each page's two jobs (run.json: page_path, check_kind, check_outcome) as one: { page_path, layout_outcome, motion_outcome, *_output_path }. */
@@ -78,6 +84,8 @@ export function verdictLine(pages) {
 }
 
 const gh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+/** A read of GitHub while waiting: a passing network or gh error is one missed look, not the end of the wait. */
+const ghJsonOrNull = (args) => { try { return JSON.parse(gh(args)); } catch { return null; } };
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 const picturesIn = (folder) => (existsSync(folder) ? readdirSync(folder).filter((name) => /\.(png|jpe?g)$/i.test(name)).sort() : []);
 
@@ -108,7 +116,7 @@ async function main() {
   let run = null;
   for (const startedMs = Date.now(); !run && Date.now() - startedMs < FIND_RUN_LIMIT_MS; ) {
     await wait(FIND_EVERY_MS);
-    const runs = JSON.parse(gh(["run", "list", "--workflow", WORKFLOW_FILE, "--event", "workflow_dispatch", "--limit", "30", "--json", "databaseId,displayTitle,url"]));
+    const runs = ghJsonOrNull(["run", "list", "--workflow", WORKFLOW_FILE, "--event", "workflow_dispatch", "--limit", "30", "--json", "databaseId,displayTitle,url"]) ?? [];
     run = runs.find((each) => each.displayTitle.includes(`(${requestId})`)) ?? null;
   }
   if (!run) stop("run_not_found", `GitHub took the ask but no Pictures run named ${requestId} showed within ${FIND_RUN_LIMIT_MS / 60000} minutes: see gh run list --workflow ${WORKFLOW_FILE}.`);
@@ -116,8 +124,8 @@ async function main() {
 
   let status = null;
   for (const startedMs = Date.now(); Date.now() - startedMs < RUN_LIMIT_MS; await wait(WATCH_EVERY_MS)) {
-    status = JSON.parse(gh(["run", "view", String(run.databaseId), "--json", "status,conclusion"]));
-    if (status.status === "completed") break;
+    status = ghJsonOrNull(["run", "view", String(run.databaseId), "--json", "status,conclusion"]) ?? status;
+    if (status?.status === "completed") break;
   }
   if (status?.status !== "completed") stop("run_unfinished", `${run.url} is still running after ${RUN_LIMIT_MS / 60000} minutes.`);
   if (status.conclusion === "cancelled") stop("run_cancelled", `${run.url} was cancelled (a newer ask for #${pullRequestNumber} replaces one still running).`);

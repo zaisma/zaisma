@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { WORKFLOW_FILE, flattenedPictures, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
+import { WORKFLOW_FILE, flattenedPictures, pagePrefix, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { picturesRefusal } from "../../scripts/motion-sheet.mjs";
 
@@ -30,7 +30,12 @@ describe("npm run pictures", () => {
       { page_path: "/", folder: "a", names: ["Home.png", "Sign in sheet.png"] },
       { page_path: "/games", folder: "b", names: ["Games.png", "Sign in sheet.png"] },
     ]);
-    expect(flat.map((each: { name: string }) => each.name)).toEqual(["Home.png", "home--Sign in sheet.png", "Games.png", "games--Sign in sheet.png"]);
+    expect(flat.map((each: { name: string }) => each.name)).toEqual(["Home.png", `${pagePrefix("/")}--Sign in sheet.png`, "Games.png", `${pagePrefix("/games")}--Sign in sheet.png`]);
+    expect(pagePrefix("/")).toMatch(/^home-[0-9a-f]{6}$/);
+    // Two paths with one slug still get two names.
+    expect(pathSlug("/g/a-b")).toBe(pathSlug("/g/a/b"));
+    const sameSlug = flattenedPictures([{ page_path: "/g/a-b", folder: "a", names: ["Game page.png"] }, { page_path: "/g/a/b", folder: "b", names: ["Game page.png"] }]);
+    expect(new Set(sameSlug.map((each: { name: string }) => each.name)).size).toBe(2);
   });
 
   it("joins each page's two jobs, and says a job that left nothing is missing", () => {

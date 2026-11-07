@@ -66,13 +66,17 @@ jobs:
           case "$HEAD_SHA" in *[!0-9a-f]*|'') echo "head_sha is a commit's 40 hex characters."; exit 1 ;; esac
           [ "${#HEAD_SHA}" -eq 40 ] || { echo "head_sha is a commit's 40 hex characters."; exit 1; }
           case "$PULL_REQUEST_NUMBER" in *[!0-9]*|'') echo "pull_request_number is a whole number."; exit 1 ;; esac
-          if ! printf '%s' "$PAGE_PATH" | grep -qE '^/[A-Za-z0-9/_.?&=-]*$'; then echo "Each page path starts with / and holds only letters, digits and / _ . ? & = -."; exit 1; fi
+          # The whole value, one line: grep would pass a value with a newline when any one line is good.
+          page_path_pattern='^/[A-Za-z0-9/_.?&=-]*$'
+          if ! [[ "$PAGE_PATH" =~ $page_path_pattern ]]; then echo "Each page path starts with / and holds only letters, digits and / _ . ? & = -."; exit 1; fi
       # Chrome read from the disk, beside what follows, as in check.yml's Layout check.
       - run: |
           (started_sec=$SECONDS; find /opt/google/chrome -type f -exec cat {} + > /dev/null 2>&1; echo "Chrome read from the disk in $((SECONDS - started_sec)) s.") &
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+      # Its folder right after the checkout (which empties the workspace), so a job that stops early still leaves its run.json and why.
+      - run: mkdir -p pictures/sheets pictures/strips
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
@@ -120,7 +124,6 @@ jobs:
           path: ~/.cache/.wrangler
           key: wrangler-browser-${{ runner.os }}-${{ steps.miniflare.outputs.version }}
       - run: npm run preview:start -- ${{ steps.snapshot.outputs.cache-matched-key == '' && '--reset' || '' }}
-      - run: mkdir -p pictures/sheets pictures/strips
       - id: layout
         if: matrix.check_kind == 'layout'
         continue-on-error: true
@@ -135,6 +138,8 @@ jobs:
         env:
           CHECK_OUTCOME: ${{ matrix.check_kind == 'layout' && steps.layout.outcome || steps.motion.outcome }}
         run: |
+          mkdir -p pictures
+          tail -n 200 .wrangler/preview-run/preview.log > pictures/preview.txt 2>/dev/null || true
           node -e 'require("fs").writeFileSync("pictures/run.json", JSON.stringify({ page_path: process.env.PAGE_PATH, head_sha: process.env.HEAD_SHA, pull_request_number: Number(process.env.PULL_REQUEST_NUMBER), check_kind: process.env.CHECK_KIND, check_outcome: process.env.CHECK_OUTCOME || "skipped" }))'
       - if: always()
         uses: actions/upload-artifact@v4
