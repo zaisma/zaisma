@@ -341,6 +341,15 @@ describe("an item through the private repo", () => {
     expect(finish("test/guard.test.ts")).toMatchObject({ is_changed: false });
   });
 
+  it("closes an item about cases with no way to rescore, and refuses a rescore for it", () => {
+    const { cloneDir } = cloneWithItem({ ...anItem(), way_id: null, case_ids: ["forged"] });
+    const repoRoot = publicCheckout();
+    claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
+    expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", rescore: RESCORE, date: "2026-11-04", now: NOW, repoRoot })).toThrow("no way to rescore");
+    expect(finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot })).toMatchObject({ new_item_state: "done", way_rescore: "no_way", case_ids: ["forged"], committed_paths: [`items/${ITEM_ID}.json`] });
+    expect(itemIn(cloneDir)).toMatchObject({ item_state: "done", way_id: null, case_ids: ["forged"] });
+  });
+
   it("sends an item with a finding to mark-fixed", () => {
     const { cloneDir } = cloneWithItem({ ...anItem(), finding_id: "fnd_2026-11-03_some-words" });
     claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });

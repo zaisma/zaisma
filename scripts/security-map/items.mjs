@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { anchorProblems, isFilledText, isObject, isScore, priorityOf, rescoreWay, scoreChangeProblems, unknownFieldProblems } from "./promises.mjs";
+import { CHECKLISTS } from "./generate.mjs";
 import { SECTOR_IDS, SECTORS } from "./schema.mjs";
 
 /**
  * Security items as records with a closed shape. The records live in the private repo (zaisma/security,
  * items/), never this one; this file only knows their shape and how one may change. An item names the way
- * to break it's about and the goal of the work; how that work is done is never in it. Lines written when it
+ * to break it's about, or, for a bug (a mistake in Zaisma's own checks, fixable, never a way to break), the
+ * checklist cases it's about on the doors its cited code sits behind; and the goal of the work; how that work is done is never in it. Lines written when it
  * opened never change: a run moves fields and appends evidence. A question is an item with no proof yet. The
  * coordinator reads them as a second roadmap: it claims one for a session, a talk settles its calls, and the
  * session closes it with the test that guards it.
@@ -18,17 +20,20 @@ export const ANSWER_KINDS = ["remove", "shrink_damage", "make_harder", "notice_a
 export const OPENED_BY = ["merge_catch_up", "promise_challenge", "second_guess"];
 export const PROOF_KINDS = ["failing_test", "cited_code"];
 
+/** Every case_id a door's checklist can hold: what an item about cases may name. */
+export const CHECKLIST_CASE_IDS = [...new Set(Object.values(CHECKLISTS).flat().map((entry) => entry.case_id))];
+
 /** How long a question stays open with no proof. */
 export const QUESTION_LIFETIME_DAYS = 14;
 
 /** The states a daily review may move an item to: doing is the coordinator's, accepted is Julius's, closed_unproven only comes with age. */
 export const REVIEW_SET_STATES = ["next", "done"];
 
-const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence", "settled_calls", "claimed_by_launch_id", "done_at"];
+const ITEM_FIELDS = ["item_id", "item_kind", "sector_id", "way_id", "case_ids", "item_line", "goal_line", "answer_kind", "opened_at", "opened_by", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "scored_at", "score_stale_reason", "score_changes", "calls", "waits_on", "proof_kind", "proof_line", "test_path", "finding_id", "evidence", "settled_calls", "claimed_by_launch_id", "done_at"];
 const SETTLED_CALL_FIELDS = ["call_line", "answer_line", "settled_at"];
 const SETTLE_ANSWER_FIELDS = ["call_line", "answer_line"];
 const EVIDENCE_FIELDS = ["added_at", "evidence_line", "rests_on_commit"];
-const NEW_ITEM_FIELDS = ["item_slug", "item_kind", "sector_id", "way_id", "item_line", "goal_line", "answer_kind", "opened_by", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "calls", "waits_on", "proof_kind", "proof_line", "test_path"];
+const NEW_ITEM_FIELDS = ["item_slug", "item_kind", "sector_id", "way_id", "case_ids", "item_line", "goal_line", "answer_kind", "opened_by", "defense_score", "defense_reason", "damage_score", "damage_reason", "anchors", "calls", "waits_on", "proof_kind", "proof_line", "test_path"];
 const ITEM_UPDATE_FIELDS = ["item_id", "evidence_line", "item_state", "defense_score", "defense_reason", "damage_score", "damage_reason", "changed_because", "anchors", "calls", "waits_on", "proof_kind", "proof_line", "test_path"];
 
 const ITEM_ID = /^itm_\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -63,11 +68,32 @@ export const priorityOfItem = (item) => priorityOf(item.defense_score, item.dama
 
 export const isOpenItem = (item) => OPEN_STATES.includes(item.item_state);
 
+/** The checklist cases an item is about; [] for an item about a way to break. */
+export const caseIdsOf = (item) => item.case_ids ?? [];
+
+/** Whether an item is about cases (a bug, found or suspected) rather than a way to break. */
+export const isCaseItem = (item) => caseIdsOf(item).length > 0;
+
 export const itemFilePathOf = (itemId) => `items/${itemId}.json`;
 
-/** What makes two findings one item: the same way to break and the same cited code or test. */
-export function itemMatchKeyOf({ way_id, anchors, test_path }) {
-  return [way_id, ...anchors.map((anchor) => anchor.anchor_id).sort(), test_path ?? ""].join("|");
+/** What makes two findings one item: the same way to break (or the same cases) and the same cited code or test. */
+export function itemMatchKeyOf({ way_id, case_ids, anchors, test_path }) {
+  const about = way_id ?? `cases:${[...(case_ids ?? [])].sort().join(",")}`;
+  return [about, ...anchors.map((anchor) => anchor.anchor_id).sort(), test_path ?? ""].join("|");
+}
+
+/** What's wrong with what an item says it's about: a way_id, or case_ids from the checklists, never both or neither. */
+function aboutProblems({ way_id, case_ids }, label) {
+  if (case_ids !== undefined && (!Array.isArray(case_ids) || !case_ids.every(isFilledText))) return [`${label} needs case_ids as a list of checklist case ids`];
+  const caseIds = case_ids ?? [];
+  const unknown = caseIds.filter((caseId) => !CHECKLIST_CASE_IDS.includes(caseId));
+  const problems = unknown.length ? [`${label} names case_ids no checklist has: ${unknown.join(", ")}`] : [];
+  if (new Set(caseIds).size !== caseIds.length) problems.push(`${label} names a case_id twice`);
+  const hasWay = way_id !== null && way_id !== undefined;
+  if (hasWay && !isFilledText(way_id)) problems.push(`${label} needs way_id as text or null`);
+  if (hasWay && caseIds.length) problems.push(`${label} names both a way_id and case_ids: an item is about a way to break, or about the cases a bug sits in`);
+  if (!hasWay && !caseIds.length) problems.push(`${label} names neither a way_id nor case_ids: a way to break, or for a bug the checklist cases it's about`);
+  return problems;
 }
 
 /** Everything wrong with one item's shape; [] when it's whole. */
@@ -81,7 +107,8 @@ export function itemProblems(item) {
   if (!SECTOR_IDS.includes(item.sector_id)) problems.push(`${label} has a sector_id that isn't a sector`);
   if (!OPENED_BY.includes(item.opened_by)) problems.push(`${label} has opened_by ${JSON.stringify(item.opened_by)}, not one of ${OPENED_BY.join(", ")}`);
   if (!ISO_TIME.test(item.opened_at ?? "") || !ISO_TIME.test(item.scored_at ?? "")) problems.push(`${label} needs opened_at and scored_at as ISO times`);
-  for (const field of ["way_id", "item_line", "goal_line", "defense_reason", "damage_reason"]) if (!isFilledText(item[field])) problems.push(`${label} has no ${field}`);
+  problems.push(...aboutProblems(item, label));
+  for (const field of ["item_line", "goal_line", "defense_reason", "damage_reason"]) if (!isFilledText(item[field])) problems.push(`${label} has no ${field}`);
   for (const field of ["defense_score", "damage_score"]) if (!isScore(item[field])) problems.push(`${label} has ${field} outside 1 to 5`);
   if (item.score_stale_reason !== null && !isFilledText(item.score_stale_reason)) problems.push(`${label} needs score_stale_reason as text or null`);
   if (!isTextList(item.calls) || !isTextList(item.waits_on)) problems.push(`${label} needs calls and waits_on as lists of text`);
@@ -133,7 +160,8 @@ export function itemFromNight(input, { date, now, anchors }) {
     item_id: `itm_${date}_${input.item_slug}`,
     item_kind: input.item_kind,
     sector_id: input.sector_id,
-    way_id: input.way_id,
+    way_id: input.way_id ?? null,
+    ...(input.case_ids?.length ? { case_ids: input.case_ids } : {}),
     item_line: input.item_line,
     goal_line: input.goal_line,
     answer_kind: input.answer_kind ?? null,
@@ -281,6 +309,8 @@ export function itemQueueOf(items) {
     item_id: item.item_id,
     item_kind: item.item_kind,
     sector_id: item.sector_id,
+    way_id: item.way_id,
+    case_ids: caseIdsOf(item),
     sector_name: SECTORS.find((sector) => sector.sector_id === item.sector_id)?.sector_name ?? item.sector_id,
     priority: priorityOfItem(item),
     item_line: item.item_line,

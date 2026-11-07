@@ -73,8 +73,24 @@ function promiseOf(sector, idPrefix) {
   const openWords = sector.open_item_count ? `${sector.open_item_count} open` : "Nothing open";
   const openText = sector.watch_item_count ? `${openWords}, ${sector.watch_item_count} on watch.` : `${openWords}.`;
   const ways = sector.ways.map((way) => `<li class="way"><p>${escapeHtml(way.way_line)}</p>${marksOf(way)}${way.is_waiting_for_rescore ? `<p class="sub">${FRESH_LOOK_WORDS}.</p>` : ""}</li>`).join("");
+  const checklist = checklistOf(sector);
   const strengths = sector.strengths.map((strength) => `<li><b>${STRENGTH_WORDS[strength.strength_kind]}:</b> ${escapeHtml(strength.strength_line)}</li>`).join("");
-  return `<details class="promise" id="${idPrefix}promise-${sector.sector_id}"><summary>${shieldOf(sector.shield_state, sector.sector_id)}<span class="row-text"><span class="line">${escapeHtml(sector.promise_line)}</span><span class="sub">${escapeHtml(sector.sector_name)}. ${openText} ${plural(sector.ways.length, "way", "ways")} it could break.</span></span>${CHEVRON}</summary><div class="promise-body"><div><h3>The only ways it could break</h3><ul class="ways">${ways}</ul></div><div><h3>What it rests on</h3><ul class="rests">${strengths}</ul></div></div></details>`;
+  return `<details class="promise" id="${idPrefix}promise-${sector.sector_id}"><summary>${shieldOf(sector.shield_state, sector.sector_id)}<span class="row-text"><span class="line">${escapeHtml(sector.promise_line)}</span><span class="sub">${escapeHtml(sector.sector_name)}. ${openText} ${plural(sector.ways.length, "way", "ways")} it could break.${sector.has_doors ? ` ${sector.case_coverage.solid_case_pct}% of its checklist tested and solid.` : ""}</span></span>${CHEVRON}</summary><div class="promise-body"><div><h3>The only ways it could break</h3><ul class="ways">${ways}</ul></div>${checklist}<div><h3>What it rests on</h3><ul class="rests">${strengths}</ul></div></div></details>`;
+}
+
+const caseItemRowOf = (item) => `<li class="way"><p>${escapeHtml(item.item_line)}</p>${marksOf(item)}<p class="sub">${item.is_question ? "A question, with no proof yet" : STANDING_WORDS[item.item_standing]}.</p></li>`;
+
+/**
+ * Bugs, apart from the ways to break: a bug is fixable, so a found one is an open item on its cases until a
+ * test guards the fix, and the ones not found yet are the checklist not yet tested.
+ */
+function checklistOf(sector) {
+  const items = sector.case_items.length ? `<ul class="ways">${sector.case_items.map(caseItemRowOf).join("")}</ul>` : `<p class="sub">No bug open.</p>`;
+  if (!sector.has_doors) return `<div><h3>Bugs found, open until fixed</h3>${items}<p class="sub">Its checks sit on the other sectors' doors, so their checklists are its coverage.</p></div>`;
+  const coverage = sector.case_coverage;
+  const rows = [["Tested and solid", coverage.solid_case_count], ["Not looked at yet", coverage.unexplored_case_count], ["Code changed since its look", coverage.stale_case_count], ["Soft spots", coverage.weak_case_count], ["Holes open", coverage.hole_case_count]];
+  const meter = `<div class="meter" role="img" aria-label="${coverage.solid_case_pct}% tested and solid"><span style="width: ${coverage.solid_case_pct}%"></span></div>`;
+  return `<div><h3>Bugs found, open until fixed</h3>${items}</div><div><h3>Its doors' checklist: ${coverage.solid_case_pct}% tested and solid</h3>${meter}<dl class="counts">${rows.map(([label, count]) => `<div class="count${count ? "" : " is-zero"}"><dt>${label}</dt><dd>${count}</dd></div>`).join("")}</dl><p class="sub">Of ${plural(coverage.case_count, "case", "cases")} on its doors. What isn't tested yet is where an unfound bug could be.</p></div>`;
 }
 
 const promisesOf = (pageData, idPrefix) => `<section class="section"><h2>Promises</h2><div class="rows">${pageData.sectors.map((sector) => promiseOf(sector, idPrefix)).join("")}</div></section>`;
