@@ -96,7 +96,7 @@ describe("the site's code", () => {
  */
 const REVIEWED_SINK_COUNTS: Record<string, number> = {
   "access-choices": 3, "account-gate": 1, "back-to-app": 1, "back-to-game": 1, "background-preview": 4, "bot-check": 2, browse: 2, "buy-sheet": 3, "live-world-pane": 5,
-  components: 36, "design-loops": 1, "first-paint": 56, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 8, "game-updates": 2, home: 9, "layout-inspect": 1, look: 33,
+  components: 36, "design-loops": 1, "first-paint": 56, forum: 2, "forum-posts": 8, gallery: 3, "game-embedded": 1, "game-links": 2, "game-page": 8, "game-updates": 2, "layout-inspect": 1, look: 33,
   "passkey-add": 4, passkeys: 1, "play-counter": 1, "players-sheet": 4, "zaisma-overlay": 1, profile: 1, "qr-png": 1, "report-sheet": 1, saves: 2, "over-a-game": 1, "over-a-game-show": 1, "sign-in-while-playing": 1, "still-there": 1, site: 4, upload: 1, "when-opened": 1,
 };
 
@@ -113,8 +113,4 @@ describe("page scripts", async () => {
     expect(changed, "Check what each puts there (a stored color through #rrggbb, an address the server checked, HTML the site rendered), then change REVIEWED_SINK_COUNTS").toEqual([]);
   });
 
-  it("check a game's color before it goes into the page's CSS", () => {
-    const home = pageScripts().find((script) => script.name === "home")!.sourceText;
-    expect(home).toMatch(/\/\^#\[0-9a-fA-F\]\{6\}\$\/\.test\(game\.glass_tint_color/);
-  });
 });

@@ -11,6 +11,12 @@ import { tag } from "./foundations.ts";
 
 export const SCREENS_PATH = "/design/screens";
 
+/**
+ * A phone's bezel at the screen's real size, scaled with it: at least 0.415 of the screen's 55pt corner, so the screen's square corner sits inside
+ * the body's round one (the body's corner is the screen's plus the bezel).
+ */
+export const PHONE_BEZEL_AT_FULL_SIZE_PX = 23;
+
 /** The three screens: a common phone (an iPhone 15 or 16), the same phone turned and a laptop, with what the bench shows them at in a window of about 1440 x 790. */
 export const BENCH_SCREENS = [
   { screenName: "phone", name: "Phone", widthPx: 393, heightPx: 852, statusBarPx: 59, scalePct: 82, isPhone: true },
@@ -25,7 +31,7 @@ export interface BenchScreenOptions {
   heightPx: number;
   /** The status bar's height on a phone held upright: the page starts under it, as in a browser, and the Dynamic Island sits in it. */
   statusBarPx?: number;
-  /** The bar at each side of a phone on its side: a page stops at it, as in a browser, and the Dynamic Island sits in it. A page that fills the screen says so, and runs across it. */
+  /** The bar on the notch's side of a phone on its side: a page stops at it and the Dynamic Island sits in it, while the other side runs to the screen's edge. A page that fills the screen says so, and runs across it. */
   sideBarPx?: number;
   isPhone: boolean;
   scalePct: number;
@@ -37,7 +43,7 @@ export interface BenchScreenOptions {
 export function benchScreen(options: BenchScreenOptions): Raw {
   const scaleNumber = options.scalePct / 100;
   return html`<figure class="bench-screen is-${options.screenName}${options.isPhone ? " is-phone" : ""}" data-bench-screen="${options.screenName}" data-bench-name="${options.name}" data-width-px="${String(options.widthPx)}" data-height-px="${String(options.heightPx)}" data-scale-pct="${String(options.scalePct)}" data-side-bar-px="${String(options.sideBarPx ?? 0)}" style="--screen-scale: ${String(scaleNumber)}; --screen-width: ${String(options.widthPx * scaleNumber)}px; --screen-height: ${String(options.heightPx * scaleNumber)}px">
-<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx - 2 * (options.sideBarPx ?? 0))}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; --side-bar: ${String(options.sideBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
+<div class="bench-body"><div class="bench-view" data-cut-line="0"><iframe title="${options.name}" width="${String(options.widthPx - (options.sideBarPx ?? 0))}" height="${String(options.heightPx - (options.statusBarPx ?? 0))}" style="--status-bar: ${String(options.statusBarPx ?? 0)}px; --side-bar: ${String(options.sideBarPx ?? 0)}px; transform: scale(${String(scaleNumber)})"${options.framePath ? html` src="${options.framePath}"` : ""}></iframe></div></div>
 </figure>`;
 }
 
@@ -79,7 +85,7 @@ export function benchLayout(options: BenchLayoutOptions): Raw {
  * outline. Any /js/layout-inspect.<hash>.js address serves it.
  */
 export const LAYOUT_INSPECT_SCRIPT = pageScript("layout-inspect", String.raw`(function () {
-  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "shelf": "Shelf", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
+  var COMPONENTS = { "run-wrap": "Primary button", "cut-btn": "Secondary button", "tertiary-btn": "Tertiary button", "cut-field": "Field", "field": "Field", "find": "Search", "switch-well": "Switch", "tab-switch": "Switch", "steps": "Row arrows", "cover": "Cover", "banner": "Banner", "table": "Table", "list-rows": "List rows", "choice-card": "Choice card", "toggle": "Toggle", "check": "Check", "game-row": "Game row", "tag": "Tag", "link": "Text link", "glass-pane": "Glass pane", "tray": "Tray", "sheet": "Sheet", "top": "Header", "foot": "Footer" };
   var GAPS = { "words-words": "words next to words", "words-control": "words next to a control", "control-stack": "two controls, one over the other", "control-row-boxes": "two controls side by side, their slants overlapping", "block-block": "a block next to anything" };
   function componentOf(el, cell) {
     for (var walk = el; walk && walk !== cell && walk.classList; walk = walk.parentElement) {
@@ -160,11 +166,13 @@ html:has(.bench), html:has(.bench) body { height: 100%; overflow: hidden; }
 .bench-body { width: 100%; height: 100%; box-sizing: border-box; }
 .bench-view { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--well); box-shadow: var(--well-shade); }
 .bench-view > iframe { position: absolute; left: calc(var(--side-bar) * var(--screen-scale)); top: calc(var(--status-bar) * var(--screen-scale)); border: 0; transform-origin: 0 0; background: var(--page); }
-/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar and on its side between its side bars, as in a browser, so nothing reaches behind the island, and the bars take the color the browser would (the screen's script says which). Only a page that fills the screen, where a game plays, runs across them, with a phone's safe areas. */
-.bench-screen.is-phone { --phone-corner: calc(55px * var(--screen-scale)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
-.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: calc(var(--phone-corner) + var(--bench-bezel)); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
-.bench-screen.is-phone .bench-view { background: var(--status-bar-color, var(--well)); }
-/* The screen's corners are the black body drawn over it, never a rounded clip on the view: a browser cutting a live frame to rounded corners leaves the frame's blurred glass square. */
+/* A phone: a black body round the screen, shaped like an iPhone 15 or 16, so the screen's edges show against any page: its 55pt corners and its Dynamic Island, about 126 by 37pt and 11pt from the edge, all at the screen's scale. A page upright starts under the status bar and on its side beside the notch's bar, so nothing reaches behind the island, while its other side runs to the screen's edge, and the bars take the color the browser would (the screen's script says which). Only a page that fills the screen, where a game plays, runs across them, with a phone's safe areas. */
+.bench-screen.is-phone { --bench-bezel: calc(${PHONE_BEZEL_AT_FULL_SIZE_PX}px * var(--screen-scale)); --phone-corner: calc(55px * var(--screen-scale)); --phone-body-corner: calc(var(--phone-corner) + var(--bench-bezel)); --phone-island-long: calc(126px * var(--screen-scale)); --phone-island-short: calc(37px * var(--screen-scale)); --phone-island-inset: calc(11px * var(--screen-scale)); width: calc(var(--screen-width) + 2 * var(--bench-bezel)); height: calc(var(--screen-height) + 2 * var(--bench-bezel)); }
+.bench-screen.is-phone > .bench-body { padding: var(--bench-bezel); background: #000; border-radius: var(--phone-body-corner); box-shadow: 0 0 0 1px color-mix(in srgb, white 16%, transparent); cursor: zoom-in; }
+.bench-screen.is-phone .bench-view { background: var(--status-bar-color, var(--well)); box-shadow: none; }
+/* The screen's corners are the black body drawn over it, never a cut of the screen: any rounded cut round a live frame leaves every blurred pane in it
+   square at its cut corners. The bezel is thick enough (PHONE_BEZEL_AT_FULL_SIZE_PX) that the screen's square corner stays inside the body's round
+   one, so the black drawn there is the body's and nothing past it. */
 .bench-screen.is-phone .bench-view::before { content: ""; position: absolute; z-index: 1; inset: 0; border-radius: var(--phone-corner); box-shadow: 0 0 0 var(--phone-corner) #000; pointer-events: none; }
 .bench-screen.is-phone .bench-view::after { content: ""; position: absolute; z-index: 1; background: #000; border-radius: var(--phone-island-short); pointer-events: none; }
 .bench-screen.is-phone:not(.is-turned) .bench-view::after { top: var(--phone-island-inset); left: 50%; width: var(--phone-island-long); height: var(--phone-island-short); transform: translateX(-50%); }

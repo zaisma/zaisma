@@ -2,7 +2,7 @@
 
 The background guide, also at [zaisma.com/developers/backgrounds](https://zaisma.com/developers/backgrounds) with its stand-in backgrounds drawn live. Keep the two in step (`apps/site/src/background-guide.ts`; `test/node/background-guide.test.ts` checks they say the same).
 
-Your background is your game's world behind Zaisma's glass, on the home and on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The backgrounds further down are drawn live, and their sources are open to start from.
+Your background is your game's world behind Zaisma's glass on your game page: a picture, or a shader that paints it live. Style is yours. These lines keep the glass over it thin and the words on the glass clear, and anyone can check a background against them. The backgrounds further down are drawn live, and their sources are open to start from.
 
 What goes on your cover is in the cover guide ([`docs/COVERS.md`](COVERS.md)). How to send a background and choose where it shows is in [`docs/DEVELOPER-API.md`](DEVELOPER-API.md#backgrounds) (`add_image`, `add_shader` and `set_background` in the MCP).
 

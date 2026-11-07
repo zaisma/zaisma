@@ -69,8 +69,8 @@ describe("levels and areas", () => {
       if (apiRoute.area === null) continue;
       expect(AREA_ACCESS_CHOICES[apiRoute.area] as readonly string[], `${apiRoute.method} ${apiRoute.path}`).toContain(apiRoute.choice);
     }
-    // Only the key's own access, who's playing on Zaisma, the account's activity (a full key, checked apart), the game check (it reads only what it's sent) and public profiles are open to any key.
-    expect(API_ROUTES.filter((apiRoute) => apiRoute.area === null).map((apiRoute) => apiRoute.path)).toEqual(["/access", "/playing-now", "/activity", "/api-keys", "/storage", "/check", "/players/:player_id"]);
+    // Only the key's own access, who's playing on Zaisma, What's on, the account's activity (a full key, checked apart), the game check (it reads only what it's sent) and public profiles are open to any key.
+    expect(API_ROUTES.filter((apiRoute) => apiRoute.area === null).map((apiRoute) => apiRoute.path)).toEqual(["/access", "/playing-now", "/whats-on", "/activity", "/api-keys", "/storage", "/check", "/players/:player_id"]);
   });
 
   it("checks what a new key asks for", () => {

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CHECKED_PAGES } from "../../apps/site/src/components/checked-pages.ts";
+import { PHONE_BEZEL_AT_FULL_SIZE_PX } from "../../apps/site/src/components/screens.ts";
 import { STEEL_PAGES } from "../../apps/site/src/steel-pages.ts";
 import { BENCH_PLACES, PAGES_NOT_ON_THE_BENCH, MAXIMUM_BUTTONS_IN_A_PLACE, MAXIMUM_BUTTON_LABEL_LENGTH, PROFILE_WORDS, readyStates, statesWithNoButton } from "../../scripts/preview/bench/places.ts";
 // @ts-expect-error: a Node script with no types of its own.
@@ -64,6 +65,13 @@ describe("the bench's places and states", () => {
   it("name each screen once, in one look", () => {
     const names = [...CHECKED_PAGES, ...STEEL_PAGES].map((page) => page.name);
     expect(names.length).toBe(new Set(names).size);
+  });
+  it("size a phone's bezel in the script as its styles do", () => {
+    expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain(`BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_AT_FULL_SIZE_PX*/${PHONE_BEZEL_AT_FULL_SIZE_PX};`);
+  });
+  it("stop a page on a turned phone at the notch's bar alone, so its other side reaches the screen's edge", () => {
+    expect(readFileSync("scripts/preview/bench/bench-script.js", "utf8")).toContain("screen.frame.width = screen.widthPx - sideBarPx;");
+    expect(readFileSync("apps/site/src/components/screens.ts", "utf8")).toContain('width="${String(options.widthPx - (options.sideBarPx ?? 0))}"');
   });
   it("list every state for everyone, and say who a press switches to when it needs someone", () => {
     const script = readFileSync("scripts/preview/bench/bench-script.js", "utf8");
@@ -143,10 +151,10 @@ describe("the bench's marks and cookies", () => {
     expect(withoutMarks(url("/g/x?play&bench_screen=main.phone.guest.still&bench_state=a/b")).search).toBe("?play=");
   });
   it("send the jar in place of the browser's own sign-in, keeping what the page's script wrote", () => {
-    const browser = "zaisma_session=julius; zaisma_in=1; zaisma_played=a,b; __Host-zaisma_closed_news=1";
-    expect(cookieHeaderFor(browser, [["zaisma_session", "pin"], ["zaisma_in", "1"]], "laptop")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_session=pin; zaisma_in=1; zaisma_device_kind=computer");
-    expect(cookieHeaderFor(browser, [], "phone")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1; zaisma_device_kind=phone");
-    expect(cookieHeaderFor(browser, [], "real")).toBe("zaisma_played=a,b; __Host-zaisma_closed_news=1");
+    const browser = "zaisma_session=julius; zaisma_in=1; zaisma_played=a,b; __Host-download_started=1";
+    expect(cookieHeaderFor(browser, [["zaisma_session", "pin"], ["zaisma_in", "1"]], "laptop")).toBe("zaisma_played=a,b; __Host-download_started=1; zaisma_session=pin; zaisma_in=1; zaisma_device_kind=computer");
+    expect(cookieHeaderFor(browser, [], "phone")).toBe("zaisma_played=a,b; __Host-download_started=1; zaisma_device_kind=phone");
+    expect(cookieHeaderFor(browser, [], "real")).toBe("zaisma_played=a,b; __Host-download_started=1");
   });
   it("keep a jar to one address, since each address names its cookies and signs its tokens itself", () => {
     expect(jarKeyOf("http://localhost:8900", "Moss_Runner")).not.toBe(jarKeyOf("https://mac.example.ts.net:8900", "Moss_Runner"));

@@ -26,7 +26,7 @@ function pathsIn(text: string): string[] {
   return found;
 }
 
-const SITE_ROUTE_FILES = ["account", "passkeys", "sign-in", "mcp-sign-in", "dashboard", "developer-settings", "forum-pages", "friends", "friend-requests", "friends-now", "blocks", "players-sheet", "profiles", "plays", "home", "game-links", "admin", "admin-feedback", "admin-publishing", "admin-profiles", "admin-chat-reviews", "precedents", "review-precedents", "index", "buy", "announcements", "speed-reports"];
+const SITE_ROUTE_FILES = ["account", "passkeys", "sign-in", "mcp-sign-in", "dashboard", "developer-settings", "forum-pages", "friends", "friend-requests", "friends-now", "blocks", "players-sheet", "profiles", "plays", "home", "game-links", "admin", "admin-feedback", "admin-publishing", "admin-profiles", "admin-chat-reviews", "precedents", "review-precedents", "index", "buy", "speed-reports"];
 
 describe("A form", () => {
   it("says a file is past its size when it's chosen, on every page form that sends one", () => {

@@ -42,8 +42,8 @@ const shard = process.env.LAYOUT_CHECK_SHARD;
 const layoutRun = RUNS[(process.env.LAYOUT_CHECK_RUN ?? "pull_request") as keyof typeof RUNS];
 /** A laptop, for the pages broken on purpose. */
 const LAPTOP = [{ name: "Laptop", widthPx: 1440, heightPx: 900, isPhone: false, hasTouch: false, isRunnerChecked: true, textPercent: 100 }];
-/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026; the first share 20 more for its two Continue playing tests, Nov 6): they take that much fewer pages. */
-const BROKEN_ON_PURPOSE_COSTS_SEC = [85, 185, 75];
+/** The first three shares' other tests, in a tab's seconds (from their runs' times beside their pages', Nov 5, 2026; the first share 10 more for its test of what the home sends an account, Nov 6): they take that much fewer pages. */
+const BROKEN_ON_PURPOSE_COSTS_SEC = [75, 185, 75];
 const pages = (shard ? layoutCheckShard(layoutRun.pages, shard, { headStartSecByShare: BROKEN_ON_PURPOSE_COSTS_SEC }) : layoutRun.pages) as unknown[];
 const isFirstShare = !shard || shard.startsWith("1/");
 const isSecondShare = !shard || shard.startsWith("2/");
@@ -150,7 +150,7 @@ describe.skipIf(!sites)("the layout check", () => {
     expect(failures).toEqual([]);
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("keeps an account's Continue playing on the home as it first painted when this device played games too, and sends the account only what it hasn't", async () => {
+  it.skipIf(!isFirstShare)("sends an account only what this device played that it hasn't, and only once", async () => {
     const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
     try {
       const { browserContextId } = await chrome.send("Target.createBrowserContext");
@@ -159,10 +159,9 @@ describe.skipIf(!sites)("the layout check", () => {
       const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
       const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
       const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
-      // What the home sends the account never reaches it, so the account's list stays as the test data has it.
+      // Answered as the account would, without reaching it, so the account's list stays as the test data has it and the device marks what it sent.
       const sent: string[] = [];
       let onSent = () => {};
-      // Answered as the account would, without reaching it, so the device marks what it sent.
       chrome.listen(sessionId, (method: string, params: { requestId: string; request: { postData?: string } }) => {
         if (method !== "Fetch.requestPaused") return;
         sent.push(params.request.postData ?? "");
@@ -171,84 +170,40 @@ describe.skipIf(!sites)("the layout check", () => {
       });
       await send("Page.enable");
       await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played", requestStage: "Request" }] });
-      // The home's script has run once it has marked the covers the page came with.
       const home = async () => {
         const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
         await send("Page.navigate", { url: `${sites!.site}/` });
         await loaded;
-        await evaluate(`(async () => { while (!document.querySelector("#home-continue .cover[data-slug]")) await new Promise((done) => requestAnimationFrame(done)); return true; })()`);
       };
-      const covers = `[...document.querySelectorAll("#track-continue .cover-art")].map((art) => art.getAttribute("href"))`;
+      const accountPlayed = `JSON.parse(document.getElementById("home-data").textContent).account_played`;
+      // Only a game's own address: a Play button's ?play or anything after the slug isn't a game.
+      const gameLinks = `[...new Set([...document.querySelectorAll('a[href^="/g/"]')].map((link) => link.getAttribute("href").slice(3)).filter((slug) => /^[a-z0-9-]+$/.test(slug)))]`;
       await home();
-      expect(await evaluate(`document.getElementById("home-continue").hidden`)).toBe(false);
-      const painted: string[] = await evaluate(covers);
-      expect(painted.length).toBeGreaterThan(1);
-      // This device played the account's oldest game long ago: nothing changes and nothing is sent.
-      const oldest = painted.at(-1)!.slice(3);
+      const played: { slug: string; played_at_ms: number }[] = await evaluate(accountPlayed);
+      expect(played.length).toBeGreaterThan(1);
+      // This device played the account's oldest game long ago: nothing is sent.
+      const oldest = [...played].sort((first, second) => first.played_at_ms - second.played_at_ms)[0]!.slug;
       await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(oldest)}, played_at_ms: 1 }])), true`);
       await home();
-      expect(await evaluate(covers)).toEqual(painted);
-      // Then a game the account hasn't, just now: the covers still stay as the account's, and that one game goes to the account for next time.
-      const onlyHere: string = await evaluate(`JSON.parse(document.getElementById("home-data").textContent).games.map((game) => game.slug).find((slug) => !${JSON.stringify(painted)}.includes("/g/" + slug))`);
+      // Then a game the account hasn't, just now: that one game goes to the account for next time.
+      const onlyHere: string = (await evaluate(gameLinks) as string[]).find((slug) => !played.some((entry) => entry.slug === slug))!;
+      expect(onlyHere).toBeTruthy();
       await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(onlyHere)}, played_at_ms: Date.now() }, { slug: ${JSON.stringify(oldest)}, played_at_ms: 1 }])), true`);
       const isSent = new Promise<void>((done) => { onSent = done; });
       await home();
-      expect(await evaluate(covers)).toEqual(painted);
       await isSent;
-      // Taken once, it's never sent again, whatever the account's list keeps (a game hidden for age, a play the account drops as too old).
-      await evaluate(`(async () => { while (!JSON.parse(localStorage.getItem("zaisma:played")).some((entry) => entry.is_on_account)) await new Promise((done) => requestAnimationFrame(done)); return true; })()`);
+      // Taken once, it's never sent again.
+      await vi.waitFor(async () => expect(await evaluate(`JSON.parse(localStorage.getItem("zaisma:played")).some((entry) => entry.is_on_account)`)).toBe(true), { timeout: 20_000, interval: 50 });
       await home();
-      expect(await evaluate(covers)).toEqual(painted);
       expect(sent.map((body) => (JSON.parse(body) as { played: { slug: string }[] }).played.map((entry) => entry.slug))).toEqual([[onlyHere]]);
     } finally {
       await chrome.close();
     }
   }, 300_000);
 
-  it.skipIf(!isFirstShare)("opens an account's home prepared ahead with the game played since it was drawn", async () => {
-    const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
-    try {
-      const { browserContextId } = await chrome.send("Target.createBrowserContext");
-      await signIn(chrome, browserContextId, sites!.site, "Moss_Runner");
-      const { targetId } = await chrome.send("Target.createTarget", { url: "about:blank", browserContextId });
-      const { sessionId } = await chrome.send("Target.attachToTarget", { targetId, flatten: true });
-      const send = (method: string, params = {}) => chrome.send(method, params, sessionId);
-      const evaluate = async (expression: string) => (await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
-      // Nothing the home sends reaches the account: the test data stays as it is.
-      chrome.listen(sessionId, (method: string, params: { requestId: string }) => { if (method === "Fetch.requestPaused") send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200, body: btoa('{"ok":true}') }).catch(() => {}); });
-      await send("Page.enable");
-      await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/me/played*", requestStage: "Request" }] });
-      const home = async (headers: Record<string, string>) => {
-        await send("Network.setExtraHTTPHeaders", { headers });
-        const loaded = new Promise<void>((done) => chrome.listen(sessionId, (method: string) => { if (method === "Page.loadEventFired") done(); }));
-        await send("Page.navigate", { url: `${sites!.site}/` });
-        await loaded;
-        await vi.waitFor(async () => expect(await evaluate(`Boolean(document.querySelector("#home-continue .cover[data-slug]"))`)).toBe(true), { timeout: 20_000, interval: 50 });
-      };
-      await send("Network.enable");
-      const slugsOnHome = `[...document.querySelectorAll("#track-continue .cover-art")].map((art) => art.getAttribute("href").slice(3))`;
-      // A game the account hasn't played, played on this device after the page was drawn: the account's list doesn't have it yet.
-      await home({});
-      const played: string = await evaluate(`JSON.parse(document.getElementById("home-data").textContent).games.map((game) => game.slug).find((slug) => !(${slugsOnHome}).includes(slug))`);
-      expect(played).toBeTruthy();
-      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(played)}, played_at_ms: Date.now() }])), true`);
-      // Drawn fresh, the account's covers stay as they are.
-      const drawn: string[] = await evaluate(slugsOnHome);
-      await home({});
-      expect(await evaluate(slugsOnHome)).toEqual(drawn);
-      // Prepared ahead (as Chrome's speculation rules ask for it, prepared-pages.ts), it opens with the game played since.
-      await evaluate(`localStorage.setItem("zaisma:played", JSON.stringify([{ slug: ${JSON.stringify(played)}, played_at_ms: Date.now() }])), true`);
-      await home({ "Sec-Purpose": "prefetch" });
-      expect(await evaluate(`document.documentElement.hasAttribute("data-prepared-ahead")`)).toBe(true);
-      expect(await evaluate(slugsOnHome)).toEqual([played, ...drawn]);
-    } finally {
-      await chrome.close();
-    }
-  }, 300_000);
-
   it.skipIf(!isFirstShare)("measures an account's home as its test data stands while the same account plays a game in the tab beside it, and keeps that play off the account", async () => {
-    // Buying plays Tiny Farm as Moss_Runner, which the game page keeps on the device and the account; the home beside it shows the account's Continue playing.
-    const pagesSideBySide = ["Home, signed in", "Buying, a first card"].map((name) => CHECKED_PAGES.find((page) => page.name === name));
+    // Buying plays Tiny Farm as Moss_Runner, which the game page keeps on the device and the account; the home beside it shows the account's own game.
+    const pagesSideBySide = ["Home, returning", "Buying, a first card"].map((name) => CHECKED_PAGES.find((page) => page.name === name));
     const playedOf = async () => {
       const chrome = await openChrome(await chromeToRun(), "zaisma-layout-", { isDrawingOnCpu: true });
       try {

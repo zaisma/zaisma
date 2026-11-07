@@ -27,6 +27,7 @@ const R2_KEY_EXAMPLES: Record<string, string> = {
   shaderFrameKey: "zaisma-games/shaders/game_1/shader_1.frame-0.png",
   shaderKeys: "zaisma-games/shaders/game_1/shader_1.glsl",
   forumMediaKey: "zaisma-games/forum-media/media_1",
+  whatsOnArtKey: "zaisma-games/whats-on-art/whats_on_entry_1/wide",
   forumHeldKey: "zaisma-games/forum-held/media_1",
   reportPictureKey: "zaisma-games/report-pictures/report_1.jpg",
   logKey: "zaisma-games/logs/game_1/79739972/1761500000000-room",
@@ -87,6 +88,7 @@ describe("what a restore brings back", () => {
     expect(restoreRuleOf("zaisma-saves/account_1/game_1/copy_1.json")).toMatchObject({ kind: "owned", ownerValues: ["copy_1", "account_1", "game_1"] });
     expect(restoreRuleOf("zaisma-games/games/game_1/k2m4x9/assets/level 2.png")).toMatchObject({ kind: "owned", ownerSql: expect.stringContaining("r2_prefix"), ownerValues: ["games/game_1/k2m4x9", "games/game_1"] });
     expect(restoreRuleOf("zaisma-games/images/game_1/image_1.card.jpg")).toMatchObject({ kind: "owned", ownerValues: ["image_1", "game_1"], contentType: "image/jpeg" });
+    expect(restoreRuleOf("zaisma-games/whats-on-art/whats_on_entry_1/card")).toMatchObject({ kind: "owned", ownerSql: expect.stringContaining("whats_on_entries"), ownerValues: ["whats_on_entry_1"] });
     expect(restoreRuleOf("game-databases/game_1.sql")).toMatchObject({ kind: "owned", ownerValues: ["game_1"] });
     expect(restoreRuleOf("kept-rooms/game_1/ABCDEF.jsonl")).toMatchObject({ kind: "owned", ownerValues: ["game_1", "ABCDEF"] });
     expect(restoreRuleOf("zaisma-games/brotli/blobs/abc")).toMatchObject({ kind: "never" });

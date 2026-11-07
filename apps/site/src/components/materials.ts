@@ -16,6 +16,7 @@ import { CUT_LINE, glassPane } from "./foundations.ts";
  *   - Floating pane (foundations.ts's floatingPane), a sheet, a notice, a playing card: thin glass, over what's under it, blurred.
  *   - Carving: the glass cut away, for what's held in it (a well, a field, a slot) and, deep, a groove.
  *   - Slab: a raised piece of the same glass, for what's pressed or moved (a button, a switch's tab, a thumb); lit, the orange one.
+ *   - Sleek: thick glass with a sleek profile, no bevel: one hairline round it and the light along its top edge (a game card).
  *
  * Each comes regular or compact (a menu, a small button, a compact sheet): compact keeps less room inside it, the same look.
  */
@@ -33,6 +34,15 @@ export const MATERIAL_STYLES = `
    it has no rim of its own. Along the step's foot its lip catches the light (--step-lip) and it shades the thin glass below (--step-cast),
    both stopping inside the rim's bevel, the lip fading out before it, so the step never runs into the sheet's edge. */
 .tray-group { --glass-tint: var(--glass-tray); }
+/* Sleek: thick glass cut straight with no bevel, so its profile is one fine line: a hairline round it and the one light caught along its top
+   edge. Thicker than the pane it lies on, it stands out from it with a shape of its own. It draws no rim of its own (no data-glass), so nothing in
+   it sits inside a band; its edge lies over what it holds. */
+/* It lies just above the pane, so it casts a soft shadow on it (--sleek-cast), down from the one light. What holds it casts it (sleek-cast), as a
+   drop shadow of the glass's own shape: where the edge rule cuts the glass to a pane's corner, its shadow is cut the same, never clipped away. */
+.glass.sleek { --glass-tint: var(--glass-thick); box-shadow: inset 0 0 0 1px var(--edge-hair); }
+.sleek-cast { filter: var(--sleek-cast); }
+.glass.sleek::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
+.glass.sleek::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 0 1px var(--edge-hair), inset 0 1px 0 var(--edge-inner); }
 /* Its lighter blur and saturation are its own glass's, not passed on to glass that blurs inside it (a menu over a game's world). */
 .tray-group::before { --glass-sheen: var(--glass-tray-sheen); --glass-blur: 12px; --glass-saturate: 1.15; }
 .tray-group > .glass.tray-head { z-index: 1; --glass-tint: var(--glass-regular); --glass-clip: polygon(0 var(--pane-cut-large), var(--pane-cut-large) 0, calc(100% - var(--pane-cut-small)) 0, 100% var(--pane-cut-small), 100% 100%, 0 100%); }
@@ -354,6 +364,10 @@ span.hairline { flex: 1; border-top: var(--divider); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line .cut-band, .slab.is-pressed > .cut-line .cut-band { transition-duration: var(--motion-press); }
 /* Press spring-back: what's on a slab goes down with it, a hair, quickly, and springs back up when it's let go. The slab itself never
    moves out of its place. A lit slab floats, so it moves as a whole instead (its button lifts and lands it). */
+/* A slab on a pane lets the pane's blur show through. Over art in a carving there's no blur under it, so it blurs the art itself. A shadow cast by the
+   shell would stop that, since a filter cuts what's inside it off from what's behind it, so this slab casts none. */
+.carving.holds-art .shell:has(> .slab:not(.lit)) { filter: none; }
+.carving.holds-art .slab:not(.lit) { -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .slab:not(.lit) > :where(:not(.cut-line)) { transition: transform var(--motion-glide) var(--ease-spring); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab:not(.lit) > :where(:not(.cut-line)), .slab.is-pressed:not(.lit) > :where(:not(.cut-line)) { transform: translateY(1px); transition-duration: var(--motion-press); }
 :is(.shell:active, .shell.is-pressed, .shell[aria-busy="true"]) > .slab > .cut-line, .slab.is-pressed > .cut-line { --band-top: var(--slab-edge-shade, color-mix(in srgb, var(--way, transparent) var(--way-mix, 0%), var(--carve-top)));

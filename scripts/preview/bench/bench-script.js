@@ -5,11 +5,11 @@
   const $ = (selector, within = document) => within.querySelector(selector);
   const $$ = (selector, within = document) => [...within.querySelectorAll(selector)];
   const GROUP = "main";
-  const GAP_PX = 4, BEZEL_PX = 6;
+  const GAP_PX = 4, BEZEL_PX_AT_FULL_SIZE = /*PHONE_BEZEL_AT_FULL_SIZE_PX*/23;
   const SLOW_RATE = 0.25, REPLAY_PAUSE_MS = 450, CATCH_UP_MS = 800;
 
   const screens = Object.fromEntries($$("[data-bench-screen]").map((figure) => [figure.dataset.benchScreen, { figure, name: figure.dataset.benchScreen, widthPx: Number(figure.dataset.widthPx), heightPx: Number(figure.dataset.heightPx), frame: $("iframe", figure), view: $(".bench-view", figure), body: $(".bench-body", figure), address: null, pending: [] }]));
-  for (const screen of Object.values(screens)) { screen.label = $(`[data-bench-screen-name="${screen.name}"]`); screen.bezelPx = screen.figure.classList.contains("is-phone") ? BEZEL_PX : 0; screen.followNote = $(`[data-bench-follow-note="${screen.name}"]`); }
+  for (const screen of Object.values(screens)) { screen.label = $(`[data-bench-screen-name="${screen.name}"]`); screen.bezelPx = screen.figure.classList.contains("is-phone") ? BEZEL_PX_AT_FULL_SIZE : 0; screen.followNote = $(`[data-bench-follow-note="${screen.name}"]`); }
   const allScreens = Object.values(screens);
   const stateOf = (key) => data.states.find((state) => `${state.placeValue}/${state.stateValue}` === key);
   const placeOf = (value) => data.places.find((place) => place.placeValue === value);
@@ -43,19 +43,20 @@
   function fit() {
     const stage = $(".bench-stage");
     const room = stage.getBoundingClientRect();
-    const bezelsPx = 2 * BEZEL_PX;
+    // A phone's bezel grows with its screen: BEZEL_PX_AT_FULL_SIZE on each side at real size.
+    const bezelsAtFullSizePx = 2 * BEZEL_PX_AT_FULL_SIZE;
     // What's under the phone is measured, however its tools wrap, so none of it is ever past the window.
     const column = $(".bench-phone-column"), under = $(".bench-under-phone");
     let phoneScale = 1;
     for (let pass = 0; pass < 2; pass += 1) {
       const underPx = under.offsetHeight + parseFloat(getComputedStyle(column).rowGap || "0");
-      phoneScale = Math.min(1, (room.height - underPx - bezelsPx) / screens.phone.heightPx);
+      phoneScale = Math.min(1, (room.height - underPx) / (screens.phone.heightPx + bezelsAtFullSizePx));
       screens.phone.figure.style.setProperty("--screen-width", `${screens.phone.widthPx * phoneScale}px`);
     }
-    const besideWidth = room.width - screens.phone.widthPx * phoneScale - bezelsPx - GAP_PX;
+    const besideWidth = room.width - (screens.phone.widthPx + bezelsAtFullSizePx) * phoneScale - GAP_PX;
     const turnedScale = Number(screens.turned.figure.dataset.scalePct) / 100, laptopScale = Number(screens.laptop.figure.dataset.scalePct) / 100;
     const fullHeight = screens.turned.heightPx * turnedScale + screens.laptop.heightPx * laptopScale;
-    const share = Math.min(1, (room.height - GAP_PX - bezelsPx) / fullHeight, besideWidth / (screens.laptop.widthPx * laptopScale));
+    const share = Math.min(1, (room.height - GAP_PX) / (fullHeight + bezelsAtFullSizePx * turnedScale), besideWidth / (screens.laptop.widthPx * laptopScale));
     const scales = { phone: phoneScale, turned: turnedScale * share, laptop: laptopScale * share };
     for (const screen of allScreens) {
       const scale = big?.screen === screen ? big.scale : scales[screen.name];
@@ -73,10 +74,10 @@
   const TOOLS_ROOM_PX = 72;
   function placeBig() {
     const stage = $(".bench-stage").getBoundingClientRect();
-    const bezelsPx = 2 * big.screen.bezelPx;
-    const scale = Math.min((stage.width - 2 * GAP_PX - bezelsPx) / big.screen.widthPx, (stage.height - TOOLS_ROOM_PX - GAP_PX - bezelsPx) / big.screen.heightPx);
+    const bezelsAtFullSizePx = 2 * big.screen.bezelPx;
+    const scale = Math.min((stage.width - 2 * GAP_PX) / (big.screen.widthPx + bezelsAtFullSizePx), (stage.height - TOOLS_ROOM_PX - GAP_PX) / (big.screen.heightPx + bezelsAtFullSizePx));
     big.scale = scale;
-    const widthPx = big.screen.widthPx * scale + bezelsPx, heightPx = big.screen.heightPx * scale + bezelsPx;
+    const widthPx = (big.screen.widthPx + bezelsAtFullSizePx) * scale, heightPx = (big.screen.heightPx + bezelsAtFullSizePx) * scale;
     const { body } = big.screen;
     body.style.left = `${stage.left + (stage.width - widthPx) / 2}px`;
     body.style.top = `${stage.top + (stage.height - TOOLS_ROOM_PX - heightPx) / 2}px`;
@@ -295,8 +296,8 @@
       // What a state opened was closed in the page, by its own Close or Esc: its button comes back up.
       if (message.kind === "state-left") { if (screen === activeScreens()[0]) unpress(message.key); return; }
       if (message.kind === "page-color") { screen.figure.style.setProperty("--status-bar-color", message.color); return; }
-      // A phone on its side: a page stops at its side bars, as in a browser, unless it fills the screen.
-      if (message.kind === "page-fill") { const sideBarPx = message.isFillingScreen ? 0 : Number(screen.figure.dataset.sideBarPx); screen.frame.width = screen.widthPx - 2 * sideBarPx; screen.frame.style.setProperty("--side-bar", `${sideBarPx}px`); return; }
+      // A phone on its side: a page stops at the notch's bar and runs to the other edge, unless it fills the screen.
+      if (message.kind === "page-fill") { const sideBarPx = message.isFillingScreen ? 0 : Number(screen.figure.dataset.sideBarPx); screen.frame.width = screen.widthPx - sideBarPx; screen.frame.style.setProperty("--side-bar", `${sideBarPx}px`); return; }
       if (message.kind === "page") return heardPage(screen, message);
       if (message.kind === "open") { if (!big) openBig(screen); return; }
       if (big) { big.isChanged = true; if (message.kind === "click") big.lastDone = { kind: "click", message, address: screen.address }; return; }
