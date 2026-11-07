@@ -3,12 +3,12 @@ import { component } from "./component.ts";
 import { glassPane, tag } from "./foundations.ts";
 import { action, secondaryButton, primaryButton, tertiaryButton, textLink } from "./actions.ts";
 import { copyField, cutField, searchField, selectField } from "./inputs.ts";
-import { shelf } from "./navigation.ts";
+import { gameRow } from "./navigation.ts";
 import { STAND_IN_COVERS, banner, gameCard } from "./panes.ts";
 import { gamePaneExample, keyDetails, table, stateNote } from "./data.ts";
 import { gameMedia } from "./game-media.ts";
 import { STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
-import { CARVING_END_STYLES, GRID_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, carvingEnd, columns, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
+import { CARVING_END_STYLES, GRID_STYLES, LEAD_AND_SIDE_STYLES, PAGE_SHAPE_STYLES, PAGE_SHAPES, PANE_PARTS_STYLES, ROW_STYLES, STACK_STYLES, TRACK_STYLES, COLUMNS_STYLES, carvingEnd, columns, leadAndSide, grid, pageShapeDrawing, paneParts, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./layout.ts";
 
 /*
  * The layout components in the gallery: layout.ts makes them, and this registers them with their examples, since the examples use
@@ -169,9 +169,23 @@ component({
     { label: "Covers", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
     { label: "Where there's little room: one across, the cover and its long title whole", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [...covers(["ashen-crown", "neon-drift"]), block(gameCard({ title: "The Long and Winding Chronicles of the Ashen Crown", picture: STAND_IN_COVER_PICTURES["hollow-tide"] ?? null, href: "#grid", facts: { playerCount: 1204 } })), ...covers(["verdant"])] }) }) },
     { label: "Six covers on one line, then three, two and one across, as the room runs out", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing"]) }) }) },
+    { label: "On one line, stopping at two across however small the covers get", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant"]) }) }) },
     { label: "One cover alone stays a cover's size", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "cover", items: covers(["ashen-crown"]) }) }) },
     { label: "With none: a State note in their place, with what starts it", markup: glassPane({ paneWidth: "fit", body: grid({ whenEmpty: noGames, itemSize: "cover", items: [] }) }) },
     { label: "Cards", isWide: true, markup: glassPane({ paneWidth: "full", body: grid({ whenEmpty: noGames, itemSize: "card", items: ["Ashen Crown", "Neon Drift", "Hollow Tide"].map((title) => block(glassPane({ paneWidth: "full", body: stack({ items: [words(html`<h2>${title}</h2>`), words(html`<p>Live · version 14</p>`), { kind: "control", markup: secondaryButton("Open", { type: "button", isFullWidth: true }) }] }) }))) }) }) },
+  ],
+});
+
+component({
+  name: "Lead and side",
+  slug: "lead-and-side",
+  group: "layout",
+  subgroup: "inside",
+  summary: "What a page is about and what goes beside it: two thirds and a third, then half and half, then one under the other as the room runs out. Covers in the side stay whole and line up with the lead.",
+  styles: LEAD_AND_SIDE_STYLES,
+  render: leadAndSide,
+  examples: [
+    { label: "Your game and What's on", isWide: true, markup: leadAndSide({ lead: block(glassPane({ paneWidth: "full", body: stackOfOne(covers(["ashen-crown"])[0]!.markup) })), side: block(glassPane({ paneWidth: "full", body: stackOfOne(grid({ whenEmpty: noGames, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, items: covers(["neon-drift", "hollow-tide"]) })) })) }) },
   ],
 });
 
@@ -185,7 +199,7 @@ component({
   render: track,
   examples: [
     { label: "Covers in a pane", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track", itemSize: "cover", items: covers(["ashen-crown", "neon-drift", "hollow-tide", "verdant", "iron-vigil", "glasswing", "frostline", "kestrel"]) }) }) },
-    { label: "Under a heading: a Shelf (Navigation)", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(shelf({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) })) }) },
+    { label: "Under a heading: a Game row (Navigation)", isWide: true, markup: gameRow({ id: "example-track-shelf", trackId: "example-track-shelf-track", title: "New", items: covers(["kestrel", "frostline", "glasswing", "iron-vigil", "verdant"]) }) },
     { label: "All in view: no rail, and nothing moves if one comes", isWide: true, markup: glassPane({ paneWidth: "full", body: track({ whenEmpty: noGames, id: "example-track-fits", itemSize: "cover", items: covers(["ashen-crown", "neon-drift"]) }) }) },
     { label: "With none: a State note in their place, words alone", markup: glassPane({ paneWidth: "fit", body: track({ whenEmpty: noFriendsPlaying, id: "example-track-empty", itemSize: "cover", items: [] }) }) },
     { label: "Pictures: a game's screenshots", isWide: true, markup: glassPane({ paneWidth: "full", body: stackOfOne(gameMedia({ id: "example-track-pictures", gameTitle: "Ashen Crown", whenEmpty: stateNote({ stateKind: "empty", title: "No screenshots yet", text: "The developer hasn't added any screenshots." }), items: ["hollow-tide", "verdant", "neon-drift", "ashen-crown", "iron-vigil"].map((slug) => ({ mediaKind: "picture" as const, picture: STAND_IN_COVER_PICTURES[slug]! })) })) }) },

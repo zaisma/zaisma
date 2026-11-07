@@ -2,7 +2,7 @@ import { requestCountryCode } from "@zaisma/core";
 import { readCookie } from "./auth.ts";
 import { viewerDeviceKind } from "./device-kind.ts";
 import type { Env } from "./env.ts";
-import { CLOSED_NEWS_COOKIE, PLAYED_COOKIE } from "./home-script.ts";
+import { PLAYED_COOKIE } from "./home-script.ts";
 import { isLocalSite } from "./html.ts";
 
 /**
@@ -32,7 +32,7 @@ const GUEST_CACHED_PAGES: readonly RegExp[] = [
  * What a guest's home shows of their own, from the first paint: what this device played, and without the news it closed (home.ts). A copy
  * made for another guest would show neither, and the home's script would then push the page down to add Continue playing.
  */
-const HOME_OWN_PART_COOKIES: readonly string[] = [PLAYED_COOKIE, CLOSED_NEWS_COOKIE];
+const HOME_OWN_PART_COOKIES: readonly string[] = [PLAYED_COOKIE];
 
 /** The longest address kept, query included: a longer one is answered without the cache. */
 const MAXIMUM_ADDRESS_CHARACTER_COUNT = 512;

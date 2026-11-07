@@ -1,7 +1,9 @@
 {
   "name": "Zaisma",
   "short_name": "Zaisma",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#E7E4DF",

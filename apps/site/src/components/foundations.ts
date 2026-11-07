@@ -52,6 +52,8 @@ export interface GlassPaneOptions {
    * left with the game's world beside it. Left out, a fit pane sits in the column's middle, under the header's.
    */
   isAtStart?: boolean;
+  /** A thin frame of glass round what fills it: what has an edge sits at the compact frame gap, 4px, not 8px (an event banner's well). */
+  isCompact?: boolean;
 }
 
 /**
@@ -59,7 +61,7 @@ export interface GlassPaneOptions {
  * scrolls inside it, so nothing in it shrinks. It pads at the frame gap, and its words keep its margin (--pad-words).
  */
 export function glassPane(options: GlassPaneOptions): Raw {
-  return html`<section class="glass glass-pane ${options.paneWidth}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
+  return html`<section class="glass glass-pane ${options.paneWidth}${options.isCompact ? " compact" : ""}${options.isStartedLow ? " is-started-low" : ""}${options.isAtStart ? " is-at-start" : ""}" data-glass data-glass-corners="pane"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in scrolls">${options.body}</div></section>`;
 }
 
 export interface FloatingPaneOptions {
@@ -443,7 +445,7 @@ export interface PageSettings {
   /** Light or dark. Left out, the system's. */
   theme?: "light" | "dark";
   glass?: {
-    /** Tints every piece of glass, as a #rrggbb color (like a game's color on the home). Glass tinted for a brand keeps its own color. */
+    /** Tints every piece of glass, as a #rrggbb color (like a game's color on its page). Glass tinted for a brand keeps its own color. */
     hueColor?: string;
   };
 }
@@ -669,7 +671,7 @@ component({
   slug: "game-background",
   group: "foundations",
   subgroup: "backgrounds",
-  summary: "A game's own world behind the glass, on its page and behind it on the home: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
+  summary: "A game's own world behind the glass on its page: a picture or a shader its developer sends, for wide screens and phones. It's the game's art, never restyled to Zaisma's look, and the glass over it turns light or smoked to keep the words clear. Until real games bring theirs, the stand-in games have these.",
   styles: `
 /* Opening a game from its cover (PAGE_SWITCH_SCRIPT): the cover sinks under the press, the game's world settles in from a touch larger,
    and once it has, the page's panes fade in over it as every page's do (page-arrives, Backdrop), only later: the same gentle

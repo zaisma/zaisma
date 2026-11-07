@@ -1735,17 +1735,30 @@ export const POST_RATING = object({
 export const POST_BOOKMARK = object({ is_bookmarked: yes(), next_steps: NEXT });
 export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT, next_steps: NEXT });
 
-// --- Announcements, for anyone (GET /api/announcements, announcements.ts) ---
+// --- What's on at Zaisma (GET /whats-on, whats-on.ts) ---
 
-const ANNOUNCEMENT_FIELDS = {
-  id: idOf("announcement"),
-  text: text("One or two plain sentences, up to 200 characters, from Zaisma."),
-  link_url: nullable(text("Where its link goes: an https address, or a path on zaisma.com starting with /; null when it has none.")),
-  link_label: nullable(text('The link\'s words, up to 30 characters ("Read more" when none were given); null when it has no link.')),
-  starts_at: isoTime("When it starts showing."),
-  ends_at: isoTime("When it stops showing."),
+const WHATS_ON_EVENT = object({
+  id: idOf("whats_on_entry"),
+  title: text("The event's name."),
+  wide_art_url: text("Its art, for a wide strip: an address on zaisma.com."),
+  narrow_art_url: nullable(text("Its art for a narrow strip; null when it has only the wide one.")),
+  link_url: text("Where its button goes: an https address, or a path on zaisma.com starting with /."),
+  link_label: text("Its button's words."),
+});
+export const WHATS_ON_FIELDS = {
+  event: nullable(WHATS_ON_EVENT),
+  cards: list(
+    object({
+      card_kind: choice({ game: "a game", event: "an event's poster: all art, its name and dates in it", news: "news for players, its title on its line" }),
+      slug: nullable(text("The game's link name; null for an event or news.")),
+      title: text("The game's name, the event's or the news."),
+      cover_url: nullable(text("Its cover, or an event's poster or news's picture: an address on zaisma.com; null with none.")),
+      link_url: text("Where the card goes: a game's page, or an https address or a path on zaisma.com starting with /."),
+      tag: nullable(choice({ Pick: "a person picked it", Updated: "a big update in the last 14 days", New: "first went live in the last 14 days", Trending: "more players than usual", News: "news for players" })),
+    }),
+    "What's on's cards, up to 3, in order: Zaisma's own first (events, then news, never all 3 while there are games), then games. They change with the week and are the same for everyone.",
+  ),
 };
-export const PUBLIC_ANNOUNCEMENT_LIST = object({ announcements: list(object(ANNOUNCEMENT_FIELDS), "The ones showing now, the newest start first; the home shows the first. [] when none are.") });
 
 // --- The admin MCP (docs/ADMIN-MCP.md) ---
 
@@ -2265,13 +2278,22 @@ export const CAN_PUBLISH_CHANGED = object({
   next_steps: NEXT,
 });
 
-/** Announcements as the admin sees them (admin MCP: list_announcements, post_announcement, end_announcement). */
-const ADMIN_ANNOUNCEMENT = object({
-  ...ANNOUNCEMENT_FIELDS,
-  announcement_status: choice({ current: "showing now, unless a newer current one shows instead", upcoming: "starts at starts_at", ended: "no longer shown" }),
-  is_shown: yes("Whether it's the one zaisma.com's home shows now: the newest current one."),
+/** What's on's entries as the admin sees them (admin MCP: list_whats_on, post_whats_on_event, post_whats_on_news, post_whats_on_pick, end_whats_on_entry). */
+const ADMIN_WHATS_ON_ENTRY = object({
+  id: idOf("whats_on_entry"),
+  entry_kind: choice({ event: "art across the top of the home, or a poster among What's on's cards past the newest", pick: "one game among What's on's cards", news: "news for players among What's on's cards" }),
+  game_id: nullable(idOf("game")),
+  title: nullable(text("An event's name or the news; null for a pick.")),
+  wide_art_url: nullable(text("An event's art; null for a pick.")),
+  narrow_art_url: nullable(text("An event's art for a narrow strip; null without one.")),
+  card_art_url: nullable(text("An event's poster or news's picture, for What's on's cards; null without one.")),
+  link_url: nullable(text("Where an event's button or a news card goes; null for a pick.")),
+  link_label: nullable(text("An event's button's words; null for a pick.")),
+  starts_at: isoTime(),
+  ends_at: isoTime(),
+  entry_status: choice({ current: "showing now", upcoming: "starts at starts_at", ended: "no longer shown" }),
   created_at: isoTime(),
   created_by: text("The admin who posted it."),
 });
-export const ANNOUNCEMENT_LIST = object({ announcements: list(ADMIN_ANNOUNCEMENT, "Current and upcoming ones, and those that ended in the last 30 days, the newest start first, up to 100.") });
-export const ANNOUNCEMENT_CHANGED = object({ announcement: ADMIN_ANNOUNCEMENT, next_steps: NEXT });
+export const WHATS_ON_ENTRY_LIST = object({ entries: list(ADMIN_WHATS_ON_ENTRY, "Current and upcoming ones, and those that ended in the last 30 days, the newest start first, up to 100.") });
+export const WHATS_ON_ENTRY_CHANGED = object({ entry: ADMIN_WHATS_ON_ENTRY, next_steps: NEXT });
