@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readMap, writeMap } from "./generate.mjs";
-import { withVerdict } from "./schema.mjs";
+import { DOOR_ROW_ANCHOR_ID, doorRowHashOf, readMap, writeMap } from "./generate.mjs";
+import { caseRefOf, withStale, withVerdict } from "./schema.mjs";
 
 /**
  * Day-one robust verdicts from what the repo's tests and ship checks already prove, spending no review on
@@ -14,6 +14,28 @@ import { withVerdict } from "./schema.mjs";
 const isSitePage = (door) => (door.door_kind === "page_route" || door.door_kind === "page_form") && door.door_id.startsWith("page:");
 const isGameFile = (door, addresses) => door.door_kind === "game_file_address" && addresses.includes(door.door_id);
 const SERVED_GAME_FILES = ["game-file:/", "game-file:/<file>"];
+
+/** The checklist case a door's own limit answers. */
+export const NO_LIMIT_CASE_ID = "rate-or-lockout-missing";
+/** Where the contract grid calls each kind of door past its own limit, by the door id's start. */
+const PAST_LIMIT_GRID_FILES = {
+  "page:": "test/grid/page-doors.ts",
+  "api:": "test/grid/api.grid.ts",
+  "rooms:": "test/grid/rooms.grid.ts",
+  "room-message:": "test/grid/rooms.grid.ts",
+  "game-file:": "test/grid/game-files.grid.ts",
+};
+const hasLimitLevel = (door) => Boolean(door.contract?.limit && "level" in door.contract.limit);
+/** Whether the grid's last run on main proved the door's own limit: its past_limit cell kept (scripts/contract-grid.mjs --record). */
+const isPastLimitProven = (door, grid) => hasLimitLevel(door) && Boolean(grid?.past_limit_kept_door_ids?.includes(door.door_id));
+const isPastLimitVerdict = (theCase) => theCase.case_id === NO_LIMIT_CASE_ID && Object.values(PAST_LIMIT_GRID_FILES).includes(theCase.evidence?.ref) && DOOR_ROW_ANCHOR_ID in (theCase.verdict_anchor_hashes ?? {});
+
+const PAST_LIMIT_RULES = Object.entries(PAST_LIMIT_GRID_FILES).map(([doorIdStart, ref]) => ({
+  evidence: { kind: "test", ref, note: "The contract grid calls the door past its own limit: only the door's own counter refuses, the shared ones in front of it let the call through, and the door must refuse. From that cell passing on main's last grid run; a change to the door's row in its table makes this stale." },
+  appliesTo: (door, { grid }) => door.door_id.startsWith(doorIdStart) && isPastLimitProven(door, grid),
+  caseIds: [NO_LIMIT_CASE_ID],
+  isOnDoorRow: true,
+}));
 
 export const SEED_RULES = [
   {
@@ -89,42 +111,57 @@ export const SEED_RULES = [
     caseIds: ["reached-without-access"],
     requiresFile: true,
   },
+  ...PAST_LIMIT_RULES,
 ];
 
 /**
  * The map with every SEED_RULES case set robust where it's still unexplored. A rule with requiresFile
- * seeds nothing while its ref isn't in the repo (a sibling slice's file that hasn't merged). Answers the
- * new map and the case refs it seeded.
+ * seeds nothing while its ref isn't in the repo (a sibling slice's file that hasn't merged). grid: the
+ * contract grid's last record on main, or null; a door's own limit seeded from it goes stale once its
+ * cell stops passing there. Answers the new map, the case refs it seeded and the ones it made stale.
  */
-export function seedRobust(map, { repoRoot, now, rules = SEED_RULES }) {
+export function seedRobust(map, { repoRoot, now, rules = SEED_RULES, grid = null }) {
   const activeRules = rules.filter((rule) => !rule.requiresFile || existsSync(join(repoRoot, rule.evidence.ref)));
   const seededCaseRefs = [];
+  const staleCaseRefs = [];
   const next = map.map((sector) => ({
     ...sector,
     doors: sector.doors.map((door) => {
       if (door.door_removed_at) return door;
-      const caseIds = new Map();
-      for (const rule of activeRules) if (rule.appliesTo(door)) for (const caseId of rule.caseIds) if (!caseIds.has(caseId)) caseIds.set(caseId, rule.evidence);
-      if (caseIds.size === 0) return door;
+      const rulesByCaseId = new Map();
+      for (const rule of activeRules) if (rule.appliesTo(door, { grid })) for (const caseId of rule.caseIds) if (!rulesByCaseId.has(caseId)) rulesByCaseId.set(caseId, rule);
+      const isGridRead = Array.isArray(grid?.past_limit_kept_door_ids);
+      const staleCases = (theCase) => {
+        if (!isGridRead || theCase.status !== "robust" || !isPastLimitVerdict(theCase) || isPastLimitProven(door, grid)) return theCase;
+        staleCaseRefs.push(caseRefOf(door, theCase));
+        return withStale(theCase, "its past_limit cell no longer passes on the contract grid's last run on main");
+      };
+      if (rulesByCaseId.size === 0) return { ...door, cases: door.cases.map(staleCases) };
       const hashes = Object.fromEntries(door.anchors.map((anchor) => [anchor.anchor_id, anchor.source_hash_sha256]));
       if (Object.values(hashes).some((hash) => hash === null)) return door;
       return {
         ...door,
         cases: door.cases.map((theCase) => {
-          const evidence = caseIds.get(theCase.case_id);
-          if (!evidence || theCase.status !== "unexplored") return theCase;
+          const rule = rulesByCaseId.get(theCase.case_id);
+          if (!rule || theCase.status !== "unexplored") return staleCases(theCase);
           seededCaseRefs.push(`${door.door_id}#${theCase.case_id}`);
-          return withVerdict(theCase, { status: "robust", evidence, verdict_at: now, verdict_anchor_hashes: hashes });
+          return withVerdict(theCase, { status: "robust", evidence: rule.evidence, verdict_at: now, verdict_anchor_hashes: rule.isOnDoorRow ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: doorRowHashOf(door) } : hashes });
         }),
       };
     }),
   }));
-  return { map: next, seeded_case_refs: seededCaseRefs };
+  return { map: next, seeded_case_refs: seededCaseRefs, stale_case_refs: staleCaseRefs };
 }
+
+/** The contract grid's last record on main (grid/failures.json in the map's directory), or null before its first. */
+const readGrid = (mapDir) => {
+  const path = join(mapDir, "grid", "failures.json");
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+};
 
 /** Seeds the map in mapDir. Run after generate, so the doors' anchor hashes are today's. */
 export function seedMapDir({ repoRoot, mapDir, now = new Date().toISOString() }) {
-  const { map, seeded_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now });
+  const { map, seeded_case_refs } = seedRobust(readMap(mapDir), { repoRoot, now, grid: readGrid(mapDir) });
   writeMap(mapDir, map);
   return seeded_case_refs;
 }

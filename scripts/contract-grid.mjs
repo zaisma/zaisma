@@ -3,7 +3,7 @@
 //
 //   npm run grid                          Runs it here and prints every failure.
 //   npm run grid -- --compare <sha>       GitHub's check: prints and fails only on what this change adds to <sha>.
-//   npm run grid -- --record <file>       Writes every failure to <file>, for a private repository to keep. Prints only counts.
+//   npm run grid -- --record <file>       Writes every failure, and the doors that proved their own limit, to <file>, for a private repository to keep. Prints only counts.
 //   npm run grid -- --results <file>      Writes every cell to <file> and prints nothing.
 //
 // A public check's log is read by anyone, so --compare never prints a cell that's broken on the base too, and the runs it makes
@@ -142,6 +142,12 @@ async function local() {
   }
 }
 
+/** The doors whose past_limit cell kept: each proved its own limit, which the security map seeds robust from (scripts/security-map/seed-robust.mjs). */
+export function pastLimitKeptDoorIds(results) {
+  const notTried = new Set(results.doors_not_tried);
+  return [...new Set(results.cells.filter((cell) => cell.caller_kind === "past_limit" && cell.cell_verdict === "kept" && !notTried.has(cell.door_id)).map((cell) => cell.door_id))].sort();
+}
+
 async function record(path) {
   const temporary = mkdtempSync(join(tmpdir(), "contract-grid-"));
   try {
@@ -149,7 +155,7 @@ async function record(path) {
     if (!results) stop("Contract grid: the run didn't finish.");
     const commitSha = git(["rev-parse", "HEAD"]).stdout.trim();
     const failures = results.cells.filter(isFailed).sort((first, second) => cellId(first).localeCompare(cellId(second)));
-    writeFileSync(resolve(path), `${JSON.stringify({ recorded_at: new Date().toISOString(), commit_sha: commitSha, cell_count: results.cells.length, failures, doors_not_tried: results.doors_not_tried }, null, 1)}\n`);
+    writeFileSync(resolve(path), `${JSON.stringify({ recorded_at: new Date().toISOString(), commit_sha: commitSha, cell_count: results.cells.length, failures, doors_not_tried: results.doors_not_tried, past_limit_kept_door_ids: pastLimitKeptDoorIds(results) }, null, 1)}\n`);
     console.log(`Contract grid: ${results.cells.length} cells, ${failures.length} failed, ${results.doors_not_tried.length} doors not tried.`);
   } finally {
     rmSync(temporary, { recursive: true, force: true });

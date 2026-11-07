@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -57,6 +58,19 @@ export function orderedDoor(door) {
 /** Every door on the map, with its sector. */
 export const allDoors = (map) => map.flatMap((sector) => sector.doors);
 
+/**
+ * A verdict that stands on a door's own row in its table (its contract: who may call it, what it takes, its limit) records
+ * this anchor beside the code's, and goes stale when the row changes. Only such verdicts carry it, so no other goes stale
+ * for it.
+ */
+export const DOOR_ROW_ANCHOR_ID = "the door's row in its table";
+
+/** JSON with every object's keys in order, so the same row always hashes the same. */
+const sortedJson = (value) => JSON.stringify(value, (_, given) => (given && typeof given === "object" && !Array.isArray(given) ? Object.fromEntries(Object.entries(given).sort(([first], [second]) => first.localeCompare(second))) : given));
+
+/** The hash of a door's row in its table. */
+export const doorRowHashOf = (door) => createHash("sha256").update(sortedJson(door.contract ?? null)).digest("hex");
+
 /** Why a verdict no longer holds for these anchor hashes, or null when the code is identical. */
 export function staleReasonOf(verdictAnchorHashes, currentHashes) {
   const reasons = [];
@@ -99,7 +113,8 @@ export function mergeDoors({ map, doors, hashesOf, now, checklists = CHECKLISTS,
     }
     const cases = mergedCases(codeDoor.door_kind, known?.cases ?? [], checklists).map((theCase) => {
       if (theCase.status === "unexplored" || theCase.status === "stale") return theCase;
-      const staleReason = staleReasonOf(theCase.verdict_anchor_hashes ?? {}, hashes);
+      const verdictHashes = theCase.verdict_anchor_hashes ?? {};
+      const staleReason = staleReasonOf(verdictHashes, DOOR_ROW_ANCHOR_ID in verdictHashes ? { ...hashes, [DOOR_ROW_ANCHOR_ID]: doorRowHashOf(codeDoor) } : hashes);
       if (!staleReason) return theCase;
       summary.stale_case_refs.push(caseRefOf(codeDoor, theCase));
       return withStale(theCase, staleReason);

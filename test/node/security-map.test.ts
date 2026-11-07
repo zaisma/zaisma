@@ -8,7 +8,7 @@ import { adminDoors, apiDoors, collectDoors, mcpDoors } from "../../scripts/secu
 // @ts-expect-error: a plain JavaScript script without types
 import { exportMapDir, exportPublic, historyIndexOf, publicExportProblems, checkMapDirExport } from "../../scripts/security-map/export-public.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { CHECKLISTS, generateMap, mergeDoors, readMap, writeMap } from "../../scripts/security-map/generate.mjs";
+import { CHECKLISTS, DOOR_ROW_ANCHOR_ID, generateMap, mergeDoors, readMap, writeMap } from "../../scripts/security-map/generate.mjs";
 // @ts-expect-error: a plain JavaScript script without types
 import { loadSiteModule } from "../../scripts/security-map/load-site.mjs";
 // @ts-expect-error: a plain JavaScript script without types
@@ -16,7 +16,7 @@ import { priorityOf, promiseProblems, promiseSummaries, readPromises, refreshPro
 // @ts-expect-error: a plain JavaScript script without types
 import { canSetRobust, caseStatusProblems, DOOR_KINDS, SECTOR_IDS, SECTORS, unexploredCase, withVerdict } from "../../scripts/security-map/schema.mjs";
 // @ts-expect-error: a plain JavaScript script without types
-import { SEED_RULES, seedRobust } from "../../scripts/security-map/seed-robust.mjs";
+import { NO_LIMIT_CASE_ID, SEED_RULES, seedRobust } from "../../scripts/security-map/seed-robust.mjs";
 import { temporaryFolder } from "../temporary-folder.ts";
 
 /**
@@ -31,7 +31,7 @@ const LATER = "2026-10-19T03:00:00.000Z";
 type Anchor = { anchor_id: string; source_path: string; symbol_name: string; source_hash_sha256?: string | null };
 type Evidence = { kind: string; ref: string; note: string };
 type Case = { case_id: string; case_name: string; status: string; severity_tier: string | null; evidence: Evidence | null; finding_id: string | null; verdict_at: string | null; verdict_anchor_hashes: Record<string, string | null> | null; stale_reason: string | null };
-type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; cases: Case[] };
+type Door = { door_id: string; door_name: string; door_kind: string; sector_id: string; source_path: string; anchors: Anchor[]; gives: string[]; trusts: string[]; covered_by_door_id: string | null; door_removed_at?: string | null; contract?: unknown; cases: Case[] };
 type Sector = { sector_id: string; sector_name: string; attacker_goal: string; doors: Door[] };
 type Site = { API_ROUTES: { method: string; path: string }[]; TOOLS: { name: string }[]; ADMIN_TOOLS: { name: string }[]; STORED_VALUES: { stored: string }[] };
 
@@ -163,6 +163,44 @@ describe("doors from the real code", () => {
     const again = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER });
     expect(again.seeded_case_refs).toEqual([]);
     expect(again.map).toEqual(seeded.map);
+  });
+
+  it("seeds a door's own limit from its passing past_limit cell, and stales it when its row changes or the cell stops passing", { timeout: 30_000 }, () => {
+    const sourceByPath = new Map();
+    const hashesOf = (door: Door) => anchorHashes(ROOT, door.anchors, sourceByPath);
+    const { map } = mergeDoors({ map: emptyMap(), doors, hashesOf, now: NOW });
+    const limited = (doorId: string) => (doors.find((door) => door.door_id === doorId)!.contract as { limit: object }).limit;
+    expect(limited("api:GET /credit")).toHaveProperty("level");
+    expect(limited("rooms:/v1/friends")).toHaveProperty("level");
+    expect(limited("page:/api/dev")).toHaveProperty("whyNoLimit");
+    const grid = { failures: [], doors_not_tried: [], past_limit_kept_door_ids: ["api:GET /credit", "rooms:/v1/friends", "page:/api/dev"] };
+
+    expect(seedRobust(map, { repoRoot: ROOT, now: NOW }).seeded_case_refs.filter((ref: string) => ref.endsWith(`#${NO_LIMIT_CASE_ID}`) && !ref.startsWith("page:POST /signin"))).toEqual([]);
+    const seeded = seedRobust(map, { repoRoot: ROOT, now: NOW, grid });
+    for (const [doorId, ref] of [["api:GET /credit", "test/grid/api.grid.ts"], ["rooms:/v1/friends", "test/grid/rooms.grid.ts"]] as const) {
+      const theCase = caseOf(doorIn(seeded.map, doorId), NO_LIMIT_CASE_ID);
+      expect(theCase.status, doorId).toBe("robust");
+      expect(theCase.evidence!.ref).toBe(ref);
+      expect(theCase.verdict_anchor_hashes).toHaveProperty([DOOR_ROW_ANCHOR_ID]);
+    }
+    // A door that states no limit, and one whose cell the grid didn't keep, are the night's to read.
+    expect(caseOf(doorIn(seeded.map, "page:/api/dev"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
+    expect(caseOf(doorIn(seeded.map, "api:GET /stripe-account"), NO_LIMIT_CASE_ID).status).toBe("unexplored");
+
+    // The code alone moving nothing, the door's row changing.
+    const again = mergeDoors({ map: seeded.map, doors, hashesOf, now: LATER });
+    expect(again.summary.stale_case_refs).toEqual([]);
+    const changedRow = doors.map((door) => (door.door_id === "api:GET /credit" ? { ...door, contract: { ...(door.contract as object), limit: { level: "building", counts: "account", group: "api" } } } : door));
+    const afterRowChange = mergeDoors({ map: seeded.map, doors: changedRow, hashesOf, now: LATER });
+    expect(afterRowChange.summary.stale_case_refs).toEqual([`api:GET /credit#${NO_LIMIT_CASE_ID}`]);
+    expect(caseOf(doorIn(afterRowChange.map, "api:GET /credit"), NO_LIMIT_CASE_ID).stale_reason).toContain(DOOR_ROW_ANCHOR_ID);
+
+    // The cell failing on a later run.
+    const cellFailing = seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { ...grid, past_limit_kept_door_ids: ["rooms:/v1/friends"] } });
+    expect(cellFailing.stale_case_refs).toEqual([`api:GET /credit#${NO_LIMIT_CASE_ID}`]);
+    expect(caseOf(doorIn(cellFailing.map, "rooms:/v1/friends"), NO_LIMIT_CASE_ID).status).toBe("robust");
+    // A record from before the grid named its kept cells stales nothing.
+    expect(seedRobust(seeded.map, { repoRoot: ROOT, now: LATER, grid: { failures: [], doors_not_tried: [] } }).stale_case_refs).toEqual([]);
   });
 
   it("seeds nothing from a rule whose file isn't in the repo yet", () => {
