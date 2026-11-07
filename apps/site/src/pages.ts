@@ -61,7 +61,7 @@ import { action, secondaryButton, primaryButton, tertiaryButton, textLink, toggl
 import { copyField } from "./components/inputs.ts";
 import { cutField } from "./components/fields.ts";
 import { details, keyDetails, listRows, type ListRow, stateNote } from "./components/data.ts";
-import { glassPane, icon, tag, type IconName } from "./components/foundations.ts";
+import { ago, glassPane, icon, tag, type IconName } from "./components/foundations.ts";
 import { columns, grid, row, stack, track, type GridItem, type LayoutItem, stackOfOne } from "./components/layout.ts";
 import { gameRow } from "./components/navigation.ts";
 import { tabSwitch } from "./components/switch.ts";
@@ -144,9 +144,9 @@ export interface GamePageView {
   developer: { name: string; game_count: number } | null;
   pictures: (PictureRow & { kind: string })[];
   updates: { id: string; patch_notes: string; first_published_at_ms: number }[];
-  /** The developer's other listed games, for More from <developer>: up to GAME_PAGE_SHELF_GAME_COUNT. */
+  /** The developer's other listed games, for More from <developer>: up to GAME_PAGE_ROW_GAME_COUNT. */
   developerGames: ShowGame[];
-  /** Other developers' listed games of the same kind, most played this week first: More like this, up to GAME_PAGE_SHELF_GAME_COUNT. */
+  /** Other developers' listed games of the same kind, most played this week first: More like this, up to GAME_PAGE_ROW_GAME_COUNT. */
   likeGames: ShowGame[];
   /** The game's live rooms on Zaisma, or null when it has none to count or list. */
   liveRooms: RoomPage | null;
@@ -186,6 +186,8 @@ export interface GamePageView {
   fullGameSlug: string | null;
   /** Of the other games on the page, the paid ones the viewer owns, so their covers carry no price. */
   ownedPaidGameIds: ReadonlySet<string>;
+  /** When a signed-in viewer last played the game, or null; a guest's comes from this device's list, by the page's script. */
+  lastPlayedAtMs: number | null;
 }
 
 // A game for older players (docs/DECISIONS.md, "Games can keep out younger age bands"): a younger account
@@ -223,7 +225,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const isForSale = isForSaleTo(game, isFullGameOwner, isClosed);
   const code = roomCodeOf(url, isClosed || isForSale);
   const playedVersionId = testerVersion?.id ?? game.live_version_id;
-  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing, isFavorite] = await Promise.all([
+  const [developer, pictures, updates, otherGames, liveRooms, playingNow, playedVersion, purchaseLabel, background, shownInLists, items, ownedNames, demo, fullGame, standing, lastPlayed, isFavorite] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -255,10 +257,12 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       : null,
     // What the developer's standing opens: links to other sites, and search engines (standing.ts).
     standingOf(env.DB, game.owner_id, Date.now()),
+    // A returning player's own first: when they last played it.
+    viewer.account && !tester ? env.DB.prepare("SELECT played_at_ms FROM played WHERE account_id = ? AND game_id = ?").bind(viewer.account.id, game.id).first<{ played_at_ms: number }>() : null,
     // The heart: whether it's in the viewer's favorites (Your games). Not on tester links, where the game isn't out.
     viewer.account && !tester ? isFavoriteGame(env.DB, viewer.account.id, game.id) : false,
   ]);
-  const { developerGames, likeGames } = gamePageShelves(game, otherGames, await shelfCounts(env, viewer.ageFloorYears));
+  const { developerGames, likeGames } = gamePageRows(game, otherGames, await shelfCounts(env, viewer.ageFloorYears));
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, [...developerGames, ...likeGames]);
   const response = gamePageResponse(env, {
     game,
@@ -292,6 +296,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     demoGameSlug: demo?.slug ?? null,
     fullGameSlug: fullGame?.slug ?? null,
     ownedPaidGameIds,
+    lastPlayedAtMs: lastPlayed?.played_at_ms ?? null,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
@@ -310,15 +315,17 @@ function roomsTabItems(slug: string, rooms: RoomPage): LayoutItem[] {
   ];
 }
 
-/** How many covers each of a game page's shelves holds, More from <developer> and More like this. */
-export const GAME_PAGE_SHELF_GAME_COUNT = 4;
+/** How many covers each of a game page's Game rows holds, More from <developer> and More like this. */
+export const GAME_PAGE_ROW_GAME_COUNT = 4;
+/** On a phone, where two covers show at once and the third peeks: the first paint stays under its size with the folds' styles. */
+export const PHONE_ROW_GAME_COUNT = 3;
 
 /**
- * A game page's two shelves from the showcase: the developer's other games, newest first, and More like this: other developers' games
+ * A game page's two Game rows from the showcase: the developer's other games, newest first, and More like this: other developers' games
  * sharing one of its genres, most players this week first (Popular's count), then the newest. Earned, never sold, and none that the
  * shelves leave out (offShelfSlugs).
  */
-export function gamePageShelves(game: Pick<Game, "slug" | "owner_id" | "genres">, showcaseGames: ShowGame[], shelfCount: { counts: Map<string, { weekPlayerCount: number }>; offShelfSlugs: Set<string> }): { developerGames: ShowGame[]; likeGames: ShowGame[] } {
+export function gamePageRows(game: Pick<Game, "slug" | "owner_id" | "genres">, showcaseGames: ShowGame[], shelfCount: { counts: Map<string, { weekPlayerCount: number }>; offShelfSlugs: Set<string> }): { developerGames: ShowGame[]; likeGames: ShowGame[] } {
   const others = showcaseGames.filter((otherGame) => otherGame.slug !== game.slug);
   const isTheDevelopers = (otherGame: ShowGame) => Boolean(game.owner_id && otherGame.owner_id === game.owner_id);
   const genres = new Set(game.genres ? game.genres.split(",") : []);
@@ -326,7 +333,8 @@ export function gamePageShelves(game: Pick<Game, "slug" | "owner_id" | "genres">
   const likeGames = others
     .filter((otherGame) => !isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug) && otherGame.genres.some((genre) => genres.has(genre)))
     .sort((first, second) => weekPlayerCount(second) - weekPlayerCount(first) || (second.first_published_at_ms ?? 0) - (first.first_published_at_ms ?? 0));
-  return { developerGames: others.filter(isTheDevelopers).slice(0, GAME_PAGE_SHELF_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT) };
+  const developerGames = others.filter((otherGame) => isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug));
+  return { developerGames: developerGames.slice(0, GAME_PAGE_ROW_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_ROW_GAME_COUNT) };
 }
 
 /** A description's first sentence, for the line under a game's name: up to GAME_LINE_MAXIMUM_LETTER_COUNT letters, cut at a word. */
@@ -411,9 +419,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   const testerWords = tester
     ? `Testing${[
         isTestBuild ? (game.multiplayer_mode !== "none" || ownServers.length ? "a new build, offline only" : "a new build") : "",
-        hidden ? "share with testers only" : "",
-        tester.ends_at_ms ? `until ${new Date(tester.ends_at_ms).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : "",
-      ].filter(Boolean).map((part, partIndex) => (partIndex ? ` · ${part}` : `: ${part}`)).join("") || "."}`
+        hidden ? "anyone with this link can play" : "",
+        tester.ends_at_ms ? `until ${day(tester.ends_at_ms)}` : "",
+      ].filter(Boolean).map((part, partIndex) => (partIndex ? ` · ${part}` : `: ${part}`)).join("")}. Progress stays in this browser.`
     : "";
   const reportHref = `/g/${game.slug}/report`;
   const fullGameItem = view.items.find((gameItem) => gameItem.item_name === game.full_game_item_name) ?? null;
@@ -426,11 +434,10 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
   // A guest is asked to sign in from the first paint, never by a script after it: the note says how, and where the game (or the room a link
   // opens) needs an account, Play says so (ACCOUNT_GATE_SCRIPT only sends the press to sign in).
   const asksGuestToSignIn = !view.viewer.account && accountRequirement !== "none" && !isForSale;
-  const playsAfterSignIn = asksGuestToSignIn && (accountRequirement === "whole_game" || inRoom);
   const mainAction = isClosed
     ? []
     : !isForSale
-      ? [{ kind: "control" as const, markup: primaryButton(action("play", playsAfterSignIn ? "Sign in to play" : "Play"), { id: "play", type: "button", isBig: true }) }]
+      ? [{ kind: "control" as const, markup: primaryButton(action("play"), { id: "play", type: "button", isBig: true }) }]
       : fullGamePrice
         ? [{ kind: "control" as const, markup: primaryButton(action("buy"), { id: "buy-game", type: "button", isBig: true, trailingText: priceText(fullGamePrice.currencyCode, fullGamePrice.priceMinorUnits), dataAttributes: { "buy-item": game.full_game_item_name! } }) }]
         : [{ kind: "control" as const, markup: primaryButton("Not on sale right now", { id: "buy-game", type: "button", isBig: true, isDisabled: true }) }];
@@ -447,6 +454,8 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     { kind: "control" as const, markup: secondaryButton(action("share"), { id: "share-page", type: "button", isLabelHidden: true, isBig: true, controls: "share-dialog" }) },
     { kind: "control" as const, markup: secondaryButton(action("report"), { href: reportHref, isLabelHidden: true, isBig: true, dataAttributes: { report: "" } }) },
   ];
+  // Share and Report are one cell, so a line too narrow for the row puts them together under what leads it.
+  const shareAndReport: LayoutItem = { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions }) };
   // Play (or Buy) fills the row, Share and Report small at its end; a paid game's demo or a demo's full game goes under it.
   const paneActions = stack({
     items: [
@@ -457,9 +466,9 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         markup: !mainAction.length
           ? row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions })
           : otherGameLink
-            ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Favorite, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, ...smallActions] }) }] })
-            // Favorite, Share and Report keep together: where they don't fit beside Play (a phone) they go under it as one line.
-            : row({ widths: "lead-fills", label: "Play, Favorite, Share and Report", items: [...mainAction, { kind: "block", markup: row({ widths: "fit", alignment: "end", label: "Favorite, Share and Report", items: smallActions }) }] }),
+            ? stack({ items: [...mainAction, { kind: "block", markup: row({ widths: "lead-fills", label: `${demoSlug ? "Try the demo" : "Full game"}, Favorite, Share and Report`, items: [{ kind: "control", markup: otherGameLink }, shareAndReport] }) }] })
+            // Where Buy and its price can't share the line (the narrowest phone), Buy takes it alone and the pair goes under it.
+            : row({ widths: "lead-fills", label: "Play, Favorite, Share and Report", items: [...mainAction, shareAndReport] }),
       },
     ],
   });
@@ -476,15 +485,21 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ...(devices.length ? [devices.map((device) => DEVICE_LABELS[device] ?? device).join(", ")] : []),
     purchaseWords(purchaseLabel),
   ].join(" · ").replace(/-/g, "\u2011");
+  // A returning player's own first (on a guest's device, the page's script fills it): when they last played, and what's new since.
+  const lastPlayedAtMs = tester ? null : view.lastPlayedAtMs;
+  const latestUpdateAtMs = view.updates[0]?.first_published_at_ms ?? null;
+  const newSinceLink = textLink("What's new", "#updates");
   const titleBlock = stack({
     items: [
       { kind: "words", markup: html`<h1 id="title">${game.title}</h1>` },
       ...(developer || genreNames.length
         ? [{ kind: "words" as const, markup: html`<p>${developer ? html`by ${textLink(developer.name, profilePath(developer.name), { isQuiet: true })}` : ""}${developer && genreNames.length ? " · " : ""}${genreNames.slice(0, 2).join(", ")}</p>` }]
         : []),
-      ...(gameLine ? [{ kind: "words" as const, markup: html`<p>${gameLine}</p>` }] : []),
+      // Not on a phone, as the concept's phone has it: the name, who made it and Play keep its first screen.
+      ...(gameLine && view.deviceKind !== "phone" ? [{ kind: "words" as const, markup: html`<p>${gameLine}</p>` }] : []),
       // The live line: hidden until it says something (people playing, or friends the page's script finds).
-      { kind: "block", id: "live-line", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, markup: keyDetails({ details: [
+      { kind: "block", id: "live-line", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT && lastPlayedAtMs === null, markup: keyDetails({ details: [
+        ...(tester ? [] : [{ id: "last-played", isHidden: lastPlayedAtMs === null, label: "Last played", detailValue: lastPlayedAtMs === null ? "" : ago(Date.now() - lastPlayedAtMs), under: html`<span id="new-since"${lastPlayedAtMs !== null && latestUpdateAtMs !== null && latestUpdateAtMs > lastPlayedAtMs ? "" : raw(" hidden")}>${newSinceLink}</span>` }]),
         { id: "playing-now", isHidden: playingNowPlayerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT, label: "Playing now", detailValue: playingNowPlayerCount.toLocaleString("en-US") },
         ...(tester || !canSignIn || isClosed ? [] : [{ id: "friends-here", isHidden: true, label: "Friends playing", detailValue: "" }]),
       ] }) },
@@ -519,39 +534,47 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
     ...(game.first_published_at_ms ? [{ label: "Released", text: day(game.first_published_at_ms) }] : []),
     ...purchaseFacts,
   ];
-  const aboutPane = pane("About", [
+  const aboutItems: LayoutItem[] = [
     { kind: "block", markup: readingText({ markup: description ? paragraphs(description) : html`<p>The developer hasn't written about this game yet.</p>` }) },
     ...(genreNames.length ? [{ kind: "words" as const, markup: html`<p>${genreNames.map((genreName) => tag(genreName, "plain"))}</p>` }] : []),
-  ]);
-  const detailsPane = pane("Details", [
+  ];
+  const detailsItems: LayoutItem[] = [
     { kind: "words", markup: details({ details: gameDetails, arrangement: "down", label: "Details" }) },
     ...(developer ? [{ kind: "block" as const, markup: person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) }] : []),
     ...(pageLinks.length ? [{ kind: "block" as const, markup: html`${developerLinks(pageLinks)}` }] : []),
-  ]);
+  ];
+  const addOnRows: ListRow[] = addOns.map((gameItem) => {
+    const price = priceFor(gameItem, view.countryCode);
+    const detail = gameItem.description.split("\n")[0]?.trim() || undefined;
+    return isOwned(gameItem) || !price
+      ? { title: gameItem.title, detail, end: tag("Owned", "plain") }
+      : { title: gameItem.title, detail, action: secondaryButton(priceText(price.currencyCode, price.priceMinorUnits), { type: "button", isSmall: true, dataAttributes: { "buy-item": gameItem.item_name } }) };
+  });
+  // On a phone, Roblox-simple: the art, the name and Play up top, then About, Details and Add-ons folded shut, each a row that opens. On
+  // a computer, Steam-rich: About beside Details, then Add-ons, all open.
+  const learnItems: LayoutItem[] = view.deviceKind === "phone"
+    ? [{ kind: "block", markup: pane("About this game", [{ kind: "block", markup: listRows({
+        whenEmpty: NO_EMPTY_NOTE,
+        label: "About, details and add-ons",
+        rows: [
+          { title: "About", fold: { body: stack({ items: aboutItems }) } },
+          { title: "Details", fold: { body: stack({ items: detailsItems }) } },
+          ...(addOnRows.length ? [{ title: "Add-ons", fold: { id: "add-ons", rows: addOnRows } }] : []),
+        ],
+      }) }], false) }]
+    : [
+        { kind: "block", markup: columns({ split: "wide-first", columns: [pane("About", aboutItems), pane("Details", detailsItems)] }) },
+        // The part shows only with an add-on in it.
+        ...(addOnRows.length ? [{ kind: "block" as const, id: "add-ons", markup: pane("Add-ons", [{ kind: "block" as const, markup: listRows({ label: "Add-ons", whenEmpty: NO_EMPTY_NOTE, rows: addOnRows }) }]) }] : []),
+      ];
+  const rowGameCount = view.deviceKind === "phone" ? PHONE_ROW_GAME_COUNT : GAME_PAGE_ROW_GAME_COUNT;
   const overviewItems: LayoutItem[] = [
-    { kind: "block", markup: columns({ split: "wide-first", columns: [aboutPane, detailsPane] }) },
-    ...(addOns.length
-      ? [{ kind: "block" as const, id: "add-ons", markup: pane("Add-ons", [{
-          kind: "block" as const,
-          markup: listRows({
-            label: "Add-ons",
-            // The part shows only with an add-on in it.
-            whenEmpty: stateNote({ stateKind: "empty", title: "No add-ons yet", text: "The developer sells nothing on this page." }),
-            rows: addOns.map((gameItem) => {
-              const price = priceFor(gameItem, view.countryCode);
-              const detail = gameItem.description.split("\n")[0]?.trim() || undefined;
-              return isOwned(gameItem) || !price
-                ? { title: gameItem.title, detail, end: tag("Owned", "plain") }
-                : { title: gameItem.title, detail, action: secondaryButton(priceText(price.currencyCode, price.priceMinorUnits), { type: "button", isSmall: true, dataAttributes: { "buy-item": gameItem.item_name } }) };
-            }),
-          }),
-        }]) }]
-      : []),
+    ...learnItems,
     ...(view.developerGames.length && developer
-      ? [{ kind: "block" as const, markup: gameRow({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.map(coverCard) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.slice(0, rowGameCount).map(coverCard) }) }]
       : []),
     ...(view.likeGames.length
-      ? [{ kind: "block" as const, markup: gameRow({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.map(coverCard) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.slice(0, rowGameCount).map(coverCard) }) }]
       : []),
   ];
   // Overview, then Rooms (picking a room first is rare: Roblox keeps its servers a tab away) and Updates, each a tab showing its part alone.
@@ -628,6 +651,7 @@ ${tester && !multiplayer ? "" : playingCheck("play-check")}
 ${pageData("game-page-data", {
       rented_share_text: RENTED_SHARE_VPN_TEXT,
       slug: game.slug,
+      latest_update_at_ms: tester ? null : latestUpdateAtMs,
       tester_token: tester?.token ?? null,
       room_code: inRoom ? code : "",
       is_multiplayer: multiplayer,
@@ -1258,6 +1282,20 @@ function remember() {
   } catch {}
   if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/" + gamePage.slug, { method: "POST", keepalive: true }).catch(() => {});
 }
+// A guest's last time here, from this device's list (an account's comes with the page, and a device's list may be someone else's), and
+// the updates since: ago() in foundations.ts.
+(() => {
+  const lastPlayed = document.getElementById("last-played");
+  if (!lastPlayed || !lastPlayed.hidden || /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
+  let playedAtMs = 0;
+  try { playedAtMs = Number((JSON.parse(localStorage.getItem("zaisma:played") || "[]").find((entry) => entry.slug === gamePage.slug) || {}).played_at_ms) || 0; } catch {}
+  if (!playedAtMs) return;
+  const minuteCount = Math.max(1, Math.round((Date.now() - playedAtMs) / 60000)), dayCount = Math.round(minuteCount / 1440);
+  lastPlayed.querySelector(".key-detail-value").textContent = minuteCount < 60 ? minuteCount + " min ago" : minuteCount < 1440 ? Math.round(minuteCount / 60) + " h ago" : dayCount === 1 ? "yesterday" : dayCount + " days ago";
+  document.getElementById("new-since").hidden = !(gamePage.latest_update_at_ms > playedAtMs);
+  lastPlayed.hidden = false;
+  document.getElementById("live-line")?.removeAttribute("hidden");
+})();
 // Friends playing this game, under the title, with Join (friends-now.ts).
 const friendsHere = document.getElementById("friends-here");
 if (friendsHere && /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) {
@@ -1272,20 +1310,21 @@ if (friendsHere && /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) {
   }).catch(() => {});
 }
 // Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds. The
-// region the player picked is remembered on this device, and "Show more" stays open across updates.
+// rooms already loaded stay open across updates.
 const roomsPanel = document.getElementById("rooms");
 let isRoomsSeen = false;
 if (roomsPanel) new IntersectionObserver((entries) => { isRoomsSeen = entries.some((entry) => entry.isIntersecting); if (isRoomsSeen) refreshRooms(); }).observe(roomsPanel);
 let roomsAt = Date.now();
 let roomsRegion = "";
 let roomsLabels = {};
-// The order and the full-rooms box are in the address (room_order, is_hiding_full_rooms), so a refresh or a shared link keeps them.
+// The order is in the address (room_order), so a refresh or a shared link keeps it.
 const roomOrders = ${JSON.stringify(ROOM_ORDERS)};
 const askedFor = new URLSearchParams(location.search);
 let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get("room_order") : roomOrders[0];
-let isHidingFullRooms = askedFor.get("is_hiding_full_rooms") === "true";
-const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|" + isHidingFullRooms;
-try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
+// Full rooms always show, last in every order: nothing on the page hides them any more, so an old link's setting is let go.
+// The region a device kept before the region menu stopped being remembered.
+try { localStorage.removeItem("zaisma:rooms-region"); } catch {}
+const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder;
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
 function justLeft() {
@@ -1319,7 +1358,6 @@ async function refreshRooms(force) {
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
     if (roomsOrder !== roomOrders[0]) query.set("room_order", roomsOrder);
-    if (isHidingFullRooms) query.set("is_hiding_full_rooms", "true");
     if (loadedRows > 0) query.set("shown_row_count", String(Math.min(loadedRows, ${MAXIMUM_REFRESHED_ROOM_COUNT})));
     const left = justLeft();
     if (left) query.set("left", left);
@@ -1331,7 +1369,13 @@ async function refreshRooms(force) {
     if (fresh && scrolledTo) fresh.scrollTop = scrolledTo;
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
-    if (line) { line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT}; line.querySelector(".key-detail-value").textContent = playing.toLocaleString("en-US"); }
+    if (line) {
+      line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
+      line.querySelector(".key-detail-value").textContent = playing.toLocaleString("en-US");
+      // The live line holding it shows once it has something to say: people playing, or friends.
+      const liveLine = document.getElementById("live-line");
+      if (liveLine && !line.hidden) liveLine.hidden = false;
+    }
   } catch {} finally {
     hideStale(false);
   }
@@ -1390,11 +1434,10 @@ if (roomsPanel) {
       refreshRooms(true);
       return;
     }
-    // The region's menu, remembered on this device.
+    // The region's menu.
     const regionPick = e.target.closest('input[name="room_region"]');
     if (!regionPick) return;
     roomsRegion = regionPick.value;
-    try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
     refreshRooms(true);
   });
 }
@@ -1630,7 +1673,7 @@ export function deviceNoteFor(options: { deviceKind: DeviceKind; canIsolateFrame
  */
 const ACCOUNT_GATE_SCRIPT = pageScript("account-gate", `// Guests are asked to sign in first, and come back to the same page or match.
 const needsSignIn = !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-// The page already says so (gamePage in pages.ts): Play reads "Sign in to play" and the note says how. A press goes to sign in.
+// The page already says so (gamePage in pages.ts): Play says only Play and the note says how. A press goes to sign in.
 if (needsSignIn && (gamePage.account_requirement === "whole_game" || gamePage.room_code)) {
   const playButton = document.getElementById("play");
   if (playButton) playButton.onclick = () => { location.href = gamePage.sign_in_url; };

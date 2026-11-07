@@ -32,6 +32,10 @@ export const ICON_ROOM_WIDTH = "calc(var(--size-icon) + 2 * var(--pad-icon))";
 export const NARROW_HOLDER_WIDTH = "28rem";
 export const ICON_ONLY_WIDTH = "calc(max(var(--control-height), var(--size-icon) + 2 * var(--pad-icon)) + var(--slant-room, 0px))";
 
+/** A button beside a field with its icon alone, its words kept for a screen reader: where its holder is narrow. */
+const FIELD_BUTTON_ICON_ALONE = `${iconAloneFace(".layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face")}
+  .layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }`;
+
 const ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
 
 /** What a button is: a link when it has an address, otherwise a button of a form. */
@@ -493,11 +497,10 @@ component({
   subgroup: "buttons",
   summary: "Everything else you can press: Details, Make an account, Cancel. Not Back or Close with only its icon: that's a Tertiary button. Another way in (a passkey, Google, Discord) is one with the way's mark and color. A delete is a secondary button too, never orange; only its confirm step turns red.",
   styles: `
-/* Beside a field on a narrow screen, a button with an icon shows its icon alone, as it does in a narrow list's row. */
-@media (max-width: ${NARROW_HOLDER_WIDTH}) {
-  ${iconAloneFace(".layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face")}
-  .layout-row.is-on-field-boxes > .row-cell:not(.fills) .cut-btn:has(> .face > :is(.ico, .play)) > .face > span:not([class]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
+/* Beside a field on a narrow screen, or in a narrow column (a sideways phone's Rooms tab), a button with an icon shows its icon alone, as
+   it does in a narrow list's row. */
+@media (max-width: ${NARROW_HOLDER_WIDTH}) { ${FIELD_BUTTON_ICON_ALONE} }
+@container column (max-width: ${NARROW_HOLDER_WIDTH}) { ${FIELD_BUTTON_ICON_ALONE} }
 /* A secondary button: a solid cut slab with a drawn outline, the same slab a Toggle button is. Under the pointer it brightens and stays
    where it is; a press carves it in where it is (shaded from above, its light turned round), never moving or shrinking it, quickly, and it
    comes back when let go. The shell (the button) stays still; the slab is its face. */
