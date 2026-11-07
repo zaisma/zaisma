@@ -1420,8 +1420,8 @@ describe("layout", () => {
     expect(grid({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
-    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
-    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
+    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover (in rem) or picture.
+    const NAMED_LENGTHS = ["clamp(12.5rem, 20cqi, 16.25rem)", "clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
     const problems: string[] = [];
     for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
       for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {
