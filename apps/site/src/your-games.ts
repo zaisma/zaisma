@@ -257,7 +257,7 @@ export async function yourGamesPage(env: Env, request: Request): Promise<Respons
   const body = hasAnything
     ? html`<div id="your-games">${stack({ items: [...guestLine, ...panes.map((pane): LayoutItem => ({ kind: "block", markup: pane })), { kind: "block", markup: glassPane({ paneWidth: "full", label: "The end of your games", body: stack({ items: [{ kind: "words", markup: endLine }] }) }) }] })}</div>`
     : html`<div id="your-games">${stack({ items: [...guestLine, { kind: "block", markup: glassPane({ paneWidth: "full", label: "Your games", body: stack({ items: [{ kind: "words", markup: html`<h1>Your games</h1>` }, { kind: "block", markup: stateNote({ stateKind: "empty", title: "Games you play show up here.", text: "Find one to start with on Browse.", action: secondaryButton("Browse games", { href: "/games" }) }) }] }) }) }] })}</div>`;
-  const checkedPage: CheckedPageName = !hasAnything ? "Your games, nothing played" : account ? "Your games, signed in" : "Your games, a guest";
+  const checkedPage: CheckedPageName = account ? "Your games, signed in" : "Your games, a guest";
   const response = layout(env, {
     title: "Your games on Zaisma",
     isPrivate: true,
