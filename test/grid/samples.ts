@@ -86,6 +86,9 @@ export const PAGE_SAMPLES: Readonly<Record<string, (world: PageWorld) => PageSam
   "POST /api/links/:slug": (world) => onLiveWith(world, { jsonBody: { link_name: world.liveLinkName } }),
   "POST /api/me/played": (world) => ({ jsonBody: { played: [{ slug: world.liveSlug, played_at_ms: 1 }] } }),
   "POST /api/me/played/:slug": onLive,
+  "POST /api/me/played/:slug/remove": onLive,
+  "POST /api/me/favorites/:slug": onLive,
+  "POST /api/me/favorites/:slug/remove": onLive,
   "POST /api/presence": () => ({}),
   "POST /csp-reports": () => ({ jsonBody: { "csp-report": { "document-uri": "https://zaisma.test/", "violated-directive": "script-src" } } }),
 

@@ -227,8 +227,8 @@ export function gameCard(options: GameCardOptions): Raw {
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square role="img" aria-label="${cardLabel(options)}">${CUT_LINE}${art}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>`;
   const line = options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}${menu}</div>`;
-  const data = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  return html`<div class="${className} sleek-cast"${tint}${data}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}">${line}</div></div></div>`;
+  const dataAttributeMarkup = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
+  return html`<div class="${className} sleek-cast"${tint}${dataAttributeMarkup}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}">${line}</div></div></div>`;
 }
 
 /**
@@ -685,12 +685,10 @@ const COVER_STYLES = `
 .cover.is-gone .cover-name { color: var(--ink-2); }
 /* Its More, at the line's end: a small control, so its plate is a small control's height (like Play's); every card in a list that gives
    More has it, so the list stays one shape. */
-.cover-meta .cover-more { position: relative; display: inline-flex; flex: none; margin-inline-end: calc(-1 * var(--pad-frame-compact)); }
-.cover-plate.has-more { height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
-/* Its plate's line keeps its place at the top, its own height, whatever holds the card. */
-.cover-plate { align-content: start; container-type: inline-size; }
-.cover-plate > .cover-meta { min-height: var(--control-height-tiny); }
-.cover-plate.has-more > .cover-meta { min-height: var(--control-height-small); }
+.cover-meta .cover-more { position: relative; display: inline-flex; flex: none; }
+.cover:has(> .cover-glass > .cover-plate.has-more) { --cover-plate-height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
+/* Its plate measures its own width, so what its line says can give way on a narrow card. */
+.cover-plate { container-type: inline-size; }
 /* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label
    and on its page. */
 @container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag) { display: none; } }

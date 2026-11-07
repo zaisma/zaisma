@@ -258,7 +258,7 @@ beforeEach(async () => {
     }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; DELETE FROM banned_marks; DELETE FROM ban_matches; DELETE FROM owner_cards; DELETE FROM stripe_connect_states; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM favorite_games; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; DELETE FROM banned_marks; DELETE FROM ban_matches; DELETE FROM owner_cards; DELETE FROM stripe_connect_states; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => {
@@ -5075,7 +5075,7 @@ describe("Your games", () => {
     await env.DB.prepare(
       "INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, account_requirement, minimum_player_age_years, entry_signing_key, genres, big_update_at_ms, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 'none', 'none', ?, 'entrykey', ?, ?, ?, ?)",
     )
-      .bind(`g-${slug}`, slug, `Game ${slug}`, options.reviewStatus ?? "live", options.visibility ?? "listed", `v-${slug}`, options.minimumAgeYears ?? 0, options.genres ?? "strategy", options.bigUpdateAtMs ?? null, now, now)
+      .bind(`g-${slug}`, slug, `Game ${slug}`, options.reviewStatus ?? "live", options.visibility ?? "listed", `v-${slug}`, options.minimumAgeYears ?? 13, options.genres ?? "strategy", options.bigUpdateAtMs ?? null, now, now)
       .run();
     await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 0)").bind(`v-${slug}`, `g-${slug}`, `games/g-${slug}/v-${slug}`).run();
     return `g-${slug}`;
@@ -5103,9 +5103,9 @@ describe("Your games", () => {
 
     const page = await (await b.go("/your-games")).text();
     const at = (marker: string) => page.indexOf(marker);
-    expect(at('id="favorites"')).toBeGreaterThan(-1);
-    expect(at('id="favorites"')).toBeLessThan(at('id="recently-played"'));
-    expect(at('id="recently-played"')).toBeLessThan(at('id="for-you"'));
+    expect(at('id="favorites-grid"')).toBeGreaterThan(-1);
+    expect(at('id="favorites-grid"')).toBeLessThan(at('id="recently-played-grid"'));
+    expect(at('id="recently-played-grid"')).toBeLessThan(at('id="for-you-grid"'));
     // The lead is the favorite updated since it was played, first in its grid.
     expect(at('data-slug="updated-fav"')).toBeLessThan(at('data-slug="unplayed-fav"'));
     expect(page).toContain("Not available");
