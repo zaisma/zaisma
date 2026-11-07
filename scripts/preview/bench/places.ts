@@ -77,6 +77,19 @@ export const BENCH_PLACES: BenchPlace[] = [
     ],
   },
   {
+    placeValue: "your-games", name: "Your games", path: "/your-games", pathPattern: "^/your-games", seenBy: "both",
+    states: [
+      { ...ACCOUNT_MENU, stateValue: "your-games-account-menu" },
+      { stateValue: "your-games-signed-in", label: "Signed in", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games, signed in" },
+      { stateValue: "your-games-guest", label: "As a guest", stateKind: "opened", seenBy: "guest", checkedPage: "Your games, a guest" },
+      { stateValue: "your-games-long-names", label: "Long names", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games, long names" },
+      { stateValue: "your-games-full", label: "Full", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games, full" },
+      { stateValue: "your-games-empty", label: "Nothing played", stateKind: "opened", seenBy: "signed_in", checkedPage: "Your games, nothing played" },
+      { stateValue: "all-played", label: "All you've played", stateKind: "opened", seenBy: "signed_in", checkedPage: "All you've played" },
+      { stateValue: "all-played-full", label: "All played, full", stateKind: "opened", seenBy: "signed_in", checkedPage: "All you've played, full" },
+    ],
+  },
+  {
     placeValue: "game-page", name: "Game page", path: "/g/cave-crew", pathPattern: "^/(g/[^/?]+(/report)?($|\\?(?!play))|t/)", seenBy: "both",
     states: [
       { stateValue: "rooms", label: "Overview", stateKind: "opened", seenBy: "both", checkedPage: "Game page" },

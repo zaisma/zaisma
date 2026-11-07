@@ -1240,11 +1240,12 @@ function setFavorite(isFavorite) {
     .catch(() => heart.setAttribute("aria-pressed", String(!isFavorite)));
 }
 if (heart) heart.addEventListener("click", () => setFavorite(heart.getAttribute("aria-pressed") !== "true"));
-if (heart && new URL(location.href).searchParams.has("favorite") && heart.getAttribute("aria-pressed") !== "true") {
+const favoriteAsked = new URLSearchParams(location.search);
+if (heart && favoriteAsked.has("favorite") && heart.getAttribute("aria-pressed") !== "true") {
   setFavorite(true);
-  const cleanUrl = new URL(location.href);
-  cleanUrl.searchParams.delete("favorite");
-  history.replaceState(history.state, "", cleanUrl);
+  favoriteAsked.delete("favorite");
+  const rest = favoriteAsked.toString();
+  history.replaceState(history.state, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
 }
 // Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.
 ${KEEP_PLAYED_COOKIE_SOURCE}
