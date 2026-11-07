@@ -33,9 +33,13 @@ interface LayoutItemPlace {
   id?: string;
   /** Not shown for now: a page script shows it (the home's Continue playing). It takes no room while it's hidden. */
   isHidden?: boolean;
-  /** In a stack, not shown on an upright phone, where the first screen keeps to what matters most (a game's line under its name, so Play stays on it). */
-  isHiddenOnUprightPhone?: boolean;
 }
+
+/** A stack's item: any item, and it can be kept off an upright phone. */
+export type StackItem = LayoutItem & {
+  /** Not shown on an upright phone, where the first screen keeps to what matters most (a game's line under its name, so Play stays on it). */
+  isHiddenOnUprightPhone?: boolean;
+};
 
 /** Markup that isn't a control: a control has to be given as one (kind "control"), so it's spaced and sized as a control. */
 type NotControlMarkup = Raw & { readonly controlHeight?: never };
@@ -94,7 +98,7 @@ const groupLabel = (label: string | undefined): Raw => (label ? html` role="grou
 
 export interface StackOptions {
   /** Top to bottom. */
-  items: LayoutItem[];
+  items: StackItem[];
   /** What the group is, for a screen reader, when it's one thing to them. */
   label?: string;
   /** data-* attributes a page's script reads ({ count: "2" } is data-count="2"), names in lowercase words joined by dashes. */
@@ -118,7 +122,7 @@ export function stack(options: StackOptions): LayoutMarkup {
   const items = options.items.filter((layoutItem) => layoutItem.id || layoutItem.markup.html.trim());
   return asLayout(html`<div class="layout-stack"${groupLabel(options.label)}${dataMarkup}>${items.map((layoutItem, itemIndex) => {
     const above = items[itemIndex - 1];
-    return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}${layoutItem.isHiddenOnUprightPhone ? " is-off-upright-phone" : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
+    return html`<div class="stack-cell is-${placedKind(layoutItem)}${above ? ` gap-top-${stackGap(above, layoutItem)}` : ""}${(layoutItem as StackItem).isHiddenOnUprightPhone ? " is-off-upright-phone" : ""}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   })}</div>`);
 }
 
@@ -441,8 +445,11 @@ function edgeRows(edge: "top" | "bottom"): string[] {
 const LEAD_AND_SIDE_SIDE_BY_SIDE_PX = 440;
 
 export const STACK_STYLES = `
-/* A cell kept off an upright phone's first screen (isHiddenOnUprightPhone). */
-@media ${SCREEN_QUERIES.phoneUpright} { .stack-cell.is-off-upright-phone { display: none; } }
+/* A cell kept off an upright phone (isHiddenOnUprightPhone): it takes no room there, and what's first to show after it has nothing above it. */
+@media ${SCREEN_QUERIES.phoneUpright} {
+  .stack-cell.is-off-upright-phone { display: none; }
+  .layout-stack > .stack-cell:nth-child(1 of :not([hidden], .holds-only-hidden, :empty, .is-off-upright-phone)) { margin-top: 0; }
+}
 /* A stack: one under another, each cell's gap above it picked by what's on each side (stack(), from the spacing table). A hidden cell takes no
    room, and the first shown has nothing above it. Everything in a stack is one width, the stack's, as everything in a row is one height. */
 .layout-stack { display: flex; flex-direction: column; min-width: 0; }

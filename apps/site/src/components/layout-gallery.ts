@@ -61,7 +61,7 @@ component({
   slug: "stack",
   group: "layout",
   subgroup: "inside",
-  summary: "Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it. A pane's body that holds one thing is stackOfOne. Not for things side by side (Row), or a long list of the same thing (Grid, or a list from Data).",
+  summary: "Things one under another: a pane's heading, its lines, its fields and its button. Each gap is picked from what's on each side, so you never pass one; say what each thing is (words, a control, a block) and the stack spaces it. A pane's body that holds one thing is stackOfOne. An item can be kept off an upright phone (isHiddenOnUprightPhone), so Play stays on its first screen. Not for things side by side (Row), or a long list of the same thing (Grid, or a list from Data).",
   styles: STACK_STYLES,
   render: stack,
   examples: [
@@ -77,6 +77,19 @@ component({
             { kind: "control", markup: cutField({ id: "stack-password", name: "password", label: "Password", type: "password", icon: "lock" }) },
             { kind: "control", markup: primaryButton(action("signIn"), { type: "button", isFullWidth: true, isBig: true }) },
             words(html`<p>${textLink("Forgot your password?", "#stack")}</p>`),
+          ],
+        }),
+      }),
+    },
+    {
+      label: "An item kept off an upright phone: the line under a name, so Play stays on the first screen",
+      markup: glassPane({
+        paneWidth: "fit",
+        body: stack({
+          items: [
+            words(html`<h2>Lantern Keeper</h2>`),
+            { kind: "words", isHiddenOnUprightPhone: true, markup: html`<p>Walk the coast at night and keep every light burning.</p>` },
+            { kind: "control", markup: primaryButton(action("play"), { type: "button", isFullWidth: true, isBig: true }) },
           ],
         }),
       }),
