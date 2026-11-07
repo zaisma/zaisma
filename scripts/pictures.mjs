@@ -12,7 +12,7 @@
 //   Push first: the pictures are of the head on GitHub. Run it in the background; it only waits on GitHub.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -75,6 +75,13 @@ export function pagesOfJobs(jobs, pagePaths) {
   });
 }
 
+/** Whether --out may be written: missing, empty, or a folder this command filled (its pictures.json, or a download it left). */
+export function isPicturesFolder(folder) {
+  if (!existsSync(folder)) return true;
+  const names = readdirSync(folder);
+  return !names.length || names.includes("pictures.json") || names.includes("runs-downloading");
+}
+
 /** The answer's last line. */
 export function verdictLine(pages) {
   const failed = pages.filter((page) => page.layout_outcome !== "success" || page.motion_outcome !== "success");
@@ -96,6 +103,8 @@ async function main() {
   if (input.error) stop(input.error.code, input.error.message);
   const { pullRequestNumber, pagePaths } = input;
   const outFolder = resolve(input.outFolder);
+  // It replaces its own folders there (runs, sheets, strips), so --out is a new or empty folder, or one it filled before.
+  if (!isPicturesFolder(outFolder)) stop("out_not_pictures", `${outFolder} has other files in it: give --out a new folder, like <scratchpad>/art.`);
 
   let pull;
   try {
@@ -128,16 +137,21 @@ async function main() {
     if (status?.status === "completed") break;
   }
   if (status?.status !== "completed") stop("run_unfinished", `${run.url} is still running after ${RUN_LIMIT_MS / 60000} minutes.`);
-  if (status.conclusion === "cancelled") stop("run_cancelled", `${run.url} was cancelled (a newer ask for #${pullRequestNumber} replaces one still running).`);
+  if (status.conclusion === "cancelled") stop("run_cancelled", `${run.url} was cancelled on GitHub: run this again.`);
 
   const runsFolder = join(outFolder, "runs");
-  for (const kind of ["runs", "sheets", "strips"]) rmSync(join(outFolder, kind), { recursive: true, force: true });
-  mkdirSync(runsFolder, { recursive: true });
+  // Downloaded beside the last round's first, which stays until the new one is whole.
+  const downloadFolder = join(outFolder, "runs-downloading");
+  rmSync(downloadFolder, { recursive: true, force: true });
+  mkdirSync(downloadFolder, { recursive: true });
   try {
-    gh(["run", "download", String(run.databaseId), "--pattern", "pictures-*", "--dir", runsFolder]);
+    gh(["run", "download", String(run.databaseId), "--pattern", "pictures-*", "--dir", downloadFolder]);
   } catch (error) {
-    stop("download_failed", `The run's pictures didn't download: ${String(error.stderr || error.message).trim()}. The run: ${run.url}`);
+    rmSync(downloadFolder, { recursive: true, force: true });
+    stop("download_failed", `The run's pictures didn't download: ${String(error.stderr || error.message).trim()}. The last round's pictures are as they were. The run: ${run.url}`);
   }
+  for (const kind of ["runs", "sheets", "strips"]) rmSync(join(outFolder, kind), { recursive: true, force: true });
+  renameSync(downloadFolder, runsFolder);
   const jobs = readdirSync(runsFolder).sort().flatMap((name) => {
     const runPath = join(runsFolder, name, "run.json");
     if (!existsSync(runPath)) return [];

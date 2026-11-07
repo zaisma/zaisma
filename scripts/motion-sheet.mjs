@@ -719,7 +719,7 @@ async function main() {
   if (!chromePath) stop("No Chrome here, and Chrome for Testing couldn't be fetched: set CHROME_PATH to a Chrome.", isJson, "no_chrome");
   // A page is a bench place (its states its own) or the path itself (a gallery group: its controls pressed).
   const pages = places.length
-    ? places.map((place) => ({ name: place.name, path: place.path, profile: place.profile ?? (place.seenBy === "signed_in" ? "Moss_Runner" : "guest"), states: states.filter((state) => state.placeValue === place.placeValue) }))
+    ? places.map((place) => ({ name: place.name, path: isExact ? only : place.path, profile: place.profile ?? (place.seenBy === "signed_in" ? "Moss_Runner" : "guest"), states: states.filter((state) => state.placeValue === place.placeValue) }))
     : [{ name: only, path: only, profile: "guest", states: [], stateAsked: valueOf("--state") }];
   const picturesFolder = valueOf("--pictures") ? resolve(valueOf("--pictures")) : null;
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });

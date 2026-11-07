@@ -126,7 +126,6 @@ export const STRESS_ACCOUNTS = [
 /** The page's name its stress entries start with: a signed-in state's without its ", signed in". */
 export const stressBaseName = (name: string): string => name.replace(/, signed in$/, "");
 
-/** The Players sheet, opened from the playing bar's Players button. */
 /**
  * The gallery's places as a sheet, opened as a person does where it's a sheet: the Groups button they can see, pressed. On a screen wide
  * enough for the sidebar beside the page, that button folds it instead, so there the sheet opens by itself. It waits for the page's sheet
@@ -146,6 +145,7 @@ const OPEN_GALLERY_PLACES_SHEET = `(async () => {
   await new Promise((done) => setTimeout(done, 400));
   return sheet.open;
 })()`;
+/** The Players sheet, opened from the playing bar's Players button. */
 const OPEN_PLAYERS_SHEET = `(async () => { document.querySelector('[aria-controls="players"]').click(); await new Promise((done) => setTimeout(done, 600)); return true; })()`;
 /** The cards over a running game that start hidden (the game asking to sign in, signed out), shown one under another. */
 const SHOW_PLAYING_CARDS = `(async () => {

@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a Node script with no types of its own.
-import { WORKFLOW_FILE, flattenedPictures, pagePrefix, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
+import { WORKFLOW_FILE, flattenedPictures, isPicturesFolder, pagePrefix, pagesOfJobs, pathSlug, readInput, verdictLine } from "../../scripts/pictures.mjs";
 // @ts-expect-error: a Node script with no types of its own.
 import { picturesRefusal } from "../../scripts/motion-sheet.mjs";
 
@@ -49,6 +50,20 @@ describe("npm run pictures", () => {
       { page_path: "/games", layout_outcome: "success", motion_outcome: "missing", layout_output_path: join("runs/pictures-2", "layout.txt"), motion_output_path: null },
     ]);
     expect(verdictLine(pages)).toMatch(/^PICTURES FAIL: \/ \(layout check success, motion sheet failure\); \/games \(layout check success, motion sheet missing\)/);
+  });
+
+  it("writes only a new or empty folder, or one it filled before", () => {
+    const root = mkdtempSync(join(tmpdir(), "pictures-"));
+    try {
+      expect(isPicturesFolder(join(root, "new"))).toBe(true);
+      expect(isPicturesFolder(root)).toBe(true);
+      writeFileSync(join(root, "notes.md"), "mine");
+      expect(isPicturesFolder(root)).toBe(false);
+      writeFileSync(join(root, "pictures.json"), "{}");
+      expect(isPicturesFolder(root)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("passes only when every page's layout check and motion sheet passed", () => {

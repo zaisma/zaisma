@@ -30,9 +30,9 @@ permissions:
   contents: read
 
 concurrency:
-  # A newer ask for a pull request's pictures replaces one still running.
-  group: pictures-${{ inputs.pull_request_number }}
-  cancel-in-progress: true
+  # Each ask on its own: two asks for one pull request (other pages, or two sessions) both finish.
+  group: pictures-${{ inputs.request_id }}
+  cancel-in-progress: false
 
 env:
   # As check.yml's: the preview's test data as a snapshot.

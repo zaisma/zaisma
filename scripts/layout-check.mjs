@@ -973,6 +973,8 @@ async function main() {
   } catch (error) {
     stop(error.message, isJson);
   }
+  // Before Chrome and the preview: a picture run never starts anything on a person's machine.
+  if (picturesFolder && !process.env.CI) stop(localRunRefusal({ isOnGithub: false, only, pagesAsked, shard, pageCount: 0, picturesFolder }), isJson, "whole_site_on_github");
   const chromePath = await chromeToRun();
   if (!chromePath) stop("No Chrome: set CHROME_PATH, or let it download Chrome for Testing (it couldn't).", isJson, "no_chrome");
   const sites = previewSites();
