@@ -112,7 +112,7 @@ export interface GameCardFacts {
   friends?: FramedPerson[];
   /** Why it isn't for this device ("Needs a keyboard", "Made for computers"): its art dimmed, and these words in its label. */
   deviceNote?: string;
-  /** Why a list chose it for the viewer ("Because you played Ash Hollow"): a quiet line of its own under the title's, the same place on every card. */
+  /** Why a list chose it for the viewer ("Because you played Ash Hollow"): the head of its More, so the card keeps its one shape. Needs a menu. */
   reasonText?: string;
 }
 
@@ -155,6 +155,7 @@ const cardLabel = (options: GameCardOptions): string =>
   [
     options.title,
     options.isGone ? "not available" : options.facts.tagWords?.toLowerCase() ?? "",
+    options.facts.reasonText?.toLowerCase() ?? "",
     options.facts.priceText ?? "",
     options.facts.friends?.length ? `${options.facts.friends.map((friend) => friend.username).join(", ")} playing` : "",
     options.facts.deviceNote ?? "",
@@ -220,16 +221,14 @@ export function gameCard(options: GameCardOptions): Raw {
   const art = isPlaceholder ? "" : html`<span class="cover-picture carving-art" data-cut-line="0">${picture(options.picture!, { isEager: options.isEager, hasHighPriority: options.hasHighPriority })}</span>`;
   const playerCountMarkup = facts.playerCount !== undefined && !options.isGone ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : "";
   const menu = options.menu
-    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, head: options.isGone ? { title: options.title, note: "Not available right now" } : undefined, items: options.menu.items })}</span>`
+    ? html`<span class="cover-more">${tertiaryButton(action("more", `More for ${options.title}`), { type: "button", isLabelHidden: true, isSmall: true, controls: options.menu.id, isExpanded: false })}${dropdown({ id: options.menu.id, label: options.menu.label, head: options.isGone ? { title: options.title, note: "Not available right now" } : facts.reasonText ? { title: options.title, note: facts.reasonText } : undefined, items: options.menu.items })}</span>`
     : "";
   const well = options.isGone
     ? html`<span class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square role="img" aria-label="${cardLabel(options)}">${CUT_LINE}${art}</span>`
     : html`<a class="cover-art carving holds-art${options.state ? ` ${options.state}` : ""}" data-cut-line="0" data-cut-square data-edge-light="bottom" data-lights href="${options.href}" aria-label="${cardLabel(options)}">${CUT_LINE}${art}${EDGE_LIGHT}</a>`;
   const line = options.playHref ? gameCardActions(nameMarkup, options.playHref, options.href) : options.joinHref ? gameCardJoin(nameMarkup, options.joinHref) : html`<div class="cover-meta">${nameMarkup}${endMarkup ?? playerCountMarkup}${menu}</div>`;
-  const reasonText = facts.reasonText;
-  const reason = reasonText ? html`<span class="cover-reason one-line">${reasonText}</span>` : "";
   const data = options.dataAttributes ? html`${Object.entries(options.dataAttributes).map(([name, text]) => html` data-${name}="${text}"`)}` : "";
-  return html`<div class="${className} sleek-cast"${tint}${data}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}${reason ? " has-reason" : ""}">${line}${reason}</div></div></div>`;
+  return html`<div class="${className} sleek-cast"${tint}${data}${options.isCurrent ? raw(' aria-current="true"') : ""}><div class="cover-glass glass sleek" data-cut-line="0">${well}<div class="cover-plate${options.menu ? " has-more" : ""}">${line}</div></div></div>`;
 }
 
 /**
@@ -688,19 +687,15 @@ const COVER_STYLES = `
    More has it, so the list stays one shape. */
 .cover-meta .cover-more { position: relative; display: inline-flex; flex: none; margin-inline-end: calc(-1 * var(--pad-frame-compact)); }
 .cover-plate.has-more { height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact)); }
-/* Why a list chose it (For you's Because you played), or that it's gone for now: a quiet line of its own under the title's. A card with one
-   is a line taller; the cards beside it stretch to its height, and every title line keeps its place at the top of its plate, its own height. */
+/* Its plate's line keeps its place at the top, its own height, whatever holds the card. */
 .cover-plate { align-content: start; container-type: inline-size; }
 .cover-plate > .cover-meta { min-height: var(--control-height-tiny); }
 .cover-plate.has-more > .cover-meta { min-height: var(--control-height-small); }
-.cover-plate.has-reason { height: auto; min-height: calc(var(--cover-plate-height) + 1lh); }
-.cover-plate.has-more.has-reason { min-height: calc(var(--control-height-small) + 2 * var(--pad-frame-compact) + 1lh); }
 /* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label
    and on its page. */
 @container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag) { display: none; } }
 /* Gone, its tag is long: on a card under about two covers wide, its title keeps the line and its More's head says it isn't available. */
 @container (max-width: 300px) { .cover.is-gone .cover-plate.has-more > .cover-meta > .tag { display: none; } }
-.cover-reason { padding-inline: var(--pad-frame-compact); font: var(--type-facts); color: var(--ink-2); min-width: 0; }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
 /* In a row where some card has a control on its title line (Join), every title line there is as tall as that control, so the cards line up. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--muted); }
@@ -1215,7 +1210,7 @@ component({
     { label: "Lifted: its foot lit, its art brighter, Play and Details showing", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", playHref: "#kestrel-play", isCurrent: true, facts: { playerCount: 12480 } }), isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
     { label: "Gone for now: greyed, with no link", markup: cardSample({ title: "Hollow Tide", picture: STAND_IN_COVER_PICTURES["hollow-tide"]!, href: "#hollow-tide", facts: {}, isGone: true, menu: { id: "example-card-gone-more", label: "Hollow Tide", items: [{ ...action("remove"), action: "#game-card" }] } }) },
-    { label: "Why it was chosen: a line of its own under the title (For you)", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 1730, reasonText: "Because you played Ashen Crown" } }) },
+    { label: "Why it was chosen: the head of its More (For you)", markup: cardSample({ title: "Kestrel", picture: STAND_IN_COVER_PICTURES["kestrel"]!, href: "#kestrel", facts: { playerCount: 1730, reasonText: "Because you played Ashen Crown" }, menu: { id: "example-card-reason-more", label: "Kestrel", items: [{ ...action("details"), href: "#kestrel" }] } }) },
     { label: "With its More: Remove, in a menu", markup: cardSample({ title: "Verdant", picture: STAND_IN_COVER_PICTURES["verdant"]!, href: "#verdant", facts: { playerCount: 96 }, menu: { id: "example-card-more", label: "Verdant", items: [{ ...action("remove"), action: "#game-card" }] } }) },
     { label: "Small: the art alone, in a row that says the rest (a search's games)", markup: row({ widths: "fit", items: [{ kind: "block", markup: smallGameCard({ imageUrl: "/design/covers/kestrel.webp", placeholderDataUrl: STAND_IN_COVER_PICTURES["kestrel"]!.placeholderDataUrl }) }, { kind: "block", markup: smallGameCard({ imageUrl: null }) }] }) },
   ],
