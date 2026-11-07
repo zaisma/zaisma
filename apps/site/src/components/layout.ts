@@ -615,7 +615,8 @@ export const COLUMNS_STYLES = `
 /* Its own width is what it's given, never its content's, so it can be measured: as wide as what holds it. */
 .layout-columns { container-type: inline-size; width: 100%; min-width: 0; }
 .columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
-.columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* Each column is a holder of its own, named column, so what sits in it (a field's button) is narrow by the column's width, not the screen's. */
+.columns-in > .column { container: column / inline-size; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .columns-in > .column > .glass-pane { width: 100%; }
 /* Words that start a column (a game's name beside its pictures) keep the words' margin above them, as words at a pane's top do, while a
    block beside them (the pictures) sits at the frame gap. */

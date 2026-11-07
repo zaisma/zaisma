@@ -189,10 +189,10 @@ function roomRow(slug: string, room: ListedRoom): ListRow {
 /** What a field for a room code takes: its six capitals and numbers (no 0, 1, I or O), so nothing else can be typed or pasted in. */
 export const ROOM_CODE_TYPING = { characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true } as const;
 
-/** A box for a room code a friend shared. It opens the same room link an invite does. The page's script reads #room-code. */
+/** A box for a room code a friend shared: a short field, its Join beside it at the end. It opens the same room link an invite does. The page's script reads #room-code. */
 export function codeBox(slug: string): Raw {
-  const field = cutField({ id: "room-code", name: "room", label: "Room code", isLabelHidden: true, type: "text", placeholder: "Room code", autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
-  return html`<form method="get" action="/g/${slug}">${row({ widths: "lead-fills", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton(action("join"), { type: "submit" }) }] })}</form>`;
+  const field = cutField({ id: "room-code", name: "room", label: "Room code", isLabelHidden: true, type: "text", placeholder: "Room code", isShort: true, autocomplete: "off", ...ROOM_CODE_TYPING, pattern: "[2-9A-HJ-NP-Z]{6}", isRequired: true });
+  return html`<form method="get" action="/g/${slug}">${row({ widths: "fit", alignment: "end", items: [{ kind: "control", markup: field }, { kind: "control", markup: secondaryButton(action("join"), { type: "submit" }) }] })}</form>`;
 }
 
 /**
