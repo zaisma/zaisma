@@ -9,13 +9,24 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { transform } from "esbuild";
+import { minify } from "terser";
 import { ROOT, loadComponentsModule } from "./components-module.mjs";
 
 export const GENERATED_PATH = join(ROOT, "apps/site/src/generated/components-script.generated.ts");
 
+/**
+ * A script minified: esbuild first, then terser's compressor over its output, which finds a little more to fold, about 3% of what pages
+ * carry. `typeof x === "undefined"` stays as written (typeofs off), since a name it checks may not be declared at all.
+ */
+async function minified(source) {
+  const { code } = await transform(source, { minify: true, target: "es2020", legalComments: "none" });
+  const folded = await minify(code, { ecma: 2020, compress: { typeofs: false }, mangle: true, format: { comments: false } });
+  return folded.code;
+}
+
 /** One script minified, as the generated module's line for it. */
 async function minifiedLine(name, source) {
-  const { code } = await transform(source, { minify: true, target: "es2020", legalComments: "none" });
+  const code = await minified(source);
   const sourceSha256 = createHash("sha256").update(source).digest("hex");
   return `export const ${name} = { sourceSha256: ${JSON.stringify(sourceSha256)}, minifiedText: ${JSON.stringify(code)} };`;
 }
@@ -24,7 +35,7 @@ async function minifiedLine(name, source) {
 async function minifiedPiecesLine(pieces) {
   const entries = [];
   for (const piece of pieces) {
-    const { code } = await transform(piece.source, { minify: true, target: "es2020", legalComments: "none" });
+    const code = await minified(piece.source);
     entries.push(`  ${JSON.stringify(piece.name)}: { sourceSha256: ${JSON.stringify(createHash("sha256").update(piece.source).digest("hex"))}, minifiedText: ${JSON.stringify(code)} },`);
   }
   return `export const MINIFIED_FIRST_PAINT_PIECES = {\n${entries.join("\n")}\n};`;
