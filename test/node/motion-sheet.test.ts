@@ -135,6 +135,11 @@ describe("what the motion sheet finds in a recording", () => {
     expect(places.map((place: { name: string }) => place.name)).toContain("Sign in");
     expect(states.length).toBeGreaterThan(0);
     expect(motionRuns("/signin", "wrong-password").states).toHaveLength(1);
+    // --path takes one page exactly: / is Home alone, where --only / is in every path.
+    expect(motionRuns("/").places.length).toBeGreaterThan(1);
+    expect(motionRuns("/", null, { isExact: true }).places.map((place: { name: string }) => place.name)).toEqual(["Home"]);
+    expect(motionRuns("/", null, { isExact: true }).states.every((state: { placeValue: string; path: string }) => state.placeValue === "home" || state.path === "/")).toBe(true);
+    expect(motionRuns("/g/cave", null, { isExact: true }).places).toEqual([]);
     expect(markedUrl("http://localhost:8800", "/g/cave-crew?play", "turned", "Moss_Runner")).toBe("http://localhost:8800/g/cave-crew?play&bench_screen=motion.turned.Moss_Runner.still");
     expect(markedUrl("http://localhost:8800", "/g/cave-crew?play", "turned", "Moss_Runner", "dark")).toBe("http://localhost:8800/g/cave-crew?play&bench_screen=motion.turned.Moss_Runner.still");
     // A gallery page's theme is its address's: a dark run without it would measure the light glass twice.
