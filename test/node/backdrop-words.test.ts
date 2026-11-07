@@ -19,7 +19,7 @@ const foundations = readFileSync("apps/site/src/components/foundations.ts", "utf
 describe("words on the backdrop", () => {
   for (const backdrop of MEASURED_BACKDROPS) {
     it(`stay readable on the ${backdrop.themeName} backdrop`, () => {
-      const picture = foundations.match(new RegExp(`\\[data-theme-choice="${backdrop.themeName}"\\] \\.backdrop-placeholder\\.is-own \\{ --placeholder: url\\(data:image/webp;base64,([^)]+)\\)`))![1]!;
+      const picture = foundations.match(new RegExp(`\\[data-theme-choice="${backdrop.themeName}"\\][^{]*\\{ --own-backdrop-still: url\\(data:image/webp;base64,([^)]+)\\)`))![1]!;
       expect(createHash("sha256").update(picture).digest("hex").slice(0, 16), "The backdrop changed: measure it again, then change this row").toBe(backdrop.pictureSha256Start);
       const lighter = Math.max(backdrop.inkLuminance, backdrop.closestLuminance), darker = Math.min(backdrop.inkLuminance, backdrop.closestLuminance);
       expect((lighter + 0.05) / (darker + 0.05)).toBeGreaterThanOrEqual(LEAST_CONTRAST_RATIO);

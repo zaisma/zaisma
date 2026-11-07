@@ -137,9 +137,10 @@ describe("the home page", () => {
     await env.DB.prepare("DELETE FROM whats_on_entries WHERE id = 'whats_on_entry_homeevent'").run();
   });
 
-  it("opens a device that played before the cookie kept it again, once, and asks for nothing else", () => {
+  it("opens a device that played before the cookie kept it again, once, and asks only to send an account what this device played", () => {
     expect(HOME_SCRIPT.sourceText).toContain("location.reload()");
-    expect(HOME_SCRIPT.sourceText).not.toContain("fetch(");
+    expect(HOME_SCRIPT.sourceText.match(/fetch\(/g)).toHaveLength(1);
+    expect(HOME_SCRIPT.sourceText).toContain('fetch("/api/me/played", { method: "POST"');
     expect(HOME_SCRIPT.sourceText).not.toContain("getGamepads");
   });
 
