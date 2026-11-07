@@ -1307,6 +1307,15 @@ describe("layout", () => {
     expect(ROW_STYLES).toContain(".layout-row > .row-cell.gap-end-control-row-boxes { margin-inline-end: var(--gap-control-row-boxes); }");
   });
 
+  it("fills a wrapped row's line with a row of controls in it, its controls sharing it, but not where the row spreads to both ends or the inner row wraps too", () => {
+    expect(ROW_STYLES).toContain(".layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block:has(> .layout-row[data-control-height]:not(.is-wrapped)) { flex: 1 1 100%;");
+    expect(ROW_STYLES).toContain("> .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }");
+  });
+
+  it("shows a switch's menu for narrow places in a narrow column too, not only on a phone", () => {
+    expect(switchSource).toContain("@container column (max-width: ${NARROW_HOLDER_WIDTH}) { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }");
+  });
+
   it("spaces a control beside a row of controls as two controls, but apart in a row spread to both ends", () => {
     const pair = { kind: "block" as const, markup: row({ widths: "fit", items: [control(actions.secondaryButton("Share")), control(actions.secondaryButton("Report"))] }) };
     expect(cells(row({ widths: "lead-fills", items: [control(actions.primaryButton("Play")), pair] }).html)[0]).toContain("gap-end-control-row-boxes");

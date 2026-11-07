@@ -515,12 +515,13 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 .layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
-/* A row of controls among them (Share and Report beside Play) fills its own line too, its controls sharing it. */
-.layout-row.is-wrapped > .row-cell.is-block:has(> .layout-row[data-control-height]) { flex: 1 1 100%; min-width: 0; margin-inline-end: var(--gap-control-row-boxes); }
-.layout-row.is-wrapped > .row-cell.is-block > .layout-row[data-control-height] { flex: 1 1 auto; }
-.layout-row.is-wrapped > .row-cell.is-block > .layout-row[data-control-height] > .row-cell { flex: 1 1 0; min-width: 0; }
-.layout-row.is-wrapped > .row-cell.is-block > .layout-row[data-control-height] > .row-cell > .shell { display: flex; flex: 1 1 auto; }
-.layout-row.is-wrapped > .row-cell.is-block > .layout-row[data-control-height] > .row-cell > .shell > .face { width: 100%; justify-content: center; }
+/* A row of controls among them (Share and Report beside Play) fills its own line too, its controls sharing it, while it fits on that line
+   (wrapped itself, it's a stack as any row is). Not in a row spread to both ends (a menu's tools and Leave), whose pieces keep their size. */
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block:has(> .layout-row[data-control-height]:not(.is-wrapped)) { flex: 1 1 100%; min-width: 0; margin-inline-end: var(--gap-control-row-boxes); }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) { flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell { display: flex; flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
 /* Words at the row's ends keep the pane's margin at that side. */
 .row-cell.is-words:first-child { padding-inline-start: var(--pad-words); }
 .row-cell.is-words:last-child { padding-inline-end: var(--pad-words); }
