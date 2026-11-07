@@ -78,6 +78,8 @@ function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
 /** The gap between two things side by side: two controls slant toward each other, their boxes overlapping (the edge rule's neighbor distance). */
 function rowGap(before: LayoutItem, after: LayoutItem): LayoutGap {
   const kinds = [placedKind(before), placedKind(after)];
+  // A control beside a row of controls (Play beside Share and Report, kept a pair where the row wraps): still controls side by side.
+  if ((kinds[0] === "control" && isControlRow(after)) || (kinds[1] === "control" && isControlRow(before))) return "control-row-boxes";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-row-boxes";
   if (kinds[0] === "words" && kinds[1] === "words") return before.kind === after.kind ? "words-words" : "words-control";
