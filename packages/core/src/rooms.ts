@@ -299,12 +299,13 @@ async function readRooms(database: D1Database, gameId: string, options: RoomList
   const same = (first: string, second: string) => first.localeCompare(second, "en", { sensitivity: "base" }) === 0;
   const fits = (room: ListedRoom) => wanted.every(([labelName, labelValue]) => Object.entries(room.labels).some(([roomLabelName, roomLabelValue]) => same(roomLabelName, labelName) && same(roomLabelValue, labelValue)));
   const matching = all.filter((room) => (!region || where.get(room.roomCode) === region) && fits(room));
-  // The page can leave out open rooms with no space (matches in progress aren't full rooms: they stay), and order the rest by players. The
-  // sort is stable, so matches in progress stay last and ties keep the best-to-join order.
+  // The page can leave out open rooms with no space (matches in progress aren't full rooms: they stay), and order the rest by players:
+  // rooms with space first, then full ones (to watch), then matches in progress. The sort is stable, so ties keep the best-to-join order.
   const inRegion = page?.isHidingFullRooms ? matching.filter((room) => !room.isOpen || hasSpace(room)) : matching;
   if (page && page.roomOrder !== "best_to_join") {
     const isMostFirst = page.roomOrder === "most_players";
-    inRegion.sort((first, second) => Number(second.isOpen) - Number(first.isOpen) || (isMostFirst ? second.playerCount - first.playerCount : first.playerCount - second.playerCount));
+    const rank = (room: ListedRoom) => (!room.isOpen ? 2 : hasSpace(room) ? 0 : 1);
+    inRegion.sort((first, second) => rank(first) - rank(second) || (isMostFirst ? second.playerCount - first.playerCount : first.playerCount - second.playerCount));
   }
   const shown = page ? inRegion.slice(page.startIndex, page.startIndex + page.pageRoomCount) : inRegion.slice(0, MAXIMUM_SHOWN_ROOM_COUNT);
   const list: RoomList = {

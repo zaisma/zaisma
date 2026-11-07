@@ -76,8 +76,11 @@ function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
 }
 
 /** The gap between two things side by side: two controls slant toward each other, their boxes overlapping (the edge rule's neighbor distance). */
-function rowGap(before: LayoutItem, after: LayoutItem): LayoutGap {
+function rowGap(before: LayoutItem, after: LayoutItem, alignment: string): LayoutGap {
   const kinds = [placedKind(before), placedKind(after)];
+  // A control beside a row of controls (Play beside Share and Report, kept a pair where the row wraps): still controls side by side. Not
+  // in a row spread to both ends (a menu's tools and Leave), where the two are apart, not neighbors.
+  if (alignment !== "between" && ((kinds[0] === "control" && isControlRow(after)) || (kinds[1] === "control" && isControlRow(before)))) return "control-row-boxes";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-row-boxes";
   if (kinds[0] === "words" && kinds[1] === "words") return before.kind === after.kind ? "words-words" : "words-control";
@@ -150,7 +153,7 @@ export function row(options: RowOptions): LayoutMarkup {
     const after = options.items[itemIndex + 1];
     // The last cell reaches past the row's end as far as a control reaches over the next, and the row stops that far short of its own end
     // (ROW_STYLES), so a control ends at the row's end whether its line wraps there or not.
-    const endGap = after ? rowGap(layoutItem, after) : "control-row-boxes";
+    const endGap = after ? rowGap(layoutItem, after, alignment) : "control-row-boxes";
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""} gap-end-${endGap}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
@@ -518,6 +521,13 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 .layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
+/* A row of controls among them (Share and Report beside Play) fills its own line too, its controls sharing it, while it fits on that line
+   (wrapped itself, it's a stack as any row is). Not in a row spread to both ends (a menu's tools and Leave), whose pieces keep their size. */
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block:has(> .layout-row[data-control-height]:not(.is-wrapped)) { flex: 1 1 100%; min-width: 0; margin-inline-end: var(--gap-control-row-boxes); }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) { flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell { display: flex; flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
 /* Words at the row's ends keep the pane's margin at that side. */
 .row-cell.is-words:first-child { padding-inline-start: var(--pad-words); }
 .row-cell.is-words:last-child { padding-inline-end: var(--pad-words); }
@@ -657,7 +667,8 @@ export const COLUMNS_STYLES = `
 /* Its own width is what it's given, never its content's, so it can be measured: as wide as what holds it. */
 .layout-columns { container-type: inline-size; width: 100%; min-width: 0; }
 .columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
-.columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* Each column is a holder of its own, named column, so what sits in it (a field's button) is narrow by the column's width, not the screen's. */
+.columns-in > .column { container: column / inline-size; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .columns-in > .column > .glass-pane { width: 100%; }
 /* Words that start a column (a game's name beside its pictures) keep the words' margin above them, as words at a pane's top do, while a
    block beside them (the pictures) sits at the frame gap. */

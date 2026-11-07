@@ -956,9 +956,11 @@ const FIELD_STYLES = `
 .cut-field > .field:not(.select, .long) { width: var(--size-card); min-width: 100%; max-width: 100%; }
 .cut-field.is-short > .field:not(.select, .long) { width: var(--size-field-short); min-width: 0; }
 /* Beside other controls in a row, a short field is short at least and takes what its cell is given: as wide as its label above it in a row of
-   fitting things, so the control beside it meets it and they slant toward each other, never sitting apart; all the room left in a row its
-   field leads. */
+   fitting things, so the control beside it meets it and they slant toward each other, never sitting apart. */
 .row-cell.is-control > .cut-field.is-short > .field:not(.select, .long) { min-width: 100%; }
+/* Leading a row that fills (a room code and its Join), a short field takes the row's room past its own width, so nothing sits apart from the
+   row's start, and needs only its own width to keep its button beside it. */
+.row-cell.fills > .cut-field.is-short > .field:not(.select, .long) { width: 100%; min-width: var(--size-field-short); }
 /* Its face is a layer of its own under its words (the field's ::before), so the words can fade out at an end with more of them past it
    (more-left and more-right, FIELD_SCRIPT) instead of being cut off hard there, while the face stays whole. */
 .field > input { --text-start: calc(var(--pad-inside-words) + 34px); --text-end: 16px; }
@@ -1007,6 +1009,7 @@ component({
   styles: FIELD_STYLES,
   render: cutField,
   examples: [
+    { label: "Short, leading a row that fills: it takes the row's room, its button beside it", markup: examplePane(row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "example-room-code-fills", name: "room", label: "Room code", isLabelHidden: true, type: "text", placeholder: "Room code", isShort: true }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] })) },
     { label: "Short: a few characters, its button beside it", markup: examplePane(row({ widths: "fit", items: [{ kind: "control", markup: cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", isShort: true }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] })) },
     { label: "Empty", markup: examplePane(cutField({ id: "example-username-empty", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "username" })) },
     { label: "Typed", markup: examplePane(cutField({ id: "example-username-typed", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r" })) },
@@ -1022,7 +1025,7 @@ component({
     { label: "A long value", markup: examplePane(cutField({ id: "example-email-long", name: "email", label: "Email", type: "email", icon: "mail", text: "sofia.lindqvist-montgomery@northern-lights-studio.example" })) },
     {
       label: "Only a room code's characters, 6 at most: try typing or pasting",
-      markup: examplePane(cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Z]{6}", characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true, isRequired: true })),
+      markup: examplePane(cutField({ id: "example-room-code-characters", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Z]{6}", characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true, isRequired: true })),
     },
     { label: "No icon", markup: examplePane(cutField({ id: "example-title", name: "title", label: "Title", type: "text", text: "Ashen Crown" })) },
     { label: "Read-only", markup: examplePane(cutField({ id: "example-username-read-only", name: "username", label: "Username", type: "text", icon: "person", text: "liam_hart", isReadOnly: true })) },
