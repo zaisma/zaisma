@@ -8,6 +8,7 @@ import {
   gameBySlug,
   isFavoriteGame,
   playedHistory,
+  isBlockedInCountry,
   NOT_BLOCKED_IN_COUNTRY_SQL,
   removeFavoriteGame,
   requestCountryCode,
@@ -91,7 +92,8 @@ async function yourGamesBy(env: Env, column: "id" | "slug", keys: string[], coun
     genres: row.genres ? row.genres.split(",") : [],
     big_update_at_ms: row.big_update_at_ms,
     playing_now_player_count: playingNow.get(row.id) ?? 0,
-    is_removed: row.review_status === "removed",
+    // Taken down or held for safety or the law: it drops silently, never a greyed card with its title and cover.
+    is_removed: row.review_status === "removed" || row.review_status === "held",
     is_gone: row.review_status !== "live" || !row.live_version_id || (row.visibility !== "listed" && row.visibility !== "unlisted") || Boolean(row.is_being_deleted),
     minimum_player_age_years: row.minimum_player_age_years,
     is_paid: row.full_game_item_name !== null,
@@ -348,7 +350,9 @@ export async function handleYourGamesChanges(request: Request, env: Env, path: s
   const isForm = !(request.headers.get("Accept") ?? "").includes("application/json");
   const answer = (body: Record<string, unknown>, httpStatus: number, cookies: string[] = []) => {
     // A favorite added goes back to its game; one taken off, or a game taken off the history, back to Your games.
-    const back = list === "favorites" && !remove ? `/g/${slug}` : "/your-games";
+    const from = new URL(request.headers.get("Referer") ?? "/", request.url);
+    const yourGamesPlace = from.origin === new URL(request.url).origin && from.pathname.startsWith("/your-games") ? from.pathname + from.search : "/your-games";
+    const back = list === "favorites" && !remove ? `/g/${slug}` : yourGamesPlace;
     const response = isForm && httpStatus < 400 ? new Response(null, { status: 303, headers: { Location: back } }) : Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
     for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
     return response;
@@ -367,7 +371,7 @@ export async function handleYourGamesChanges(request: Request, env: Env, path: s
   }
   // Never a game above the player's age limit, which shows them nowhere: the server holds it, not only the page.
   const viewer = await viewerOf(request, env);
-  if (!playable(game) || game.minimum_player_age_years > viewer.ageFloorYears) return answer({ error: { code: "game_not_found", message: "There's no game at that link.", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
+  if (!playable(game) || game.minimum_player_age_years > viewer.ageFloorYears || isBlockedInCountry(game, requestCountryCode(request))) return answer({ error: { code: "game_not_found", message: "There's no game at that link.", message_for_people: "There's no game at that link.", fix: "Check the game's link." } }, 404, session.cookies);
   const added = await addFavoriteGame(env.DB, session.userId, game.id);
   if (added === "too_many") return answer({ error: { code: "too_many_favorites", message: "You have 1,000 favorites. Remove one to add another.", message_for_people: "You have 1,000 favorites. Remove one to add another.", fix: "Remove a favorite from Your games, then add this one." } }, 400, session.cookies);
   return answer({ ok: true, is_favorite: await isFavoriteGame(env.DB, session.userId, game.id) }, 200, session.cookies);

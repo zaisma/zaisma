@@ -1255,13 +1255,29 @@ else addEventListener("load", () => setTimeout(warmUp, 1000));
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
 // The heart: favorite or not, flipped at once and kept by the server. Only a press favorites a game, never an address.
 const heart = document.getElementById("favorite");
-function setFavorite(isFavorite) {
-  if (!heart) return;
+// One request at a time: quick presses each flip the heart at once, and the server is told only the last, once the one before has answered.
+let savedFavorite = heart ? heart.getAttribute("aria-pressed") === "true" : false;
+let isSending = false;
+function showFavorite(isFavorite) {
   heart.setAttribute("aria-pressed", String(isFavorite));
   heart.setAttribute("aria-label", isFavorite ? "Remove from favorites" : "Favorite");
-  return fetch("/api/me/favorites/" + gamePage.slug + (isFavorite ? "" : "/remove"), { method: "POST", headers: { Accept: "application/json" } })
-    .then((response) => { if (!response.ok) heart.setAttribute("aria-pressed", String(!isFavorite)); })
-    .catch(() => heart.setAttribute("aria-pressed", String(!isFavorite)));
+}
+function sendFavorite() {
+  const wanted = heart.getAttribute("aria-pressed") === "true";
+  if (isSending || wanted === savedFavorite) return;
+  isSending = true;
+  fetch("/api/me/favorites/" + gamePage.slug + (wanted ? "" : "/remove"), { method: "POST", headers: { Accept: "application/json" } })
+    .then((response) => response.ok ? (savedFavorite = wanted) : response.json().then((answer) => {
+      showFavorite(savedFavorite);
+      if (answer && answer.error && answer.error.message_for_people) zaismaLayers.say({ text: answer.error.message_for_people, tone: "problem" });
+    }))
+    .catch(() => showFavorite(savedFavorite))
+    .finally(() => { isSending = false; sendFavorite(); });
+}
+function setFavorite(isFavorite) {
+  if (!heart) return;
+  showFavorite(isFavorite);
+  sendFavorite();
 }
 if (heart) heart.addEventListener("click", () => setFavorite(heart.getAttribute("aria-pressed") !== "true"));
 // Remember the game for Continue playing: on this device (and in PLAYED_COOKIE, so the home shows it from its first paint), and with the account when signed in.

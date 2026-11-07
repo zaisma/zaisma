@@ -686,7 +686,7 @@ const GONE_GAME_SQL = "(games.visibility IN ('private', 'draft') OR games.live_v
 export async function playedHistory(database: D1Database, accountId: string, maximumMinimumAgeYears: number): Promise<PlayedGame[]> {
   const { results } = await database
     .prepare(
-      `SELECT games.id AS game_id, games.slug, games.title, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? AND games.review_status != 'removed' AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms DESC`,
+      `SELECT games.id AS game_id, games.slug, games.title, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? AND games.review_status NOT IN ('removed', 'held') AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms DESC`,
     )
     .bind(accountId, maximumMinimumAgeYears)
     .all<Omit<PlayedGame, "is_gone"> & { is_gone: number }>();
@@ -734,7 +734,7 @@ export async function isFavoriteGame(database: D1Database, accountId: string, ga
 export async function favoriteGames(database: D1Database, accountId: string, maximumMinimumAgeYears: number): Promise<FavoriteGame[]> {
   const { results } = await database
     .prepare(
-      `SELECT games.id AS game_id, games.slug, games.title, favorite_games.favorited_at_ms, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM favorite_games JOIN games ON games.id = favorite_games.game_id LEFT JOIN played ON played.account_id = favorite_games.account_id AND played.game_id = favorite_games.game_id WHERE favorite_games.account_id = ? AND games.review_status != 'removed' AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms IS NULL, played.played_at_ms DESC, favorite_games.favorited_at_ms DESC`,
+      `SELECT games.id AS game_id, games.slug, games.title, favorite_games.favorited_at_ms, played.played_at_ms, games.big_update_at_ms, ${GONE_GAME_SQL} AS is_gone FROM favorite_games JOIN games ON games.id = favorite_games.game_id LEFT JOIN played ON played.account_id = favorite_games.account_id AND played.game_id = favorite_games.game_id WHERE favorite_games.account_id = ? AND games.review_status NOT IN ('removed', 'held') AND games.minimum_player_age_years <= ? ORDER BY played.played_at_ms IS NULL, played.played_at_ms DESC, favorite_games.favorited_at_ms DESC`,
     )
     .bind(accountId, maximumMinimumAgeYears)
     .all<Omit<FavoriteGame, "is_gone"> & { is_gone: number }>();

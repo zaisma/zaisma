@@ -687,9 +687,9 @@ const COVER_STYLES = `
 .cover-meta .cover-more { position: relative; display: inline-flex; flex: none; }
 /* Its plate measures its own width, so what its line says can give way on a narrow card. */
 .cover-plate { container-type: inline-size; }
-/* On a narrow card with a More (two across on a phone) its end fact gives the title its room: players now, a tag or a price is in its label
-   and on its page. */
-@container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag) { display: none; } }
+/* On a narrow card with a More (two across on a phone) players now and an Updated tag give the title their room; they're in its label and on
+   its page. A price stays: a paid game never looks free. */
+@container (max-width: 180px) { .cover-plate.has-more > .cover-meta > :is(.count, .tag.new) { display: none; } }
 /* Gone, its tag is long: on a card under about two covers wide, its title keeps the line and its More's head says it isn't available. */
 @container (max-width: 300px) { .cover.is-gone .cover-plate.has-more > .cover-meta > .tag { display: none; } }
 /* Its line under the art: the title, cut to one line, and a tag or players now at its end. */
@@ -1144,7 +1144,8 @@ component({
   summary: "Games in a well carved into their pane, as many across as fit, growing down as more load: Browse's games, with those for other devices after a line in the same well. The cards keep the frame gap from the well's edges and from each other, and take its corner cuts. Game row is its sibling that scrolls sideways under a heading.",
   styles: `
 /* The frame gap round the cards and between them, as in a Game row's well. */
-.carving.game-grid { padding: var(--pad-frame); --rail-inset: var(--pad-frame); }
+/* It fills what holds it, wherever that is: its cards measure their own width (their plates are containers), so it never shrinks to them. */
+.carving.game-grid { width: 100%; box-sizing: border-box; padding: var(--pad-frame); --rail-inset: var(--pad-frame); }
 .carving.game-grid > .layout-grid, .carving.game-grid > :is(.grid-one-line, .grid-lead-cell) > .layout-grid { gap: var(--pad-frame); padding-inline: 0; }
 /* Two groups in one well: the second after a line across it, the line the frame gap from the well's sides and from the cards round it. */
 .carving.game-grid.has-groups { display: flex; flex-direction: column; gap: var(--pad-frame); }

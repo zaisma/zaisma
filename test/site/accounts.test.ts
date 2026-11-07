@@ -5095,12 +5095,14 @@ describe("Your games", () => {
     const recent = await yourGame("recent-one");
     const hidden = await yourGame("hidden-one", { visibility: "private" });
     const takenDown = await yourGame("taken-down", { reviewStatus: "removed" });
+    const heldBack = await yourGame("held-back", { reviewStatus: "held" });
     await yourGame("for-you-one");
     await yourGame("other-genre", { genres: "racing" });
     await played(accountId, updated, 2 * hourMs);
     await played(accountId, recent, 3 * hourMs);
     await played(accountId, hidden, 4 * hourMs);
     await played(accountId, takenDown, 5 * hourMs);
+    await played(accountId, heldBack, 6 * hourMs);
     for (const slug of ["unplayed-fav", "updated-fav"]) expect((await favorite(b, slug)).status).toBe(303);
 
     const page = await (await b.go("/your-games")).text();
@@ -5113,7 +5115,9 @@ describe("Your games", () => {
     expect(page).toContain("Not available");
     expect(page).toContain('data-slug="hidden-one"');
     expect(page).not.toContain("taken-down");
-    expect(page).toContain("Because you played Game recent-one");
+    expect(page).not.toContain("held-back");
+    // For you says the latest game played of the genre it shares, a favorite included.
+    expect(page).toContain("Because you played Game updated-fav");
     expect(page).not.toContain('data-slug="other-genre"');
     expect(page).toContain('href="/your-games/played"');
 

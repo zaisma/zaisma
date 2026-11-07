@@ -29,11 +29,9 @@ let played = [];
 try { played = JSON.parse(localStorage.getItem(PLAYED_KEY) || "[]").map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms ?? entry.at, is_on_account: entry.is_on_account === true })).filter((entry) => typeof entry.slug === "string" && Number.isFinite(entry.played_at_ms)); } catch {}
 if (accountPlayed) {
   /* ---- What this device played that the account doesn't have, or played later, goes to the account once (is_on_account, once it's
-     taken), so the next visit shows it from its first paint. A full list keeps only what's newer than its oldest: anything older the
-     account would drop again. ---- */
+     taken), so the next visit shows it from its first paint. The account keeps its whole history, so an older game goes too. ---- */
   const accountPlayedAtMs = new Map(accountPlayed.map((entry) => [entry.slug, entry.played_at_ms]));
-  const keptFromMs = accountPlayedAtMs.size >= ${KEPT_PLAYED_GAME_COUNT} ? Math.min(...accountPlayedAtMs.values()) : 0;
-  const sent = played.filter((entry) => !entry.is_on_account && entry.played_at_ms > Math.max(accountPlayedAtMs.get(entry.slug) || 0, keptFromMs)).sort((first, second) => second.played_at_ms - first.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
+  const sent = played.filter((entry) => !entry.is_on_account && entry.played_at_ms > (accountPlayedAtMs.get(entry.slug) || 0)).sort((first, second) => second.played_at_ms - first.played_at_ms).slice(0, ${KEPT_PLAYED_GAME_COUNT});
   if (!sent.length) return;
   fetch("/api/me/played", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ played: sent.map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms })) }) }).then((response) => {
     if (!response.ok) return;
