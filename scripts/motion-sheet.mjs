@@ -15,9 +15,12 @@
 // strip, for the art-director reviewer.
 //
 //   npm run motion:sheet -- --only /design/actions        the pages whose path has that in it, every state, screen and theme
+//   npm run motion:sheet -- --path /                      only the page whose path is exactly that (Home alone, where --only / is every page)
 //   npm run motion:sheet -- --only /g/cave-crew --state share   one state only (its stateValue on the bench)
 //   npm run motion:sheet -- --only /signin --pictures <folder>  and a strip of frames per run, <folder>/<state>-<screen>-<theme>-<run>.png,
-//                                                               and each settled screen at its own size, <…>-<run>-still.png
+//                                                               and each settled screen at its own size, <…>-<run>-still.png. Pictures are
+//                                                               made on GitHub's runners only (npm run pictures): on a person's machine
+//                                                               --pictures refuses, so no session waits behind another's picture run
 //   npm run motion:sheet -- --only /signin --json
 //   MOTION_DUMP_FOLDER=<folder> npm run motion:sheet -- …     and each run's recording as JSON there, to read what it measured
 // A holder that paints nothing (a pane's body) is judged by the pieces in it, so what's in it but no piece (a paragraph's words) isn't.
@@ -463,10 +466,15 @@ function round(value, places) {
   return Math.round(value * scale) / scale;
 }
 
-/** The runs of a page: its load, a switch to each of its own pages, and an open and a close of each state it holds. */
-export function motionRuns(only, stateAsked = null) {
-  const places = BENCH_PLACES.filter((place) => place.path.includes(only) || new RegExp(place.pathPattern).test(only));
-  const states = readyStates().filter((state) => places.some((place) => place.placeValue === state.placeValue) || state.path.includes(only)).filter((state) => !stateAsked || state.stateValue === stateAsked);
+/**
+ * The runs of a page: its load, a switch to each of its own pages, and an open and a close of each state it holds. With isExact, only the
+ * place whose path is exactly that or whose pattern takes it (--path /: Home alone; --path /g/tiny-farm: the game page); without it, every
+ * place whose path has it in it, or whose pattern takes it (--only).
+ */
+export function motionRuns(only, stateAsked = null, { isExact = false } = {}) {
+  const isPathTaken = (path) => (isExact ? path === only : path.includes(only));
+  const places = BENCH_PLACES.filter((place) => isPathTaken(place.path) || new RegExp(place.pathPattern).test(only));
+  const states = readyStates().filter((state) => places.some((place) => place.placeValue === state.placeValue) || isPathTaken(state.path)).filter((state) => !stateAsked || state.stateValue === stateAsked);
   return { places, states };
 }
 
@@ -676,9 +684,14 @@ function ownProcessGroup() {
   return Number(found.stdout.trim()) || process.pid;
 }
 
-const VALUED = ["--only", "--state", "--pictures"];
+const VALUED = ["--only", "--path", "--state", "--pictures"];
 const FLAGS = ["--json"];
-const OPTIONS_WORDS = "The options are --only <part of a page's path>, --state <a state's value on the bench>, --pictures <folder> and --json.";
+const OPTIONS_WORDS = "The options are --only <part of a page's path>, --path <a page's whole path>, --state <a state's value on the bench>, --pictures <folder> and --json.";
+/** Why --pictures can't run here, or null: pictures are made on GitHub's runners (npm run pictures), like the whole site's runs. */
+export function picturesRefusal({ isOnGithub, picturesFolder }) {
+  if (isOnGithub || !picturesFolder) return null;
+  return "Pictures are made on GitHub's runners, never on a person's machine: push, then npm run pictures -- --pr <number> --path <a page's whole path> --out <folder>.";
+}
 
 function stop(message, isJson, code = "stopped", exitCode = 2) {
   console.log(isJson ? JSON.stringify({ error: code, message }) : `MOTION FAIL: ${message}`);
@@ -692,17 +705,21 @@ async function main() {
   const unknown = args.filter((arg, index) => !VALUED.includes(args[index - 1]) && !VALUED.includes(arg) && !FLAGS.includes(arg));
   if (unknown.length) stop(`Unknown option ${unknown.join(" ")}. ${OPTIONS_WORDS}`, isJson);
   for (const flag of VALUED) if (args.includes(flag) && (!valueOf(flag) || valueOf(flag).startsWith("--"))) stop(`${flag} takes a value. ${OPTIONS_WORDS}`, isJson);
-  const only = valueOf("--only");
-  if (!only || !only.startsWith("/")) stop(`Give --only <part of a page's path>, like --only /design/actions: the whole site runs nowhere on a person's machine. ${OPTIONS_WORDS}`, isJson, "whole_site_on_github");
-  const { places, states } = motionRuns(only, valueOf("--state"));
-  if (valueOf("--state") && !states.length && places.length) stop(`No state ${valueOf("--state")} on the bench for ${only}. Its states are ${motionRuns(only).states.map((state) => state.stateValue).join(", ") || "none: its own controls are pressed instead"}.`, isJson);
+  if (args.includes("--only") && args.includes("--path")) stop(`Give --only or --path, not both. ${OPTIONS_WORDS}`, isJson);
+  const isExact = args.includes("--path");
+  const only = valueOf(isExact ? "--path" : "--only");
+  if (!only || !only.startsWith("/")) stop(`Give --only <part of a page's path>, like --only /design/actions, or --path <a page's whole path>, like --path /: the whole site runs nowhere on a person's machine. ${OPTIONS_WORDS}`, isJson, "whole_site_on_github");
+  const picturesRefusalWords = picturesRefusal({ isOnGithub: Boolean(process.env.CI), picturesFolder: valueOf("--pictures") });
+  if (picturesRefusalWords) stop(picturesRefusalWords, isJson, "pictures_on_github");
+  const { places, states } = motionRuns(only, valueOf("--state"), { isExact });
+  if (valueOf("--state") && !states.length && places.length) stop(`No state ${valueOf("--state")} on the bench for ${only}. Its states are ${motionRuns(only, null, { isExact }).states.map((state) => state.stateValue).join(", ") || "none: its own controls are pressed instead"}.`, isJson);
   const sites = previewSites({ isStarting: false });
   if (!sites) stop("This checkout's preview isn't running: npm run preview:start starts it.", isJson, "no_preview");
   const chromePath = await chromeToRun();
   if (!chromePath) stop("No Chrome here, and Chrome for Testing couldn't be fetched: set CHROME_PATH to a Chrome.", isJson, "no_chrome");
   // A page is a bench place (its states its own) or the path itself (a gallery group: its controls pressed).
   const pages = places.length
-    ? places.map((place) => ({ name: place.name, path: place.path, profile: place.profile ?? (place.seenBy === "signed_in" ? "Moss_Runner" : "guest"), states: states.filter((state) => state.placeValue === place.placeValue) }))
+    ? places.map((place) => ({ name: place.name, path: isExact ? only : place.path, profile: place.profile ?? (place.seenBy === "signed_in" ? "Moss_Runner" : "guest"), states: states.filter((state) => state.placeValue === place.placeValue) }))
     : [{ name: only, path: only, profile: "guest", states: [], stateAsked: valueOf("--state") }];
   const picturesFolder = valueOf("--pictures") ? resolve(valueOf("--pictures")) : null;
   if (picturesFolder) mkdirSync(picturesFolder, { recursive: true });
