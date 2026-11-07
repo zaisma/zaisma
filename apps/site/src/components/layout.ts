@@ -612,8 +612,9 @@ export const GRID_STYLES = `
 /* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
    more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
 .grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
-/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. */
-.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), 1fr)); }
+/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less. Both grow with the text (rem), so with
+   larger text the covers widen with their titles, and fold to one across where half the line is too narrow for one. */
+.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), max(var(--size-cover), 11.25rem)), 7.5rem), 1fr)); }
 .layout-grid.has-lead-cell { grid-auto-flow: row dense; }
 .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
 @container (max-width: ${3 * COVER_LEAST_PX + 2 * BLOCK_GAP_PX - 1}px) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }

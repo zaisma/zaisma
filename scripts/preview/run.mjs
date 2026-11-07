@@ -2045,9 +2045,9 @@ async function seedProfiles(go, form, people) {
  * ("In a match"), two of them with Watch live.
  */
 /**
- * Your games (/your-games) for Moss_Runner: four favorites (Shard Dodge updated since it was last played, so it leads; Cave Crew;
- * Tiny Farm; and Four in a Row, never played), 14 Browse games played over the last two weeks, one game played then made private
- * (greyed, "Not available right now"), and three players who favorited Tiny Farm (its dashboard's count). Idempotent: on every run.
+ * Your games (/your-games) for Moss_Runner: seven favorites (Shard Dodge updated since it was last played, so it leads; Cave Crew;
+ * Tiny Farm; Four in a Row, never played; Arena and two Browse games, so the lead has a full second line beside it), 14 Browse games played over the last two weeks, one game played then made private
+ * (greyed, "Not available"), and three players who favorited Tiny Farm (its dashboard's count). Idempotent: on every run.
  */
 function seedYourGames() {
   const nowMs = Date.now();
@@ -2058,7 +2058,7 @@ function seedYourGames() {
   runSql([
     `UPDATE games SET big_update_at_ms = ${nowMs - dayMs} WHERE slug = 'shard-dodge' AND (big_update_at_ms IS NULL OR big_update_at_ms < ${nowMs - 2 * dayMs})`,
     ...[["shard-dodge", 3], ["cave-crew", 0.1], ["tiny-farm", 1]].map(([slug, agoDays]) => `INSERT OR REPLACE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, ${game(slug)}, ${Math.round(nowMs - agoDays * dayMs)} ${ifMade}`),
-    ...["shard-dodge", "cave-crew", "tiny-farm", "four-in-a-row"].map((slug, favoriteIndex) => `INSERT OR IGNORE INTO favorite_games (account_id, game_id, favorited_at_ms) SELECT ${account("Moss_Runner")}, ${game(slug)}, ${nowMs - favoriteIndex * dayMs} ${ifMade} AND ${game(slug)} IS NOT NULL`),
+    ...["shard-dodge", "cave-crew", "tiny-farm", "four-in-a-row", "arena", "browse-world-2", "browse-world-3"].map((slug, favoriteIndex) => `INSERT OR IGNORE INTO favorite_games (account_id, game_id, favorited_at_ms) SELECT ${account("Moss_Runner")}, ${game(slug)}, ${nowMs - favoriteIndex * dayMs} ${ifMade} AND ${game(slug)} IS NOT NULL`),
     `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, id, ${nowMs} - played_rank * ${dayMs} FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS played_rank FROM games WHERE id LIKE 'game_browse%' ORDER BY id LIMIT 14) ${ifMade}`,
     `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, entry_signing_key, created_at_ms, updated_at_ms, genres) SELECT 'game_your_games_private', 'quiet-harbor', 'Quiet Harbor', '', 'live', live_version_id, owner_id, 'private', entry_signing_key, created_at_ms, updated_at_ms, 'strategy' FROM games WHERE slug = 'shard-dodge'`,
     `INSERT OR IGNORE INTO played (account_id, game_id, played_at_ms) SELECT ${account("Moss_Runner")}, 'game_your_games_private', ${nowMs - 2 * dayMs} ${ifMade}`,
