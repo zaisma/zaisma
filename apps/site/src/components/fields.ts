@@ -997,6 +997,7 @@ component({
   styles: FIELD_STYLES,
   render: cutField,
   examples: [
+    { label: "Short, leading a row that fills: it takes the row's room, its button beside it", markup: examplePane(row({ widths: "lead-fills", items: [{ kind: "control", markup: cutField({ id: "example-room-code-fills", name: "room", label: "Room code", isLabelHidden: true, type: "text", placeholder: "Room code", isShort: true }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] })) },
     { label: "Short: a few characters, its button beside it", markup: examplePane(row({ widths: "fit", items: [{ kind: "control", markup: cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", isShort: true }) }, { kind: "control", markup: secondaryButton(action("join"), { type: "button" }) }] })) },
     { label: "Empty", markup: examplePane(cutField({ id: "example-username-empty", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "username" })) },
     { label: "Typed", markup: examplePane(cutField({ id: "example-username-typed", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r" })) },

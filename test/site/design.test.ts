@@ -1305,6 +1305,10 @@ describe("layout", () => {
     // Two controls side by side slant toward each other: their boxes overlap by the edge rule's neighbor distance.
     expect(cells(row({ widths: "lead-fills", items }).html)[0]).toContain("gap-end-control-row-boxes");
     expect(ROW_STYLES).toContain(".layout-row > .row-cell.gap-end-control-row-boxes { margin-inline-end: var(--gap-control-row-boxes); }");
+    // A control beside a row of controls (Play beside Share and Report) is still controls side by side; spread to both ends, they're apart.
+    const pair = { kind: "block" as const, markup: row({ widths: "fit", items: [control(actions.secondaryButton("Share")), control(actions.secondaryButton("Report"))] }) };
+    expect(cells(row({ widths: "lead-fills", items: [control(actions.primaryButton("Play")), pair] }).html)[0]).toContain("gap-end-control-row-boxes");
+    expect(cells(row({ widths: "fit", alignment: "between", items: [pair, control(actions.secondaryButton("Leave"))] }).html)[0]).toContain("gap-end-block-block");
   });
 
   it("sets every control in a row to one height, the tallest one's", () => {

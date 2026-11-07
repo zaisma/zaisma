@@ -143,9 +143,9 @@ export interface GamePageView {
   developer: { name: string; game_count: number } | null;
   pictures: (PictureRow & { kind: string })[];
   updates: { id: string; patch_notes: string; first_published_at_ms: number }[];
-  /** The developer's other listed games, for More from <developer>: up to GAME_PAGE_SHELF_GAME_COUNT. */
+  /** The developer's other listed games, for More from <developer>: up to GAME_PAGE_ROW_GAME_COUNT. */
   developerGames: ShowGame[];
-  /** Other developers' listed games of the same kind, most played this week first: More like this, up to GAME_PAGE_SHELF_GAME_COUNT. */
+  /** Other developers' listed games of the same kind, most played this week first: More like this, up to GAME_PAGE_ROW_GAME_COUNT. */
   likeGames: ShowGame[];
   /** The game's live rooms on Zaisma, or null when it has none to count or list. */
   liveRooms: RoomPage | null;
@@ -257,7 +257,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // A returning player's own first: when they last played it.
     viewer.account && !tester ? env.DB.prepare("SELECT played_at_ms FROM played WHERE account_id = ? AND game_id = ?").bind(viewer.account.id, game.id).first<{ played_at_ms: number }>() : null,
   ]);
-  const { developerGames, likeGames } = gamePageShelves(game, otherGames, await shelfCounts(env, viewer.ageFloorYears));
+  const { developerGames, likeGames } = gamePageRows(game, otherGames, await shelfCounts(env, viewer.ageFloorYears));
   const ownedPaidGameIds = await paidGamesOwnedBy(env, viewer.account, [...developerGames, ...likeGames]);
   const response = gamePageResponse(env, {
     game,
@@ -309,17 +309,17 @@ function roomsTabItems(slug: string, rooms: RoomPage): LayoutItem[] {
   ];
 }
 
-/** How many covers each of a game page's shelves holds, More from <developer> and More like this. */
-export const GAME_PAGE_SHELF_GAME_COUNT = 4;
+/** How many covers each of a game page's Game rows holds, More from <developer> and More like this. */
+export const GAME_PAGE_ROW_GAME_COUNT = 4;
 /** On a phone, where two covers show at once and the third peeks: the first paint stays under its size with the folds' styles. */
-export const PHONE_SHELF_GAME_COUNT = 3;
+export const PHONE_ROW_GAME_COUNT = 3;
 
 /**
- * A game page's two shelves from the showcase: the developer's other games, newest first, and More like this: other developers' games
+ * A game page's two Game rows from the showcase: the developer's other games, newest first, and More like this: other developers' games
  * sharing one of its genres, most players this week first (Popular's count), then the newest. Earned, never sold, and none that the
  * shelves leave out (offShelfSlugs).
  */
-export function gamePageShelves(game: Pick<Game, "slug" | "owner_id" | "genres">, showcaseGames: ShowGame[], shelfCount: { counts: Map<string, { weekPlayerCount: number }>; offShelfSlugs: Set<string> }): { developerGames: ShowGame[]; likeGames: ShowGame[] } {
+export function gamePageRows(game: Pick<Game, "slug" | "owner_id" | "genres">, showcaseGames: ShowGame[], shelfCount: { counts: Map<string, { weekPlayerCount: number }>; offShelfSlugs: Set<string> }): { developerGames: ShowGame[]; likeGames: ShowGame[] } {
   const others = showcaseGames.filter((otherGame) => otherGame.slug !== game.slug);
   const isTheDevelopers = (otherGame: ShowGame) => Boolean(game.owner_id && otherGame.owner_id === game.owner_id);
   const genres = new Set(game.genres ? game.genres.split(",") : []);
@@ -328,7 +328,7 @@ export function gamePageShelves(game: Pick<Game, "slug" | "owner_id" | "genres">
     .filter((otherGame) => !isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug) && otherGame.genres.some((genre) => genres.has(genre)))
     .sort((first, second) => weekPlayerCount(second) - weekPlayerCount(first) || (second.first_published_at_ms ?? 0) - (first.first_published_at_ms ?? 0));
   const developerGames = others.filter((otherGame) => isTheDevelopers(otherGame) && !shelfCount.offShelfSlugs.has(otherGame.slug));
-  return { developerGames: developerGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_SHELF_GAME_COUNT) };
+  return { developerGames: developerGames.slice(0, GAME_PAGE_ROW_GAME_COUNT), likeGames: likeGames.slice(0, GAME_PAGE_ROW_GAME_COUNT) };
 }
 
 /** A description's first sentence, for the line under a game's name: up to GAME_LINE_MAXIMUM_LETTER_COUNT letters, cut at a word. */
@@ -554,14 +554,14 @@ export function gamePageResponse(env: Env, view: GamePageView): Response {
         // The part shows only with an add-on in it.
         ...(addOnRows.length ? [{ kind: "block" as const, id: "add-ons", markup: pane("Add-ons", [{ kind: "block" as const, markup: listRows({ label: "Add-ons", whenEmpty: NO_EMPTY_NOTE, rows: addOnRows }) }]) }] : []),
       ];
-  const shelfGameCount = view.deviceKind === "phone" ? PHONE_SHELF_GAME_COUNT : GAME_PAGE_SHELF_GAME_COUNT;
+  const rowGameCount = view.deviceKind === "phone" ? PHONE_ROW_GAME_COUNT : GAME_PAGE_ROW_GAME_COUNT;
   const overviewItems: LayoutItem[] = [
     ...learnItems,
     ...(view.developerGames.length && developer
-      ? [{ kind: "block" as const, markup: gameRow({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.slice(0, shelfGameCount).map(coverCard) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "more", trackId: "more-track", title: `More from ${developer.name}`, items: view.developerGames.slice(0, rowGameCount).map(coverCard) }) }]
       : []),
     ...(view.likeGames.length
-      ? [{ kind: "block" as const, markup: gameRow({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.slice(0, shelfGameCount).map(coverCard) }) }]
+      ? [{ kind: "block" as const, markup: gameRow({ id: "like-this", trackId: "like-this-track", title: "More like this", items: view.likeGames.slice(0, rowGameCount).map(coverCard) }) }]
       : []),
   ];
   // Overview, then Rooms (picking a room first is rare: Roblox keeps its servers a tab away) and Updates, each a tab showing its part alone.
@@ -1291,10 +1291,9 @@ const roomOrders = ${JSON.stringify(ROOM_ORDERS)};
 const askedFor = new URLSearchParams(location.search);
 let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get("room_order") : roomOrders[0];
 // Full rooms always show, last in every order: nothing on the page hides them any more, so an old link's setting is let go.
-const isHidingFullRooms = false;
 // The region a device kept before the region menu stopped being remembered.
 try { localStorage.removeItem("zaisma:rooms-region"); } catch {}
-const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|" + isHidingFullRooms;
+const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|false";
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
 function justLeft() {
@@ -1328,7 +1327,6 @@ async function refreshRooms(force) {
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
     if (roomsOrder !== roomOrders[0]) query.set("room_order", roomsOrder);
-    if (isHidingFullRooms) query.set("is_hiding_full_rooms", "true");
     if (loadedRows > 0) query.set("shown_row_count", String(Math.min(loadedRows, ${MAXIMUM_REFRESHED_ROOM_COUNT})));
     const left = justLeft();
     if (left) query.set("left", left);

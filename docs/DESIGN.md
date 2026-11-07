@@ -253,7 +253,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a dropdown), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
 | `--pad-tray` | A tray's edge and what's on it: closer than a pane's, still clear of its cut foot | 16px |
 
-- **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
+- **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control, but for a row of controls: a control beside or over one is still controls side by side or stacked (Play beside Share and Report), unless the row spreads them to both ends.
 - **In a pane, controls fill its width.** A row of them is a Row (`layout.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
 - **The row's gap is the edge rule's neighbor distance.** Two controls side by side with their boxes `--gap-control-row-boxes` apart slant toward each other by `--control-slant`; any other distance and they don't. A row of controls uses `--gap-control-row-boxes`, a stack `--gap-control-stack`.
 - **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.

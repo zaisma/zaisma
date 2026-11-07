@@ -76,10 +76,11 @@ function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
 }
 
 /** The gap between two things side by side: two controls slant toward each other, their boxes overlapping (the edge rule's neighbor distance). */
-function rowGap(before: LayoutItem, after: LayoutItem): LayoutGap {
+function rowGap(before: LayoutItem, after: LayoutItem, alignment: string): LayoutGap {
   const kinds = [placedKind(before), placedKind(after)];
-  // A control beside a row of controls (Play beside Share and Report, kept a pair where the row wraps): still controls side by side.
-  if ((kinds[0] === "control" && isControlRow(after)) || (kinds[1] === "control" && isControlRow(before))) return "control-row-boxes";
+  // A control beside a row of controls (Play beside Share and Report, kept a pair where the row wraps): still controls side by side. Not
+  // in a row spread to both ends (a menu's tools and Leave), where the two are apart, not neighbors.
+  if (alignment !== "between" && ((kinds[0] === "control" && isControlRow(after)) || (kinds[1] === "control" && isControlRow(before)))) return "control-row-boxes";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-row-boxes";
   if (kinds[0] === "words" && kinds[1] === "words") return before.kind === after.kind ? "words-words" : "words-control";
@@ -152,7 +153,7 @@ export function row(options: RowOptions): LayoutMarkup {
     const after = options.items[itemIndex + 1];
     // The last cell reaches past the row's end as far as a control reaches over the next, and the row stops that far short of its own end
     // (ROW_STYLES), so a control ends at the row's end whether its line wraps there or not.
-    const endGap = after ? rowGap(layoutItem, after) : "control-row-boxes";
+    const endGap = after ? rowGap(layoutItem, after, alignment) : "control-row-boxes";
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""} gap-end-${endGap}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });

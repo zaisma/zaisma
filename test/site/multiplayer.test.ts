@@ -388,8 +388,8 @@ describe("room browsing on the game page", () => {
     expect(mostNext.match(/<span class="list-row-end">Full<\/span>/g)).toHaveLength(2);
     expect(mostNext.indexOf(">Full<")).toBeLessThan(mostNext.indexOf("In a match"));
 
-    // Anything that isn't a known order, or isn't "true", is the default: the same list as no parameter at all.
-    for (const query of ["?room_order=nonsense", "?room_order=", "?is_hiding_full_rooms=yes", "?is_hiding_full_rooms=1", "?room_order=MOST_PLAYERS"]) {
+    // Anything that isn't a known order is the default, and an old link's is_hiding_full_rooms changes nothing: the same list as no parameter at all.
+    for (const query of ["?room_order=nonsense", "?room_order=", "?is_hiding_full_rooms=true", "?is_hiding_full_rooms=yes", "?is_hiding_full_rooms=1", "?room_order=MOST_PLAYERS"]) {
       expect(await roomsList(query)).toBe(full);
     }
     // Every room full, even from an old link that hid them: the full rooms show, nothing says the list is empty.
