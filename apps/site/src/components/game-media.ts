@@ -4,6 +4,7 @@ import { action, tertiaryButton } from "./actions.ts";
 import { CUT_LINE, EDGE_LIGHT, glassPane, groove, picture, tag, type ShownPicture } from "./foundations.ts";
 import { lengthWords, videoPlayer } from "./video-player.ts";
 import { paneParts, stackOfOne, track } from "./layout.ts";
+import { SCREEN_QUERIES } from "./tokens.ts";
 import { STAND_IN_ACCOUNT_PICTURES, STAND_IN_COVER_PICTURES } from "../generated/stand-in-placeholders.generated.ts";
 
 /*
@@ -245,6 +246,9 @@ component({
 .game-media { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* Featured: the first well large across the width, the rest a row of small ones under it, a control row's gap between. */
 .game-media.is-featured { gap: var(--gap-control-stack); }
+/* On an upright phone only the first shows, as the concept's phone has it, so the name and Play keep the first screen; pressing it opens the
+   light box with every one. */
+@media ${SCREEN_QUERIES.phoneUpright} { .game-media.is-featured > .track-holder { display: none; } }
 /* The strip: small wells side by side, scrolling sideways when they don't fit, the one shown lit along its foot. */
 .media-strip { display: flex; gap: var(--gap-control-row); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .media-strip::-webkit-scrollbar { display: none; }
