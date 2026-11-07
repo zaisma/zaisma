@@ -1013,7 +1013,7 @@ component({
     { label: "A long value", markup: examplePane(cutField({ id: "example-email-long", name: "email", label: "Email", type: "email", icon: "mail", text: "sofia.lindqvist-montgomery@northern-lights-studio.example" })) },
     {
       label: "Only a room code's characters, 6 at most: try typing or pasting",
-      markup: examplePane(cutField({ id: "example-room-code", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Z]{6}", characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true, isRequired: true })),
+      markup: examplePane(cutField({ id: "example-room-code-characters", name: "room", label: "Have a room code?", type: "text", placeholder: "ABC234", autocomplete: "off", pattern: "[2-9A-HJ-NP-Z]{6}", characterPattern: "[2-9A-HJ-NP-Z]", maximumCharacterCount: 6, isUppercase: true, isRequired: true })),
     },
     { label: "No icon", markup: examplePane(cutField({ id: "example-title", name: "title", label: "Title", type: "text", text: "Ashen Crown" })) },
     { label: "Read-only", markup: examplePane(cutField({ id: "example-username-read-only", name: "username", label: "Username", type: "text", icon: "person", text: "liam_hart", isReadOnly: true })) },

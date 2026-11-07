@@ -64,6 +64,6 @@ describe("a game page's Game rows", () => {
 
 describe("the Rooms tab's order from the address", () => {
   it("keeps room_order and lets an old link's is_hiding_full_rooms go, so full rooms always show, last", () => {
-    expect(readRoomPick(new URLSearchParams("room_order=most_players&is_hiding_full_rooms=true"))).toEqual({ roomOrder: "most_players", isHidingFullRooms: false });
+    expect(readRoomPick(new URLSearchParams("room_order=most_players&is_hiding_full_rooms=true"))).toEqual({ roomOrder: "most_players" });
   });
 });

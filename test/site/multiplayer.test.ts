@@ -230,7 +230,7 @@ describe("room browsing on the game page", () => {
     expect(pageProblems(list)).toEqual([]);
 
     const na = await roomsList("?region=NA");
-    expect(na).toContain('data-shown="NA|[]|best_to_join|false"');
+    expect(na).toContain('data-shown="NA|[]|best_to_join"');
     // The number by Rooms follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
     expect(na.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(1);
@@ -369,11 +369,11 @@ describe("room browsing on the game page", () => {
     expect(orderPage).toContain('name="room_order" value="best_to_join"');
     expect(orderPage).toContain("Best to join");
     expect(orderPage).toContain('data-room-order="most_players"');
-    expect(full).toContain('data-shown="|[]|best_to_join|false"');
+    expect(full).toContain('data-shown="|[]|best_to_join"');
     expect(full).toContain('href="/g/arena/rooms?cursor=6"');
     // An old link's is_hiding_full_rooms is let go: full rooms always show, last, and the Load more carries only the order.
     const fewestPanel = await roomsList("?room_order=fewest_players&is_hiding_full_rooms=true");
-    expect(fewestPanel).toContain('data-shown="|[]|fewest_players|false"');
+    expect(fewestPanel).toContain('data-shown="|[]|fewest_players"');
     expect(fewestPanel).toContain('href="/g/arena/rooms?cursor=6&amp;room_order=fewest_players"');
     expect(fewestPanel).toContain('data-count="12"');
     expect(fewestPanel.match(/<div class="list-row flush-row quiet">/g)).toHaveLength(6);
@@ -397,7 +397,7 @@ describe("room browsing on the game page", () => {
     await env.DB.exec("UPDATE live_rooms SET player_count = maximum_player_count");
     const allFull = await roomsList("?is_hiding_full_rooms=true");
     expect(allFull).toContain(">Full<");
-    expect(allFull).not.toContain("No open rooms with space right now.");
+    expect(allFull.match(/<div class="list-row flush-row quiet">/g)?.length).toBeGreaterThan(0);
   });
 
   it("carries the region and labels picked into the next page, and tells no sentences about rooms past the list", async () => {

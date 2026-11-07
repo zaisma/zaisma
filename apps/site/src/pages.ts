@@ -1293,7 +1293,7 @@ let roomsOrder = roomOrders.includes(askedFor.get("room_order")) ? askedFor.get(
 // Full rooms always show, last in every order: nothing on the page hides them any more, so an old link's setting is let go.
 // The region a device kept before the region menu stopped being remembered.
 try { localStorage.removeItem("zaisma:rooms-region"); } catch {}
-const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder + "|false";
+const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort()) + "|" + roomsOrder;
 // The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
 const leftKey = "zaisma:left:" + gamePage.slug;
 function justLeft() {
