@@ -604,8 +604,12 @@ export interface TertiaryButtonOptions extends ButtonTarget {
   isLabelHidden?: boolean;
   /** A small control's height, as a pane's corner buttons are. */
   isSmall?: boolean;
+  /** A tiny control's height, as a game card's More is, on its one line. */
+  isTiny?: boolean;
   /** The id of what it acts on (aria-controls): a copy field's text, for its Copy. */
   controls?: string;
+  /** It opens what it controls (a menu: a game card's More): whether that's open now (aria-expanded). Left out, it opens nothing. */
+  isExpanded?: boolean;
   /** An arrow after its words that steps on as you point at it: a way on, like Continue as guest under the ways in. */
   hasArrow?: boolean;
   /** As wide as the column, its words in the middle: under the ways in, as wide as they are. */
@@ -627,8 +631,8 @@ const TERTIARY_ARROW = html`<span class="tertiary-arrow" aria-hidden="true">${ic
 export function tertiaryButton(button: ButtonWords, options: TertiaryButtonOptions = {}): ControlMarkup {
   const { label, chosenIcon, pressedIcon } = faceOf(button);
   const isIconOnly = Boolean(options.isLabelHidden && chosenIcon);
-  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
-  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? iconPair(chosenIcon, pressedIcon) : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isSmall ? "small" : "regular");
+  const extra = html`${disabledAttribute(options)}${isIconOnly ? html` aria-label="${label}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}${options.isExpanded !== undefined ? html` aria-expanded="${options.isExpanded ? "true" : "false"}"` : ""}`;
+  return controlMarkup(html`${opening(classes("tertiary-btn", isIconOnly && "icon-only", options.isSmall && "small", options.isTiny && "tiny", options.isFullWidth && "is-full", options.state), options, options.isBusy, extra)}<span class="face flush-row" data-cut-line="${options.isSmall || options.isTiny ? 9 : 10}">${CUT_LINE}<span class="tertiary-words">${chosenIcon && pressedIcon ? iconPair(chosenIcon, pressedIcon) : chosenIcon ? icon(chosenIcon) : ""}${isIconOnly ? "" : html`<span class="tertiary-label one-line">${label}</span>`}${leavesZaisma(options.href) ? icon("out-of-page") : options.hasArrow ? TERTIARY_ARROW : ""}</span>${isIconOnly || options.hasArrow ? "" : raw('<span class="tertiary-line light-fill across light-line light-glint" aria-hidden="true"></span>')}</span>${closing(options)}`, options.isTiny ? "tiny" : options.isSmall ? "small" : "regular");
 }
 
 component({
@@ -648,8 +652,10 @@ component({
 .tertiary-btn:not([data-is-on="true"]) .ico-pair > [data-shown-when="on"], .tertiary-btn[data-is-on="true"] .ico-pair > [data-shown-when="off"] { opacity: 0; }
 /* Small, and only its icon (a pane's Close, a sheet's Back): a square of a small control's size, its slab and no line under it when pointed at. */
 .tertiary-btn.small { --control-height: var(--control-height-small); }
-/* On a touch screen a small one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
-@media (pointer: coarse) { .tertiary-btn.small { position: relative; } .tertiary-btn.small::after { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)); } }
+/* Tiny, and only its icon (a game card's More): a square of a tiny control's size, on a line no taller than its title. */
+.tertiary-btn.tiny { --control-height: var(--control-height-tiny); }
+/* On a touch screen a small or tiny one still takes a finger, as a small secondary button does: its hit area reaches out to 44px, its look unchanged. */
+@media (pointer: coarse) { .tertiary-btn:is(.small, .tiny) { position: relative; } .tertiary-btn:is(.small, .tiny)::after { content: ""; position: absolute; inset: min(0px, calc((var(--touch-target) - 100%) / -2)); } }
 .tertiary-btn.icon-only > .face { width: var(--control-height); padding-inline: 0; align-items: center; }
 .tertiary-btn.icon-only .ico { width: 18px; height: 18px; }
 .tertiary-btn:focus-visible { outline: none; }
@@ -687,6 +693,7 @@ component({
       label: "Only its icon, small: a sheet's Back and Close in its top corners, nothing behind them until pointed at",
       markup: html`<div style="width:300px">${glassPane({ paneWidth: "full", body: paneParts({ head: { start: tertiaryButton(action("back"), { type: "button", isLabelHidden: true, isSmall: true }), words: html`<h2 class="sheet-title">Liam</h2>`, end: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true }) }, body: html`<p>Profile, Block and Report go here.</p>` }) })}</div>`,
     },
+    { label: "Tiny, only its icon: a game card's More", markup: tertiaryButton(action("more", "More for Kestrel"), { type: "button", isLabelHidden: true, isTiny: true }), isStill: true },
     { label: "Only its icon, pointed: its slab, with no orange line under it", markup: tertiaryButton(action("close"), { type: "button", isLabelHidden: true, isSmall: true, state: "is-pointed" }), isStill: true },
   ],
 });

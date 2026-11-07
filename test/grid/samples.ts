@@ -86,6 +86,9 @@ export const PAGE_SAMPLES: Readonly<Record<string, (world: PageWorld) => PageSam
   "POST /api/links/:slug": (world) => onLiveWith(world, { jsonBody: { link_name: world.liveLinkName } }),
   "POST /api/me/played": (world) => ({ jsonBody: { played: [{ slug: world.liveSlug, played_at_ms: 1 }] } }),
   "POST /api/me/played/:slug": onLive,
+  "POST /api/me/played/:slug/remove": onLive,
+  "POST /api/me/favorites/:slug": onLive,
+  "POST /api/me/favorites/:slug/remove": onLive,
   "POST /api/presence": () => ({}),
   "POST /csp-reports": () => ({ jsonBody: { "csp-report": { "document-uri": "https://zaisma.test/", "violated-directive": "script-src" } } }),
 
@@ -191,6 +194,8 @@ export const CHANGES_NOTHING: Readonly<Record<string, string>> = {
  * For these the refusal comes from the proof itself, so a bad sample can't be what refused.
  */
 export const OWNER_NOT_PROVEN: Readonly<Record<string, string>> = {
+  "POST /api/me/played/:slug/remove": "Takes a game off the caller's own history, which the grid's owner has none of: test/site/accounts.test.ts (Your games).",
+  "POST /api/me/favorites/:slug/remove": "Takes a game off the caller's own favorites, which the grid's owner has none of: test/site/accounts.test.ts (Your games).",
   "GET /js/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /css/*": "A file by its name, the same for everyone; the build makes the name.",
   "GET /img/*": "A served picture: test/site/uploads.test.ts.",

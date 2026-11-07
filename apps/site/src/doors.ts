@@ -304,6 +304,8 @@ const SAVE_ANSWER = { answersAs: "json", answers: fieldsAnswer("saved_at", "chan
 const FRIENDS_SIGN_IN = signIn("/friends");
 const friendForm = (path: string) => signedIn(["POST"], path, FRIENDS_SIGN_IN, { takes: FRIEND_FORM });
 const FRIEND_REQUEST_SIGN_IN: WhenSignedOut = { kind: "form_or_status", next: "/friends#requests", httpStatus: 401, jsonBody: { error: { code: "not_signed_in", message: "Sign in to add friends." } } };
+/** Your games' changes (a favorite, Remove): from a form, back to sign in; from a script, a structured 401. */
+const YOUR_GAMES_SIGN_IN: WhenSignedOut = { kind: "form_or_status", next: "/your-games", httpStatus: 401, jsonBody: { error: { code: "not_signed_in", message_for_people: "Sign in to keep favorites.", fix: "Sign in, then try again." } } };
 const BLOCK_SIGN_IN: WhenSignedOut = { kind: "form_or_status", next: "/friends", httpStatus: 401, jsonBody: { error: { code: "not_signed_in", message: "Sign in to block players." } } };
 
 // The forum: a banned developer reads it but posts nothing.
@@ -430,6 +432,8 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   // Playing.
   open(["GET"], "/", { trusts: ["session"], takes: BROWSE_QUERY }),
   open(["GET"], "/games", { trusts: ["session"], takes: BROWSE_QUERY }),
+  open(["GET"], "/your-games", { trusts: ["session"] }),
+  open(["GET"], "/your-games/played", { trusts: ["session"], takes: query("sort") }),
   open(["GET"], "/games/suggestions", { trusts: ["session"], takes: BROWSE_QUERY, ...jsonAnswer("finishes", "games") }),
   open(["GET"], "/g/:slug", { trusts: ["session"], takes: query("room", "server", "watch", "play", "buy", "theme", "state", "screen", "preview_bar") }),
   open(["GET"], "/g/:slug/rooms", { takes: query("room_order", "is_hiding_full_rooms", "labels", "cursor", "region", "shown_row_count", "left") }),
@@ -448,6 +452,9 @@ export const SITE_DOORS: readonly SiteDoor[] = [
   signedIn(["GET"], "/api/me/played", statusOf(401, { error: "Signed out" }), { origin: "anywhere", ...jsonAnswer("played") }),
   signedIn(["POST"], "/api/me/played", statusOf(401, { error: "Signed out" }), { takes: json({ played: listOf(gameData(1024), 1000) }, [], 256 * 1024), ...ownPagesJson("ok") }),
   signedIn(["POST"], "/api/me/played/:slug", statusOf(401, { error: "Signed out" }), { takes: json({}), ...ownPagesJson("ok") }),
+  signedIn(["POST"], "/api/me/played/:slug/remove", YOUR_GAMES_SIGN_IN, { takes: json({}), ...ownPagesJson("ok") }),
+  signedIn(["POST"], "/api/me/favorites/:slug", YOUR_GAMES_SIGN_IN, { takes: json({}), ...ownPagesJson("ok", "is_favorite") }),
+  signedIn(["POST"], "/api/me/favorites/:slug/remove", YOUR_GAMES_SIGN_IN, { takes: json({}), ...ownPagesJson("ok", "is_favorite") }),
   signedIn(["POST"], "/api/presence", statusOf(401), { takes: json({ game_slug: text(40), left_game_slug: text(40) }, [], 4096), answersAs: "json", answers: fieldsAnswer("waiting_friend_request_count", "accepted_friend_request_count") }),
 
   // A player's saves: the game page writes them, on its own site.

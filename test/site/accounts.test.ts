@@ -1,9 +1,11 @@
 import { stackOfOne } from "../../apps/site/src/components/layout.ts";
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, addOwnedBlob, manifestKey, ownedBlobKey, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, addCreditEntry, addOwnedBlob, manifestKey, ownedBlobKey, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, saveFromParts, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, unversionedSaveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan, accountDeletionReach, favoriteCount, deleteAccount } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { handleSignIn } from "../../apps/site/src/sign-in.ts";
+import { cookieName } from "../../apps/site/src/auth.ts";
+import { PLAYED_COOKIE } from "../../apps/site/src/home-script.ts";
 import type { Env as SiteEnv } from "../../apps/site/src/env.ts";
 import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
@@ -256,7 +258,7 @@ beforeEach(async () => {
     }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; DELETE FROM banned_marks; DELETE FROM ban_matches; DELETE FROM owner_cards; DELETE FROM stripe_connect_states; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM favorite_games; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; DELETE FROM credit_entries; DELETE FROM banned_marks; DELETE FROM ban_matches; DELETE FROM owner_cards; DELETE FROM stripe_connect_states; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => {
@@ -5064,5 +5066,115 @@ describe("bans at sign-in", () => {
     expect(await env.DB.prepare("SELECT stripe_account_id FROM owners WHERE id = ?").bind(owner.id).first()).toEqual({ stripe_account_id: null });
     expect(await env.DB.prepare("SELECT stripe_account_id FROM owners WHERE id = ?").bind(firstOwner.id).first()).toEqual({ stripe_account_id: "acct_banned_1" });
     expect(await (await b.go("/dashboard/settings?stripe=stripe_account_banned")).text()).toContain("This Stripe account can&#39;t be connected to Zaisma.");
+  });
+});
+
+describe("Your games", () => {
+  const BIRTH_TEEN = { year: String(thisYear - 14), month: "1", day: "1" };
+  /** A live game with a version, listed unless said otherwise, in a genre. */
+  async function yourGame(slug: string, options: { visibility?: string; reviewStatus?: string; minimumAgeYears?: number; genres?: string; bigUpdateAtMs?: number | null } = {}) {
+    const now = Date.now();
+    await env.DB.prepare(
+      "INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, account_requirement, minimum_player_age_years, entry_signing_key, genres, big_update_at_ms, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 'none', 'none', ?, 'entrykey', ?, ?, ?, ?)",
+    )
+      .bind(`g-${slug}`, slug, `Game ${slug}`, options.reviewStatus ?? "live", options.visibility ?? "listed", `v-${slug}`, options.minimumAgeYears ?? 13, options.genres ?? "strategy", options.bigUpdateAtMs ?? null, now, now)
+      .run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 0)").bind(`v-${slug}`, `g-${slug}`, `games/g-${slug}/v-${slug}`).run();
+    return `g-${slug}`;
+  }
+  const played = (accountId: string, gameId: string, agoMs: number) => recordPlayed(env.DB, accountId, gameId, Date.now() - agoMs);
+  const favorite = (b: Browser, slug: string, remove = false) => b.go(`/api/me/favorites/${slug}${remove ? "/remove" : ""}`, undefined, { method: "POST", body: "{}" });
+
+  it("shows Favorites, the lead updated since played, then Recently played and For you, greyed when gone and never taken down", async () => {
+    const b = new Browser();
+    await join(b, null, "Night_Owl");
+    const accountId = await idOf("Night_Owl");
+    const hourMs = 3_600_000;
+    const updated = await yourGame("updated-fav", { bigUpdateAtMs: Date.now() - hourMs });
+    await yourGame("unplayed-fav");
+    const recent = await yourGame("recent-one");
+    const hidden = await yourGame("hidden-one", { visibility: "private" });
+    const takenDown = await yourGame("taken-down", { reviewStatus: "removed" });
+    const heldBack = await yourGame("held-back", { reviewStatus: "held" });
+    await yourGame("for-you-one");
+    await yourGame("other-genre", { genres: "racing" });
+    await played(accountId, updated, 2 * hourMs);
+    await played(accountId, recent, 3 * hourMs);
+    await played(accountId, hidden, 4 * hourMs);
+    await played(accountId, takenDown, 5 * hourMs);
+    await played(accountId, heldBack, 6 * hourMs);
+    for (const slug of ["unplayed-fav", "updated-fav"]) expect((await favorite(b, slug)).status).toBe(303);
+
+    const page = await (await b.go("/your-games")).text();
+    const at = (marker: string) => page.indexOf(marker);
+    expect(at('id="favorites-grid"')).toBeGreaterThan(-1);
+    expect(at('id="favorites-grid"')).toBeLessThan(at('id="recently-played-grid"'));
+    expect(at('id="recently-played-grid"')).toBeLessThan(at('id="for-you-grid"'));
+    // The lead is the favorite updated since it was played, first in its grid.
+    expect(at('data-slug="updated-fav"')).toBeLessThan(at('data-slug="unplayed-fav"'));
+    expect(page).toContain("Not available");
+    expect(page).toContain('data-slug="hidden-one"');
+    expect(page).not.toContain("taken-down");
+    expect(page).not.toContain("held-back");
+    // For you says the latest game played of the genre it shares, a favorite included.
+    expect(page).toContain("Because you played Game updated-fav");
+    expect(page).not.toContain('data-slug="other-genre"');
+    expect(page).toContain('href="/your-games/played"');
+
+    // Remove: off Your games and All you've played, still kept for deleting the account.
+    expect((await b.go("/api/me/played/recent-one/remove", undefined, { method: "POST", body: "{}" })).status).toBe(303);
+    expect(await (await b.go("/your-games/played")).text()).not.toContain('data-slug="recent-one"');
+    expect((await accountDeletionReach(env.DB, accountId)).gameIds).toContain(recent);
+  });
+
+  it("keeps favorites to the player: added once, taken off, refused for a game that isn't out or signed out", async () => {
+    const b = new Browser();
+    await join(b, null, "Night_Owl");
+    const accountId = await idOf("Night_Owl");
+    const gameId = await yourGame("liked-one");
+    await yourGame("draft-one", { visibility: "draft" });
+    await favorite(b, "liked-one");
+    await favorite(b, "liked-one");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS favorite_count FROM favorite_games WHERE account_id = ?").bind(accountId).first("favorite_count")).toBe(1);
+    expect(await favoriteCount(env.DB, gameId)).toBe(1);
+    expect((await favorite(b, "draft-one")).status).toBe(404);
+    // Taken off from Your games, it goes back there.
+    const removed = await favorite(b, "liked-one", true);
+    expect(removed.headers.get("Location")).toBe("/your-games");
+    expect(await favoriteCount(env.DB, gameId)).toBe(0);
+    const guest = new Browser();
+    expect((await favorite(guest, "liked-one")).status).not.toBe(200);
+    expect((await b.go("/api/me/favorites/liked-one", undefined, { method: "POST", body: "{}", origin: "https://elsewhere.test" })).status).toBe(403);
+    // Deleting the account takes its favorites.
+    await favorite(b, "liked-one");
+    await deleteAccount(env.DB, accountId);
+    expect(await favoriteCount(env.DB, gameId)).toBe(0);
+  });
+
+  it("gives a guest this device's games, and nothing played its empty state", async () => {
+    await yourGame("device-one");
+    const guest = new Browser();
+    expect(await (await guest.go("/your-games")).text()).toContain("Games you play show up here.");
+    guest.jar.set(cookieName(env, PLAYED_COOKIE), "device-one");
+    const page = await (await guest.go("/your-games")).text();
+    expect(page).toContain('data-slug="device-one"');
+    expect(page).toContain("Make an account");
+    // The cookie is the device's to write, so a game not out shows nowhere from it.
+    await yourGame("secret-draft", { visibility: "draft" });
+    guest.jar.set(cookieName(env, PLAYED_COOKIE), "device-one,secret-draft");
+    expect(await (await guest.go("/your-games")).text()).not.toContain("secret-draft");
+    expect(await (await guest.go("/your-games/played")).text()).not.toContain("secret-draft");
+  });
+
+  it("never shows a younger account a game for older players", async () => {
+    const teen = new Browser();
+    await join(teen, null, "Quiet_Comet", BIRTH_TEEN);
+    const gameId = await yourGame("grown-only", { minimumAgeYears: 18 });
+    await played(await idOf("Quiet_Comet"), gameId, 1000);
+    expect(await (await teen.go("/your-games")).text()).not.toContain("grown-only");
+    expect(await (await teen.go("/your-games/played")).text()).not.toContain("grown-only");
+    // Nor can one favorite it: the server refuses it as a game that isn't there.
+    expect((await favorite(teen, "grown-only")).status).toBe(404);
+    expect(await favoriteCount(env.DB, gameId)).toBe(0);
   });
 });

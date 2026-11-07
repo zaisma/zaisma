@@ -231,9 +231,11 @@ export type GridOptions = {
    * What a cell holds, which names its least width: a cover or a card. Cells share the width equally, as many as fit, never under
    * that width. isAllOnOneLine puts up to six covers on one line, as one thing to take in at a glance (the home's first screen), going to
    * three, two and then one across as they run out of a cover's least width. isAtLeastTwoAcross stops at two, however small the covers get (the
-   * home's What's on on a phone). isLeadWideAtTwoAcross gives the first cell the whole line wherever it's two across, so three cells never leave one alone.
+   * home's What's on on a phone, a library on a phone). isLeadWideAtTwoAcross gives the first cell the whole line wherever it's two across, so
+   * three cells never leave one alone. hasLeadCell makes the first cover the one the list is grounded on (Your games' featured favorite): two
+   * cells wide and two lines tall where three or more fit across, the whole line at two.
    */
-  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isLeadWideAtTwoAcross?: boolean }
+  | { itemSize: "cover"; whenEmpty: EmptyNoteMarkup; isAllOnOneLine?: boolean; isAtLeastTwoAcross?: boolean; isLeadWideAtTwoAcross?: boolean; hasLeadCell?: boolean }
   | { itemSize: "card"; whenEmpty: EmptyNoteMarkup }
 );
 
@@ -261,6 +263,9 @@ export function grid(options: GridOptions): LayoutMarkup {
     if (options.items.length > MAXIMUM_ONE_LINE_COVER_COUNT) throw new Error(`One line holds ${MAXIMUM_ONE_LINE_COVER_COUNT} covers at most, not ${options.items.length}: a longer list is a grid or a track.`);
     return asLayout(html`<div class="grid-one-line">${gridMarkup(options, ` is-one-line${options.isAtLeastTwoAcross ? " is-at-least-two-across" : ""}${options.isLeadWideAtTwoAcross ? " is-lead-wide" : ""}`)}</div>`);
   }
+  const twoAcross = options.itemSize === "cover" && options.isAtLeastTwoAcross ? " is-at-least-two-across" : "";
+  if (options.itemSize === "cover" && options.hasLeadCell) return asLayout(html`<div class="grid-lead-cell">${gridMarkup(options, ` has-lead-cell${twoAcross}`)}</div>`);
+  if (twoAcross) return asLayout(gridMarkup(options, twoAcross));
   return asLayout(gridMarkup(options, ""));
 }
 
@@ -624,6 +629,17 @@ export const GRID_STYLES = `
 @container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
 @container (max-width: ${coversShortOf(2)}) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
+/* A lead cell: the first cover two cells wide and two lines tall where three or more fit across, so it's about twice the rest, never
+   more; the whole line where two fit; one across, a cover like the rest. Every cover keeps its 16:9. */
+.grid-lead-cell { container-type: inline-size; width: 100%; min-width: 0; }
+/* Two to a line at the least: each cover a cover's least width or half the line, whichever is less, and one across where half the line is
+   too narrow for a title: the floor is 120px at the usual text (two across on the narrowest phone) and grows faster than the text, 360px at
+   twice it. */
+.layout-grid.item-cover.is-at-least-two-across:not(.is-one-line) { grid-template-columns: repeat(auto-fill, minmax(max(min(calc(50% - var(--gap-block-block) / 2), var(--size-cover)), var(--size-two-across-least)), 1fr)); }
+.layout-grid.has-lead-cell { grid-auto-flow: row dense; }
+.layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: span 2; grid-row: span 2; }
+/* Below three across, the lead takes the whole line, never a column past it. */
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.has-lead-cell > .grid-cell:first-child { grid-column: 1 / -1; grid-row: auto; } }
 `;
 
 export const LEAD_AND_SIDE_STYLES = `

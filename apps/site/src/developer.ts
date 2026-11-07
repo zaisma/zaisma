@@ -217,6 +217,7 @@ import {
   NO_BODY_MAXIMUM_SIZE_BYTES,
   readBodyBytes,
   readBodyText,
+  favoriteCount,
 } from "@zaisma/core";
 import { standingWords } from "./standing.ts";
 import { bringBackGame, checkStoredSizeFits, deleteOwnGame, deleteOwnVersion, eraseGameNow, reserveOrRefuse, storageRoute } from "./storage-api.ts";
@@ -2323,6 +2324,7 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   return {
     period_duration_days: dayCount,
     play_stats: gamePlayStats,
+    favorite_count: await favoriteCount(env.DB, game.id),
     performance,
     multiplayer_days: roomDays.map((day) => ({
       date: day.date,

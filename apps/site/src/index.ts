@@ -24,6 +24,7 @@ import { pageScriptResponse } from "./page-scripts.ts";
 import { pageStyleResponse } from "./page-styles.ts";
 import { browsePage, browseSuggestions } from "./browse.ts";
 import { handlePlayed, home } from "./home.ts";
+import { allPlayedPage, handleYourGamesChanges, yourGamesPage } from "./your-games.ts";
 import { handlePlays } from "./plays.ts";
 import { gamePage, legal, previewPage, testerEnter, testerPage } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
@@ -140,8 +141,12 @@ async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): P
 
   if (path === "/" && method !== "POST") return home(env, request);
   if (path === "/games" && (method === "GET" || method === "HEAD")) return browsePage(env, request);
+  if (path === "/your-games" && (method === "GET" || method === "HEAD")) return yourGamesPage(env, request);
+  if (path === "/your-games/played" && (method === "GET" || method === "HEAD")) return allPlayedPage(env, request);
   if (path === "/games/suggestions" && (method === "GET" || method === "HEAD")) return browseSuggestions(env, request);
 
+  const yourGamesChange = await handleYourGamesChanges(request, env, path);
+  if (yourGamesChange) return yourGamesChange;
   const played = await handlePlayed(request, env, path);
   if (played) return played;
 
