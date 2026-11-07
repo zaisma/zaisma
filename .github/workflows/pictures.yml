@@ -128,7 +128,8 @@ jobs:
         env:
           LAYOUT_OUTCOME: ${{ steps.layout.outcome }}
           MOTION_OUTCOME: ${{ steps.motion.outcome }}
-        run: node -e 'require("fs").writeFileSync("pictures/run.json", JSON.stringify({ page_path: process.env.PAGE_PATH, head_sha: process.env.HEAD_SHA, pull_request_number: Number(process.env.PULL_REQUEST_NUMBER), layout_outcome: process.env.LAYOUT_OUTCOME || "skipped", motion_outcome: process.env.MOTION_OUTCOME || "skipped" }))'
+        run: |
+          node -e 'require("fs").writeFileSync("pictures/run.json", JSON.stringify({ page_path: process.env.PAGE_PATH, head_sha: process.env.HEAD_SHA, pull_request_number: Number(process.env.PULL_REQUEST_NUMBER), layout_outcome: process.env.LAYOUT_OUTCOME || "skipped", motion_outcome: process.env.MOTION_OUTCOME || "skipped" }))'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
