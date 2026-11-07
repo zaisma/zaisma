@@ -398,8 +398,8 @@ export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescore
   const itemProblemList = itemProblems(next);
   if (itemProblemList.length) throw new Error(`The item would break its shape: ${itemProblemList.join("; ")}.`);
   if (next.way_id === null) {
-    if (rescore) throw new Error(`${itemId} is about cases (${caseIdsOf(next).join(", ")}), not a way to break, so there's no way to rescore: run it without --rescore, and the next review settles the cases.`);
-    const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, case_ids: caseIdsOf(next), way_rescore: "no_way" };
+    if (rescore || isRescoreLater) throw new Error(`${itemId} is about cases (${caseIdsOf(next).join(", ")}), not a way to break, so there's no way to rescore: run it without --rescore or --rescore-later, and the next review settles the cases.`);
+    const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: null, case_ids: caseIdsOf(next), way_rescore: "no_way" };
     if (isDry) return { ...answer, is_dry: true };
     if (JSON.stringify(next) === JSON.stringify(item)) return { ...answer, is_changed: false };
     writeFileSync(join(mapDir, itemFilePathOf(itemId)), `${JSON.stringify(next, null, 2)}\n`);
@@ -432,7 +432,7 @@ export function finishItem(mapDir, { itemId, testPath, rescore = null, isRescore
     if (problems.length) throw new Error(`The promises would break their shape: ${problems.join("; ")}.`);
     writes.push({ path: `promises/${next.sector_id}.json`, record: promise });
   }
-  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: way.way_id, way_rescore: wayRescore, ...(wayRescore === "rescored" ? { new_defense_score: rescore.defense_score, new_damage_score: rescore.damage_score } : {}) };
+  const answer = { item_id: itemId, old_item_state: item.item_state, new_item_state: next.item_state, way_id: way.way_id, case_ids: [], way_rescore: wayRescore, ...(wayRescore === "rescored" ? { new_defense_score: rescore.defense_score, new_damage_score: rescore.damage_score } : {}) };
   if (isDry) return { ...answer, is_dry: true };
   if (!writes.length) return { ...answer, is_changed: false };
   for (const { path, record } of writes) writeFileSync(join(mapDir, path), `${JSON.stringify(record, null, 2)}\n`);

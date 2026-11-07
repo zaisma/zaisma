@@ -3,8 +3,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readMap } from "./generate.mjs";
 import { FINISHED_STATES, isCaseItem, isOpenItem, isWayWaitingForRescore, priorityOfItem, readItems } from "./items.mjs";
-import { readPromises } from "./promises.mjs";
-import { DONE_STATUSES, hasOpenFinding, SECTORS } from "./schema.mjs";
+import { PRIORITIES, readPromises } from "./promises.mjs";
+import { coveragePctOf, DONE_STATUSES, hasOpenFinding, SECTORS } from "./schema.mjs";
 
 /**
  * What the Security map page shows, worked out from the private repo's records. Every field is copied by
@@ -103,26 +103,25 @@ function attentionItemsOf(items, scales) {
  * (its code changed since the verdict), and found soft (weak) or open (a hole, or a stale case that was one).
  */
 export function caseCoverageOf(doors) {
-  const cases = doors.filter((door) => !door.door_removed_at).flatMap((door) => door.cases);
-  const solidCount = cases.filter((theCase) => DONE_STATUSES.includes(theCase.status)).length;
+  const casesWithNested = (cases) => cases.flatMap((theCase) => [theCase, ...casesWithNested(theCase.cases ?? [])]);
+  const cases = casesWithNested(doors.filter((door) => !door.door_removed_at).flatMap((door) => door.cases));
+  const isOpenHole = (theCase) => theCase.status === "hole" || hasOpenFinding(theCase);
   return {
     case_count: cases.length,
-    solid_case_count: solidCount,
-    solid_case_pct: cases.length ? Math.floor((solidCount / cases.length) * 100) : 0,
+    solid_case_count: cases.filter((theCase) => DONE_STATUSES.includes(theCase.status)).length,
+    coverage_pct: coveragePctOf(cases),
     unexplored_case_count: cases.filter((theCase) => theCase.status === "unexplored").length,
-    stale_case_count: cases.filter((theCase) => theCase.status === "stale" && !hasOpenFinding(theCase)).length,
+    stale_case_count: cases.filter((theCase) => theCase.status === "stale" && !isOpenHole(theCase)).length,
     weak_case_count: cases.filter((theCase) => theCase.status === "weak").length,
-    hole_case_count: cases.filter(hasOpenFinding).length,
+    hole_case_count: cases.filter(isOpenHole).length,
   };
 }
-
-const PRIORITY_ORDER = ["fix_now", "harden", "fix_soon", "watch"];
 
 /** A sector's open items about cases, proven or not: each a bug found or suspected, open until a test guards its fix. Worst first. */
 function caseItemsOf(sectorItems, items, scales) {
   return sectorItems
     .filter((item) => isCaseItem(item) && isOpenItem(item))
-    .sort((first, second) => PRIORITY_ORDER.indexOf(priorityOfItem(first)) - PRIORITY_ORDER.indexOf(priorityOfItem(second)) || second.damage_score - first.damage_score || first.item_id.localeCompare(second.item_id))
+    .sort((first, second) => PRIORITIES.indexOf(priorityOfItem(first)) - PRIORITIES.indexOf(priorityOfItem(second)) || second.damage_score - first.damage_score || first.item_id.localeCompare(second.item_id))
     .map((item) => ({ item_line: item.item_line, goal_line: item.goal_line, is_question: item.item_kind === "question", shield_state: shieldStateOfItem(item), item_standing: itemStandingOf(item, items), ...harmAndLockOf(item, scales) }));
 }
 

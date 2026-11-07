@@ -187,15 +187,15 @@ describe("the thin spots", () => {
 describe("a sector's bugs", () => {
   const caseOf = (status: string, finding_id: string | null = null) => ({ case_id: "a-case", status, finding_id });
   const map = [{ sector_id: "rooms", doors: [
-    { door_id: "a", door_removed_at: null, cases: [caseOf("robust"), caseOf("fixed", "fnd_PLANTED"), caseOf("unexplored"), caseOf("stale"), caseOf("weak"), caseOf("hole", "fnd_PLANTED"), caseOf("stale", "fnd_PLANTED"), caseOf("unexplored")] },
+    { door_id: "a", door_removed_at: null, cases: [caseOf("robust"), caseOf("fixed", "fnd_PLANTED"), caseOf("unexplored"), caseOf("stale"), caseOf("weak"), caseOf("hole", "fnd_PLANTED"), { ...caseOf("stale", "fnd_PLANTED"), cases: [caseOf("hole"), caseOf("robust")] }, caseOf("unexplored")] },
     { door_id: "gone", door_removed_at: "2026-11-01T00:00:00.000Z", cases: [caseOf("unexplored")] },
   ] }];
   const onCases = (fields: Record<string, unknown> = {}) => itemOf({ way_id: null, case_ids: ["forged"], defense_score: 3, damage_score: 4, ...fields });
 
   it("show as coverage: how much of its doors' checklist is tested and solid, against unexplored, stale, soft and open", () => {
-    expect(caseCoverageOf(map[0].doors)).toEqual({ case_count: 8, solid_case_count: 2, solid_case_pct: 25, unexplored_case_count: 2, stale_case_count: 1, weak_case_count: 1, hole_case_count: 2 });
-    expect(caseCoverageOf([])).toMatchObject({ case_count: 0, solid_case_pct: 0 });
-    expect(dataOf([], { map }).sectors[0].case_coverage.solid_case_pct).toBe(25);
+    expect(caseCoverageOf(map[0].doors)).toEqual({ case_count: 10, solid_case_count: 3, coverage_pct: 30, unexplored_case_count: 2, stale_case_count: 1, weak_case_count: 1, hole_case_count: 3 });
+    expect(caseCoverageOf([])).toMatchObject({ case_count: 0, coverage_pct: 0 });
+    expect(dataOf([], { map }).sectors[0].case_coverage.coverage_pct).toBe(30);
   });
 
   it("list each open item about cases, proven or not, worst first, and leave the ways to break alone", () => {
@@ -209,13 +209,15 @@ describe("a sector's bugs", () => {
 
   it("show in each promise beside its ways, with nothing private, and say where a sector with no doors finds its coverage", () => {
     const html: string = buildPage(dataOf([onCases({ item_line: "Harden bug." })], { map }));
-    expect(html).toContain("Bugs found, open until fixed");
+    expect(html).toContain("Open on its cases, until a test guards the fix");
     expect(html).toContain("Harden bug.");
-    expect(html).toContain("Its doors' checklist: 25% tested and solid");
-    expect(html).toContain("25% of its checklist tested and solid.");
+    expect(html).toContain("Its doors' checklist: 30% tested and solid");
+    expect(html).toContain("30% of its checklist tested and solid.");
     expect(html).not.toContain("PLANTED");
+    expect(html).not.toContain("forged");
+    expect(dataOf([onCases({ case_ids: ["PLANTED_CASE"] })], { map }).sectors[0].case_items[0]).toEqual({ item_line: "An item line.", goal_line: "A goal line.", is_question: false, shield_state: "chipped", item_standing: "up_next", harm_level: "many_games", harm_line: "Harm words 4", lock_level: "locked", lock_line: "Lock words 3" });
     const noDoors = buildPage(dataOf([], { promises: [promiseOf({ sector_id: "staying-up" })] }));
-    expect(noDoors).toContain("No bug open.");
+    expect(noDoors).toContain("Nothing open on its cases.");
     expect(noDoors).toContain("the other sectors' doors");
     expect(noDoors).not.toContain("tested and solid");
   });

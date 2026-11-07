@@ -37,7 +37,7 @@ function demoItem(sector_id, itemNumber, { defense_score, damage_score, item_sta
     item_kind,
     sector_id,
     way_id: case_ids ? null : `${sector_id}-way-1`,
-    ...(case_ids ? { case_ids } : {}),
+    case_ids: case_ids ?? [],
     item_state,
     defense_score,
     damage_score,

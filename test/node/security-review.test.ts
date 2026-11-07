@@ -97,6 +97,9 @@ describe("what a record may be", () => {
     expect(itemProblems({ ...onCases, case_ids: [] }).join()).toContain("names neither a way_id nor case_ids");
     expect(itemProblems({ ...onCases, case_ids: ["forged", "made-up-case"] }).join()).toContain("no checklist has: made-up-case");
     expect(itemProblems({ ...onCases, case_ids: ["forged", "forged"] }).join()).toContain("names a case_id twice");
+    expect(itemProblems({ ...onCases, case_ids: undefined }).join()).toContain("needs case_ids as a list");
+    expect(problemsOf({ new_items: [newItem({ way_id: null, case_ids: ["forged"] })] })).toBe("");
+    expect(openedItem().case_ids).toEqual([]);
     expect(problemsOf({ new_items: [newItem({ way_id: null, case_ids: ["forged"] }), newItem({ item_slug: "same-gap", way_id: null, case_ids: ["forged"] })] })).toContain("same way (or cases) and cited code");
   });
 

@@ -242,7 +242,7 @@ describe("git on the private repo", () => {
 describe("an item through the private repo", () => {
   const ITEM_ID = "itm_2026-11-03_some-words";
   const CALL = "Whether it asks or waits.";
-  const anItem = () => ({ item_id: ITEM_ID, item_kind: "item", sector_id: SECTORS[0].sector_id, way_id: "some-way", item_line: "A line.", goal_line: "After this, it's impossible.", answer_kind: "remove", opened_at: NOW, opened_by: "merge_catch_up", item_state: "next", defense_score: 3, defense_reason: "reason", damage_score: 3, damage_reason: "reason", anchors: [], scored_at: NOW, score_stale_reason: null, score_changes: [], calls: [CALL], waits_on: [], proof_kind: "failing_test", proof_line: "A test fails.", test_path: "test/node/old.test.ts", finding_id: null, evidence: [] });
+  const anItem = () => ({ item_id: ITEM_ID, item_kind: "item", sector_id: SECTORS[0].sector_id, way_id: "some-way", case_ids: [], item_line: "A line.", goal_line: "After this, it's impossible.", answer_kind: "remove", opened_at: NOW, opened_by: "merge_catch_up", item_state: "next", defense_score: 3, defense_reason: "reason", damage_score: 3, damage_reason: "reason", anchors: [], scored_at: NOW, score_stale_reason: null, score_changes: [], calls: [CALL], waits_on: [], proof_kind: "failing_test", proof_line: "A test fails.", test_path: "test/node/old.test.ts", finding_id: null, evidence: [] });
 
   const GUARD_SOURCE = "export function guard() {\n  return 1;\n}\n";
   const CHECK_SOURCE = "export const check = () => true;\n";
@@ -346,7 +346,8 @@ describe("an item through the private repo", () => {
     const repoRoot = publicCheckout();
     claimItem(cloneDir, { itemId: ITEM_ID, launchId: "launch-1" });
     expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", rescore: RESCORE, date: "2026-11-04", now: NOW, repoRoot })).toThrow("no way to rescore");
-    expect(finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot })).toMatchObject({ new_item_state: "done", way_rescore: "no_way", case_ids: ["forged"], committed_paths: [`items/${ITEM_ID}.json`] });
+    expect(() => finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", isRescoreLater: true, date: "2026-11-04", now: NOW, repoRoot })).toThrow("no way to rescore");
+    expect(finishItem(cloneDir, { itemId: ITEM_ID, testPath: "test/guard.test.ts", date: "2026-11-04", now: NOW, repoRoot })).toMatchObject({ new_item_state: "done", way_id: null, way_rescore: "no_way", case_ids: ["forged"], committed_paths: [`items/${ITEM_ID}.json`] });
     expect(itemIn(cloneDir)).toMatchObject({ item_state: "done", way_id: null, case_ids: ["forged"] });
   });
 

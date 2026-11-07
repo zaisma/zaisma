@@ -84,12 +84,12 @@ export function itemMatchKeyOf({ way_id, case_ids, anchors, test_path }) {
 
 /** What's wrong with what an item says it's about: a way_id, or case_ids from the checklists, never both or neither. */
 function aboutProblems({ way_id, case_ids }, label) {
-  if (case_ids !== undefined && (!Array.isArray(case_ids) || !case_ids.every(isFilledText))) return [`${label} needs case_ids as a list of checklist case ids`];
-  const caseIds = case_ids ?? [];
+  if (!Array.isArray(case_ids) || !case_ids.every(isFilledText)) return [`${label} needs case_ids as a list of checklist case ids, [] for an item about a way`];
+  const caseIds = case_ids;
   const unknown = caseIds.filter((caseId) => !CHECKLIST_CASE_IDS.includes(caseId));
   const problems = unknown.length ? [`${label} names case_ids no checklist has: ${unknown.join(", ")}`] : [];
   if (new Set(caseIds).size !== caseIds.length) problems.push(`${label} names a case_id twice`);
-  const hasWay = way_id !== null && way_id !== undefined;
+  const hasWay = way_id !== null;
   if (hasWay && !isFilledText(way_id)) problems.push(`${label} needs way_id as text or null`);
   if (hasWay && caseIds.length) problems.push(`${label} names both a way_id and case_ids: an item is about a way to break, or about the cases a bug sits in`);
   if (!hasWay && !caseIds.length) problems.push(`${label} names neither a way_id nor case_ids: a way to break, or for a bug the checklist cases it's about`);
@@ -161,7 +161,7 @@ export function itemFromNight(input, { date, now, anchors }) {
     item_kind: input.item_kind,
     sector_id: input.sector_id,
     way_id: input.way_id ?? null,
-    ...(input.case_ids?.length ? { case_ids: input.case_ids } : {}),
+    case_ids: input.case_ids ?? [],
     item_line: input.item_line,
     goal_line: input.goal_line,
     answer_kind: input.answer_kind ?? null,
