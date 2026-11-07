@@ -53,7 +53,7 @@ import { checkProfiles } from "./profile-check.ts";
 import { reviewChatMessages } from "./chat-review.ts";
 import { sendWaitingReports } from "./ncmec.ts";
 import { handleForum } from "./forum-pages.ts";
-import { handleAnnouncements } from "./announcements.ts";
+import { handleWhatsOnArt } from "./whats-on.ts";
 import { handleFriends } from "./friends.ts";
 import { handleBlocks } from "./blocks.ts";
 import { handleFriendRequests } from "./friend-requests.ts";
@@ -165,8 +165,8 @@ async function routeToDoor(request: Request, env: Env, ctx: ExecutionContext): P
   const forum = await handleForum(request, env, path);
   if (forum) return forum;
 
-  const announcements = await handleAnnouncements(request, env, path);
-  if (announcements) return announcements;
+  const whatsOnArt = await handleWhatsOnArt(request, env, path);
+  if (whatsOnArt) return whatsOnArt;
 
   const passkeys = await handlePasskeys(request, env, path);
   if (passkeys) return passkeys;

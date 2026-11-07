@@ -244,7 +244,7 @@ function secondaryButtonMarkup(label: string, options: SecondaryButtonOptions & 
   const reactionMarkup = hasCount ? html`<span class="cut-count">${countWords}</span>` : "";
   const cutLineNumber = options.isBig ? 13 : 10;
   const front = isToggle ? html`<span class="toggle-front slab-front" aria-hidden="true"></span>` : "";
-  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall || options.isTiny ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? iconPair(options.icon, pressedIcon) : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isSmall || options.isInWell ? "small" : "regular");
+  return controlMarkup(html`${opening(className, options, options.isBusy, extra)}${front}<span class="face slab${options.isBig ? " big" : options.isSmall || options.isTiny ? " compact" : ""}" data-cut-line="${cutLineNumber}">${CUT_LINE}${options.wayIn ? html`<span class="way-mark way-${options.wayIn}">${WAY_MARKS[options.wayIn]}</span>` : options.icon && pressedIcon ? iconPair(options.icon, pressedIcon) : options.icon ? icon(options.icon) : ""}${words}${reactionMarkup}</span>${closing(options)}`, options.isBig ? "big" : options.isTiny ? "tiny" : options.isSmall || options.isInWell ? "small" : "regular");
 }
 
 /** A control's icon for each state (Show and Hide, Play and Pause): the two lie in one place and cross-fade as its state changes (ICON_PAIR_STYLES). */
@@ -505,7 +505,7 @@ component({
 .cut-btn.big { --control-height: var(--control-height-big); }
 .cut-btn.small { --control-height: var(--control-height-small); }
 .cut-btn.tiny { --control-height: var(--control-height-tiny); }
-.cut-btn.tiny > .face { gap: var(--pad-frame-compact); --slab-words: 4px; font: var(--type-note); }
+.cut-btn.tiny > .face { gap: var(--pad-frame-compact); --slab-words: 14px; font: var(--type-note); }
 .cut-btn.is-full { display: flex; width: 100%; }
 /* Its face is a slab (materials.ts): its look, its room and its states are the slab's. */
 .cut-btn > .face { flex: auto; gap: 8px; }
@@ -527,7 +527,7 @@ ${iconAloneFace(".cut-btn.icon-only > .face")}
 .cut-btn:disabled:not([aria-busy="true"]) { cursor: default; pointer-events: none; }
 .cut-btn.in-well:disabled:not([aria-busy="true"]) > .face { opacity: 0.35; }
 /* On a touch screen a small one (36px) still takes a finger: its hit area reaches out to a regular control's 44px, its look unchanged. */
-@media (pointer: coarse) { .cut-btn.small::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
+@media (pointer: coarse) { .cut-btn:is(.small, .tiny)::after { content: ""; position: absolute; inset: calc((var(--control-height) - var(--touch-target)) / 2); } }
 @media (max-width: 760px) { .cut-btn.big { --slab-words: 20px; } }
 /* Another way in: its mark before its words, and the way's color mixed into its slab (a brand's color is how you recognize it, so it
    doesn't follow light or dark; mixed in, the words keep the ink's color in either theme). Plain is the glass's own tone, as Google's

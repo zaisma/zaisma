@@ -73,7 +73,7 @@ describe("the workflow and ship agree", () => {
   it("on the merge queue measuring every page its change reaches on every screen, and failing the required check when it fails", () => {
     const sweepJob = workflow.slice(workflow.indexOf("name: Every screen ("), workflow.indexOf("\n  docs-tests:"));
     expect(sweepJob).toContain("github.event_name == 'merge_group'");
-    expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/6 --measured .wrangler/layout-sweep-measured.json --changed-only");
+    expect(sweepJob).toContain("run: npm run layout:check -- --sweep --shard ${{ matrix.shard }}/10 --measured .wrangler/layout-sweep-measured.json --changed-only");
     expect(sweepJob).toContain("restore-keys: layout-sweep-measured-");
     expect(sweepJob).toContain("name: layout-sweep-measured-${{ matrix.shard }}");
     expect(workflow).toContain("needs: [changes, tests, repeat-new-tests, typecheck, contract-grid, pattern-rules, engines, seed, layout, sweep, docs-tests]");

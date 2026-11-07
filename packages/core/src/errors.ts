@@ -151,7 +151,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID.", messageForPeople: "The game has no such version. Reload the page." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, an announcement's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made, a room message's send_at from 10 seconds to 90 days ahead, and a What's on entry's starts_at from an hour ago to 90 days ahead and its ends_at after now and starts_at and at most 60 days after it.", messageForPeople: "That time is outside the range this takes. Pick another." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned.", messageForPeople: "This version is still being scanned. It usually takes under a minute." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published.", messageForPeople: "This version didn't pass review, so it can't be published." },
 
@@ -387,12 +387,15 @@ export const ADMIN_ERROR_CODES = {
   // Publishing before the beta
   unknown_username: { httpStatus: 404, meaning: "No account has that username.", messageForPeople: "No account has that username." },
 
-  // Announcements
-  no_announcement: { httpStatus: 404, meaning: "There's no announcement with that ID.", messageForPeople: "There's no such announcement." },
-  announcement_ended: { httpStatus: 409, meaning: "The announcement has ended already.", messageForPeople: "The announcement has ended already." },
-  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "An announcement is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
+  // What's on
+  no_whats_on_entry: { httpStatus: 404, meaning: "There's no What's on entry with that ID.", messageForPeople: "There's no such entry." },
+  whats_on_entry_ended: { httpStatus: 409, meaning: "The What's on entry has ended already.", messageForPeople: "That has ended already." },
+  bad_event_title: { httpStatus: 400, meaning: "An event's title isn't 1 to 60 characters.", messageForPeople: "An event's name is 1 to 60 characters." },
+  bad_news_title: { httpStatus: 400, meaning: "News's title isn't 1 to 60 characters.", messageForPeople: "News is 1 to 60 characters." },
+  bad_art: { httpStatus: 400, meaning: "An event's art isn't a PNG, WebP or JPEG within the size cap.", messageForPeople: "That art can't be used." },
+  bad_text: { httpStatus: 400, meaning: "text isn't 1 to 200 characters of one or two plain sentences: no markup, links or line breaks.", messageForPeople: "Text is 1 to 200 characters of one or two plain sentences, with no links or line breaks." },
   bad_link_url: { httpStatus: 400, meaning: "link_url isn't an https address or a path on zaisma.com starting with /.", messageForPeople: "A link is an https address or a zaisma.com path starting with /." },
-  bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 30 characters, or was given without link_url.", messageForPeople: "A link's words are 1 to 30 characters, and come with a link." },
+  bad_link_label: { httpStatus: 400, meaning: "link_label isn't 1 to 20 characters.", messageForPeople: "A link's words are 1 to 20 characters." },
 
   // Page speed
   speed_not_set_up: { httpStatus: 503, meaning: "The site has no CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN to read real visits' speed with.", messageForPeople: "Page speed isn't set up." },
