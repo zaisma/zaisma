@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { GLASS_SCRIPT } from "../../apps/site/src/components/glass-script.ts";
-import { gameGrid } from "../../apps/site/src/components/panes.ts";
+import { gameCard, gameGrid } from "../../apps/site/src/components/panes.ts";
 import { html } from "../../apps/site/src/html.ts";
 import { stateNote } from "../../apps/site/src/components/data.ts";
 
@@ -27,5 +27,26 @@ describe("Game grid", () => {
     const missingGap = wrappers.filter((wrapper) => !gapRule.includes(`.${wrapper}`));
     const missingCut = wrappers.filter((wrapper) => !GLASS_SCRIPT.includes(`[data-cut-line] > .${wrapper} > .layout-grid`));
     expect({ missingGap, missingCut }).toEqual({ missingGap: [], missingCut: [] });
+  });
+});
+
+describe("Game card", () => {
+  it("keeps one shape wherever it sits: one line on its plate whatever it says, and nothing stretches it", () => {
+    const picture = null;
+    const menu = { id: "card-more", label: "Kestrel", items: [{ label: "Details", href: "#kestrel" }] };
+    const cards = [
+      gameCard({ title: "Kestrel", picture, href: "#kestrel", facts: { playerCount: 12, tagWords: "Updated", priceText: "$4.99", friends: [{ username: "Mia" }] } }),
+      gameCard({ title: "Kestrel", picture, href: "#kestrel", facts: { reasonText: "Because you played Ashen Crown" }, menu }),
+      gameCard({ title: "Kestrel", picture, href: "#kestrel", facts: { playerCount: 12 }, isGone: true, menu }),
+    ].map(String);
+    const plateLinesOf = (markup: string) => {
+      const plate = markup.slice(markup.indexOf('<div class="cover-plate'));
+      const inside = plate.slice(plate.indexOf(">") + 1);
+      return (inside.match(/^<div class="cover-meta[^"]*">/) ? 1 : 0) + (inside.includes("cover-reason") ? 1 : 0);
+    };
+    expect(cards.map(plateLinesOf)).toEqual([1, 1, 1]);
+    const styles = COMPONENT_STYLES();
+    expect(styles).not.toMatch(/\.grid-cell > \.cover \{[^}]*height: 100%/);
+    expect(styles).toMatch(/\.layout-track > \.cover \{ align-self: flex-start; \}/);
   });
 });
