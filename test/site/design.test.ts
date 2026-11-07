@@ -1307,6 +1307,23 @@ describe("layout", () => {
     expect(ROW_STYLES).toContain(".layout-row > .row-cell.gap-end-control-row-boxes { margin-inline-end: var(--gap-control-row-boxes); }");
   });
 
+  it("fills a wrapped row's line with a row of controls in it, its controls sharing it, but not where the row spreads to both ends or the inner row wraps too", () => {
+    expect(ROW_STYLES).toContain(".layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block:has(> .layout-row[data-control-height]:not(.is-wrapped)) { flex: 1 1 100%;");
+    expect(ROW_STYLES).toContain("> .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }");
+  });
+
+  it("shows a switch's menu for narrow places in a narrow column too, not only on a phone", () => {
+    expect(switchSource).toContain("@container column (max-width: ${NARROW_HOLDER_WIDTH}) { .switch-or-menu > .as-switch { display: none; } .switch-or-menu > .as-menu { display: block; } }");
+  });
+
+  it("spaces a control beside a row of controls as two controls, but apart in a row spread to both ends", () => {
+    const pair = { kind: "block" as const, markup: row({ widths: "fit", items: [control(actions.secondaryButton("Share")), control(actions.secondaryButton("Report"))] }) };
+    expect(cells(row({ widths: "lead-fills", items: [control(actions.primaryButton("Play")), pair] }).html)[0]).toContain("gap-end-control-row-boxes");
+    expect(cells(row({ widths: "fit", items: [pair, control(actions.secondaryButton("Leave"))] }).html)[0]).toContain("gap-end-control-row-boxes");
+    expect(cells(row({ widths: "fit", alignment: "between", items: [pair, control(actions.secondaryButton("Leave"))] }).html)[0]).toContain("gap-end-block-block");
+    expect(cells(row({ widths: "fit", alignment: "between", items: [control(actions.secondaryButton("Leave")), pair] }).html)[0]).toContain("gap-end-block-block");
+  });
+
   it("sets every control in a row to one height, the tallest one's", () => {
     const heightOf = (items: LayoutItem[]) => /data-control-height="([a-z]+)"/.exec(row({ widths: "fit", items }).html)?.[1];
     expect(heightOf([control(actions.secondaryButton("Dismiss", { isSmall: true })), control(actions.secondaryButton("Read more"))])).toBe("regular");
@@ -1340,11 +1357,11 @@ describe("layout", () => {
     expect(() => grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, items: covers(7) })).toThrow(/at most/);
     expect(grid({ whenEmpty, itemSize: "cover", isAllOnOneLine: true, isAtLeastTwoAcross: true, isLeadWideAtTwoAcross: true, items: covers(3) }).html).toMatch(/is-one-line is-at-least-two-across is-lead-wide"/);
     expect(leadAndSide({ lead: block("a"), side: block("b") }).html).toMatch(/^<div class="lead-and-side"><div class="lead-and-side-in"><div class="lead-and-side-lead">/);
-    // Six of a cover's least width and five gaps, then three, two and one: one line's room, as container queries can't read a token.
-    expect(GRID_STYLES).toContain("@container (max-width: 1119px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
-    expect(GRID_STYLES).toContain("@container (max-width: 555px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
-    expect(GRID_STYLES).toContain("@container (max-width: 367px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }");
-    expect(tokensSource).toContain("--size-cover: 180px");
+    // Six of a cover's least width (in rem, growing with the text) and five gaps, then three, two and one: one line's room, as container queries can't read a token.
+    expect(GRID_STYLES).toContain("@container (max-width: calc(67.5rem + 39px)) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: calc(33.75rem + 15px)) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }");
+    expect(GRID_STYLES).toContain("@container (max-width: calc(22.5rem + 7px)) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }");
+    expect(tokensSource).toContain("--size-cover: 11.25rem");
     expect(tokensSource).toContain("--gap-control-stack: 8px");
   });
 
@@ -1403,8 +1420,8 @@ describe("layout", () => {
     expect(grid({ whenEmpty: data.stateNote({ stateKind: "empty", title: "No games here yet", text: "Games show here as they come." }), itemSize: "cover", items: [block("a")] }).html).toContain('class="layout-grid item-cover"');
     // Every width, height, basis or template in the layout components is a named size or a share: no pane has a width of its own.
     const SIZE_PROPERTY = /(?:^|[;\s{])((?:min-|max-)?(?:width|height)|flex-basis|flex|grid-template-columns):\s*([^;}]+)/g;
-    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover.
-    const NAMED_LENGTHS = ["clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
+    // A length, other than a share (%), a fraction or a flex number, is a named one: a size token, or a track's cover (in rem) or picture.
+    const NAMED_LENGTHS = ["clamp(12.5rem, 20cqi, 16.25rem)", "clamp(200px, 20cqi, 260px)", "clamp(96px, 18cqi, 160px)"];
     const problems: string[] = [];
     for (const css of [STACK_STYLES, ROW_STYLES, GRID_STYLES, TRACK_STYLES, COLUMNS_STYLES, PANE_PARTS_STYLES]) {
       for (const [, property = "", sizeValue = ""] of css.matchAll(SIZE_PROPERTY)) {

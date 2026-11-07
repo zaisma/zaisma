@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, it, vi } from "vitest";
 import { ACCOUNT_AREAS, AREA_ACCESS_BY_LEVEL, AREA_ACCESS_CHOICES, allows, type AreaAccess, type KeyScope } from "@zaisma/core";
 import { API_INPUT_SHAPES, API_ROUTES, BANNED_DEVELOPER_ROUTES, type ApiInputName, type ApiRoute } from "../../apps/site/src/developer.ts";
 import { CONFIRMED_ON_A_PAGE, SAMPLES, keyFor, makeCall, nameOf, setUpOwnersCall, useRealServers, useStandInServers, withNothingThere, type Sample, type SiteWorker, type World } from "../site/access-world.ts";
-import { cellOf, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type ExpectedAnswer, type GridCell } from "./cells.ts";
+import { cellOf, ownLimitOnly, pastLimitProblem, problemWithAnswer, tooLongFor, wrongValueOf, type CallAnswer, type CallerKind, type ExpectedAnswer, type GridCell } from "./cells.ts";
 import { SITE, emptyWorlds, keyWithScope, makeWorld, ownersThings, rememberEmptyTables, sessionCookie, showsPrivateValue, useSessions, whileBanned } from "./site-world.ts";
 
 vi.mock("../../apps/site/src/shader-check.ts", async (original) => (await import("./shader-stand-in.ts")).shaderCheckStandIn(await original<object>()));
@@ -73,9 +73,10 @@ describe("every call", () => {
     const wrongPassed = wrongAnswers.find((answer) => answer.httpStatus < 400 || answer.httpStatus >= 500);
     cells.push(cellOf(doorId, "wrong_shape", (await ownersThings(world)) !== ownersBefore ? "A request of the wrong shape changed something." : wrongPassed ? `Answered ${wrongPassed.httpStatus} to a request of the wrong shape.` : null));
     if ("level" in apiRoute.limit) {
-      const refusing = { ...env, [`LIMIT_${apiRoute.limit.level.toUpperCase()}`]: { limit: async () => ({ success: false }) } };
-      const past = await makeCall(worker, refusing as typeof env)(apiRoute, await ownersKey, asOwner);
-      cells.push(cellOf(doorId, "past_limit", past.httpStatus === 429 ? null : `Answered ${past.httpStatus} past its limit.`));
+      // Only the call's own counter refuses: the address's, in front of every call, lets it through.
+      const own = ownLimitOnly(apiRoute.limit, routeName);
+      const past = await makeCall(worker, { ...env, ...own.bindings } as typeof env)(apiRoute, await ownersKey, asOwner);
+      cells.push(cellOf(doorId, "past_limit", pastLimitProblem(own.isCounted(), past.httpStatus === 429, String(past.httpStatus))));
     }
 
     // Another account, by their key and by their session from Zaisma's own pages: nothing of the owner's, as if it weren't there.

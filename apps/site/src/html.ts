@@ -435,9 +435,11 @@ const SHELL_STYLES = `
    block's gap, so the page starts a block's gap below it, and a link to a part of the page stops there. */
 :root { --header-gap: var(--gap-block-block); --header-room: calc(var(--pad-pane) + var(--header-height, 68px) + var(--header-gap)); scroll-padding-top: var(--header-room); }
 @media ${HEADER_SMALL_SCREEN_MEDIA} { :root { --header-room: calc(var(--pad-pane) + env(safe-area-inset-top, 0px) + var(--header-height, 68px) + var(--header-gap)); } }
-/* The page's own color behind the backdrop; a game's background sets --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
-html { background: var(--backdrop-edge, var(--page)); }
-body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--page));
+/* The page's own color behind the backdrop: Zaisma's own backdrop's base color, so the frames before the backdrop has painted (the page's top
+   arriving before its body, the still being decoded) are the backdrop's color, never a beige or white flash. A game's background sets
+   --backdrop-edge to its own color (BACKDROP_SCRIPT), so a strip a phone's browser bars uncover at an edge is that color. */
+html { background: var(--backdrop-edge, var(--backdrop-base)); }
+body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--backdrop-edge, var(--backdrop-base));
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
 /* A rebuilt page's width is its shape's (PAGE_SHAPE_STYLES, layout.ts). The footer keeps a block's gap above it itself. A Steel page, until it's

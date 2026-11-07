@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { anchorHashes } from "./anchors.mjs";
 import { checkMapDirExport, exportMapDir } from "./export-public.mjs";
 import { generateMap } from "./generate.mjs";
-import { isOpenItem, isQuestionPastLifetime, isWayWaitingForRescore, itemFromNight, itemMatchKeyOf, itemProblems, itemWithUpdate, priorityOfItem, QUESTION_LIFETIME_DAYS, readItems, writeItems } from "./items.mjs";
+import { caseIdsOf, isOpenItem, isQuestionPastLifetime, isWayWaitingForRescore, itemFromNight, itemMatchKeyOf, itemProblems, itemWithUpdate, priorityOfItem, QUESTION_LIFETIME_DAYS, readItems, writeItems } from "./items.mjs";
 import { commitAndPush, pullClone, run, withFindingStatus, withQueueLines } from "./private-repo.mjs";
 import { isFilledText, isObject, isScore, priorityOf, promiseProblems, readPromises, refreshedAnchors, refreshPromises, rescoreWay, unknownFieldProblems, writePromises } from "./promises.mjs";
 import { SECTORS } from "./schema.mjs";
@@ -87,7 +87,7 @@ export function mergesSince(repoRoot, sinceTime) {
 export function reviewOutlineOf({ promises, items, reviews, date }) {
   const challenge = challengeOf(promises, reviews);
   const challenged = promises.find((promise) => promise.sector_id === challenge.sector_id);
-  const summaryOf = (item) => ({ item_id: item.item_id, item_kind: item.item_kind, item_state: item.item_state, sector_id: item.sector_id, way_id: item.way_id, item_line: item.item_line, priority: priorityOfItem(item), score_stale_reason: item.score_stale_reason, calls: item.calls, settled_calls: item.settled_calls ?? [], claimed_by_launch_id: item.claimed_by_launch_id ?? null });
+  const summaryOf = (item) => ({ item_id: item.item_id, item_kind: item.item_kind, item_state: item.item_state, sector_id: item.sector_id, way_id: item.way_id, case_ids: caseIdsOf(item), item_line: item.item_line, priority: priorityOfItem(item), score_stale_reason: item.score_stale_reason, calls: item.calls, settled_calls: item.settled_calls ?? [], claimed_by_launch_id: item.claimed_by_launch_id ?? null });
   return {
     review_date: date,
     step_budget: STEP_BUDGET_PER_NIGHT,
@@ -121,8 +121,8 @@ export async function startReview({ repoRoot, mapDir, date, warn }) {
     ...mergesSince(repoRoot, reviews.at(-1)?.finished_at ?? null),
     new_door_ids: generated.new_door_ids,
     removed_door_ids: generated.removed_door_ids,
-    stale_case_count: generated.stale_case_refs.length,
-    seeded_case_count: seeded.length,
+    stale_case_count: generated.stale_case_refs.length + seeded.stale_case_refs.length,
+    seeded_case_count: seeded.seeded_case_refs.length,
     grid: readGridFailures(mapDir),
     patterns: readPatternFindings(mapDir),
     ...reviewOutlineOf({ promises: refreshed.promises, items: refreshItems(readItems(mapDir), repoRoot), reviews, date }),
@@ -262,9 +262,9 @@ export function applyNight({ promises, scales, items, reviews, night, now, date,
     problems.push(...result.problems);
     if (!result.item) continue;
     if (itemsById.has(result.item.item_id)) problems.push(`${result.item.item_id} exists already: findings on it are evidence`);
-    if (!wayIndex.has(input.way_id) && !newWayIds.includes(input.way_id)) problems.push(`${result.item.item_id} names way_id ${input.way_id}, and no way has it`);
+    if (result.item.way_id !== null && !wayIndex.has(input.way_id) && !newWayIds.includes(input.way_id)) problems.push(`${result.item.item_id} names way_id ${input.way_id}, and no way has it`);
     const twin = [...itemsById.values()].find((other) => other.item_state !== "closed_unproven" && itemMatchKeyOf(other) === itemMatchKeyOf(result.item));
-    if (twin) problems.push(`${result.item.item_id} is the same way and cited code as ${twin.item_id}: add evidence to that one`);
+    if (twin) problems.push(`${result.item.item_id} is the same way (or cases) and cited code as ${twin.item_id}: add evidence to that one`);
     if (!problems.length) openItem(result.item);
   }
 
@@ -337,7 +337,7 @@ export function applyNight({ promises, scales, items, reviews, night, now, date,
     const [, day, slug] = item.item_id.match(/^itm_(\d{4}-\d{2}-\d{2})_(.+)$/);
     const findingId = `fnd_${day}_${slug}`;
     const findingPath = `findings/${day}-${slug}.md`;
-    const text = withFindingStatus([`# ${item.item_line}`, "", `- Finding: ${findingId}. Item: ${item.item_id}.`, `- Sector: ${item.sector_id}. Way to break: ${item.way_id}.`, `- Goal: ${item.goal_line}`, `- Defense ${item.defense_score}: ${item.defense_reason}`, `- Damage ${item.damage_score}: ${item.damage_reason}`, `- Proof: ${item.proof_line}${item.test_path ? ` (${item.test_path})` : ""}`, `- Cited code: ${item.anchors.map((anchor) => anchor.anchor_id).join(", ") || "none"}`].join("\n"), "open: no branch, from the daily review");
+    const text = withFindingStatus([`# ${item.item_line}`, "", `- Finding: ${findingId}. Item: ${item.item_id}.`, `- Sector: ${item.sector_id}. ${item.way_id ? `Way to break: ${item.way_id}` : `Cases: ${caseIdsOf(item).join(", ")}`}.`, `- Goal: ${item.goal_line}`, `- Defense ${item.defense_score}: ${item.defense_reason}`, `- Damage ${item.damage_score}: ${item.damage_reason}`, `- Proof: ${item.proof_line}${item.test_path ? ` (${item.test_path})` : ""}`, `- Cited code: ${item.anchors.map((anchor) => anchor.anchor_id).join(", ") || "none"}`].join("\n"), "open: no branch, from the daily review");
     findings.push({ path: findingPath, text });
     queueLines.push(`URGENT: ${sectorNameOf(item.sector_id)}, ${findingPath}`, `Security fix: ${findingPath}; tier urgent; no branch: from the daily review`);
     itemsById.set(item.item_id, { ...item, finding_id: findingId });

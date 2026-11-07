@@ -89,6 +89,20 @@ describe("what a record may be", () => {
     expect(itemProblems({ ...item, plan_steps: ["do this"] }).join()).toContain("unknown field plan_steps");
   });
 
+  it("opens an item about a bug on the checklist cases it sits in, never on a way and cases both", () => {
+    const onCases = openedItem({ way_id: null, case_ids: ["forged", "guessable"] });
+    expect(onCases).toMatchObject({ way_id: null, case_ids: ["forged", "guessable"] });
+    expect(itemProblems(onCases)).toEqual([]);
+    expect(itemProblems({ ...onCases, way_id: "some-way" }).join()).toContain("names both a way_id and case_ids");
+    expect(itemProblems({ ...onCases, case_ids: [] }).join()).toContain("names neither a way_id nor case_ids");
+    expect(itemProblems({ ...onCases, case_ids: ["forged", "made-up-case"] }).join()).toContain("no checklist has: made-up-case");
+    expect(itemProblems({ ...onCases, case_ids: ["forged", "forged"] }).join()).toContain("names a case_id twice");
+    expect(itemProblems({ ...onCases, case_ids: undefined }).join()).toContain("needs case_ids as a list");
+    expect(problemsOf({ new_items: [newItem({ way_id: null, case_ids: ["forged"] })] })).toBe("");
+    expect(openedItem().case_ids).toEqual([]);
+    expect(problemsOf({ new_items: [newItem({ way_id: null, case_ids: ["forged"] }), newItem({ item_slug: "same-gap", way_id: null, case_ids: ["forged"] })] })).toContain("same way (or cases) and cited code");
+  });
+
   it("refuses an item with no proof: with no failing test or cited code it's a question", () => {
     expect(problemsOf({ new_items: [newItem({ proof_kind: null, proof_line: null })] })).toContain("it's a question");
     expect(problemsOf({ new_items: [newItem({ proof_kind: "failing_test", test_path: null })] })).toContain("needs test_path");
@@ -102,7 +116,7 @@ describe("what a record may be", () => {
 
   it("holds one finding to one item: the same way and cited code adds evidence instead", () => {
     const item = openedItem();
-    expect(problemsOf({ new_items: [newItem({ item_slug: "same-gap-again" })] }, { items: [item] })).toContain(`same way and cited code as ${item.item_id}`);
+    expect(problemsOf({ new_items: [newItem({ item_slug: "same-gap-again" })] }, { items: [item] })).toContain(`same way (or cases) and cited code as ${item.item_id}`);
     expect(problemsOf({ new_items: [newItem({ item_slug: "same-gap-again", anchors: [{ source_path: "src/guard.ts", symbol_name: "otherCall" }] })] }, { items: [item] })).toBe("");
   });
 

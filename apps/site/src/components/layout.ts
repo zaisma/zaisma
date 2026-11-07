@@ -76,8 +76,11 @@ function stackGap(above: LayoutItem, below: LayoutItem): LayoutGap {
 }
 
 /** The gap between two things side by side: two controls slant toward each other, their boxes overlapping (the edge rule's neighbor distance). */
-function rowGap(before: LayoutItem, after: LayoutItem): LayoutGap {
+function rowGap(before: LayoutItem, after: LayoutItem, alignment: string): LayoutGap {
   const kinds = [placedKind(before), placedKind(after)];
+  // A control beside a row of controls (Play beside Share and Report, kept a pair where the row wraps): still controls side by side. Not
+  // in a row spread to both ends (a menu's tools and Leave), where the two are apart, not neighbors.
+  if (alignment !== "between" && ((kinds[0] === "control" && isControlRow(after)) || (kinds[1] === "control" && isControlRow(before)))) return "control-row-boxes";
   if (kinds.includes("block")) return "block-block";
   if (kinds[0] === "control" && kinds[1] === "control") return "control-row-boxes";
   if (kinds[0] === "words" && kinds[1] === "words") return before.kind === after.kind ? "words-words" : "words-control";
@@ -150,7 +153,7 @@ export function row(options: RowOptions): LayoutMarkup {
     const after = options.items[itemIndex + 1];
     // The last cell reaches past the row's end as far as a control reaches over the next, and the row stops that far short of its own end
     // (ROW_STYLES), so a control ends at the row's end whether its line wraps there or not.
-    const endGap = after ? rowGap(layoutItem, after) : "control-row-boxes";
+    const endGap = after ? rowGap(layoutItem, after, alignment) : "control-row-boxes";
     const isFilling = options.widths === "equal" || (options.widths === "lead-fills" && itemIndex === 0);
     return html`<div class="row-cell is-${placedKind(layoutItem)}${isFilling ? " fills" : ""} gap-end-${endGap}"${placeAttributes(layoutItem)}>${layoutItem.markup}</div>`;
   });
@@ -236,10 +239,18 @@ export type GridOptions = {
 
 /** The most covers one line takes before each is too small to read as a cover on a laptop. */
 export const MAXIMUM_ONE_LINE_COVER_COUNT = 6;
-/** --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below two, one. */
+/**
+ * --size-cover, for the container queries, which can't read a token: below six of these on one line it's three across, below three, two, below
+ * two, one. At the browser's own text size; the queries ask for it in rem, as the token is, so a cover's least width grows with its words when
+ * the browser's text is set larger, and a line folds to fewer across instead of cutting its titles.
+ */
 const COVER_LEAST_PX = 180;
-/** --gap-control-stack, the gap between covers on one line, for the same queries. */
+/** The browser's own text size, which a rem is at 100%. */
+const BROWSER_TEXT_PX = 16;
+/** --gap-control-stack, the gap between covers on one line, for the same queries: in px, as gaps don't grow with the text. */
 const CONTROL_STACK_GAP_PX = 8;
+/** The widest a line of covers is while it can't hold this many of their least width and the gaps between them. */
+const coversShortOf = (coverCount: number): string => `calc(${(coverCount * COVER_LEAST_PX) / BROWSER_TEXT_PX}rem + ${(coverCount - 1) * CONTROL_STACK_GAP_PX - 1}px)`;
 
 /**
  * Cells of one size, as many to a line as fit their least width, folding to one column where two can't fit. A grid of
@@ -512,6 +523,13 @@ ${GAP_TOKENS.map((gap) => [gap, gap === "words-control" ? "words-beside-control"
 .layout-row.is-wrapped > .row-cell.is-control > * { flex: 1 1 auto; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell { display: flex; }
 .layout-row.is-wrapped > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
+/* A row of controls among them (Share and Report beside Play) fills its own line too, its controls sharing it, while it fits on that line
+   (wrapped itself, it's a stack as any row is). Not in a row spread to both ends (a menu's tools and Leave), whose pieces keep their size. */
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block:has(> .layout-row[data-control-height]:not(.is-wrapped)) { flex: 1 1 100%; min-width: 0; margin-inline-end: var(--gap-control-row-boxes); }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) { flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control { flex: 1 1 0; min-width: 0; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell { display: flex; flex: 1 1 auto; }
+.layout-row.is-wrapped:not(.alignment-between) > .row-cell.is-block > .layout-row[data-control-height]:not(.is-wrapped) > .row-cell.is-control > .shell > .face { width: 100%; justify-content: center; }
 /* Words at the row's ends keep the pane's margin at that side. */
 .row-cell.is-words:first-child { padding-inline-start: var(--pad-words); }
 .row-cell.is-words:last-child { padding-inline-end: var(--pad-words); }
@@ -602,10 +620,10 @@ export const GRID_STYLES = `
 /* Covers on one line, sharing it equally however many there are: goes by the width of what holds it (a container), to three, two and one across. */
 .grid-one-line { container-type: inline-size; width: 100%; min-width: 0; }
 .layout-grid.item-cover.is-one-line { gap: var(--gap-control-stack); grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-@container (max-width: ${MAXIMUM_ONE_LINE_COVER_COUNT * COVER_LEAST_PX + (MAXIMUM_ONE_LINE_COVER_COUNT - 1) * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: ${3 * COVER_LEAST_PX + 2 * CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } } }
-@container (max-width: ${2 * COVER_LEAST_PX + CONTROL_STACK_GAP_PX - 1}px) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: ${coversShortOf(MAXIMUM_ONE_LINE_COVER_COUNT)}) { .layout-grid.item-cover.is-one-line { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: ${coversShortOf(3)}) { .layout-grid.item-cover.is-one-line.is-lead-wide > :first-child { grid-column: 1 / -1; } }
+@container (max-width: ${coversShortOf(2)}) { .layout-grid.item-cover.is-one-line:not(.is-at-least-two-across) { grid-template-columns: minmax(0, 1fr); } }
 `;
 
 export const LEAD_AND_SIDE_STYLES = `
@@ -622,9 +640,9 @@ export const LEAD_AND_SIDE_STYLES = `
 export const TRACK_STYLES = `
 /* A track and its rail are one thing to what holds them: whatever gap it puts between its parts never falls between them. */
 .track-holder { display: flex; flex-direction: column; min-width: 0; }
-/* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's cell is a fifth of the
-   track's own width, from 200px to 260px, so a few show with the next peeking in; room above and below them for their lifted shadow, given
-   back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
+/* A track: a row of cells that scrolls sideways, fading at an edge with more past it (data-fades-sideways). A cover's or picture's cell is
+   a fifth of the track's own width, from 200px to 260px (a cover's in rem, growing with its words), so a few show with the next peeking in;
+   room above and below them for their lifted shadow, given back. Its sides are its box's, so what scrolls by stops at the frame gap, where the first cover sits. */
 .layout-track { --fade-sideways-px: 48px; --edge-room: var(--gap-words-control); container-type: inline-size; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity;
   padding: var(--edge-room) 0; margin: calc(-1 * var(--edge-room)) 0; }
 /* Its rail (data-side-rail, Rail in Navigation) runs under it, past the room kept for what lifts in it, never into it. A track that fits
@@ -640,7 +658,9 @@ export const TRACK_STYLES = `
 /* With no words under them, they keep no rail's room while they fit: nothing under them needs the words margin, so they sit at the frame gap
    from the pane's foot as any block does, and the rail takes its room only once there's something to scroll. */
 .layout-track:is(.item-picture, .item-thumbnail):not(.shows-side-rail) { margin-bottom: calc(-1 * var(--edge-room)); }
-.layout-track:is(.item-cover, .item-picture) > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
+.layout-track.item-cover > * { flex: 0 0 clamp(12.5rem, 20cqi, 16.25rem); scroll-snap-align: start; }
+/* A picture has no words to grow with the text: its cell stays in px. */
+.layout-track.item-picture > * { flex: 0 0 clamp(200px, 20cqi, 260px); scroll-snap-align: start; }
 `;
 
 export const COLUMNS_STYLES = `
@@ -649,7 +669,8 @@ export const COLUMNS_STYLES = `
 /* Its own width is what it's given, never its content's, so it can be measured: as wide as what holds it. */
 .layout-columns { container-type: inline-size; width: 100%; min-width: 0; }
 .columns-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-block-block); align-items: start; }
-.columns-in > .column { min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
+/* Each column is a holder of its own, named column, so what sits in it (a field's button) is narrow by the column's width, not the screen's. */
+.columns-in > .column { container: column / inline-size; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .columns-in > .column > .glass-pane { width: 100%; }
 /* Words that start a column (a game's name beside its pictures) keep the words' margin above them, as words at a pane's top do, while a
    block beside them (the pictures) sits at the frame gap. */

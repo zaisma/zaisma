@@ -26,7 +26,8 @@ export const roomCodeItems = (): LayoutItem[] => [
     { kind: "control", markup: visibilityButton({ show: "Show the room code", hide: "Hide the room code" }, { id: "room-eye", type: "button", isContentHidden: false, isHidden: true }) },
     { kind: "words", id: "room-closed", isHidden: true, markup: html`<p>This room doesn't take new players.</p>` },
   ] }) },
-  { kind: "block", markup: row({ widths: "fit", label: "Join a room", items: [
+  // The field takes the row's room and Join its own, so they meet slanted toward each other and reach the sheet's edge, as This room's code does above.
+  { kind: "block", markup: row({ widths: "lead-fills", label: "Join a room", items: [
     { kind: "control", markup: cutField({ id: "bar-join-code", name: "room", label: "Join a room by its code", type: "text", icon: "hash", placeholder: "ABC234", isShort: true, autocomplete: "off", ...ROOM_CODE_TYPING }) },
     { kind: "control", markup: secondaryButton(action("join"), { id: "room-join", type: "submit" }) },
   ] }) },
