@@ -193,7 +193,7 @@ describe("a sector's bugs", () => {
   const onCases = (fields: Record<string, unknown> = {}) => itemOf({ way_id: null, case_ids: ["forged"], defense_score: 3, damage_score: 4, ...fields });
 
   it("show as coverage: how much of its doors' checklist is tested and solid, against unexplored, stale, soft and open", () => {
-    expect(caseCoverageOf(map[0].doors)).toEqual({ case_count: 10, solid_case_count: 3, coverage_pct: 30, unexplored_case_count: 2, stale_case_count: 1, weak_case_count: 1, hole_case_count: 3 });
+    expect(caseCoverageOf(map[0]?.doors)).toEqual({ case_count: 10, solid_case_count: 3, coverage_pct: 30, unexplored_case_count: 2, stale_case_count: 1, weak_case_count: 1, hole_case_count: 3 });
     expect(caseCoverageOf([])).toMatchObject({ case_count: 0, coverage_pct: 0 });
     expect(dataOf([], { map }).sectors[0].case_coverage.coverage_pct).toBe(30);
   });
