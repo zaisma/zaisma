@@ -955,6 +955,9 @@ const FIELD_STYLES = `
    what's in it, the pane's width where that's wider, never past it. */
 .cut-field > .field:not(.select, .long) { width: var(--size-card); min-width: 100%; max-width: 100%; }
 .cut-field.is-short > .field:not(.select, .long) { width: var(--size-field-short); min-width: 0; }
+/* Beside other controls in a row, a short field is short at least and takes what its cell is given: as wide as its label above it in a row of
+   fitting things, so the control beside it meets it and they slant toward each other, never sitting apart. */
+.row-cell.is-control > .cut-field.is-short > .field:not(.select, .long) { min-width: 100%; }
 /* Leading a row that fills (a room code and its Join), a short field takes the row's room past its own width, so nothing sits apart from the
    row's start, and needs only its own width to keep its button beside it. */
 .row-cell.fills > .cut-field.is-short > .field:not(.select, .long) { width: 100%; min-width: var(--size-field-short); }
