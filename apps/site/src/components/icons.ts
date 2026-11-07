@@ -171,8 +171,17 @@ export const MARK_FLAT = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="tru
 const LOGO_ART = '<span class="logo-art on-light"></span><span class="logo-art on-smoked"></span>';
 export const WORDMARK = raw(LOGO_ART);
 export const MARK = raw(LOGO_ART);
-/** A brand file as a CSS image: its text in a data: URL, with what a URL can't hold escaped. */
-const logoImage = (svg: string) => `url("data:image/svg+xml,${svg.replace(/"/g, "'").replace(/[#%<>\n]/g, encodeURIComponent)}")`;
+/**
+ * A drawing with its ids renamed to the shortest names, in the order they're defined, and every reference to them with them: an image's
+ * ids are its own, so it draws the same, and the first paint every page carries is shorter.
+ */
+export function withShortIds(svg: string): string {
+  const shortIds = new Map([...svg.matchAll(/ id="([^"]+)"/g)].map((found, index) => [found[1]!, index.toString(36)]));
+  return svg.replace(/( id=")([^"]+)(")|(#)([^)"]+)(?=[)"])/g, (whole, idBefore, id, idAfter, hash, referenced) =>
+    id !== undefined ? `${idBefore}${shortIds.get(id) ?? id}${idAfter}` : shortIds.has(referenced) ? `${hash}${shortIds.get(referenced)}` : whole);
+}
+/** A brand file as a CSS image: its text, with short ids, in a data: URL, with what a URL can't hold escaped. */
+const logoImage = (svg: string) => `url("data:image/svg+xml,${withShortIds(svg).replace(/"/g, "'").replace(/[#%<>\n]/g, encodeURIComponent)}")`;
 /** Each drawing's shape, from its viewBox, so it keeps it at the height the logo sets. */
 const logoShape = (svg: string) => (/viewBox="[^ ]+ [^ ]+ ([^ ]+) ([^"]+)"/.exec(svg)?.slice(1, 3) ?? ["1", "1"]).join(" / ");
 /** The Logo component's drawings (foundations.ts), for its styles. */

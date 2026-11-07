@@ -32,6 +32,7 @@
     "brand": "node scripts/brand.mjs",
     "guild-seal": "node scripts/guild-seal.mjs",
     "layout:check": "node scripts/layout-check.mjs",
+    "motion:sheet": "node scripts/motion-sheet.mjs",
     "bench:check": "node scripts/bench-press-check.mjs",
     "page:probe": "node scripts/page-probe.mjs",
     "components:minify": "node scripts/minify-components.mjs",
@@ -46,6 +47,7 @@
     "@cloudflare/workers-types": "^5.20261011.1",
     "@types/ws": "8.18.1",
     "esbuild": "^0.28.2",
+    "terser": "^5.36.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12",
     "wrangler": "^4.153.0"

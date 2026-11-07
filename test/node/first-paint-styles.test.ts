@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIRST_PAINT_CLASSES, FIRST_PAINT_CLASS_PREFIXES, classesOf, firstPaintStyles, shownMarkup } from "../../apps/site/src/first-paint-styles.ts";
+import { FIRST_PAINT_CLASSES, FIRST_PAINT_CLASS_PREFIXES, classesOf, compactCss, firstPaintStyles, shownMarkup } from "../../apps/site/src/first-paint-styles.ts";
 import { pageStyle } from "../../apps/site/src/page-styles.ts";
 
 /** A page's own styles (first-paint-styles.ts): the rules its markup could match, from a sheet made for the test. */
@@ -9,9 +9,9 @@ const stylesFor = (css: string, markup: string): string => firstPaintStyles([pag
 describe("a page's own styles", () => {
   it("keeps the rules its classes match, and only the selectors of a list that could", () => {
     const shown = stylesFor(".pane { color: red; } .menu { color: blue; } .pane, .menu > a { margin: 0; }", '<div class="pane"></div>');
-    expect(shown).toContain(".pane{color: red}");
+    expect(shown).toContain(".pane{color:red}");
     expect(shown).not.toContain(".menu");
-    expect(shown).toContain(".pane{margin: 0}");
+    expect(shown).toContain(".pane{margin:0}");
   });
 
   it("asks nothing for a class inside :not(), :is() or :has(), and keeps @media, @supports and @font-face", () => {
@@ -19,21 +19,21 @@ describe("a page's own styles", () => {
       ".pane:not(.is-open) { opacity: 1; } .row:has(.missing) { gap: 1px; } @media (max-width: 600px) { .pane { padding: 0; } .menu { padding: 0; } } @supports (display: grid) { .gone { display: grid; } } @font-face { font-family: X; src: local(Arial); }",
       '<div class="pane"></div><div class="row"></div>',
     );
-    expect(shown).toContain(".pane:not(.is-open){opacity: 1}");
-    expect(shown).toContain(".row:has(.missing){gap: 1px}");
-    expect(shown).toContain("@media (max-width: 600px){.pane{padding: 0}}");
+    expect(shown).toContain(".pane:not(.is-open){opacity:1}");
+    expect(shown).toContain(".row:has(.missing){gap:1px}");
+    expect(shown).toContain("@media (max-width:600px){.pane{padding:0}}");
     expect(shown).not.toContain("@supports");
     expect(shown).toContain("@font-face{");
   });
 
   it("drops custom properties nothing reads, following what a read one reads", () => {
     const shown = stylesFor(":root { --gap: 4px; --used: var(--gap); --unused: 9px; --chained: 1px; } .pane { padding: var(--used); }", '<div class="pane"></div>');
-    expect(shown).toContain("--gap: 4px");
-    expect(shown).toContain("--used: var(--gap)");
+    expect(shown).toContain("--gap:4px");
+    expect(shown).toContain("--used:var(--gap)");
     expect(shown).not.toContain("--unused");
     expect(shown).not.toContain("--chained");
     // Read in the markup's own style, it's kept.
-    expect(stylesFor(":root { --chained: 1px; }", '<div style="margin: var(--chained)"></div>')).toContain("--chained: 1px");
+    expect(stylesFor(":root { --chained: 1px; }", '<div style="margin: var(--chained)"></div>')).toContain("--chained:1px");
   });
 
   it("keeps @keyframes and @property only when what's kept names them", () => {
@@ -47,8 +47,20 @@ describe("a page's own styles", () => {
   it("drops a selector that runs further down from a holder than the page's own reach", () => {
     const css = ".pane > * > * { margin: 1px; } .pane > * > * > * > * { margin: 2px; }";
     const shown = stylesFor(css, '<div class="pane"><div><p>Words</p></div></div>');
-    expect(shown).toContain("margin: 1px");
-    expect(shown).not.toContain("margin: 2px");
+    expect(shown).toContain("margin:1px");
+    expect(shown).not.toContain("margin:2px");
+  });
+
+  it("writes what it keeps as short as it reads the same: comments and spare spaces go, strings, url()s and calc()'s spaces stay", () => {
+    expect(compactCss("/* a note */ .pane > .row ,\n .tag { margin : 0 4px ; font-family: A, \"B,  C\"; }")).toBe('.pane>.row ,.tag{margin :0 4px;font-family:A,"B,  C"}');
+    expect(compactCss(".pane { width: calc(100% - var(--gap, 4px) + 2px); background: url(a, b.png), url( \"c d.svg\" ); content: 'x: y'; }")).toBe(".pane{width:calc(100% - var(--gap,4px) + 2px);background:url(a, b.png),url( \"c d.svg\" );content:'x: y'}");
+    expect(compactCss("@media (max-width: 600px) { .a:has(> .b) ~ .c { gap: 1px } }")).toBe("@media (max-width:600px){.a:has(>.b) ~ .c{gap:1px}}");
+    // Escapes outside strings, a url() with a space before its quote, a no-break space and an empty custom property read as written.
+    expect(compactCss('.a\\"b , .\\31  a, .x\\: .y { content: "p  q"; background: url( "a)b" ); --x: ; } .\u00a0b { gap: 0 }')).toBe('.a\\"b ,.\\31  a,.x\\: .y{content:"p  q";background:url( "a)b" );--x: }.\u00a0b{gap:0}');
+    // Text that never closes ends where the text does, never looping.
+    expect(compactCss('.a { b: url("x }')).toBe('.a{b:url("x }');
+    expect(compactCss(".a { b: url(x")).toBe(".a{b:url(x");
+    expect(compactCss('.a { content: "x')).toBe('.a{content:"x');
   });
 
   it("leaves out what starts closed: a sheet's dialog, a popover, a template", () => {

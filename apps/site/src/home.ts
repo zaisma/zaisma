@@ -393,7 +393,10 @@ export async function home(env: Env, request: Request): Promise<Response> {
     pageShape: "full",
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
-${pageData("home-data", { is_signed_in: Boolean(account)})}${scriptTags(HOME_SCRIPT)}`,
+${pageData("home-data", {
+      // The account's played list as the page was drawn with it, for the script to send it what only this device played; null for a guest.
+      account_played: account ? accountPlayed.map((entry) => ({ slug: entry.slug, played_at_ms: entry.played_at_ms })) : null,
+    })}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;

@@ -15,6 +15,7 @@ import { PASSWORD } from "../sign-ins.mjs";
 import { qrCodeSvg } from "@zaisma/core";
 import { BENCH_PATH, answerAsScreen, forgetJar, markOf } from "../bench/bench-server.mjs";
 import { benchPage } from "../bench/bench-page.ts";
+import { stampPage } from "../bench/stamp-page.ts";
 import { readyStates, setUpsScript } from "../bench/places.ts";
 
 export * from "../../../apps/site/src/index.ts";
@@ -93,6 +94,10 @@ async function withBench(request, environment, answerPage, answer) {
     return fetch(`${environment.PREVIEW_FEEDBACK_ORIGIN}${url.pathname}${url.search}`, { method: request.method, headers: { "content-type": request.headers.get("content-type") ?? "text/plain" }, body: hasBody ? await request.arrayBuffer() : undefined });
   }
   if (url.pathname === "/design/screens") {
+    if (url.searchParams.get("view") === "stamp") {
+      const { entries } = await fetch(`${environment.PREVIEW_FEEDBACK_ORIGIN}${BENCH_PATH}stamps`).then((answered) => answered.json());
+      return stampPage(environmentAt(request, environment), url, entries);
+    }
     const profiles = await fetch(`${environment.PREVIEW_FEEDBACK_ORIGIN}${BENCH_PATH}profiles`).then((answered) => answered.json());
     return benchPage(environmentAt(request, environment), url, profiles, environment.SITE_ORIGIN);
   }

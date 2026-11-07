@@ -105,7 +105,7 @@ describe("the home page", () => {
 
   it("keeps the games' owners, IDs and everything else out of what the browser gets", async () => {
     const { data } = await homePage();
-    expect(Object.keys(data)).toEqual(["is_signed_in"]);
+    expect(Object.keys(data)).toEqual(["account_played"]);
   });
 
   it("is the same page for everyone without a cookie, so it caches", async () => {
